@@ -1,0 +1,355 @@
+From 050691f4d835f0f53b926718f96f1ded9ecd6723 Mon Sep 17 00:00:00 2001
+From: Jens Wiklander <jens.wiklander@linaro.org>
+Date: Tue, 28 Nov 2023 09:22:39 +0100
+Subject: [PATCH 0078/1695] core: fix objectUsage handling for persistent
+ objects
+
+Before this patch was the object usage field stored in the
+non-persistent part of an object handle, regardless of whether the
+storage object was persistent. This prevents updates to this field from
+being restored the next time the persistent object is opened. Updates to
+the field are also not replicated to eventual other open handles for the
+object. Fix this by storing the "usage" bits in a new obj_info_usage
+field in struct tee_pobj for persistent objects. Updates to the field
+are also written into secure storage to preserve the content the next
+time the object is opened.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git eaa491683df178e518a780cbad8d643f1feb3502 core: fix objectUsage handling for persistent objects]
+Change-Id: I12eafa9f02137c5cdc82c2be74148480a03cd2e1
+Fixes: b01047730e77 ("Open-source the TEE Core")
+Closes: https://github.com/OP-TEE/optee_os/issues/6495
+Signed-off-by: Jens Wiklander <jens.wiklander@linaro.org>
+[etienne: cherry-picked from 0f50ba5ade6decc49209304b103cf208c321ade6]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/include/tee/tee_pobj.h        |  8 +++++
+ core/include/tee/tee_svc_storage.h |  5 ++-
+ core/tee/tee_pobj.c                | 20 +++++++++++
+ core/tee/tee_svc_cryp.c            | 58 ++++++++++++++++++++++++------
+ core/tee/tee_svc_storage.c         | 32 ++++++++++++-----
+ 5 files changed, 103 insertions(+), 20 deletions(-)
+
+diff --git a/core/include/tee/tee_pobj.h b/core/include/tee/tee_pobj.h
+index 49575ad51..8fcd792ac 100644
+--- a/core/include/tee/tee_pobj.h
++++ b/core/include/tee/tee_pobj.h
+@@ -18,6 +18,7 @@ struct tee_pobj {
+ 	void *obj_id;
+ 	uint32_t obj_id_len;
+ 	uint32_t flags;
++	uint32_t obj_info_usage;
+ 	bool temporary;	/* can be changed while creating == true */
+ 	bool creating;	/* can only be changed with mutex held */
+ 	/* Filesystem handling this object */
+@@ -43,4 +44,11 @@ TEE_Result tee_pobj_release(struct tee_pobj *obj);
+ TEE_Result tee_pobj_rename(struct tee_pobj *obj, void *obj_id,
+ 			   uint32_t obj_id_len);
+ 
++/*
++ * Locks and unlocks a mutex intended to protect the obj_info_usage field
++ * in struct tee_pobj.
++ */
++void tee_pobj_lock_usage(struct tee_pobj *obj);
++void tee_pobj_unlock_usage(struct tee_pobj *obj);
++
+ #endif
+diff --git a/core/include/tee/tee_svc_storage.h b/core/include/tee/tee_svc_storage.h
+index 0cb5fb396..d30fce96d 100644
+--- a/core/include/tee/tee_svc_storage.h
++++ b/core/include/tee/tee_svc_storage.h
+@@ -1,14 +1,16 @@
+ /* SPDX-License-Identifier: BSD-2-Clause */
+ /*
+  * Copyright (c) 2014, STMicroelectronics International N.V.
++ * Copyright (c) 2023, Linaro Limited
+  */
+ 
+ #ifndef __TEE_TEE_SVC_STORAGE_H
+ #define __TEE_TEE_SVC_STORAGE_H
+ 
+-#include <tee_api_types.h>
+ #include <kernel/tee_ta_manager.h>
++#include <tee_api_types.h>
+ #include <tee/tee_fs.h>
++#include <tee/tee_obj.h>
+ 
+ /*
+  * Persistant Object Functions
+@@ -58,6 +60,7 @@ TEE_Result syscall_storage_obj_seek(unsigned long obj, int32_t offset,
+ 				    unsigned long whence);
+ 
+ void tee_svc_storage_close_all_enum(struct user_ta_ctx *utc);
++TEE_Result tee_svc_storage_write_usage(struct tee_obj *o, uint32_t usage);
+ 
+ void tee_svc_storage_init(void);
+ 
+diff --git a/core/tee/tee_pobj.c b/core/tee/tee_pobj.c
+index d8a2d267c..cabf49df7 100644
+--- a/core/tee/tee_pobj.c
++++ b/core/tee/tee_pobj.c
+@@ -12,6 +12,26 @@
+ static TAILQ_HEAD(tee_pobjs, tee_pobj) tee_pobjs =
+ 		TAILQ_HEAD_INITIALIZER(tee_pobjs);
+ static struct mutex pobjs_mutex = MUTEX_INITIALIZER;
++static struct mutex pobjs_usage_mutex = MUTEX_INITIALIZER;
++
++static bool pobj_need_usage_lock(struct tee_pobj *obj)
++{
++	/* Only lock if we don't have exclusive access to the object */
++	return obj->flags & (TEE_DATA_FLAG_SHARE_WRITE |
++			     TEE_DATA_FLAG_SHARE_READ);
++}
++
++void tee_pobj_lock_usage(struct tee_pobj *obj)
++{
++	if (pobj_need_usage_lock(obj))
++		mutex_lock(&pobjs_usage_mutex);
++}
++
++void tee_pobj_unlock_usage(struct tee_pobj *obj)
++{
++	if (pobj_need_usage_lock(obj))
++		mutex_unlock(&pobjs_usage_mutex);
++}
+ 
+ static TEE_Result tee_pobj_check_access(uint32_t oflags, uint32_t nflags)
+ {
+diff --git a/core/tee/tee_svc_cryp.c b/core/tee/tee_svc_cryp.c
+index 72503454b..5a16ee4d6 100644
+--- a/core/tee/tee_svc_cryp.c
++++ b/core/tee/tee_svc_cryp.c
+@@ -1,7 +1,7 @@
+ // SPDX-License-Identifier: BSD-2-Clause
+ /*
+  * Copyright (c) 2014, STMicroelectronics International N.V.
+- * Copyright (c) 2020, 2022 Linaro Limited
++ * Copyright (c) 2020, 2022-2023 Linaro Limited
+  * Copyright (c) 2022, Technology Innovation Institute (TII)
+  */
+ 
+@@ -22,7 +22,9 @@
+ #include <tee_api_types.h>
+ #include <tee/tee_cryp_utl.h>
+ #include <tee/tee_obj.h>
++#include <tee/tee_pobj.h>
+ #include <tee/tee_svc_cryp.h>
++#include <tee/tee_svc_storage.h>
+ #include <tee/tee_svc.h>
+ #include <trace.h>
+ #include <utee_defines.h>
+@@ -1184,7 +1186,13 @@ TEE_Result syscall_cryp_obj_get_info(unsigned long obj,
+ 	o_info.obj_type = o->info.objectType;
+ 	o_info.obj_size = o->info.objectSize;
+ 	o_info.max_obj_size = o->info.maxObjectSize;
+-	o_info.obj_usage = o->info.objectUsage;
++	if (o->info.handleFlags & TEE_HANDLE_FLAG_PERSISTENT) {
++		tee_pobj_lock_usage(o->pobj);
++		o_info.obj_usage = o->pobj->obj_info_usage;
++		tee_pobj_unlock_usage(o->pobj);
++	} else {
++		o_info.obj_usage = o->info.objectUsage;
++	}
+ 	o_info.data_size = o->info.dataSize;
+ 	o_info.data_pos = o->info.dataPosition;
+ 	o_info.handle_flags = o->info.handleFlags;
+@@ -1202,12 +1210,22 @@ TEE_Result syscall_cryp_obj_restrict_usage(unsigned long obj,
+ 	struct tee_obj *o = NULL;
+ 
+ 	res = tee_obj_get(to_user_ta_ctx(sess->ctx), uref_to_vaddr(obj), &o);
+-	if (res != TEE_SUCCESS)
+-		goto exit;
++	if (res)
++		return res;
+ 
+-	o->info.objectUsage &= usage;
++	if (o->info.handleFlags & TEE_HANDLE_FLAG_PERSISTENT) {
++		uint32_t new_usage = 0;
++
++		tee_pobj_lock_usage(o->pobj);
++		new_usage = o->pobj->obj_info_usage & usage;
++		res = tee_svc_storage_write_usage(o, new_usage);
++		if (!res)
++			o->pobj->obj_info_usage = new_usage;
++		tee_pobj_unlock_usage(o->pobj);
++	} else {
++		o->info.objectUsage &= usage;
++	}
+ 
+-exit:
+ 	return res;
+ }
+ 
+@@ -1271,6 +1289,7 @@ TEE_Result syscall_cryp_obj_get_attr(unsigned long obj, unsigned long attr_id,
+ 	int idx = 0;
+ 	const struct attr_ops *ops = NULL;
+ 	void *attr = NULL;
++	uint32_t obj_usage = 0;
+ 
+ 	res = tee_obj_get(to_user_ta_ctx(sess->ctx), uref_to_vaddr(obj), &o);
+ 	if (res != TEE_SUCCESS)
+@@ -1281,9 +1300,17 @@ TEE_Result syscall_cryp_obj_get_attr(unsigned long obj, unsigned long attr_id,
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+ 	/* Check that getting the attribute is allowed */
+-	if (!(attr_id & TEE_ATTR_FLAG_PUBLIC) &&
+-	    !(o->info.objectUsage & TEE_USAGE_EXTRACTABLE))
+-		return TEE_ERROR_BAD_PARAMETERS;
++	if (!(attr_id & TEE_ATTR_FLAG_PUBLIC)) {
++		if (o->info.handleFlags & TEE_HANDLE_FLAG_PERSISTENT) {
++			tee_pobj_lock_usage(o->pobj);
++			obj_usage = o->pobj->obj_info_usage;
++			tee_pobj_unlock_usage(o->pobj);
++		} else {
++			obj_usage = o->info.objectUsage;
++		}
++		if (!(obj_usage & TEE_USAGE_EXTRACTABLE))
++			return TEE_ERROR_BAD_PARAMETERS;
++	}
+ 
+ 	type_props = tee_svc_find_type_props(o->info.objectType);
+ 	if (!type_props) {
+@@ -1619,7 +1646,10 @@ TEE_Result tee_obj_set_type(struct tee_obj *o, uint32_t obj_type,
+ 
+ 	o->info.objectType = obj_type;
+ 	o->info.maxObjectSize = max_key_size;
+-	o->info.objectUsage = TEE_USAGE_DEFAULT;
++	if (o->info.handleFlags & TEE_HANDLE_FLAG_PERSISTENT)
++		o->pobj->obj_info_usage = TEE_USAGE_DEFAULT;
++	else
++		o->info.objectUsage = TEE_USAGE_DEFAULT;
+ 
+ 	return TEE_SUCCESS;
+ }
+@@ -2040,7 +2070,13 @@ TEE_Result syscall_cryp_obj_copy(unsigned long dst, unsigned long src)
+ 
+ 	dst_o->info.handleFlags |= TEE_HANDLE_FLAG_INITIALIZED;
+ 	dst_o->info.objectSize = src_o->info.objectSize;
+-	dst_o->info.objectUsage = src_o->info.objectUsage;
++	if (src_o->info.handleFlags & TEE_HANDLE_FLAG_PERSISTENT) {
++		tee_pobj_lock_usage(src_o->pobj);
++		dst_o->info.objectUsage = src_o->pobj->obj_info_usage;
++		tee_pobj_unlock_usage(src_o->pobj);
++	} else {
++		dst_o->info.objectUsage = src_o->info.objectUsage;
++	}
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/core/tee/tee_svc_storage.c b/core/tee/tee_svc_storage.c
+index 3adf62dde..5cf39d567 100644
+--- a/core/tee/tee_svc_storage.c
++++ b/core/tee/tee_svc_storage.c
+@@ -1,7 +1,7 @@
+ // SPDX-License-Identifier: BSD-2-Clause
+ /*
+  * Copyright (c) 2014, STMicroelectronics International N.V.
+- * Copyright (c) 2020, 2022 Linaro Limited
++ * Copyright (c) 2020, 2022-2023 Linaro Limited
+  */
+ 
+ #include <config.h>
+@@ -150,7 +150,7 @@ static TEE_Result tee_svc_storage_read_head(struct tee_obj *o)
+ 
+ 	o->info.dataSize = size - sizeof(head) - head.attr_size;
+ 	o->info.objectSize = head.objectSize;
+-	o->info.objectUsage = head.objectUsage;
++	o->pobj->obj_info_usage = head.objectUsage;
+ 	o->info.objectType = head.objectType;
+ 	o->have_attrs = head.have_attrs;
+ 
+@@ -214,7 +214,9 @@ TEE_Result syscall_storage_obj_open(unsigned long storage_id, void *object_id,
+ 	o->pobj = po;
+ 	tee_obj_add(utc, o);
+ 
++	tee_pobj_lock_usage(o->pobj);
+ 	res = tee_svc_storage_read_head(o);
++	tee_pobj_unlock_usage(o->pobj);
+ 	if (res != TEE_SUCCESS) {
+ 		if (res == TEE_ERROR_CORRUPT_OBJECT) {
+ 			EMSG("Object corrupt");
+@@ -263,7 +265,7 @@ static TEE_Result tee_svc_storage_init_file(struct tee_obj *o, bool overwrite,
+ 			if (res)
+ 				return res;
+ 			o->have_attrs = attr_o->have_attrs;
+-			o->info.objectUsage = attr_o->info.objectUsage;
++			o->pobj->obj_info_usage = attr_o->info.objectUsage;
+ 			o->info.objectSize = attr_o->info.objectSize;
+ 		}
+ 		res = tee_obj_attr_to_binary(o, NULL, &attr_size);
+@@ -289,7 +291,7 @@ static TEE_Result tee_svc_storage_init_file(struct tee_obj *o, bool overwrite,
+ 	head.attr_size = attr_size;
+ 	head.objectSize = o->info.objectSize;
+ 	head.maxObjectSize = o->info.maxObjectSize;
+-	head.objectUsage = o->info.objectUsage;
++	head.objectUsage = o->pobj->obj_info_usage;
+ 	head.objectType = o->info.objectType;
+ 	head.have_attrs = o->have_attrs;
+ 
+@@ -369,12 +371,16 @@ TEE_Result syscall_storage_obj_create(unsigned long storage_id, void *object_id,
+ 		/*
+ 		 * The caller expects the supplied attributes handle to be
+ 		 * transformed into a persistent object.
++		 *
++		 * Persistent object keeps the objectUsage field in the
++		 * pobj so move the field below.
+ 		 */
+ 		uint32_t saved_flags = attr_o->info.handleFlags;
+ 
+ 		attr_o->info.handleFlags = TEE_HANDLE_FLAG_PERSISTENT |
+ 					   TEE_HANDLE_FLAG_INITIALIZED | flags;
+ 		attr_o->pobj = po;
++		po->obj_info_usage = attr_o->info.objectUsage;
+ 		res = tee_svc_storage_init_file(attr_o,
+ 						flags & TEE_DATA_FLAG_OVERWRITE,
+ 						attr_o, data, len);
+@@ -383,6 +389,7 @@ TEE_Result syscall_storage_obj_create(unsigned long storage_id, void *object_id,
+ 			attr_o->pobj = NULL;
+ 			goto err;
+ 		}
++		attr_o->info.objectUsage = 0;
+ 	} else {
+ 		o = tee_obj_alloc();
+ 		if (!o) {
+@@ -667,19 +674,21 @@ TEE_Result syscall_storage_next_enum(unsigned long obj_enum,
+ 	o->info.handleFlags = o->pobj->flags | TEE_HANDLE_FLAG_PERSISTENT |
+ 			      TEE_HANDLE_FLAG_INITIALIZED;
+ 
++	tee_pobj_lock_usage(o->pobj);
+ 	res = tee_svc_storage_read_head(o);
+-	if (res != TEE_SUCCESS)
+-		goto exit;
+-
+ 	bbuf = (struct utee_object_info){
+ 		.obj_type = o->info.objectType,
+ 		.obj_size = o->info.objectSize,
+ 		.max_obj_size = o->info.maxObjectSize,
+-		.obj_usage = o->info.objectUsage,
++		.obj_usage = o->pobj->obj_info_usage,
+ 		.data_size = o->info.dataSize,
+ 		.data_pos = o->info.dataPosition,
+ 		.handle_flags = o->info.handleFlags,
+ 	};
++	tee_pobj_unlock_usage(o->pobj);
++	if (res != TEE_SUCCESS)
++		goto exit;
++
+ 	res = copy_to_user(info, &bbuf, sizeof(bbuf));
+ 	if (res)
+ 		goto exit;
+@@ -809,6 +818,13 @@ exit:
+ 	return res;
+ }
+ 
++TEE_Result tee_svc_storage_write_usage(struct tee_obj *o, uint32_t usage)
++{
++	const size_t pos = offsetof(struct tee_svc_storage_head, objectUsage);
++
++	return o->pobj->fops->write(o->fh, pos, &usage, NULL, sizeof(usage));
++}
++
+ TEE_Result syscall_storage_obj_trunc(unsigned long obj, size_t len)
+ {
+ 	struct ts_session *sess = ts_get_current_session();
+-- 
+2.47.2
+

@@ -1,0 +1,92 @@
+From fcd967b370637de6d433d0909ca7c881558edde9 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 11 Oct 2023 15:00:45 +0200
+Subject: [PATCH 0133/1695] plat-stm32mp1: add stm32_reset_system() function
+
+Add stm32_reset_system() API to reset the system.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 27b760a8b931b1b16c7f0ad43a5de75bfaba4cfd plat-stm32mp1: add stm32_reset_system() function]
+Change-Id: Ib0eeb8d2c15cc9bf46e7fef1e8635afbb47ae10d
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+---
+ core/drivers/clk/clk-stm32mp13.c         | 7 +++++++
+ core/drivers/clk/clk-stm32mp15.c         | 7 +++++++
+ core/include/drivers/stm32mp13_rcc.h     | 3 +++
+ core/include/drivers/stm32mp1_rcc.h      | 7 +++++++
+ core/include/drivers/stm32mp1_rcc_util.h | 1 +
+ 5 files changed, 25 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 6ddcf7d46..36a36f0aa 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -2662,3 +2662,10 @@ static TEE_Result stm32mp13_clk_probe(const void *fdt, int node,
+ }
+ 
+ CLK_DT_DECLARE(stm32mp13_clk, "st,stm32mp13-rcc", stm32mp13_clk_probe);
++
++void stm32_reset_system(void)
++{
++	vaddr_t rcc = stm32_rcc_base();
++
++	io_write32(rcc + RCC_MP_GRSTCSETR, RCC_MP_GRSTCSETR_MPSYSRST);
++}
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index bf8ae0525..5b8c85191 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -1569,3 +1569,10 @@ DEFINE_DT_DRIVER(stm32mp1_clock_dt_driver) = {
+ 	.match_table = stm32mp1_clock_match_table,
+ 	.probe = stm32mp1_clock_provider_probe,
+ };
++
++void stm32_reset_system(void)
++{
++	vaddr_t rcc = stm32_rcc_base();
++
++	io_write32(rcc + RCC_MP_GRSTCSETR, RCC_MP_GRSTCSETR_MPSYSRST);
++}
+diff --git a/core/include/drivers/stm32mp13_rcc.h b/core/include/drivers/stm32mp13_rcc.h
+index bfbd3e9af..049e32497 100644
+--- a/core/include/drivers/stm32mp13_rcc.h
++++ b/core/include/drivers/stm32mp13_rcc.h
+@@ -1874,4 +1874,7 @@
+ #define RCC_MP_CIFR_MASK			U(0x110F1F)
+ #define RCC_OFFSET_MASK				GENMASK_32(11, 0)
+ 
++#define RCC_MP_GRSTCSETR_MPSYSRST		BIT(0)
++#define RCC_MP_GRSTCSETR			U(0x114)
++
+ #endif /*__DRIVERS_STM32MP13_RCC_H__*/
+diff --git a/core/include/drivers/stm32mp1_rcc.h b/core/include/drivers/stm32mp1_rcc.h
+index 83f3ead80..b820a7c26 100644
+--- a/core/include/drivers/stm32mp1_rcc.h
++++ b/core/include/drivers/stm32mp1_rcc.h
+@@ -574,4 +574,11 @@ static inline void stm32_rcc_set_mckprot(bool enable)
+ 
+ #endif /*__ASSEMBLER__*/
+ 
++
++/* Global Reset Register */
++#define RCC_MP_GRSTCSETR_MPSYSRST	BIT(0)
++#define RCC_MP_GRSTCSETR_MCURST		BIT(1)
++#define RCC_MP_GRSTCSETR_MPUP0RST	BIT(4)
++#define RCC_MP_GRSTCSETR_MPUP1RST	BIT(5)
++
+ #endif /*__DRIVERS_STM32MP1_RCC_H__*/
+diff --git a/core/include/drivers/stm32mp1_rcc_util.h b/core/include/drivers/stm32mp1_rcc_util.h
+index dcfd2c247..52a21b951 100644
+--- a/core/include/drivers/stm32mp1_rcc_util.h
++++ b/core/include/drivers/stm32mp1_rcc_util.h
+@@ -8,6 +8,7 @@
+ 
+ /* Platform util for the RCC drivers */
+ vaddr_t stm32_rcc_base(void);
++void stm32_reset_system(void);
+ 
+ /* Helper from platform RCC clock driver */
+ struct clk *stm32mp_rcc_clock_id_to_clk(unsigned long clock_id);
+-- 
+2.47.2
+

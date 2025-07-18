@@ -1,0 +1,426 @@
+From 953df516b3a0c74106083d9f97002146926a73b3 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 23 Nov 2023 12:35:30 +0100
+Subject: [PATCH 0088/1695] drivers: regulator: fix variable sized voltages
+ fallback
+
+Fix build issue reported by Clang on variable size field desc
+not being located at the end of struct voltages_fallback. The
+error was reported with a trace message like below:
+
+core/include/drivers/regulator.h:118:4: warning: field 'voltages_fallback' with variable sized type 'struct voltages_fallback' not at the end of a struct or class is a GNU extension [-Wgnu-variable-sized-type-not-at-end]
+        } voltages_fallback;
+          ^
+core/drivers/regulator/regulator_fixed.c:27:19: warning: field 'regulator' with variable sized type 'struct regulator' not at the end of a struct or class is a GNU extension [-Wgnu-variable-sized-type-not-at-end]
+        struct regulator regulator;
+                         ^
+2 warnings generated.
+
+To achieve this the variable size field entries is removed from
+struct regulator_voltages that is renamed struct regulator_voltages_desc.
+API function regulator_supported_voltages() and regulator drivers handler
+function ::supported_voltages are updated the get 2 input arguments the
+second being the levels arrays which size is defined by the description
+argument.
+
+Impacted sources files are updated accordingly.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4f455abb075ff83ae3527e25b321bee400e9913e drivers: regulator: fix variable sized voltages fallback]
+Change-Id: I81c7657b4efc6a0dad58faf734928b7dd749ad22
+Fixes: 43c155ba111d ("drivers: regulator: list supported levels")
+Acked-by: Jens Wiklander <jens.wiklander@linaro.org>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from ace929f0e4ddad4ff458a51661cd8524f39c79e8]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ .../arm/plat-stm32mp1/drivers/stm32mp1_pmic.c | 51 +++++++++----------
+ core/arch/arm/plat-stm32mp1/scmi_server.c     | 34 +++++++------
+ core/drivers/regulator/regulator.c            | 11 ++--
+ core/drivers/regulator/stm32_vrefbuf.c        | 18 ++++---
+ .../regulator/stm32mp13_regulator_iod.c       |  5 +-
+ core/include/drivers/regulator.h              | 25 +++++----
+ 6 files changed, 79 insertions(+), 65 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+index 893e5dcfa..c256dd917 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+@@ -47,12 +47,14 @@ static_assert(PMIC_REGU_FLAG_COUNT <= UINT_MAX);
+  * struct pmic_regulator_data - Platform specific data
+  * @flags: Flags for platform property to apply
+  * @regu_name: Regulator name ID in stpmic1 driver
+- * @supported_voltages: Supported levels description or NULL is not yet built
++ * @voltages_desc: Supported levels description
++ * @voltages_level: Pointer to supported levels or NULL if not yet allocated
+  */
+ struct pmic_regulator_data {
+ 	unsigned int flags;
+ 	char *regu_name;
+-	struct regulator_voltages *voltages;
++	struct regulator_voltages_desc voltages_desc;
++	int *voltages_level;
+ };
+ 
+ /* Expect a single PMIC instance */
+@@ -395,10 +397,8 @@ static int cmp_int_value(const void *a, const void *b)
+ 	return CMP_TRILEAN(*ia, *ib);
+ }
+ 
+-static size_t refine_levels_array(struct regulator_voltages *voltages)
++static size_t refine_levels_array(size_t count, int *levels_uv)
+ {
+-	int *levels_uv = voltages->entries;
+-	size_t count = voltages->num_levels;
+ 	size_t n = 0;
+ 	size_t m = 0;
+ 
+@@ -418,15 +418,16 @@ static size_t refine_levels_array(struct regulator_voltages *voltages)
+ }
+ 
+ static TEE_Result pmic_list_voltages(struct regulator *regulator,
+-				     struct regulator_voltages **out_voltages)
++				     struct regulator_voltages_desc **out_desc,
++				     const int **out_levels)
+ {
+ 	struct pmic_regulator_data *priv = regulator->priv;
+ 
+-	if (!priv->voltages) {
+-		struct regulator_voltages *voltages_s = NULL;
+-		struct regulator_voltages *voltages = NULL;
++	if (!priv->voltages_level) {
+ 		const uint16_t *level_ref = NULL;
+ 		size_t level_count = 0;
++		int *levels2 = NULL;
++		int *levels = NULL;
+ 		size_t n = 0;
+ 
+ 		/*
+@@ -436,30 +437,28 @@ static TEE_Result pmic_list_voltages(struct regulator *regulator,
+ 		stpmic1_regulator_levels_mv(priv->regu_name, &level_ref,
+ 					    &level_count);
+ 
+-		voltages = calloc(1, sizeof(*voltages) +
+-				     sizeof(*voltages->entries) * level_count);
+-		if (!voltages)
++		levels = calloc(level_count, sizeof(*levels));
++		if (!levels)
+ 			return TEE_ERROR_OUT_OF_MEMORY;
+ 		for (n = 0; n < level_count; n++)
+-			voltages->entries[n] = level_ref[n] * 1000;
++			levels[n] = level_ref[n] * 1000;
+ 
+-		voltages->num_levels = level_count;
+-		level_count = refine_levels_array(voltages);
++		level_count = refine_levels_array(level_count, levels);
+ 
+-		voltages_s = realloc(voltages,
+-				     sizeof(*voltages) +
+-				     sizeof(*voltages->entries) * level_count);
+-		if (!voltages_s) {
+-			free(voltages);
++		/* Shrink levels array to not waste heap memory */
++		levels2 = realloc(levels, sizeof(*levels) * level_count);
++		if (!levels2) {
++			free(levels);
+ 			return TEE_ERROR_OUT_OF_MEMORY;
+ 		}
+ 
+-		voltages_s->type = VOLTAGE_TYPE_FULL_LIST;
+-		voltages_s->num_levels = level_count;
+-		priv->voltages = voltages_s;
++		priv->voltages_desc.type = VOLTAGE_TYPE_FULL_LIST;
++		priv->voltages_desc.num_levels = level_count;
++		priv->voltages_level = levels2;
+ 	}
+ 
+-	*out_voltages = priv->voltages;
++	*out_desc = &priv->voltages_desc;
++	*out_levels = priv->voltages_level;
+ 
+ 	return TEE_SUCCESS;
+ }
+@@ -535,8 +534,8 @@ static TEE_Result release_voltage_lists(void)
+ 	for (n = 0; n < ARRAY_SIZE(pmic_regulators); n++) {
+ 		struct pmic_regulator_data *priv = pmic_regulators[n].priv;
+ 
+-		if (priv && priv->voltages)
+-			free(priv->voltages);
++		if (priv && priv->voltages_level)
++			free(priv->voltages_level);
+ 	}
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index 4c1b79faa..d1ab92257 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -626,7 +626,7 @@ const char *plat_scmi_voltd_get_name(unsigned int channel_id,
+ 
+ int32_t plat_scmi_voltd_levels_array(unsigned int channel_id,
+ 				     unsigned int scmi_id, size_t start_index,
+-				     long *levels, size_t *nb_elts)
++				     long *out_levels, size_t *nb_elts)
+ 
+ {
+ 	struct stm32_scmi_voltd *voltd = find_voltd(channel_id, scmi_id);
+@@ -635,18 +635,19 @@ int32_t plat_scmi_voltd_levels_array(unsigned int channel_id,
+ 		return SCMI_NOT_FOUND;
+ 
+ 	if (voltd->regulator) {
+-		struct regulator_voltages *voltages = NULL;
++		struct regulator_voltages_desc *desc = NULL;
+ 		TEE_Result res = TEE_ERROR_GENERIC;
+-		int *ref = NULL;
+ 		size_t ref_count = 0;
++		const int *levels = NULL;
+ 		size_t n = 0;
+ 
+-		res = regulator_supported_voltages(voltd->regulator, &voltages);
++		res = regulator_supported_voltages(voltd->regulator, &desc,
++						   &levels);
+ 		if (res == TEE_ERROR_NOT_SUPPORTED)
+ 			return SCMI_NOT_SUPPORTED;
+ 		if (res)
+ 			return SCMI_GENERIC_ERROR;
+-		if (!voltages || voltages->type != VOLTAGE_TYPE_FULL_LIST) {
++		if (!desc || desc->type != VOLTAGE_TYPE_FULL_LIST) {
+ 			/*
+ 			 * Triplet min/max/step description. Caller should use
+ 			 * plat_scmi_voltd_levels_by_step().
+@@ -654,15 +655,14 @@ int32_t plat_scmi_voltd_levels_array(unsigned int channel_id,
+ 			return SCMI_NOT_SUPPORTED;
+ 		}
+ 
+-		ref = voltages->entries;
+-		ref_count = voltages->num_levels;
++		ref_count = desc->num_levels;
+ 
+ 		/* Bound according to regulator registered min/max levels */
+ 		for (n = ref_count; n > 0; n--)
+-			if (voltages->entries[n - 1] > voltd->regulator->max_uv)
++			if (levels[n - 1] > voltd->regulator->max_uv)
+ 				ref_count--;
+ 		for (n = 0; n < ref_count; n++)
+-			if (voltages->entries[n] >= voltd->regulator->min_uv)
++			if (levels[n] >= voltd->regulator->min_uv)
+ 				break;
+ 
+ 		if (n == ref_count) {
+@@ -680,7 +680,7 @@ int32_t plat_scmi_voltd_levels_array(unsigned int channel_id,
+ 		}
+ 
+ 		for (n = 0; n < *nb_elts; n++)
+-			levels[n] = ref[start_index + n];
++			out_levels[n] = levels[start_index + n];
+ 
+ 		return SCMI_SUCCESS;
+ 	}
+@@ -697,18 +697,20 @@ int32_t plat_scmi_voltd_levels_by_step(unsigned int channel_id,
+ 		return SCMI_NOT_FOUND;
+ 
+ 	if (voltd->regulator) {
+-		struct regulator_voltages *voltages = NULL;
++		struct regulator_voltages_desc *desc = NULL;
+ 		TEE_Result res = TEE_ERROR_GENERIC;
++		const int *levels = NULL;
+ 		int ref_min = 0;
+ 		int ref_max = 0;
+ 		int ref_step = 0;
+ 
+-		res = regulator_supported_voltages(voltd->regulator, &voltages);
++		res = regulator_supported_voltages(voltd->regulator, &desc,
++						   &levels);
+ 		if (res == TEE_ERROR_NOT_SUPPORTED)
+ 			return SCMI_NOT_SUPPORTED;
+ 		if (res)
+ 			return SCMI_GENERIC_ERROR;
+-		if (!voltages || voltages->type != VOLTAGE_TYPE_INCREMENT) {
++		if (!desc || desc->type != VOLTAGE_TYPE_INCREMENT) {
+ 			/*
+ 			 * Triplet min/max/step description. Caller should use
+ 			 * plat_scmi_voltd_levels_by_step().
+@@ -716,9 +718,9 @@ int32_t plat_scmi_voltd_levels_by_step(unsigned int channel_id,
+ 			return SCMI_NOT_SUPPORTED;
+ 		}
+ 
+-		ref_min = voltages->entries[0];
+-		ref_max = voltages->entries[1];
+-		ref_step = voltages->entries[2];
++		ref_min = levels[0];
++		ref_max = levels[1];
++		ref_step = levels[2];
+ 
+ 		if (ref_min < voltd->regulator->min_uv) {
+ 			int diff = voltd->regulator->min_uv - ref_min;
+diff --git a/core/drivers/regulator/regulator.c b/core/drivers/regulator/regulator.c
+index 5abd18932..4d0a0a77e 100644
+--- a/core/drivers/regulator/regulator.c
++++ b/core/drivers/regulator/regulator.c
+@@ -213,21 +213,24 @@ TEE_Result regulator_set_voltage(struct regulator *regulator, int level_uv)
+ }
+ 
+ TEE_Result regulator_supported_voltages(struct regulator *regulator,
+-					struct regulator_voltages **voltages)
++					struct regulator_voltages_desc **desc,
++					const int **levels)
+ {
+-	assert(regulator && voltages);
++	assert(regulator && desc && levels);
+ 
+ 	if (regulator->ops->supported_voltages) {
+ 		TEE_Result res = TEE_ERROR_GENERIC;
+ 
+-		res = regulator->ops->supported_voltages(regulator, voltages);
++		res = regulator->ops->supported_voltages(regulator, desc,
++							 levels);
+ 		if (res == TEE_SUCCESS)
+ 			return TEE_SUCCESS;
+ 		if (res != TEE_ERROR_NOT_SUPPORTED)
+ 			return res;
+ 	}
+ 
+-	*voltages = &regulator->voltages_fallback.desc;
++	*desc = &regulator->voltages_fallback.desc;
++	*levels = regulator->voltages_fallback.levels;
+ 
+ 	return TEE_SUCCESS;
+ }
+diff --git a/core/drivers/regulator/stm32_vrefbuf.c b/core/drivers/regulator/stm32_vrefbuf.c
+index fc2b6387d..f4eafa69f 100644
+--- a/core/drivers/regulator/stm32_vrefbuf.c
++++ b/core/drivers/regulator/stm32_vrefbuf.c
+@@ -49,7 +49,8 @@ struct vrefbuf_compat {
+  * @regulator: Preallocated instance for the regulator
+  * @compat: Compatibility data
+  * @voltages_desc: Supported voltage level description
+- * @voltages_level: Supplorted levels, must follow @voltages_desc
++ * @voltages_level: Supplorted levels description
++ * @voltages_start_index: start index in compat for supported levels
+  */
+ struct vrefbuf_regul {
+ 	vaddr_t base;
+@@ -57,8 +58,8 @@ struct vrefbuf_regul {
+ 	uint64_t disable_timeout;
+ 	struct regulator regulator;
+ 	const struct vrefbuf_compat *compat;
+-	struct regulator_voltages voltages_desc;
+-	int supported_levels[VREFBUF_LEVELS_COUNT];
++	struct regulator_voltages_desc voltages_desc;
++	size_t voltages_start_index;
+ };
+ 
+ static const struct vrefbuf_compat stm32mp15_vrefbuf_compat = {
+@@ -207,9 +208,11 @@ static TEE_Result vrefbuf_set_voltage(struct regulator *regulator, int level_uv)
+ }
+ 
+ static TEE_Result vrefbuf_list_voltages(struct regulator *regulator __unused,
+-					struct regulator_voltages **voltages)
++					struct regulator_voltages_desc **desc,
++					const int **levels)
+ {
+ 	struct vrefbuf_regul *vr = regulator_to_vr(regulator);
++	const int *levels_ref = vr->compat->voltages;
+ 
+ 	if (!vr->voltages_desc.type) {
+ 		size_t num_levels = ARRAY_SIZE(vr->compat->voltages);
+@@ -236,12 +239,11 @@ static TEE_Result vrefbuf_list_voltages(struct regulator *regulator __unused,
+ 
+ 		vr->voltages_desc.type = VOLTAGE_TYPE_FULL_LIST;
+ 		vr->voltages_desc.num_levels = count;
+-		for (n = 0; n < count; n++)
+-			vr->supported_levels[n] =
+-				vr->compat->voltages[index_low + n];
++		vr->voltages_start_index = index_low;
+ 	}
+ 
+-	*voltages = &vr->voltages_desc;
++	*desc = &vr->voltages_desc;
++	*levels = levels_ref + vr->voltages_start_index;
+ 
+ 	return TEE_SUCCESS;
+ }
+diff --git a/core/drivers/regulator/stm32mp13_regulator_iod.c b/core/drivers/regulator/stm32mp13_regulator_iod.c
+index c2ffaa90b..a678d5146 100644
+--- a/core/drivers/regulator/stm32mp13_regulator_iod.c
++++ b/core/drivers/regulator/stm32mp13_regulator_iod.c
+@@ -173,10 +173,11 @@ static TEE_Result iod_set_voltage(struct regulator *regu, int level_uv)
+ }
+ 
+ static TEE_Result iod_list_voltages(struct regulator *regu,
+-				    struct regulator_voltages **voltages)
++				    struct regulator_voltages_desc **desc,
++				    const int **levels)
+ {
+ 	/* Return supply voltage list */
+-	return regulator_supported_voltages(regu->supply, voltages);
++	return regulator_supported_voltages(regu->supply, desc, levels);
+ }
+ 
+ /*
+diff --git a/core/include/drivers/regulator.h b/core/include/drivers/regulator.h
+index 10dea6942..c9266bf32 100644
+--- a/core/include/drivers/regulator.h
++++ b/core/include/drivers/regulator.h
+@@ -67,16 +67,14 @@ enum voltage_type {
+ };
+ 
+ /*
+- * struct regulator_voltages - Voltage levels description
++ * struct regulator_voltages_desc - Voltage levels description
+  * @type: Type of level description
+- * @num_levels: Number of cells of @entries when @type is VOLTAGE_TYPE_FULL_LIST
+- * @entries: Voltage level information in uV
++ * @num_levels: Number of voltage levels when @type is VOLTAGE_TYPE_FULL_LIST
+  *
+  */
+-struct regulator_voltages {
++struct regulator_voltages_desc {
+ 	enum voltage_type type;
+ 	size_t num_levels;
+-	int entries[];
+ };
+ 
+ /*
+@@ -108,7 +106,7 @@ struct regulator {
+ 	unsigned int refcount;
+ 	struct mutex lock;	/* Concurrent access protection */
+ 	struct voltages_fallback {
+-		struct regulator_voltages desc;
++		struct regulator_voltages_desc desc;
+ 		int levels[3];
+ 	} voltages_fallback;
+ 	size_t levels_count_fallback;
+@@ -131,7 +129,8 @@ struct regulator_ops {
+ 	TEE_Result (*set_voltage)(struct regulator *r, int level_uv);
+ 	TEE_Result (*get_voltage)(struct regulator *r, int *level_uv);
+ 	TEE_Result (*supported_voltages)(struct regulator *r,
+-					 struct regulator_voltages **voltages);
++					 struct regulator_voltages_desc **desc,
++					 const int **levels);
+ 	TEE_Result (*supplied_init)(struct regulator *r, const void *fdt,
+ 				    int node);
+ };
+@@ -311,10 +310,18 @@ static inline void regulator_get_range(struct regulator *regulator, int *min_uv,
+ /*
+  * regulator_supported_voltages() - Get regulator supported levels in microvolt
+  * @regulator: Regulator reference
+- * @voltages: Output description supported voltage levels
++ * @desc: Output reference to supported voltage levels description
++ * @levels: Output reference to voltage level array, in microvolts
++ *
++ * When @desc->type is VOLTAGE_TYPE_FULL_LIST, number of cells of @*levels
++ * is defined by @desc->num_levels, each cell being a level in microvolts (uV).
++ * When @desc->type is VOLTAGE_TYPE_INCREMENT, @levels has 3 cells:
++ * @levels[0] is the min voltage level, @levels[1] is the max level, @levels[2]
++ * is the incremental level step, all in microvolts (uV).
+  */
+ TEE_Result regulator_supported_voltages(struct regulator *regulator,
+-					struct regulator_voltages **voltages);
++					struct regulator_voltages_desc **desc,
++					const int **levels);
+ 
+ /* Print current regulator tree summary to console with debug trace level */
+ #ifdef CFG_DRIVERS_REGULATOR
+-- 
+2.47.2
+

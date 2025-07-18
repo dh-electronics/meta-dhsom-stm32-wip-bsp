@@ -1,0 +1,193 @@
+From 322624e718340f79c0ec33b1398a773a08f29be3 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 13 Jul 2023 16:24:15 +0200
+Subject: [PATCH 0330/1695] drivers: stm32_stgen: support low-power sequence
+
+In some low-power modes such as standby, the STGEN context is lost and
+the STGEN is powered off.
+
+In order to correctly restore the platform counter, it is necessary
+to save the counter value and the current time from the RTC before
+disabling the STGEN.
+
+When resuming the platform, the STGEN should be restored with the
+correct clock configuration. The time spent in low-power is deduced
+from the time read from the RTC. The STGEN counter value is then
+updated with the corresponding number of ticks + the counter value
+before the suspend.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6221be45e382a1d64374d066e90420127387d111 drivers: stm32_stgen: support low-power sequence]
+Change-Id: Ibeb51fd1cc2961122926207ba9df7fe66d1ee81f
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/319320
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/counter/stm32_stgen.c | 99 +++++++++++++++++++++++++++++-
+ 1 file changed, 97 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/counter/stm32_stgen.c b/core/drivers/counter/stm32_stgen.c
+index 2c3ac59ea..c32e46105 100644
+--- a/core/drivers/counter/stm32_stgen.c
++++ b/core/drivers/counter/stm32_stgen.c
+@@ -6,11 +6,13 @@
+ #include <config.h>
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
++#include <drivers/stm32_rtc.h>
+ #include <drivers/stm32_stgen.h>
+ #include <io.h>
+ #include <keep.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
++#include <kernel/pm.h>
+ #include <kernel/thread.h>
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+@@ -37,6 +39,9 @@ struct stgen_pdata {
+ 	struct clk *tsgen_clock;
+ 	struct clk *tsgen_clock_source;
+ 	struct clk *bus_clock;
++	struct stm32_rtc_calendar *calendar;
++	uint32_t cnt_h;
++	uint32_t cnt_l;
+ 	vaddr_t base;
+ };
+ 
+@@ -80,6 +85,85 @@ static TEE_Result stm32mp_stgen_smc_config(void)
+ 	return TEE_SUCCESS;
+ }
+ 
++static void stm32_stgen_pm_suspend(void)
++{
++	uint64_t counter_val = 0;
++
++	/*
++	 * Disable STGEN counter. At this point, it should be stopped by
++	 * software.
++	 */
++	io_clrbits32(stgen_d.base + STGENC_CNTCR, BIT(0));
++
++	/* Save current time from the RTC */
++	if (stm32_rtc_get_calendar(stgen_d.calendar))
++		panic("Could not get RTC calendar at suspend");
++
++	/* Save current counter value */
++	counter_val = stm32_stgen_get_counter_value();
++	stgen_d.cnt_h = (uint32_t)(counter_val >> 32);
++	stgen_d.cnt_l = (uint32_t)counter_val;
++
++	/* Re-enable STGEN as generic timer can be used later */
++	io_setbits32(stgen_d.base + STGENC_CNTCR, BIT(0));
++}
++
++static void stm32_stgen_pm_resume(void)
++{
++	unsigned long clock_src_rate = clk_get_rate(stgen_d.tsgen_clock_source);
++	uint64_t counter_val = ((uint64_t)stgen_d.cnt_h << 32) | stgen_d.cnt_l;
++	struct stm32_rtc_calendar *cur_calendar = NULL;
++	uint64_t nb_pm_count_ticks = 0;
++
++	cur_calendar = calloc(1, sizeof(*cur_calendar));
++	if (!cur_calendar)
++		panic();
++
++	/* STGEN clocks are already restored by the clock driver */
++	io_clrbits32(stgen_d.base + STGENC_CNTCR, BIT(0));
++
++	/* Read the current time from the RTC to update system counter */
++	if (stm32_rtc_get_calendar(cur_calendar))
++		panic("Could not get RTC calendar at resume");
++
++	nb_pm_count_ticks = stm32_rtc_diff_calendar_tick(cur_calendar,
++							 stgen_d.calendar,
++							 clock_src_rate);
++
++	DMSG("Time spent in low-power: %ld ms",
++	     (nb_pm_count_ticks * 1000U) / clock_src_rate);
++
++	/* Update the counter value with the number of pm ticks */
++	if (ADD_OVERFLOW(counter_val, nb_pm_count_ticks, &counter_val))
++		panic("STGEN counter overflow");
++
++	io_write32(stgen_d.base + STGENC_CNTFID0, clock_src_rate);
++	if (io_read32(stgen_d.base + STGENC_CNTFID0) != clock_src_rate)
++		panic("Couldn't modify STGEN clock rate");
++
++	set_counter_value(counter_val);
++
++	/* Set the correct clock frequency in the ARM CP15 register */
++	if (IS_ENABLED(CFG_WITH_ARM_TRUSTED_FW))
++		stm32mp_stgen_smc_config();
++
++	io_setbits32(stgen_d.base + STGENC_CNTCR, BIT(0));
++
++	free(cur_calendar);
++}
++
++static TEE_Result
++stm32_stgen_pm(enum pm_op op, unsigned int pm_hint __unused,
++	       const struct pm_callback_handle *pm_handle __unused)
++{
++	if (op == PM_OP_RESUME)
++		stm32_stgen_pm_resume();
++	else
++		stm32_stgen_pm_suspend();
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result parse_dt(const void *fdt, int node)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+@@ -142,6 +226,10 @@ static TEE_Result stgen_probe(const void *fdt, int node,
+ 	if (res)
+ 		return res;
+ 
++	stgen_d.calendar = calloc(1, sizeof(*stgen_d.calendar));
++	if (!stgen_d.calendar)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
+ 	/*
+ 	 * Some SoCs may have intermediate clock signals between tsgen and
+ 	 * desired tsgen clock source. Use tsgen_source to ease manipulation.
+@@ -154,12 +242,12 @@ static TEE_Result stgen_probe(const void *fdt, int node,
+ 
+ 	res = clk_enable(stgen_d.tsgen_clock);
+ 	if (res)
+-		return res;
++		goto err;
+ 
+ 	res = clk_enable(stgen_d.bus_clock);
+ 	if (res) {
+ 		clk_disable(stgen_d.tsgen_clock);
+-		return res;
++		goto err;
+ 	}
+ 
+ 	/*
+@@ -199,10 +287,17 @@ static TEE_Result stgen_probe(const void *fdt, int node,
+ 
+ 	if (IS_ENABLED(CFG_WITH_ARM_TRUSTED_FW))
+ 		stm32mp_stgen_smc_config();
++
++	register_pm_core_service_cb(stm32_stgen_pm, NULL, "stm32-stgen");
+ end:
+ 	io_setbits32(stgen_d.base + STGENC_CNTCR, BIT(0));
+ 
+ 	return TEE_SUCCESS;
++
++err:
++	free(stgen_d.calendar);
++
++	return res;
+ }
+ 
+ static const struct stm32_stgen_compat_data stm32_stgen_mp1 = {
+-- 
+2.47.2
+

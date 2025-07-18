@@ -1,0 +1,60 @@
+From fb94f5c8e795d6c198cf19ebcb5500fbdfc5ddbf Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 10 Apr 2024 18:37:11 +0200
+Subject: [PATCH 0755/1695] drivers: crypto: remove assertions on device
+ handlers
+
+Remove assertions added by the commit referred below. They are useless
+since the handlers are registered only if the related device (stm32_cryp
+or stm32_saes) has its driver successfully probed. These assertion also
+prevent enabling both CFG_STM32_SAES and CFG_STM32_CRYP for a platform
+which is a valid configuration for when we rely on the DT to state
+which of both is enabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cf2a52b2bd8b3d1aade42e2a4eea0ef84a0230e8 drivers: crypto: remove assertions on device handlers]
+Change-Id: I6c03eb027e58813652d4606611da71007f1b8b7d
+[etienne: ported from https://github.com/OP-TEE/optee_os/pull/6782]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373249
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/crypto/stm32/cipher.c | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/core/drivers/crypto/stm32/cipher.c b/core/drivers/crypto/stm32/cipher.c
+index 2cc1a6ebf..95410ac16 100644
+--- a/core/drivers/crypto/stm32/cipher.c
++++ b/core/drivers/crypto/stm32/cipher.c
+@@ -94,8 +94,6 @@ static TEE_Result cryp_update(union ip_ctx *ip_ctx, bool last_block,
+ 
+ static void cryp_copy_state(union ip_ctx *dst_ip_ctx, union ip_ctx *src_ip_ctx)
+ {
+-	assert(IS_ENABLED(CFG_STM32_CRYP));
+-
+ 	memcpy(&dst_ip_ctx->cryp, &src_ip_ctx->cryp, sizeof(dst_ip_ctx->cryp));
+ }
+ 
+@@ -167,8 +165,6 @@ static void saes_final(union ip_ctx *ip_ctx)
+ {
+ 	struct crypto_cipher_ctx *ctx = ip_ctx->saes.fallback_ctx;
+ 
+-	assert(IS_ENABLED(CFG_STM32_SAES));
+-
+ 	if (ip_ctx->saes.use_fallback) {
+ 		assert(IS_ENABLED(CFG_STM32_SAES_SW_FALLBACK));
+ 		ctx->ops->final(ctx);
+@@ -180,8 +176,6 @@ static void saes_copy_state(union ip_ctx *dst_ip_ctx, union ip_ctx *src_ip_ctx)
+ 	struct saes_ctx *src_ctx = &src_ip_ctx->saes;
+ 	struct crypto_cipher_ctx *fb_ctx = src_ctx->fallback_ctx;
+ 
+-	assert(IS_ENABLED(CFG_STM32_SAES));
+-
+ 	memcpy(&dst_ip_ctx->saes.ctx, &src_ctx->ctx, sizeof(src_ctx->ctx));
+ 
+ 	dst_ip_ctx->saes.algo = src_ctx->algo;
+-- 
+2.47.2
+

@@ -1,0 +1,86 @@
+From 6022861ccd61fd0a5f66503c26b7a5b0cf55f4c2 Mon Sep 17 00:00:00 2001
+From: Theo GOUREAU <theo.goureau-ext@st.com>
+Date: Tue, 5 Nov 2024 13:18:04 +0100
+Subject: [PATCH 1418/1695] arch: optee: helper function to convert TEE_Result
+ into fwk code
+
+Add a TEE_Result to SCP-firmware framework status code conversion
+function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 895972ac16acb53498e7b5acc3270b22134767ed arch: optee: helper function to convert TEE_Result into fwk code]
+Change-Id: I3d429fa5d2144fbcf910af2398d6c819e660827f
+Signed-off-by: Theo GOUREAU <theo.goureau-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/416479
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../arch/none/optee/include/arch_main.h       |  7 +++++
+ .../arch/none/optee/src/arch_main.c           | 30 +++++++++++++++++++
+ 2 files changed, 37 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/optee/include/arch_main.h b/core/lib/scmi-server/SCP-firmware/arch/none/optee/include/arch_main.h
+index a89f5bec0..84819dc8a 100644
+--- a/core/lib/scmi-server/SCP-firmware/arch/none/optee/include/arch_main.h
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/optee/include/arch_main.h
+@@ -11,6 +11,7 @@
+ #include <stdbool.h>
+ #include <stddef.h>
+ #include <stdint.h>
++#include <tee_api_types.h>
+ 
+ /*!
+  * \brief Initialize the architecture.
+@@ -45,4 +46,10 @@ extern void scmi_process_mbx_smt(unsigned int id);
+ extern void scmi_process_mbx_msg(unsigned int id, void *in_buf, size_t in_size,
+                                  void *out_buf, size_t *out_size);
+ 
++/*!
++ * \brief Convert a TEE_Result code into a SCP-firmware framework result code.
++ *
++ */
++int scmi_tee_result_to_fwk_status(TEE_Result res);
++
+ #endif /* ARCH_MAIN_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c b/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c
+index 5ae2cb863..9ef8fd71c 100644
+--- a/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c
+@@ -92,3 +92,33 @@ void scmi_process_mbx_msg(unsigned int fwk_id, void *in_buf, size_t in_size,
+     fwk_log_flush();
+ #endif
+ }
++
++int scmi_tee_result_to_fwk_status(TEE_Result tee_error_code)
++{
++    switch (tee_error_code) {
++    case TEE_SUCCESS:
++        return FWK_SUCCESS;
++    case TEE_ERROR_BAD_PARAMETERS:
++        return FWK_E_PARAM;
++    case TEE_ERROR_SHORT_BUFFER:
++    case TEE_ERROR_EXCESS_DATA:
++        return FWK_E_SIZE;
++    case TEE_ERROR_ACCESS_CONFLICT:
++    case TEE_ERROR_ACCESS_DENIED:
++        return FWK_E_ACCESS;
++    case TEE_ERROR_TIMEOUT:
++        return FWK_E_TIMEOUT;
++    case TEE_ERROR_OUT_OF_MEMORY:
++        return FWK_E_NOMEM;
++    case TEE_ERROR_UNSUPPORTED_VERSION:
++    case TEE_ERROR_NOT_IMPLEMENTED:
++    case TEE_ERROR_NOT_SUPPORTED:
++        return FWK_E_SUPPORT;
++    case TEE_ERROR_BUSY:
++        return FWK_E_BUSY;
++    case TEE_ERROR_BAD_STATE:
++        return FWK_E_STATE;
++    default:
++        return FWK_E_DEVICE;
++    }
++}
+-- 
+2.47.2
+

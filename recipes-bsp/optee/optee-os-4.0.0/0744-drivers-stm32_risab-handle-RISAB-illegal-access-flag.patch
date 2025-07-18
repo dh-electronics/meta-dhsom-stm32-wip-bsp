@@ -1,0 +1,94 @@
+From 64163351fe4c5967f5c27cedd538b768c3dcbc67 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Tue, 16 Apr 2024 11:38:47 +0200
+Subject: [PATCH 0744/1695] drivers: stm32_risab: handle RISAB illegal access
+ flags
+
+Handle the clearing of the flags in RISAB_IACR when an illegal access
+occurs so that other illegal accesses can be collected.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1cbe32f13e345686f3ca594b5b1d41beaafded2c drivers: stm32_risab: handle RISAB illegal access flags]
+Change-Id: I557393c96a0de040da2476ebf0146ac873ab2a6c
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373921
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c  |  1 +
+ core/drivers/firewall/stm32_risab.c | 24 ++++++++++++++++++++++++
+ core/include/drivers/stm32_risab.h  |  2 ++
+ 3 files changed, 27 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 9a07c8522..998be2184 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -176,6 +176,7 @@ void stm32_rif_access_violation_action(void)
+ #endif
+ #ifdef CFG_STM32_RISAB
+ 	stm32_risab_dump_erroneous_data();
++	stm32_risab_clear_illegal_access_flags();
+ #endif
+ }
+ #endif /* CFG_STM32_RIF */
+diff --git a/core/drivers/firewall/stm32_risab.c b/core/drivers/firewall/stm32_risab.c
+index 8adfeb340..011d78879 100644
+--- a/core/drivers/firewall/stm32_risab.c
++++ b/core/drivers/firewall/stm32_risab.c
+@@ -42,6 +42,10 @@
+ /* RISAB_CR bitfields */
+ #define _RISAB_CR_SRWIAD			BIT(31)
+ 
++/* RISAB_IACR bitfields */
++#define _RISAB_IACR_CAEF			BIT(0)
++#define _RISAB_IACR_IAEF			BIT(1)
++
+ /* Define RISAB_PG_SECCFGR bitfields */
+ #define _RISAB_PG_SECCFGR_MASK			GENMASK_32(7, 0)
+ 
+@@ -91,6 +95,26 @@ static SLIST_HEAD(, stm32_risab_pdata) risab_list =
+ 
+ static bool is_tdcid;
+ 
++void stm32_risab_clear_illegal_access_flags(void)
++{
++	struct stm32_risab_pdata *risab = NULL;
++
++	SLIST_FOREACH(risab, &risab_list, link) {
++		if (clk_enable(risab->clock))
++			panic("Can't enable RISAB clock");
++
++		if (!io_read32(risab->base + _RISAB_IASR)) {
++			clk_disable(risab->clock);
++			continue;
++		}
++
++		io_write32(risab->base + _RISAB_IACR, _RISAB_IACR_CAEF |
++			   _RISAB_IACR_IAEF);
++
++		clk_disable(risab->clock);
++	}
++}
++
+ #ifdef CFG_TEE_CORE_DEBUG
+ void stm32_risab_dump_erroneous_data(void)
+ {
+diff --git a/core/include/drivers/stm32_risab.h b/core/include/drivers/stm32_risab.h
+index 2cd5160a9..9a1f8d2e5 100644
+--- a/core/include/drivers/stm32_risab.h
++++ b/core/include/drivers/stm32_risab.h
+@@ -15,6 +15,8 @@ struct mem_region {
+ 	size_t size;
+ };
+ 
++void stm32_risab_clear_illegal_access_flags(void);
++
+ #ifdef CFG_TEE_CORE_DEBUG
+ void stm32_risab_dump_erroneous_data(void);
+ #else /* CFG_TEE_CORE_DEBUG */
+-- 
+2.47.2
+

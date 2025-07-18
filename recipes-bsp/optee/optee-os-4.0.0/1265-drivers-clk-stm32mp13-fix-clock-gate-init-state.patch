@@ -1,0 +1,81 @@
+From b11565111689e529d66ba314f23755b6fc7895af Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 2 Oct 2024 14:31:25 +0200
+Subject: [PATCH 1265/1695] drivers: clk: stm32mp13: fix clock gate init state
+
+Add stm32_gate_set_init_state() for STM32MP13 clock initialization
+that can enable/disable clock gates at initialization time before
+any refcount is taken on clocks.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 196fb57ca45423d9da1cefc6e6df678d234b9113 drivers: clk: stm32mp13: fix clock gate init state]
+Change-Id: I6383b5bd78c1a1b4dd1b926028af24c0c10c6da4
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/408468
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32-core.c | 8 ++++++++
+ core/drivers/clk/clk-stm32-core.h | 7 +++++++
+ core/drivers/clk/clk-stm32mp13.c  | 5 +----
+ 3 files changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32-core.c b/core/drivers/clk/clk-stm32-core.c
+index 4d84f9d86..3a3f8fd6e 100644
+--- a/core/drivers/clk/clk-stm32-core.c
++++ b/core/drivers/clk/clk-stm32-core.c
+@@ -87,6 +87,14 @@ void stm32_gate_endisable(uint16_t gate_id, bool enable)
+ 	}
+ }
+ 
++void stm32_gate_set_init_state(uint16_t gate_id, bool enable)
++{
++	struct clk_stm32_priv __maybe_unused *priv = clk_stm32_get_priv();
++
++	assert(!priv->gate_cpt[gate_id]);
++	stm32_gate_endisable(gate_id, enable);
++}
++
+ void stm32_gate_disable(uint16_t gate_id)
+ {
+ 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+diff --git a/core/drivers/clk/clk-stm32-core.h b/core/drivers/clk/clk-stm32-core.h
+index 1802f5b08..5e163b6cb 100644
+--- a/core/drivers/clk/clk-stm32-core.h
++++ b/core/drivers/clk/clk-stm32-core.h
+@@ -121,6 +121,13 @@ TEE_Result stm32_gate_wait_ready(uint16_t gate_id, bool ready_on);
+ TEE_Result stm32_gate_rdy_enable(uint16_t gate_id);
+ TEE_Result stm32_gate_rdy_disable(uint16_t gate_id);
+ 
++/*
++ * Set gate to an enable or disable state without updating its
++ * refcount. This is exclusively intended to be used during initialization
++ * where refcount value are 0.
++ */
++void stm32_gate_set_init_state(uint16_t gate_id, bool enable);
++
+ size_t stm32_mux_get_parent(uint32_t mux_id);
+ TEE_Result stm32_mux_set_parent(uint16_t pid, uint8_t sel);
+ 
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index db42324a3..489798fda 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -973,10 +973,7 @@ static int stm32_clk_configure_clk(struct clk_stm32_priv *priv __maybe_unused,
+ 	if (stm32_mux_set_parent(mux, sel))
+ 		return -1;
+ 
+-	if (enable)
+-		stm32_gate_enable(gate);
+-	else
+-		stm32_gate_disable(gate);
++	stm32_gate_set_init_state(gate, enable);
+ 
+ 	return 0;
+ }
+-- 
+2.47.2
+

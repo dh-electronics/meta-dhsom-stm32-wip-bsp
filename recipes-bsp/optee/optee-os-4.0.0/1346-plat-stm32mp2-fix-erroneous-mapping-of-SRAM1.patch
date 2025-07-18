@@ -1,0 +1,42 @@
+From 503b31a5183578d657a8f1243b03be569730e5ca Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 31 Oct 2024 11:58:56 +0100
+Subject: [PATCH 1346/1695] plat-stm32mp2: fix erroneous mapping of SRAM1
+
+Correct stm32mp2 platforms mapping of SRAM1 that requires a 4Kbyte
+mapping granule (as expected from argument SIZE_4K) by using
+register_phys_mem() helper macro instead of register_phys_mem_pgdir()
+that uses a PGDIR mapping granule (2Mbyte here).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0ad875e150413f1da16d43489cf62b434ab3d89f plat-stm32mp2: fix erroneous mapping of SRAM1]
+Change-Id: Ia009a4f026e7a0e8f14ab49f2f733224d7642e63
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/415564
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index f4e14236c..e9448f53a 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -62,10 +62,10 @@ register_phys_mem_pgdir(MEM_AREA_IO_NSEC, DBGMCU_BASE, DBGMCU_SIZE);
+ 
+ #ifdef CFG_STM32_CM33TDCID
+ /* Map beginning SRAM1 as read-only non-secure for BSEC shadow */
+-register_phys_mem_pgdir(MEM_AREA_RAM_NSEC, SRAM1_BASE, SIZE_4K);
++register_phys_mem(MEM_AREA_RAM_NSEC, SRAM1_BASE, SIZE_4K);
+ #else
+ /* Map beginning SRAM1 as read write for BSEC shadow */
+-register_phys_mem_pgdir(MEM_AREA_RAM_SEC, SRAM1_BASE, SIZE_4K);
++register_phys_mem(MEM_AREA_RAM_SEC, SRAM1_BASE, SIZE_4K);
+ #endif
+ 
+ #define _ID2STR(id)		(#id)
+-- 
+2.47.2
+

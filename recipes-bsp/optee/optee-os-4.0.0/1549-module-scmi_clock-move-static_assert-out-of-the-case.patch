@@ -1,0 +1,90 @@
+From 96ad2747ab6b487cfc51b99c1dd541d6e198437c Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Mon, 10 Feb 2025 15:31:10 +0100
+Subject: [PATCH 1549/1695] module: scmi_clock: move static_assert out of the
+ case statement
+
+static_assert in a case produce this error at compilation time:
+error: a label can only be part of a statement and a declaration is not
+a statement
+   59 | #define static_assert _Static_assert
+      |                       ^~~~~~~~~~~~~~
+
+Move them out of the function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5bae505cf3876f642975094e4118a4f0d36f5a55 module: scmi_clock: move static_assert out of the case statement]
+Fixes: 3042affbb6de ("module: scmi_clock: specific OSTLv4/v5 duty-cycle/round_rate messages")
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: Ie10a9f00f628fbf02b0062141a60edda1042da87
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/435926
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../module/scmi_clock/src/mod_scmi_clock.c    | 38 ++++++++++---------
+ 1 file changed, 20 insertions(+), 18 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c
+index e6beaf8ef..43644dede 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c
+@@ -1756,6 +1756,26 @@ static int scmi_clock_get_scmi_protocol_id(fwk_id_t protocol_id,
+     return FWK_SUCCESS;
+ }
+ 
++#ifdef CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT
++/*
++ * Special case to support OSTLv4/v5 duty-cycle requests:
++ * based on input message size, distinguish standard
++ * SCMI clock protocol v3.0 SCMI_CLOCK_CONFIG_GET
++ * from OSTLv4/v5 SCMI_CLOCK_DUTY_CYCLE_GET.
++ */
++static_assert(sizeof(struct scmi_clock_config_get_a2p) !=
++              sizeof(struct scmi_clock_ostl_duty_cycle_get_a2p));
++
++/*
++ * Special case to support OSTLv4/v5 duty-cycle requests:
++ * based on input message size, distinguish standard
++ * SCMI clock protocol v3.0 SCMI_CLOCK_POSSIBLE_PARENT_GET
++ * from OSTLv4/v5 SCMI_CLOCK_ROUND_RATE_GET.
++ */
++static_assert(sizeof(struct scmi_clock_possible_parent_a2p) !=
++              sizeof(struct scmi_clock_ostl_round_rate_get_a2p));
++#endif /* CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT */
++
+ static int scmi_clock_message_handler(fwk_id_t protocol_id, fwk_id_t service_id,
+     const uint32_t *payload, size_t payload_size, unsigned int message_id)
+ {
+@@ -1784,29 +1804,11 @@ static int scmi_clock_message_handler(fwk_id_t protocol_id, fwk_id_t service_id,
+ 
+ #ifdef CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT
+     case MOD_SCMI_CLOCK_DUTY_CYCLE_GET:
+-        /*
+-         * Special case to support OSTLv4/v5 duty-cycle requests:
+-         * based on input message size, distinguish standard
+-         * SCMI clock protocol v3.0 SCMI_CLOCK_CONFIG_GET
+-         * from OSTLv4/v5 SCMI_CLOCK_DUTY_CYCLE_GET.
+-         */
+-        static_assert(sizeof(struct scmi_clock_config_get_a2p) !=
+-                      sizeof(struct scmi_clock_ostl_duty_cycle_get_a2p));
+-
+         if (payload_size == sizeof(struct scmi_clock_ostl_duty_cycle_get_a2p))
+             return scmi_clock_ostl_duty_cycle_get_handler(service_id, payload);
+         break;
+ 
+     case MOD_SCMI_CLOCK_ROUND_RATE_GET:
+-        /*
+-         * Special case to support OSTLv4/v5 duty-cycle requests:
+-         * based on input message size, distinguish standard
+-         * SCMI clock protocol v3.0 SCMI_CLOCK_POSSIBLE_PARENT_GET
+-         * from OSTLv4/v5 SCMI_CLOCK_ROUND_RATE_GET.
+-         */
+-        static_assert(sizeof(struct scmi_clock_possible_parent_a2p) !=
+-                       sizeof(struct scmi_clock_ostl_round_rate_get_a2p));
+-
+         if (payload_size == sizeof(struct scmi_clock_ostl_round_rate_get_a2p))
+             return scmi_clock_ostl_round_rate_get_handler(service_id, payload);
+         break;
+-- 
+2.47.2
+

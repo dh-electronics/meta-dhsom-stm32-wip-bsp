@@ -1,0 +1,67 @@
+From 29eac648f989af5d4afde40bc94aa8bad36fdb81 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Tue, 1 Feb 2022 12:06:34 +0100
+Subject: [PATCH 0204/1695] plat-stm32mp1: plat_tzc400: local function to check
+ DDR firewalls
+
+Moves verification of the TZC400 DDR firewall configuration in
+a specific local function stm32mp_tzc_check_boot_region().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git eb16abac99b1cf688b2d5d681d3a76074234bafe plat-stm32mp1: plat_tzc400: local function to check DDR firewalls]
+Change-Id: I0b4f6acdeceba75ea2269fae9bd86aacf79c6caf
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/plat_tzc400.c | 21 +++++++++++++--------
+ 1 file changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/plat_tzc400.c b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+index 25c75b93c..95ac0e023 100644
+--- a/core/arch/arm/plat-stm32mp1/plat_tzc400.c
++++ b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+@@ -70,10 +70,8 @@ static bool tzc_region_is_secure(unsigned int i, vaddr_t base, size_t size)
+ 	       region_cfg.filters == filters_mask;
+ }
+ 
+-static TEE_Result init_stm32mp1_tzc(void)
++static void stm32mp_tzc_check_boot_region(void)
+ {
+-	TEE_Result res = TEE_ERROR_GENERIC;
+-	void *base = phys_to_virt(TZC_BASE, MEM_AREA_IO_SEC, 1);
+ 	unsigned int region_index = 1;
+ 	const uint64_t dram_start = DDR_BASE;
+ 	const uint64_t dram_end = dram_start + CFG_DRAM_SIZE;
+@@ -81,11 +79,6 @@ static TEE_Result init_stm32mp1_tzc(void)
+ 	const uint64_t tzdram_size = CFG_TZDRAM_SIZE;
+ 	const uint64_t tzdram_end = tzdram_start + tzdram_size;
+ 
+-	assert(base);
+-
+-	tzc_init((vaddr_t)base);
+-	tzc_dump_state();
+-
+ 	/*
+ 	 * Early boot stage is in charge of configuring memory regions
+ 	 * OP-TEE hence here only check this complies with static Core
+@@ -109,6 +102,18 @@ static TEE_Result init_stm32mp1_tzc(void)
+ 					      dram_end - tzdram_end))
+ 			panic("Unexpected TZC area on non-secure region");
+ 	}
++}
++
++static TEE_Result init_stm32mp1_tzc(void)
++{
++	void *base = phys_to_virt(TZC_BASE, MEM_AREA_IO_SEC, 1);
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	assert(base);
++	tzc_init((vaddr_t)base);
++	tzc_dump_state();
++
++	stm32mp_tzc_check_boot_region();
+ 
+ 	res = interrupt_add_handler_with_chip(interrupt_get_main_chip(),
+ 					      &tzc_itr_handler);
+-- 
+2.47.2
+

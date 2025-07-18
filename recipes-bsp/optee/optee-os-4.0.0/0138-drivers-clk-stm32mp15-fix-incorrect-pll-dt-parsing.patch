@@ -1,0 +1,43 @@
+From ce39ebb1fed1f54743efb1146e4c4a2cc9c7231d Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Wed, 17 Nov 2021 10:02:21 +0100
+Subject: [PATCH 0138/1695] drivers: clk: stm32mp15: fix incorrect pll dt
+ parsing
+
+Fix an issue while looking for the PLL as the node
+used must not be reused in the next loop.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8eca5c72364c27f41c3eb87dcd56f5b6019ed542 drivers: clk: stm32mp15: fix incorrect pll dt parsing]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: If790fee54691408abf31144290f9476264f10617
+---
+ core/drivers/clk/clk-stm32mp15.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index fb298856d..b2dae29d6 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -1283,14 +1283,15 @@ static TEE_Result stm32mp1_clk_fdt_init(const void *fdt, int node)
+ 	}
+ 	for (i = (enum stm32mp1_pll_id)0; i < _PLL_NB; i++) {
+ 		char name[] = "st,pll@X";
++		int subnode = -1;
+ 
+ 		snprintf(name, sizeof(name), "st,pll@%d", i);
+-		node = fdt_subnode_offset(fdt, node, name);
+-		if (node < 0)
++		subnode = fdt_subnode_offset(fdt, node, name);
++		if (subnode < 0)
+ 			continue;
+ 
+-		if (fdt_getprop(fdt, node, "cfg", &len) ||
+-		    fdt_getprop(fdt, node, "frac", &len)) {
++		if (fdt_getprop(fdt, subnode, "cfg", &len) ||
++		    fdt_getprop(fdt, subnode, "frac", &len)) {
+ 			DMSG("Ignore PLL%u configurations from DT", i);
+ 			ignored++;
+ 		}
+-- 
+2.47.2
+

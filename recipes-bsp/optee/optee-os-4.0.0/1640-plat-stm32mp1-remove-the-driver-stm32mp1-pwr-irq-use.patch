@@ -1,0 +1,107 @@
+From ed66b6cf9fc2d0f7bcbc6483f8c62a96b57447c8 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Thu, 6 Feb 2025 09:53:50 +0100
+Subject: [PATCH 1640/1695] plat-stm32mp1: remove the driver
+ stm32mp1-pwr-irq-user
+
+It is replaced by the generic stm32-irq-notifier
+
+While there, drop a never used macro definition.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 939606af5308e0585e10b25f1e6d8e4ca9e428ec plat-stm32mp1: remove the driver stm32mp1-pwr-irq-user]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Iad85a478c9d313fcb2a61cfe279abb112787a7fe
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/440871
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ .../plat-stm32mp1/drivers/stm32mp1_pwr_irq.c  | 67 -------------------
+ 1 file changed, 67 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr_irq.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr_irq.c
+index 5aa73bdd7..ae719691f 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr_irq.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr_irq.c
+@@ -25,8 +25,6 @@
+ 
+ #define VERBOSE_PWR FMSG
+ 
+-#define PWR_IRQ_MAX_PROP_LENGTH	U(18)
+-
+ #define PWR_NB_WAKEUPPINS	U(6)
+ 
+ /* PWR Registers */
+@@ -468,68 +466,3 @@ DEFINE_DT_DRIVER(stm32mp1_pwr_irq_dt_driver) = {
+ 	.match_table = pwr_irq_match_table,
+ 	.probe = &stm32mp1_pwr_irq_probe,
+ };
+-
+-static enum itr_return pwr_it_user_handler(struct itr_handler *handler)
+-{
+-	uint32_t *it_id = handler->data;
+-
+-	VERBOSE_PWR("pwr irq tester handler");
+-
+-	if (it_id)
+-		notif_send_it(*it_id);
+-
+-	return ITRR_HANDLED;
+-}
+-
+-static TEE_Result stm32mp1_pwr_irq_user_dt_probe(const void *fdt, int node,
+-						 const void *compat __unused)
+-{
+-	uint32_t *optee_it_notif_id = NULL;
+-	struct itr_chip *itr_chip = NULL;
+-	TEE_Result res = TEE_SUCCESS;
+-	const fdt32_t *cuint = NULL;
+-	size_t itr_num = 0;
+-
+-	VERBOSE_PWR("Init pwr irq user");
+-
+-	res = interrupt_dt_get(fdt, node, &itr_chip, &itr_num);
+-	if (res)
+-		return res;
+-
+-	cuint = fdt_getprop(fdt, node, "st,notif-it-id", NULL);
+-	if (cuint) {
+-		optee_it_notif_id = calloc(1, sizeof(*optee_it_notif_id));
+-		if (!optee_it_notif_id)
+-			return TEE_ERROR_OUT_OF_MEMORY;
+-
+-		*optee_it_notif_id = fdt32_to_cpu(*cuint);
+-	}
+-
+-	res = interrupt_create_handler(itr_chip, itr_num, pwr_it_user_handler,
+-				       optee_it_notif_id, 0, NULL);
+-	if (res != TEE_SUCCESS) {
+-		free(optee_it_notif_id);
+-		return res;
+-	}
+-
+-	interrupt_enable(itr_chip, itr_num);
+-	if (fdt_getprop(fdt, node, "wakeup-source", NULL)) {
+-		if (interrupt_can_set_wake(itr_chip))
+-			interrupt_set_wake(itr_chip, itr_num, true);
+-		else
+-			DMSG("PWR-IRQ wakeup source ignored");
+-	}
+-
+-	return TEE_SUCCESS;
+-}
+-
+-static const struct dt_device_match pwr_irq_test_match_table[] = {
+-	{ .compatible = "st,stm32mp1-pwr-irq-user" },
+-	{ }
+-};
+-
+-DEFINE_DT_DRIVER(stm32mp1_pwr_irq_dt_tester) = {
+-	.name = "stm32mp1-pwr-irq-user",
+-	.match_table = pwr_irq_test_match_table,
+-	.probe = &stm32mp1_pwr_irq_user_dt_probe,
+-};
+-- 
+2.47.2
+

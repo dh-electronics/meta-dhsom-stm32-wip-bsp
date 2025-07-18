@@ -1,0 +1,54 @@
+From f62f13b54df9c61ce582c54da748dcde9c80818a Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 29 Jan 2025 15:33:52 +0100
+Subject: [PATCH 1482/1695] core: psa-adac: fix adac-crypto.c compilation
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When PSA_ADAC_ED25519 and/or PSA_ADAC_ED448 are defined, it raises the
+following build error:
+core/lib/psa-adac/psa-adac/core/src/adac_crypto.c:71:9: error: ‘ext_words’ undeclared (first use in this function)
+   71 |         ext_words = certificate->header.extensions_bytes;
+      |         ^~~~~~~~~
+Fix the issue using ext_bytes instead of ext_words, as used elsewhere.
+
+Ignore code indent error on this patch, code indent follows the
+indent style of the file.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a8f274883bd0847ad6b147ce8742dd4a82a7838c core: psa-adac: fix adac-crypto.c compilation]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: I1935cdec1c3554565517d068c2daeccc495b7e21
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/433582
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/lib/psa-adac/psa-adac/core/src/adac_crypto.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/core/lib/psa-adac/psa-adac/core/src/adac_crypto.c b/core/lib/psa-adac/psa-adac/core/src/adac_crypto.c
+index 26c317532..35b0f5bed 100644
+--- a/core/lib/psa-adac/psa-adac/core/src/adac_crypto.c
++++ b/core/lib/psa-adac/psa-adac/core/src/adac_crypto.c
+@@ -68,7 +68,7 @@ psa_status_t psa_adac_extract_public_key(uint8_t *crt, size_t crt_size, uint8_t
+ #ifdef PSA_ADAC_ED25519
+         certificate_ed255_ed255_t *certificate = (certificate_ed255_ed255_t *) crt;
+         body_size = sizeof(certificate_ed255_ed255_t);
+-        ext_words = certificate->header.extensions_bytes;
++        ext_bytes = certificate->header.extensions_bytes;
+         *pubkey = certificate->pubkey;
+         *pubkey_size = sizeof(certificate->pubkey);
+ #else
+@@ -79,7 +79,7 @@ psa_status_t psa_adac_extract_public_key(uint8_t *crt, size_t crt_size, uint8_t
+ #ifdef PSA_ADAC_ED448
+         certificate_ed448_ed448_t *certificate = (certificate_ed448_ed448_t *) crt;
+         body_size = sizeof(certificate_ed448_ed448_t);
+-        ext_words = certificate->header.extensions_bytes;
++        ext_bytes = certificate->header.extensions_bytes;
+         *pubkey = certificate->pubkey;
+         *pubkey_size = sizeof(certificate->pubkey);
+ #else
+-- 
+2.47.2
+

@@ -1,0 +1,141 @@
+From f8e5c5a91bfe704fe5857bc57e8c834d4c1eb819 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Tue, 4 Feb 2025 15:42:52 +0100
+Subject: [PATCH 1602/1695] plat-stm32mp2: drop exti references from PWR IRQ
+
+With drivers and DT using the hierarchical stack, drop the unused
+calls to EXTI API.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0802438985eabed9d4af2eb19f44d14475accef6 plat-stm32mp2: drop exti references from PWR IRQ]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I3c9a25f234ca26f0f21a31890cc68f5ad5c15ed8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434944
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../plat-stm32mp2/drivers/stm32mp25_pwr_irq.c | 32 ++-----------------
+ .../bindings/mfd/st,stm32mp25-pwr.yaml        |  3 --
+ 2 files changed, 2 insertions(+), 33 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_irq.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_irq.c
+index 3cffefc1d..cf5ff6219 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_irq.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_irq.c
+@@ -5,7 +5,6 @@
+ 
+ #include <config.h>
+ #include <drivers/gpio.h>
+-#include <drivers/stm32_exti.h>
+ #include <drivers/stm32_gpio.h>
+ #include <drivers/stm32mp25_pwr.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
+@@ -42,9 +41,6 @@
+ #define WKUPPUPD_MASK		GENMASK_32(1, 0)
+ #define WKUPPUPD_SHIFT		U(12)
+ 
+-/* EXTI line number for PWR Wakeup pin 1 */
+-#define PWR_EXTI_WKUP1		52
+-
+ enum wkup_pull_setting {
+ 	WKUP_NO_PULL = 0,
+ 	WKUP_PULL_UP,
+@@ -141,30 +137,16 @@ stm32_pwr_irq_set_pull_config(size_t it, enum wkup_pull_setting config)
+ 
+ static void stm32mp25_pwr_itr_enable_nolock(size_t it)
+ {
+-	struct pwr_wkup_data *priv = pwr_wkup_d;
+-
+ 	VERBOSE_PWR("Pwr irq enable %zu", it);
+ 
+-	if (IS_ENABLED(CFG_STM32_EXTI) && priv->exti) {
+-		stm32_exti_unmask(priv->exti, PWR_EXTI_WKUP1 + it);
+-		stm32_exti_enable_wake(priv->exti, PWR_EXTI_WKUP1 + it);
+-	}
+-
+ 	io_setbits32(pwr_wkupcr_base(it), WKUPENCPU1);
+ }
+ 
+ static void stm32mp25_pwr_itr_disable_nolock(size_t it)
+ {
+-	struct pwr_wkup_data *priv = pwr_wkup_d;
+-
+ 	VERBOSE_PWR("Pwr irq disable %zu", it);
+ 
+ 	io_clrbits32(pwr_wkupcr_base(it), WKUPENCPU1);
+-
+-	if (IS_ENABLED(CFG_STM32_EXTI) && priv->exti) {
+-		stm32_exti_mask(priv->exti, PWR_EXTI_WKUP1 + it);
+-		stm32_exti_disable_wake(priv->exti, PWR_EXTI_WKUP1 + it);
+-	}
+ }
+ 
+ static TEE_Result stm32_pwr_irq_set_trig(size_t it, unsigned int flags)
+@@ -341,10 +323,9 @@ static struct itr_chip stm32mp2_pwr_itr_chip = {
+ };
+ 
+ static TEE_Result stm32mp2_pwr_itr_dt_get(struct dt_pargs *args,
+-					  void *priv_data,
++					  void *priv_data __unused,
+ 					  struct itr_desc *itr_desc_p)
+ {
+-	struct pwr_wkup_data *priv = priv_data;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	unsigned int trigger_mode = 0;
+ 	unsigned int itr_num = 0;
+@@ -354,7 +335,7 @@ static TEE_Result stm32mp2_pwr_itr_dt_get(struct dt_pargs *args,
+ 
+ 	VERBOSE_PWR("Pwr IRQ add");
+ 
+-	assert(priv && args->args_count == 2);
++	assert(args->args_count == 2);
+ 
+ 	itr_num = args->args[0];
+ 	trigger_mode = args->args[1];
+@@ -403,9 +384,6 @@ static TEE_Result stm32mp2_pwr_itr_dt_get(struct dt_pargs *args,
+ 		return res;
+ 	}
+ 
+-	if (IS_ENABLED(CFG_STM32_EXTI) && priv->exti)
+-		stm32_exti_set_tz(priv->exti, PWR_EXTI_WKUP1 + itr_num);
+-
+ 	itr_desc_p->chip = &stm32mp2_pwr_itr_chip;
+ 	itr_desc_p->itr_num = itr_num;
+ 
+@@ -432,12 +410,6 @@ TEE_Result stm32mp25_pwr_irq_probe(const void *fdt, int node)
+ 	if (res)
+ 		panic();
+ 
+-	if (IS_ENABLED(CFG_STM32_EXTI)) {
+-		res = stm32_exti_get_pdata(fdt, node, &priv->exti);
+-		if (res)
+-			priv->exti = NULL;
+-	}
+-
+ 	res = interrupt_dt_get(fdt, node, &itr_chip, &itr_num);
+ 	if (res)
+ 		panic("No interrupt defined in PWR");
+diff --git a/documentation/devicetree/bindings/mfd/st,stm32mp25-pwr.yaml b/documentation/devicetree/bindings/mfd/st,stm32mp25-pwr.yaml
+index 4826db240..c8e06d527 100644
+--- a/documentation/devicetree/bindings/mfd/st,stm32mp25-pwr.yaml
++++ b/documentation/devicetree/bindings/mfd/st,stm32mp25-pwr.yaml
+@@ -29,8 +29,6 @@ properties:
+     description: contains the PWR Wake-up pin interrupt line.
+     maxItems: 1
+ 
+-  wakeup-parent: true
+-
+   wakeup-gpios:
+     description: contains a list of GPIO spec describing each wake-up pin.
+     maxItems: 6
+@@ -72,7 +70,6 @@ examples:
+     pwr: pwr@44210000 {
+       compatible = "st,stm32mp25-pwr";
+       reg = <0x44210000 0x400>;
+-      wakeup-parent = <&exti1>;
+       wakeup-gpios = <0>, <0>, <0>, <0>, <&gpiog 2 GPIO_PULL_UP>, <0>;
+       interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_HIGH>;
+       interrupt-controller;
+-- 
+2.47.2
+

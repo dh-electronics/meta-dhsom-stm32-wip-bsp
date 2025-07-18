@@ -1,0 +1,41 @@
+From 9eb01831c4aab042155cd3255d8d0135782acaba Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Wed, 8 Mar 2023 17:14:31 +0100
+Subject: [PATCH 0257/1695] drivers: stm32_risaf: skip op_tee region
+ configuration
+
+OP-TEE code is executed inside this region, already configured in TF-A.
+It shouldn't be reconfigured in order to avoid a potential glitch
+effect when disabling temporarily encryption.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 90ef19ab5dc00229a70b2386a049541a91dcdf84 drivers: stm32_risaf: skip op_tee region configuration]
+Change-Id: I8c6bdb4123b4c9d6d08b25fd253f465d59a9886e
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+---
+ core/drivers/firewall/stm32_risaf.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index 70e7e3fbe..118432351 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -524,6 +524,16 @@ static TEE_Result stm32_risaf_probe(const void *fdt, int node,
+ 		if (!regions[i].len)
+ 			continue;
+ 
++		/* Skip 'op_tee' region, in which OP-TEE code is executed */
++		if (regions[i].addr == TZDRAM_BASE &&
++#ifdef CFG_CORE_RESERVED_SHM
++			regions[i].len == (TZDRAM_SIZE + TEE_SHMEM_SIZE)) {
++#else
++			regions[i].len == TZDRAM_SIZE) {
++#endif
++			continue;
++		}
++
+ 		prop = fdt_getprop(fdt, pnode, "st,protreg", NULL);
+ 		if (!prop)
+ 			continue;
+-- 
+2.47.2
+

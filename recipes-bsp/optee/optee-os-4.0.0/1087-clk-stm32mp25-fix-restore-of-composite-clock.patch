@@ -1,0 +1,77 @@
+From 6dadc1ec8e2bb67c9d68eefc56406880c3a2acda Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 17 Sep 2024 11:37:02 +0200
+Subject: [PATCH 1087/1695] clk: stm32mp25: fix restore of composite clock
+
+Use clk_get_rate() to avoid having a null frequency if the
+child clock was registered before the parent clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 07086a97be49f05d621925a88c1b90ae7bb97d2e clk: stm32mp25: fix restore of composite clock]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I4c0bc0d567726048c4a5b47ba1cbc0e887be6956
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/404880
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 49ed6a391..40bf0c587 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -2407,6 +2407,18 @@ static TEE_Result clk_stm32_msi_set_rate(struct clk *clk __unused,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result __maybe_unused clk_stm32_pm_save_rate(struct clk *clk)
++{
++	/*
++	 * Update the frequency in the clock framework in case this clock is
++	 * registered before its parent.
++	 */
++
++	clk->rate = clk_get_rate(clk);
++
++	return TEE_SUCCESS;
++}
++
+ static void __maybe_unused clk_stm32_osc_msi_pm_restore(struct clk *clk)
+ {
+ 	if (!stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
+@@ -2424,6 +2436,7 @@ static const struct clk_ops clk_stm32_oscillator_msi_ops = {
+ 	.is_enabled	= clk_stm32_gate_is_enabled,
+ 	.get_rate	= clk_stm32_msi_get_rate,
+ 	.set_rate	= clk_stm32_msi_set_rate,
++	.save_context	= clk_stm32_pm_save_rate,
+ 	.restore_context = clk_stm32_osc_msi_pm_restore,
+ };
+ 
+@@ -2448,6 +2461,7 @@ static void __maybe_unused clk_stm32_hse_div_pm_restore(struct clk *clk)
+ static const struct clk_ops clk_stm32_hse_div_ops = {
+ 	.get_rate = clk_stm32_divider_get_rate,
+ 	.set_rate = clk_stm32_hse_div_set_rate,
++	.save_context = clk_stm32_pm_save_rate,
+ 	.restore_context = clk_stm32_hse_div_pm_restore,
+ };
+ 
+@@ -2981,6 +2995,7 @@ static const struct clk_ops clk_stm32_flexgen_ops = {
+ 	.disable	= clk_stm32_flexgen_disable,
+ 	.is_enabled	= clk_stm32_flexgen_is_enabled,
+ 	.round_rate	= clk_stm32_flexgen_round_rate,
++	.save_context	= clk_stm32_pm_save_rate,
+ 	.restore_context = clk_stm32_flexgen_pm_restore,
+ };
+ 
+@@ -3222,6 +3237,7 @@ static const struct clk_ops clk_stm32_rif_composite_ops = {
+ 	.enable		= clk_stm32_rif_composite_gate_enable,
+ 	.disable	= clk_stm32_rif_composite_gate_disable,
+ 	.is_enabled	= clk_stm32_rif_composite_gate_is_enabled,
++	.save_context	= clk_stm32_pm_save_rate,
+ 	.restore_context = clk_stm32_rif_composite_pm_restore,
+ };
+ 
+-- 
+2.47.2
+

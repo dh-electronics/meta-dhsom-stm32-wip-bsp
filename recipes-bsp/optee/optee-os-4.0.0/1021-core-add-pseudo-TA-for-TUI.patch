@@ -1,0 +1,783 @@
+From 38b9eb8b0d108ab2af6caf1dc79dd6f9867d91b0 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Tue, 2 Nov 2021 11:40:46 +0100
+Subject: [PATCH 1021/1695] core: add pseudo TA for TUI
+
+Adds a pseudo TA implementing Trusted UI. Routines for display and input
+handling need to be implemented by platform specific code.
+
+This change was picked from [1] and updated to match latest
+OP-TEE OS coding style.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5ded782417d0b4bfd76f99aebc9561864b0bec36 core: add pseudo TA for TUI]
+Link: [1] https://github.com/jenswi-linaro/optee_os/tree/tui-old2
+Co-developped-by: Jens Wiklander <jens.wiklander@linaro.org>
+Signed-off-by: Jens Wiklander <jens.wiklander@linaro.org>
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: I900834f40c23dfeeb9cfc41efefc529cc4c5d323
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391773
+Tested-by: Yannick FERTRE <yannick.fertre@foss.st.com>
+Domain-Review: Yannick FERTRE <yannick.fertre@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Yannick FERTRE <yannick.fertre@foss.st.com>
+---
+ core/arch/arm/tee/sub.mk     |   1 +
+ core/arch/arm/tee/tui.c      | 157 ++++++++++++++++++++++++++
+ core/core.mk                 |  17 +++
+ core/include/tee/tui.h       |  51 +++++++++
+ core/kernel/tee_ta_manager.c |   2 +
+ core/pta/sub.mk              |   3 +-
+ core/pta/tui.c               | 213 +++++++++++++++++++++++++++++++++++
+ core/tee/sub.mk              |   1 +
+ core/tee/tee_svc.c           |  15 +++
+ core/tee/tui.c               | 177 +++++++++++++++++++++++++++++
+ 10 files changed, 636 insertions(+), 1 deletion(-)
+ create mode 100644 core/arch/arm/tee/tui.c
+ create mode 100644 core/include/tee/tui.h
+ create mode 100644 core/pta/tui.c
+ create mode 100644 core/tee/tui.c
+
+diff --git a/core/arch/arm/tee/sub.mk b/core/arch/arm/tee/sub.mk
+index 5523b3b94..3c1b7bf03 100644
+--- a/core/arch/arm/tee/sub.mk
++++ b/core/arch/arm/tee/sub.mk
+@@ -6,3 +6,4 @@ srcs-y += entry_fast.c
+ cppflags-entry_fast.c-y += -DTEE_IMPL_GIT_SHA1=$(TEE_IMPL_GIT_SHA1)
+ endif
+ srcs-y += cache.c
++srcs-$(CFG_WITH_TUI) += tui.c
+diff --git a/core/arch/arm/tee/tui.c b/core/arch/arm/tee/tui.c
+new file mode 100644
+index 000000000..fc2262db8
+--- /dev/null
++++ b/core/arch/arm/tee/tui.c
+@@ -0,0 +1,157 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2016-2021, Linaro Limited
++ */
++#include <kernel/spinlock.h>
++#include <kernel/tee_ta_manager.h>
++#include <kernel/tee_time.h>
++#include <kernel/thread.h>
++#include <kernel/user_mode_ctx.h>
++#include <types_ext.h>
++#include <tee_api_types.h>
++#include <tee/tui.h>
++#include <utee_defines.h>
++
++#define TUI_INPUT_BUFFER_SIZE	16
++
++/**
++ * struct tui_input - Trusted UI input state
++ *
++ * @lock - Lock changes
++ * @queue - Array of possible input events location in TUI
++ * @write_pos
++ * @read_pos
++ */
++struct tui_input {
++	unsigned int lock;
++	struct {
++		int16_t key;
++		uint16_t x;
++		uint16_t y;
++	} queue[TUI_INPUT_BUFFER_SIZE];
++	size_t write_pos;
++	size_t read_pos;
++};
++
++struct tui_input tui_input = {
++	.lock = SPINLOCK_UNLOCK,
++	.read_pos = TUI_INPUT_BUFFER_SIZE,
++};
++
++TEE_Result tui_input_enable(void)
++{
++	uint32_t exceptions = cpu_spin_lock_xsave(&tui_input.lock);
++
++	tui_input.read_pos = tui_input.write_pos;
++
++	cpu_spin_unlock_xrestore(&tui_input.lock, exceptions);
++
++	return TEE_SUCCESS;
++}
++
++void tui_input_disable(void)
++{
++	uint32_t exceptions = cpu_spin_lock_xsave(&tui_input.lock);
++
++	tui_input.read_pos = TUI_INPUT_BUFFER_SIZE;
++
++	cpu_spin_unlock_xrestore(&tui_input.lock, exceptions);
++}
++
++static size_t next_pos(size_t pos)
++{
++	return (pos + 1) % TUI_INPUT_BUFFER_SIZE;
++}
++
++TEE_Result tui_input_get(struct ts_session *s, size_t timeout,
++			 bool *is_timedout, bool *is_key,
++			 uint32_t *key, size_t *xpos, size_t *ypos)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint32_t exceptions = 0;
++	TEE_Time cur_time = { };
++	TEE_Time base_time = { };
++	TEE_Time timeout_time = {
++		.seconds = timeout / TEE_TIME_MILLIS_BASE,
++		.millis = timeout % TEE_TIME_MILLIS_BASE,
++	};
++
++	res = tee_time_get_sys_time(&base_time);
++	if (res)
++		return res;
++	cur_time = base_time;
++	TEE_TIME_ADD(timeout_time, base_time, timeout_time);
++
++	exceptions = cpu_spin_lock_xsave(&tui_input.lock);
++
++	if (tui_input.read_pos >= TUI_INPUT_BUFFER_SIZE) {
++		/* Input cancelled or not enabled */
++		res = TEE_ERROR_EXTERNAL_CANCEL;
++		goto out;
++	}
++
++	while (tui_input.read_pos == tui_input.write_pos &&
++	       TEE_TIME_LT(cur_time, timeout_time)) {
++		cpu_spin_unlock_xrestore(&tui_input.lock, exceptions);
++
++		/*
++		 * Will take eventual interrupt(s) here.
++		 */
++
++		res = tee_time_get_sys_time(&cur_time);
++		if (res)
++			return res;
++
++		res = tui_get_time_to_session_timeout(s, &cur_time, NULL);
++		if (res)
++			return res;
++
++		if (tee_ta_session_is_cancelled(to_ta_session(s), &cur_time))
++			return TEE_ERROR_CANCEL;
++
++		exceptions = cpu_spin_lock_xsave(&tui_input.lock);
++	}
++
++	if (tui_input.read_pos >= TUI_INPUT_BUFFER_SIZE) {
++		/* Input cancelled or not enabled */
++		res = TEE_ERROR_EXTERNAL_CANCEL;
++		goto out;
++	}
++
++	if (res == TEE_SUCCESS) {
++		if (TEE_TIME_LT(cur_time, timeout_time)) {
++			*is_timedout = false;
++			*is_key = !!tui_input.queue[tui_input.read_pos].key;
++			*key = tui_input.queue[tui_input.read_pos].key;
++			*xpos = tui_input.queue[tui_input.read_pos].x;
++			*ypos = tui_input.queue[tui_input.read_pos].y;
++			tui_input.read_pos = next_pos(tui_input.read_pos);
++		} else {
++			*is_timedout = true;
++			*is_key = false;
++			*key = 0;
++			*xpos = 0;
++			*ypos = 0;
++		}
++	}
++
++out:
++	cpu_spin_unlock_xrestore(&tui_input.lock, exceptions);
++
++	return res;
++}
++
++void tui_async_input(uint16_t key, uint16_t x, uint16_t y)
++{
++	uint32_t exceptions = cpu_spin_lock_xsave(&tui_input.lock);
++
++	if (tui_input.read_pos < TUI_INPUT_BUFFER_SIZE &&
++	    next_pos(tui_input.write_pos) != tui_input.read_pos) {
++		tui_input.queue[tui_input.write_pos].key = key;
++		tui_input.queue[tui_input.write_pos].x = x;
++		tui_input.queue[tui_input.write_pos].y = y;
++		tui_input.write_pos = next_pos(tui_input.write_pos);
++	}
++
++	cpu_spin_unlock_xrestore(&tui_input.lock, exceptions);
++}
+diff --git a/core/core.mk b/core/core.mk
+index b023e46ac..8af1092f4 100644
+--- a/core/core.mk
++++ b/core/core.mk
+@@ -17,6 +17,23 @@ PLATFORM_FLAVOR_$(PLATFORM_FLAVOR) := y
+ $(eval $(call cfg-depends-all,CFG_PAGED_USER_TA,CFG_WITH_PAGER CFG_WITH_USER_TA))
+ include core/crypto.mk
+ 
++ifeq ($(CFG_WITH_TUI),y)
++ifneq ($(CFG_FRAME_BUFFER),y)
++(warning: disabling CFG_WITH_TUI due to missing CFG_FRAME_BUFFER)
++CFG_WITH_TUI :=
++ifeq ($(CFG_WITH_TUI),y)
++$(error error: can't disable CFG_WITH_TUI)
++endif
++endif
++ifneq ($(CFG_DISPLAY),y)
++$(warning warning: disabling CFG_WITH_TUI due to missing CFG_DISPLAY)
++CFG_WITH_TUI :=
++ifeq ($(CFG_WITH_TUI),y)
++$(error error: can't disable CFG_WITH_TUI)
++endif
++endif
++endif
++
+ ifeq ($(CFG_SCMI_SCPFW),y)
+ include core/lib/scmi-server/conf.mk
+ endif
+diff --git a/core/include/tee/tui.h b/core/include/tee/tui.h
+new file mode 100644
+index 000000000..1385908c5
+--- /dev/null
++++ b/core/include/tee/tui.h
+@@ -0,0 +1,51 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2016-2021, Linaro Limited
++ */
++
++#ifndef __TEE__TUI_H
++#define __TEE__TUI_H
++
++#include <kernel/user_mode_ctx.h>
++#include <tee_api_types.h>
++#include <tee_tui_api_types.h>
++
++/* TUI session timeout in milliseconds */
++#define TUI_SESSION_TIMEOUT		10000
++
++#define TUI_PROP_SECURITY_INDICATOR	0
++
++struct tee_ta_session;
++
++#ifdef CFG_WITH_TUI
++TEE_Result tui_init_session(struct ts_session *s);
++
++TEE_Result tui_set_session_busy(struct ts_session *s);
++
++TEE_Result tui_clear_session_busy(struct ts_session *s);
++
++TEE_Result tui_close_session(struct ts_session *s);
++
++TEE_Result tui_get_time_to_session_timeout(struct ts_session *s,
++					   const TEE_Time *current_time,
++					   uint32_t *millis);
++
++TEE_Result tui_input_enable(void);
++void tui_input_disable(void);
++void tui_async_input(uint16_t key, uint16_t x, uint16_t y);
++TEE_Result tui_input_get(struct ts_session *s, size_t timeout,
++			 bool *is_timedout, bool *is_key,
++			 uint32_t *key, size_t *xpos, size_t *ypos);
++
++#else
++static inline void tui_async_input(uint16_t key __unused, uint16_t x __unused,
++				   uint16_t y __unused)
++{
++}
++
++static inline TEE_Result tui_close_session(struct ts_session *s __unused)
++{
++	return TEE_SUCCESS;
++}
++#endif
++#endif /*__TEE__TUI_H*/
+diff --git a/core/kernel/tee_ta_manager.c b/core/kernel/tee_ta_manager.c
+index 6117c3a01..cb180d433 100644
+--- a/core/kernel/tee_ta_manager.c
++++ b/core/kernel/tee_ta_manager.c
+@@ -30,6 +30,7 @@
+ #include <tee/tee_obj.h>
+ #include <tee/tee_svc_cryp.h>
+ #include <tee/tee_svc_storage.h>
++#include <tee/tui.h>
+ #include <trace.h>
+ #include <types_ext.h>
+ #include <user_ta_header.h>
+@@ -309,6 +310,7 @@ static void destroy_session(struct tee_ta_session *s,
+ 	}
+ #endif
+ 
++	tui_close_session(&s->ts_sess);
+ 	tee_ta_unlink_session(s, open_sessions);
+ #if defined(CFG_TA_GPROF_SUPPORT)
+ 	free(s->ts_sess.sbuf);
+diff --git a/core/pta/sub.mk b/core/pta/sub.mk
+index cf8e86298..2de3f8820 100644
+--- a/core/pta/sub.mk
++++ b/core/pta/sub.mk
+@@ -14,6 +14,7 @@ srcs-$(CFG_APDU_PTA) += apdu.c
+ srcs-$(CFG_SCMI_PTA) += scmi.c
+ srcs-$(CFG_HWRNG_PTA) += hwrng.c
+ srcs-$(CFG_RTC_PTA) += rtc.c
++srcs-$(CFG_WITH_TUI) += tui.c
+ 
+ subdirs-y += bcm
+ subdirs-y += stm32mp
+@@ -27,4 +28,4 @@ depends-rproc_pub_key = $(RPROC_SIGN_KEY) scripts/pem_to_pub_c.py
+ recipe-rproc_pub_key = $(PYTHON3) scripts/pem_to_pub_c.py \
+ 	--prefix rproc_pub_key --key $(RPROC_SIGN_KEY)    \
+ 	--out $(sub-dir-out)/rproc_pub_key.c
+-endif
+\ No newline at end of file
++endif
+diff --git a/core/pta/tui.c b/core/pta/tui.c
+new file mode 100644
+index 000000000..8c01be81d
+--- /dev/null
++++ b/core/pta/tui.c
+@@ -0,0 +1,213 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2016-2021, Linaro Limited
++ */
++
++#include <kernel/pseudo_ta.h>
++#include <kernel/user_mode_ctx.h>
++#include <pta_tui.h>
++#include <tee/tui.h>
++#include <drivers/frame_buffer.h>
++#include <display.h>
++#include <assert.h>
++
++static TEE_Result taf_get_screen_info(struct ts_session *s __unused,
++				      uint32_t param_types,
++				      TEE_Param params[TEE_NUM_PARAMS])
++{
++	struct frame_buffer *fb;
++	uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_OUTPUT,
++					  TEE_PARAM_TYPE_VALUE_OUTPUT,
++					  TEE_PARAM_TYPE_VALUE_OUTPUT,
++					  TEE_PARAM_TYPE_NONE);
++
++	if (exp_pt != param_types)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	fb = display_get_frame_buffer();
++	params[0].value.a = fb->width;
++	params[0].value.b = fb->height;
++	params[1].value.a = fb->width_dpi;
++	params[1].value.b = fb->height_dpi;
++	COMPILE_TIME_ASSERT(PTA_TUI_SCREEN_24BPP == FB_24BPP);
++	params[2].value.a = fb->bpp;
++	return TEE_SUCCESS;
++}
++
++static TEE_Result taf_init_session(struct ts_session *s,
++				   uint32_t param_types,
++				   TEE_Param params[TEE_NUM_PARAMS] __unused)
++{
++	TEE_Result res;
++	uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_NONE,
++					  TEE_PARAM_TYPE_NONE,
++					  TEE_PARAM_TYPE_NONE,
++					  TEE_PARAM_TYPE_NONE);
++
++	if (exp_pt != param_types)
++		return TEE_ERROR_BAD_PARAMETERS;
++	res = tui_init_session(s);
++	if (res == TEE_SUCCESS)
++		tui_clear_session_busy(s);
++	return res;
++}
++
++static TEE_Result taf_close_session(struct ts_session *s,
++				    uint32_t param_types,
++				    TEE_Param params[TEE_NUM_PARAMS] __unused)
++{
++	uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_NONE,
++					  TEE_PARAM_TYPE_NONE,
++					  TEE_PARAM_TYPE_NONE,
++					  TEE_PARAM_TYPE_NONE);
++
++	if (exp_pt != param_types)
++		return TEE_ERROR_BAD_PARAMETERS;
++	return tui_close_session(s);
++}
++
++static TEE_Result taf_init_screen(struct ts_session *s,
++				  uint32_t param_types,
++				  TEE_Param params[TEE_NUM_PARAMS])
++{
++	TEE_Result res;
++	struct frame_buffer *fb;
++	uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++					  TEE_PARAM_TYPE_NONE,
++					  TEE_PARAM_TYPE_NONE,
++					  TEE_PARAM_TYPE_NONE);
++
++	if (exp_pt != param_types)
++		return TEE_ERROR_BAD_PARAMETERS;
++	res = tui_set_session_busy(s);
++	if (res != TEE_SUCCESS)
++		return res;
++	fb = display_get_frame_buffer();
++	frame_buffer_clear(fb, params[0].value.a);
++	tui_clear_session_busy(s);
++	return TEE_SUCCESS;
++}
++
++static TEE_Result taf_set_screen_image(struct ts_session *s,
++				       uint32_t param_types,
++				       TEE_Param params[TEE_NUM_PARAMS])
++{
++	TEE_Result res;
++	struct frame_buffer *fb;
++	uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++					  TEE_PARAM_TYPE_VALUE_INPUT,
++					  TEE_PARAM_TYPE_MEMREF_INPUT,
++					  TEE_PARAM_TYPE_NONE);
++
++	if (exp_pt != param_types || !params[2].memref.buffer)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	fb = display_get_frame_buffer();
++	if (params[2].memref.size !=
++	    frame_buffer_get_image_size(fb, params[1].value.a,
++					params[1].value.b))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	res = tui_set_session_busy(s);
++	if (res != TEE_SUCCESS)
++		return res;
++
++	frame_buffer_set_image(fb, params[0].value.a, params[0].value.b,
++			       params[1].value.a, params[1].value.b,
++			       params[2].memref.buffer);
++
++	tui_clear_session_busy(s);
++	return TEE_SUCCESS;
++}
++
++static TEE_Result taf_display_screen(struct ts_session *s,
++				     uint32_t param_types,
++				     TEE_Param params[TEE_NUM_PARAMS])
++{
++	TEE_Result res;
++	bool clear_input;
++	bool is_key;
++	bool is_timedout;
++	size_t timeout;
++	uint32_t key;
++	size_t xpos;
++	size_t ypos;
++	uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++					  TEE_PARAM_TYPE_VALUE_OUTPUT,
++					  TEE_PARAM_TYPE_VALUE_OUTPUT,
++					  TEE_PARAM_TYPE_VALUE_OUTPUT);
++
++	if (exp_pt != param_types)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	res = tui_set_session_busy(s);
++	if (res != TEE_SUCCESS)
++		return res;
++
++	clear_input = params[0].value.a;
++	timeout = params[0].value.b;
++
++	if (clear_input)
++		tui_input_enable();
++
++	res = tui_input_get(s, timeout, &is_timedout,
++			    &is_key, &key, &xpos, &ypos);
++
++	params[1].value.a = is_timedout;
++	params[2].value.a = is_key;
++	params[2].value.b = key;
++	params[3].value.a = xpos;
++	params[3].value.b = ypos;
++	tui_clear_session_busy(s);
++	return res;
++}
++
++typedef TEE_Result (*ta_func)(struct ts_session *s, uint32_t param_types,
++			      TEE_Param params[TEE_NUM_PARAMS]);
++
++static const ta_func ta_funcs[] = {
++	[PTA_TUI_GET_SCREEN_INFO] = taf_get_screen_info,
++	[PTA_TUI_INIT_SESSION] = taf_init_session,
++	[PTA_TUI_CLOSE_SESSION] = taf_close_session,
++	[PTA_TUI_INIT_SCREEN] = taf_init_screen,
++	[PTA_TUI_SET_SCREEN_IMAGE] = taf_set_screen_image,
++	[PTA_TUI_DISPLAY_SCREEN] = taf_display_screen,
++};
++
++static TEE_Result open_session(uint32_t param_types __unused,
++			       TEE_Param pParams[TEE_NUM_PARAMS] __unused,
++			       void **sess_ctx __unused)
++{
++	struct ts_session *s = NULL;
++
++	/* Check that we're called from a TA */
++	s = ts_get_calling_session();
++	if (!s)
++		return TEE_ERROR_ACCESS_DENIED;
++	if (!is_user_ta_ctx(s->ctx))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	return TEE_SUCCESS;
++}
++
++static void close_session(void *sess_ctx __unused)
++{
++}
++
++static TEE_Result invoke_command(void *sess_ctx __unused, uint32_t cmd_id,
++				 uint32_t param_types,
++				 TEE_Param params[TEE_NUM_PARAMS])
++{
++	struct ts_session *s = ts_get_calling_session();
++
++	if (cmd_id < ARRAY_SIZE(ta_funcs) && ta_funcs[cmd_id])
++		return ta_funcs[cmd_id](s, param_types, params);
++
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++pseudo_ta_register(.uuid = PTA_TUI_UUID, .name = "tui",
++		   .flags = PTA_DEFAULT_FLAGS,
++		   .open_session_entry_point = open_session,
++		   .close_session_entry_point = close_session,
++		   .invoke_command_entry_point = invoke_command);
+diff --git a/core/tee/sub.mk b/core/tee/sub.mk
+index 908f44cdc..1cd2d9928 100644
+--- a/core/tee/sub.mk
++++ b/core/tee/sub.mk
+@@ -50,3 +50,4 @@ endif
+ 
+ srcs-y += uuid.c
+ srcs-y += tee_supp_plugin_rpc.c
++srcs-$(CFG_WITH_TUI) += tui.c
+diff --git a/core/tee/tee_svc.c b/core/tee/tee_svc.c
+index 237a27de9..f573206ca 100644
+--- a/core/tee/tee_svc.c
++++ b/core/tee/tee_svc.c
+@@ -22,6 +22,7 @@
+ #include <tee_api_types.h>
+ #include <tee/tee_cryp_utl.h>
+ #include <tee/tee_svc.h>
++#include <tee/tui.h>
+ #include <trace.h>
+ #include <user_ta_header.h>
+ #include <utee_types.h>
+@@ -393,6 +394,20 @@ const struct tee_props tee_propset_tee[] = {
+ 	}
+ #endif
+ 
++#ifdef CFG_WITH_TUI
++	{
++		.name = "gpd.tee.tui.securityIndicator",
++		.prop_type = USER_TA_PROP_TYPE_BOOL,
++		.data = &(uint32_t){ TUI_PROP_SECURITY_INDICATOR },
++		.len = sizeof(uint32_t)
++	},
++	{
++		.name = "gpd.tee.tui.session.timeout",
++		.prop_type = USER_TA_PROP_TYPE_U32,
++		.data = &(const uint32_t){ TUI_SESSION_TIMEOUT },
++		.len = sizeof(uint32_t)
++	},
++#endif
+ 	/*
+ 	 * Following properties are processed directly in libutee:
+ 	 *	gpd.tee.arith.maxBigIntSize
+diff --git a/core/tee/tui.c b/core/tee/tui.c
+new file mode 100644
+index 000000000..363bf82dc
+--- /dev/null
++++ b/core/tee/tui.c
+@@ -0,0 +1,177 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2016-2021, Linaro Limited
++ */
++
++#include <tee/tui.h>
++#include <kernel/mutex.h>
++#include <kernel/tee_ta_manager.h>
++#include <kernel/tee_time.h>
++#include <display.h>
++#include <utee_defines.h>
++
++static struct {
++	struct mutex mu; /* Use to lock tui session */
++	void *s;
++	void *ctx;
++	bool busy;
++	TEE_Time timeout_time;
++} tui_sess = { .mu = MUTEX_INITIALIZER };
++
++TEE_Result tui_init_session(struct ts_session *s)
++{
++	TEE_Result res;
++	TEE_Time t;
++	const TEE_Time timeout = {
++		.seconds = TUI_SESSION_TIMEOUT / TEE_TIME_MILLIS_BASE,
++		.millis = TUI_SESSION_TIMEOUT % TEE_TIME_MILLIS_BASE,
++	};
++
++	res = tee_time_get_sys_time(&t);
++	if (res != TEE_SUCCESS)
++		return res;
++
++	mutex_lock(&tui_sess.mu);
++
++	if (tui_sess.s && tui_sess.s != s && !tui_sess.busy &&
++	    TEE_TIME_LE(t, tui_sess.timeout_time)) {
++		/*
++		 * There's a current session and it's either busy of hasn't
++		 * timed out yet.
++		 */
++		res = TEE_ERROR_BUSY;
++		goto out;
++	}
++
++	tui_sess.busy = true;
++	TEE_TIME_ADD(t, timeout, tui_sess.timeout_time);
++	tui_sess.s = s;
++	/*
++	 * We may only dereference sess if our thread is
++	 * using sess so save the context pointer for later
++	 * use here.
++	 */
++	tui_sess.ctx = s->ctx;
++out:
++	mutex_unlock(&tui_sess.mu);
++	if (res == TEE_SUCCESS)
++		display_init();
++	return res;
++}
++
++static TEE_Result time_to_session_timeout_unlocked(struct ts_session *s,
++						   const TEE_Time *current_time,
++						   uint32_t *millis)
++{
++	TEE_Result res = TEE_SUCCESS;
++	TEE_Time t;
++	const TEE_Time *ct = current_time;
++
++	if (tui_sess.s != s)
++		return TEE_ERROR_BUSY;
++
++	if (!ct) {
++		res = tee_time_get_sys_time(&t);
++		if (res != TEE_SUCCESS)
++			return res;
++		ct = &t;
++	}
++
++	if (TEE_TIME_LE(tui_sess.timeout_time, *ct))
++		return TEE_ERROR_BAD_STATE;
++
++	if (millis) {
++		TEE_TIME_SUB(*ct, tui_sess.timeout_time, t);
++		*millis = t.seconds * TEE_TIME_MILLIS_BASE + t.millis;
++
++		/*
++		 * Check if it wrapped ("can't happen"), "bad state" is the
++		 * best we can return then.
++		 */
++		if ((*millis) / TEE_TIME_MILLIS_BASE < t.seconds)
++			res = TEE_ERROR_BAD_STATE;
++	}
++
++	return res;
++}
++
++TEE_Result tui_get_time_to_session_timeout(struct ts_session *s,
++					   const TEE_Time *current_time,
++					   uint32_t *millis)
++{
++	TEE_Result res;
++
++	mutex_lock(&tui_sess.mu);
++	res = time_to_session_timeout_unlocked(s, current_time, millis);
++	mutex_unlock(&tui_sess.mu);
++	return res;
++}
++
++TEE_Result tui_set_session_busy(struct ts_session *s)
++{
++	TEE_Result res;
++	TEE_Time t;
++	const TEE_Time timeout = {
++		.seconds = TUI_SESSION_TIMEOUT / TEE_TIME_MILLIS_BASE,
++		.millis = TUI_SESSION_TIMEOUT % TEE_TIME_MILLIS_BASE,
++	};
++
++	res = tee_time_get_sys_time(&t);
++	if (res != TEE_SUCCESS)
++		return res;
++
++	mutex_lock(&tui_sess.mu);
++	res = time_to_session_timeout_unlocked(s, &t, NULL);
++	if (res == TEE_SUCCESS) {
++		TEE_TIME_ADD(t, timeout, tui_sess.timeout_time);
++		tui_sess.busy = true;
++	}
++	mutex_unlock(&tui_sess.mu);
++	return res;
++}
++
++TEE_Result tui_clear_session_busy(struct ts_session *s)
++{
++	TEE_Result res = TEE_ERROR_BAD_STATE;
++
++	mutex_lock(&tui_sess.mu);
++	if (tui_sess.s == s) {
++		tui_sess.busy = false;
++		res = TEE_SUCCESS;
++	}
++	mutex_unlock(&tui_sess.mu);
++	return res;
++}
++
++TEE_Result tui_close_session(struct ts_session *s)
++{
++	TEE_Result res = TEE_SUCCESS;
++
++	mutex_lock(&tui_sess.mu);
++	if (s != tui_sess.s) {
++		/*
++		 * TEE_ERROR_BUSY: If the TUI resources are currently in
++		 * use, i.e. a TUI screen is displayed. This error code can
++		 * only be returned by a TEE implementation supporting
++		 * multi-threading within a TA and will occur when a thread
++		 * tries to close a TUI session that is displaying a TUI
++		 * screen in another thread.
++		 */
++		if (s->ctx == tui_sess.ctx)
++			res = TEE_ERROR_BUSY;
++		else
++			res = TEE_ERROR_BAD_STATE;
++	}
++	mutex_unlock(&tui_sess.mu);
++
++	if (res != TEE_SUCCESS)
++		return res;
++
++	display_final();
++	tui_input_disable();
++	mutex_lock(&tui_sess.mu);
++	tui_sess.s = NULL;
++	tui_sess.ctx = NULL;
++	mutex_unlock(&tui_sess.mu);
++	return TEE_SUCCESS;
++}
+-- 
+2.47.2
+

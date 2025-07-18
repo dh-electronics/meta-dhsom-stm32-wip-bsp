@@ -1,0 +1,59 @@
+From 8bdf2113efa4355885f923c74846d096248b9894 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Thu, 16 May 2024 11:37:58 +0200
+Subject: [PATCH 0884/1695] core: scmi-server: regulator: enable multiple
+ instances
+
+Add a loop to enable multiple nodes with st,scmi-regulator-consumer.
+
+Max number of nodes is set to 10.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f30b7b77159679391abf29bf8fd20302d2316488 core: scmi-server: regulator: enable multiple instances]
+Co-developed-by: Raphael Gallais-Pou <raphael.gallais-pou@foss.st.com>
+Signed-off-by: Raphael Gallais-Pou <raphael.gallais-pou@foss.st.com>
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I818f6f5a233bf8b490b0f8e988ec22af79a3c968
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/380388
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../lib/scmi-server/scmi_regulator_consumer.c | 19 ++++++++-----------
+ 1 file changed, 8 insertions(+), 11 deletions(-)
+
+diff --git a/core/lib/scmi-server/scmi_regulator_consumer.c b/core/lib/scmi-server/scmi_regulator_consumer.c
+index deb702d9f..0366c4684 100644
+--- a/core/lib/scmi-server/scmi_regulator_consumer.c
++++ b/core/lib/scmi-server/scmi_regulator_consumer.c
+@@ -135,19 +135,16 @@ TEE_Result scmi_regulator_consumer_init(void)
+ 
+ 	node = fdt_node_offset_by_compatible(fdt, node,
+ 					     "st,scmi-regulator-consumer");
+-	if (node == -FDT_ERR_NOTFOUND)
+-		return TEE_SUCCESS;
+-	if (node < 0)
+-		return TEE_ERROR_GENERIC;
+-
+-	res = init_channel(fdt, node);
+-	if (res)
+-		return res;
++	while (node >= 0) {
++		res = init_channel(fdt, node);
++		if (res)
++			return res;
++		node = fdt_node_offset_by_compatible(fdt, node,
++						"st,scmi-regulator-consumer");
++	}
+ 
+-	node = fdt_node_offset_by_compatible(fdt, node,
+-					     "st,scmi-regulator-consumer");
+ 	if (node != -FDT_ERR_NOTFOUND)
+-		panic("Too many st,scmi-regulator-consumer compatible nodes");
++		return TEE_ERROR_GENERIC;
+ 
+ 	return TEE_SUCCESS;
+ }
+-- 
+2.47.2
+

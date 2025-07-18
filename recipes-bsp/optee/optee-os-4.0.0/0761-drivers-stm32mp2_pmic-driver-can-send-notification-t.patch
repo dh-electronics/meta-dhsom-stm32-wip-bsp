@@ -1,0 +1,340 @@
+From 51965a00505aa2111f7cd261ff0ecc4d4a4e5183 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Fri, 12 Apr 2024 09:50:16 +0200
+Subject: [PATCH 0761/1695] drivers: stm32mp2_pmic: driver can send
+ notification to non secure wolrd
+
+Allow to send notifications from PMIC interruptions to the non secure
+world.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 89f6eba603629d03bdce5f2963384989cc9389f9 drivers: stm32mp2_pmic: driver can send notification to non secure wolrd]
+Change-Id: Ic71c68c019a18b52b33d885d29c5060d8e44e6dc
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373301
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../arm/plat-stm32mp2/drivers/stm32mp2_pmic.c | 68 +++++++++++++++++--
+ core/drivers/stpmic2.c                        | 42 ++++++++----
+ core/include/drivers/stpmic2.h                | 35 ++++------
+ core/include/dt-bindings/mfd/st,stpmic2.h     | 40 +++++++++++
+ 4 files changed, 145 insertions(+), 40 deletions(-)
+ create mode 100644 core/include/dt-bindings/mfd/st,stpmic2.h
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
+index 9a9bd6e69..8fde53f3c 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
+@@ -12,6 +12,7 @@
+ #include <kernel/boot.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
++#include <kernel/notif.h>
+ #include <kernel/panic.h>
+ #include <kernel/pm.h>
+ #include <libfdt.h>
+@@ -664,6 +665,24 @@ static TEE_Result parse_regulator_fdt_nodes(const void *fdt, int node,
+ }
+ 
+ #ifdef CFG_STM32_PWR_IRQ
++enum itr_return stpmic2_irq_callback(struct stpmic2 *pmic, uint8_t it_id)
++{
++	struct pmic_it_handle_s *prv = NULL;
++
++	FMSG("Stpmic2 it id %d", (int)it_id);
++
++	SLIST_FOREACH(prv, &pmic->it_list, link)
++		if (prv->pmic_it == it_id) {
++			FMSG("STPMIC2 send notif %u", prv->notif_id);
++
++			notif_send_it(prv->notif_id);
++
++			return ITRR_HANDLED;
++		}
++
++	return ITRR_NONE;
++}
++
+ static enum itr_return stpmic2_irq_handler(struct itr_handler *handler)
+ {
+ 	struct stpmic2 *pmic = handler->data;
+@@ -683,9 +702,13 @@ static TEE_Result initialize_pmic2_irq(const void *fdt, int node,
+ 	uint32_t phandle = 0;
+ 	int wakeup_parent_node = 0;
+ 	int len = 0;
++	const uint32_t *notif_ids = NULL;
++	int nb_notif = 0;
+ 
+ 	FMSG("Init stpmic2 irq");
+ 
++	SLIST_INIT(&pmic->it_list);
++
+ 	cuint = fdt_getprop(fdt, node, "wakeup-parent", &len);
+ 	if (!cuint || len != sizeof(uint32_t))
+ 		panic("Missing wakeup-parent");
+@@ -712,12 +735,47 @@ static TEE_Result initialize_pmic2_irq(const void *fdt, int node,
+ 		stm32mp25_pwr_itr_enable(hdl->it);
+ 	}
+ 
+-	/* Enable ponkey irq */
+-	if (stpmic2_set_irq_mask(pmic, IT_PONKEY_F, false))
+-		return TEE_ERROR_GENERIC;
++	notif_ids = fdt_getprop(fdt, node, "st,notif-it-id", &nb_notif);
++	if (!notif_ids)
++		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+-	if (stpmic2_set_irq_mask(pmic, IT_PONKEY_R, false))
+-		return TEE_ERROR_GENERIC;
++	if (nb_notif > 0) {
++		struct pmic_it_handle_s *prv = NULL;
++		unsigned int i = 0;
++		const uint32_t *pmic_its = NULL;
++		int nb_it = 0;
++
++		pmic_its = fdt_getprop(fdt, node, "st,pmic-it-id", &nb_it);
++		if (!pmic_its)
++			return TEE_ERROR_ITEM_NOT_FOUND;
++
++		if (nb_it != nb_notif)
++			panic("st,notif-it-id incorrect description");
++
++		for (i = 0; i < (nb_notif / sizeof(uint32_t)); i++) {
++			uint8_t pmic_it = 0;
++
++			prv = calloc(1, sizeof(*prv));
++			if (!prv)
++				panic("pmic: Could not allocate pmic it");
++
++			pmic_it = fdt32_to_cpu(pmic_its[i]);
++
++			assert(pmic_it <= IT_LDO8_OCP);
++
++			prv->pmic_it = pmic_it;
++			prv->notif_id = fdt32_to_cpu(notif_ids[i]);
++
++			SLIST_INSERT_HEAD(&pmic->it_list, prv, link);
++
++			/* Enable requested interrupt */
++			if (stpmic2_set_irq_mask(pmic, pmic_it, false))
++				return TEE_ERROR_GENERIC;
++
++			FMSG("STPMIC2 forwards pmic_it:%u as notif:%u",
++			     prv->pmic_it, prv->notif_id);
++		}
++	}
+ 
+ 	/* Unmask all over-current interrupts */
+ 	if (stpmic2_register_write(pmic, INT_MASK_R3, 0x00))
+diff --git a/core/drivers/stpmic2.c b/core/drivers/stpmic2.c
+index 0647b11c7..ac78cb21a 100644
+--- a/core/drivers/stpmic2.c
++++ b/core/drivers/stpmic2.c
+@@ -603,6 +603,7 @@ TEE_Result stpmic2_lp_set_voltage(struct stpmic2 *pmic, uint8_t id, uint16_t mv)
+  * Interrupt handling
+  *
+  */
++ #ifdef CFG_STM32_PWR_IRQ
+ TEE_Result stpmic2_set_irq_mask(struct stpmic2 *pmic, uint8_t num, bool state)
+ {
+ 	uint8_t reg = INT_MASK_R1 + num / 8;
+@@ -620,49 +621,60 @@ TEE_Result stpmic2_irq_gen(struct stpmic2 *pmic, uint8_t num)
+ 	return stpmic2_register_update(pmic, reg, mask, mask);
+ }
+ 
+-static void stpmic2_handle_ocp(struct stpmic2 *pmic, uint8_t reg_index,
+-			       uint8_t val)
++static void stpmic2_handle_irq_reg(struct stpmic2 *pmic,
++				   uint8_t reg_index, uint8_t val)
+ {
+-	unsigned int i = 0;
++	int i = 0;
+ 
+ 	for (i = 0; i < 7; i++) {
+ 		if (val & BIT(i)) {
+-			uint8_t id = (reg_index - 2) * 8 + i;
++			uint8_t it_id = reg_index * U(8) + i;
++			enum itr_return res;
+ 
+-			EMSG("Overcurrent detected on %s, disable regulator",
+-			     regul_table[id].name);
++			res = stpmic2_irq_callback(pmic, it_id);
+ 
+-			stpmic2_regulator_set_state(pmic, id, false);
+-			panic();
++			/* handle over-current protection */
++			if (res != ITRR_HANDLED && it_id >= IT_BUCK1_OCP) {
++				uint8_t regu_id = (reg_index - U(2)) * U(8) + i;
++
++				EMSG("Overcurrent on %s, disable regulator",
++				     regul_table[regu_id].name);
++
++				stpmic2_regulator_set_state(pmic, regu_id,
++							    false);
++				panic();
++			}
+ 		}
+ 	}
+ }
+ 
+ int stpmic2_handle_irq(struct stpmic2 *pmic)
+ {
+-	uint8_t read_val = 0;
++	uint8_t read_val = U(0);
+ 	int i = 0;
+ 
+ 	FMSG("Stpmic2 irq handler");
+ 
+ 	for (i = 0; i < 4; i++) {
+-		if (stpmic2_register_read(pmic, INT_PENDING_R1 + i, &read_val))
++		if (stpmic2_register_read(pmic, INT_PENDING_R1 + i,
++					  &read_val))
+ 			panic();
+ 
+ 		if (read_val) {
+-			FMSG("Stpmic2 irq pending reg=%d %#"PRIx8, i, read_val);
++			FMSG("Stpmic2 irq pending reg=%u irq=0x%x", i,
++			     read_val);
+ 
+ 			pmic->irq_count++;
+ 
+-			/* over-current detection */
+-			if (i >= 2)
+-				stpmic2_handle_ocp(pmic, i, read_val);
++			stpmic2_handle_irq_reg(pmic, i, read_val);
+ 
+ 			if (stpmic2_register_write(pmic,  INT_CLEAR_R1 + i,
+-						   read_val))
++						   read_val)) {
+ 				panic();
++			}
+ 		}
+ 	}
+ 
+ 	return 0;
+ }
++#endif
+diff --git a/core/include/drivers/stpmic2.h b/core/include/drivers/stpmic2.h
+index 50a116768..7cf465bb9 100644
+--- a/core/include/drivers/stpmic2.h
++++ b/core/include/drivers/stpmic2.h
+@@ -6,7 +6,9 @@
+ #ifndef __DRIVERS_STPMIC2_H
+ #define __DRIVERS_STPMIC2_H
+ 
++#include <kernel/interrupt.h>
+ #include <drivers/stm32_i2c.h>
++#include <dt-bindings/mfd/st,stpmic2.h>
+ #include <util.h>
+ 
+ enum {
+@@ -244,26 +246,6 @@ enum {
+ #define FS_OCP_LDO7		BIT(6)
+ #define FS_OCP_LDO8		BIT(7)
+ 
+-/* IRQ definitions */
+-#define IT_PONKEY_F		U(0)
+-#define IT_PONKEY_R		U(1)
+-#define IT_BUCK1_OCP		U(16)
+-#define IT_BUCK2_OCP		U(17)
+-#define IT_BUCK3_OCP		U(18)
+-#define IT_BUCK4_OCP		U(19)
+-#define IT_BUCK5_OCP		U(20)
+-#define IT_BUCK6_OCP		U(21)
+-#define IT_BUCK7_OCP		U(22)
+-#define IT_REFDDR_OCP		U(23)
+-#define IT_LDO1_OCP		U(24)
+-#define IT_LDO2_OCP		U(25)
+-#define IT_LDO3_OCP		U(26)
+-#define IT_LDO4_OCP		U(27)
+-#define IT_LDO5_OCP		U(28)
+-#define IT_LDO6_OCP		U(29)
+-#define IT_LDO7_OCP		U(30)
+-#define IT_LDO8_OCP		U(31)
+-
+ enum stpmic2_prop_id {
+ 	STPMIC2_MASK_RESET = 0,
+ 	STPMIC2_PULL_DOWN,
+@@ -281,6 +263,15 @@ enum stpmic2_prop_id {
+ #define PROP_BYPASS_RESET	U(0)
+ #define PROP_BYPASS_SET		U(1)
+ 
++#ifdef CFG_STM32_PWR_IRQ
++struct pmic_it_handle_s {
++	uint8_t pmic_it;
++	uint8_t notif_id;
++
++	SLIST_ENTRY(pmic_it_handle_s) link;
++};
++#endif
++
+ /*
+  * struct stpmic2 - STPMIC2 device instance
+  */
+@@ -288,6 +279,9 @@ struct stpmic2 {
+ 	struct i2c_handle_s *pmic_i2c_handle;
+ 	uint16_t pmic_i2c_addr;
+ 	uint16_t irq_count;
++#ifdef CFG_STM32_PWR_IRQ
++	SLIST_HEAD(, pmic_it_handle_s) it_list;
++#endif
+ };
+ 
+ TEE_Result stpmic2_register_read(struct stpmic2 *pmic, uint8_t register_id,
+@@ -325,6 +319,7 @@ TEE_Result stpmic2_lp_set_voltage(struct stpmic2 *pmic, uint8_t id,
+ 				  uint16_t mv);
+ 
+ /* Interrupt Handling */
++enum itr_return stpmic2_irq_callback(struct stpmic2 *pmic, uint8_t it_id);
+ TEE_Result stpmic2_set_irq_mask(struct stpmic2 *pmic, uint8_t num, bool state);
+ TEE_Result stpmic2_irq_gen(struct stpmic2 *pmic, uint8_t num);
+ int stpmic2_handle_irq(struct stpmic2 *pmic);
+diff --git a/core/include/dt-bindings/mfd/st,stpmic2.h b/core/include/dt-bindings/mfd/st,stpmic2.h
+new file mode 100644
+index 000000000..12196b119
+--- /dev/null
++++ b/core/include/dt-bindings/mfd/st,stpmic2.h
+@@ -0,0 +1,40 @@
++/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause) */
++/*
++ * Copyright (C) STMicroelectronics 2024 - All Rights Reserved
++ */
++
++#ifndef __DT_BINDINGS_STPMIC2_H__
++#define __DT_BINDINGS_STPMIC2_H__
++
++/* IRQ definitions */
++#define IT_PKEY_FA		0
++#define IT_PKEY_RI		1
++#define IT_WKP_FA		2
++#define IT_WKP_RI		3
++#define IT_VINLOW_FA		4
++#define IT_VINLOW_RI		5
++#define IT_VBUS_FA		6
++#define IT_VBUS_RI		7
++
++#define IT_THW_FA		8
++#define IT_THW_RI		9
++
++#define IT_BUCK1_OCP		16
++#define IT_BUCK2_OCP		17
++#define IT_BUCK3_OCP		18
++#define IT_BUCK4_OCP		19
++#define IT_BUCK5_OCP		20
++#define IT_BUCK6_OCP		21
++#define IT_BUCK7_OCP		22
++#define IT_REFDDR_OCP		23
++
++#define IT_LDO1_OCP		24
++#define IT_LDO2_OCP		25
++#define IT_LDO3_OCP		26
++#define IT_LDO4_OCP		27
++#define IT_LDO5_OCP		28
++#define IT_LDO6_OCP		29
++#define IT_LDO7_OCP		30
++#define IT_LDO8_OCP		31
++
++#endif /* __DT_BINDINGS_STPMIC2_H__ */
+-- 
+2.47.2
+

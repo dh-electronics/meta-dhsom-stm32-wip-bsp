@@ -1,0 +1,190 @@
+From 0693c433875ce6938f1b0d6be4c0a65815caff57 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Thu, 7 Mar 2024 10:09:08 +0100
+Subject: [PATCH 0853/1695] core: pta: add optee mailbox user for test
+
+Device tree need to be updated to allocate 2 ipcc channel for the
+test support. the binding rif for channel is not aligned with linux
+mailbox binding and now optee mailbox binding. mailbox binding starts
+from channel 0, while rif starts from channel 1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0bfc49303b4f0f6767055acb7edb1703ef41d3ef core: pta: add optee mailbox user for test]
+Change-Id: Ieec79cd7f756a30b00a876f07c979f6f691554e1
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/365283
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/378807
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+---
+ core/pta/tests/mbox.c                  | 131 +++++++++++++++++++++++++
+ lib/libutee/include/pta_invoke_tests.h |   2 +
+ 2 files changed, 133 insertions(+)
+
+diff --git a/core/pta/tests/mbox.c b/core/pta/tests/mbox.c
+index 3b5d938dc..1109c4117 100644
+--- a/core/pta/tests/mbox.c
++++ b/core/pta/tests/mbox.c
+@@ -413,6 +413,134 @@ static TEE_Result test_send_rcv(struct mbox_desc *desc, unsigned int id,
+ 	return TEE_SUCCESS;
+ }
+ 
++#define MBOX_CLIENT_COMPAT	"st,test-mbox-cli"
++
++static struct mbox_chan *handle_receive_send;
++static struct mbox_chan *handle_send_receive;
++
++static TEE_Result test_ipcc_send_receive(int count)
++{
++	TEE_Result res = TEE_SUCCESS;
++
++	LOG("Send/receive IPCC : start");
++	if (!handle_send_receive) {
++		LOG("Send/receive IPCC : handle invalid");
++		return TEE_ERROR_BAD_STATE;
++	}
++
++	while (count > 0) {
++		res = mbox_send(handle_send_receive, false, NULL, 0);
++		if (res != TEE_SUCCESS) {
++			LOG("Send/receive IPCC : send failed");
++			return res;
++		}
++		LOG("Send/receive IPCC : send ok");
++		res = mbox_recv(handle_send_receive, true, NULL, 0);
++		if (res != TEE_SUCCESS)
++			LOG("Send/receive IPCC : received failed");
++		LOG("Send/receive IPCC : recv ok");
++		count--;
++	}
++	LOG("Send/receive IPCC : Done");
++
++	return TEE_SUCCESS;
++}
++
++static void receive_callback(void *cookie __unused)
++{
++	if (!IS_ENABLED(CFG_CORE_ASYNC_NOTIF)) {
++		TEE_Result res = mbox_recv(handle_receive_send, 0, NULL, 0);
++
++		if (res != TEE_SUCCESS)
++			panic();
++		/*  send response*/
++		res = mbox_send(handle_receive_send, 0, NULL, 0);
++		if (res != TEE_SUCCESS)
++			panic();
++	} else {
++		if (notif_async_is_started())
++			notif_send_async(NOTIF_VALUE_DO_BOTTOM_HALF);
++		else
++			panic("no bottom half");
++	}
++}
++
++static void yielding_mbox_notif(struct notif_driver *ndrv __unused,
++				enum notif_event ev)
++{
++	TEE_Result res = TEE_SUCCESS;
++
++	switch (ev) {
++	case NOTIF_EVENT_DO_BOTTOM_HALF:
++		MSG("Asynchronous notifications ongoing");
++
++		res = mbox_recv(handle_receive_send, false, NULL, 0);
++		if (res == TEE_ERROR_NO_DATA) {
++			MSG("Asynchronous notifications: No Data");
++			break;
++		}
++		if (res != TEE_SUCCESS)
++			panic();
++		/*  send response*/
++		res = mbox_send(handle_receive_send, false, NULL, 0);
++		if (res != TEE_SUCCESS)
++			panic();
++		MSG("Ack Done");
++
++		break;
++	case NOTIF_EVENT_STOPPED:
++		MSG("Asynchronous notifications stopped");
++		break;
++	default:
++		MSG("Unknown event %d", (int)ev);
++	}
++}
++
++static void atomic_mbox_notif(struct notif_driver *ndrv __unused,
++			      enum notif_event ev __maybe_unused)
++{
++	MSG("Asynchronous notifications started, event %d", (int)ev);
++}
++
++struct notif_driver mbox_notif = {
++	.atomic_cb = atomic_mbox_notif,
++	.yielding_cb = yielding_mbox_notif,
++};
++
++static TEE_Result ipcc_mailbox_test(void)
++{
++	TEE_Result res = TEE_SUCCESS;
++	void *fdt = NULL;
++	int node = 0;
++
++	fdt = get_embedded_dt();
++	node = fdt_node_offset_by_compatible(fdt, 0, MBOX_CLIENT_COMPAT);
++
++	if (node < 0)
++		/*  Test not activated in this dt configuration */
++		return TEE_SUCCESS;
++	MSG("TEST CLIENT MBOX");
++
++	if (fdt_get_status(fdt, node) == DT_STATUS_DISABLED)
++		return TEE_SUCCESS;
++	res = mbox_dt_register_chan(receive_callback, NULL, NULL, fdt, node,
++				    &handle_receive_send);
++	if (res != TEE_SUCCESS)
++		MSG("chan handle_receive_send %d", res);
++
++	notif_register_driver(&mbox_notif);
++
++	res = mbox_dt_register_chan_by_name(NULL, NULL, NULL, fdt, node,
++					    "test_client_m33",
++					    &handle_send_receive);
++	if (res != TEE_SUCCESS)
++		MSG("chan handle_send_receive %d", res);
++
++	return res;
++}
++
++driver_init_late(ipcc_mailbox_test);
++
+ struct mbox_desc *virt_mbox_desc;
+ #define CHAN_TX 0 /*  tx initiated by target */
+ #define CHAN_RX 1 /*  tx initited by copro   */
+@@ -469,6 +597,9 @@ TEE_Result core_mbox_tests(uint32_t ptypes,
+ 			return TEE_ERROR_BAD_STATE;
+ 		return test_recv_send(virt_mbox_desc, CHAN_RX, count);
+ 
++	case PTA_MBOX_TEST_IPCC_SEND_RECEIVE:
++		count = params[0].value.b;
++		return test_ipcc_send_receive(count);
+ 	default:
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 	}
+diff --git a/lib/libutee/include/pta_invoke_tests.h b/lib/libutee/include/pta_invoke_tests.h
+index 444845572..42b7327b6 100644
+--- a/lib/libutee/include/pta_invoke_tests.h
++++ b/lib/libutee/include/pta_invoke_tests.h
+@@ -139,6 +139,8 @@
+ #define PTA_MBOX_TEST_SEND_INCORRECT  8
+ /* Test invalid receive command, n */
+ #define PTA_MBOX_TEST_RECEIVE_INCORRECT  9
++/* Test with ipcc driver */
++#define PTA_MBOX_TEST_IPCC_SEND_RECEIVE 10
+ /* Launch test of mailbox */
+ #define PTA_INVOKE_TESTS_CMD_MBOX_TESTS 1000
+ #endif /*__PTA_INVOKE_TESTS_H*/
+-- 
+2.47.2
+

@@ -1,0 +1,180 @@
+From 8466c7f477e3b972b509dbcd6a684990d8ec9707 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Sun, 17 Mar 2024 12:11:06 +0100
+Subject: [PATCH 0470/1695] core: scmi-server: build in-tree SCP-firmware
+ source file tree
+
+Allow on to dump SCP-firmware source tree from OP-TEE OS local directory
+core/lib/scm-server/SCP-firmware/. When so, the build configuration
+does not need to provide the SCP-firmware source tree absolute path
+with CFG_SCP_FIRMWARE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e5655bab589ebd6e5b8b32ab13f55687c21b885e core: scmi-server: build in-tree SCP-firmware source file tree]
+Change-Id: I93aef58fb19d38d9ea8545536e3a0d5e16ff7291
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/367303
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/lib/scmi-server/sub-optee-fvp.mk      |  4 +--
+ core/lib/scmi-server/sub-optee-stm32mp1.mk |  2 +-
+ core/lib/scmi-server/sub-optee-stm32mp2.mk |  1 +
+ core/lib/scmi-server/sub.mk                | 38 +++++++++++++++-------
+ mk/config.mk                               | 15 ++++++++-
+ 5 files changed, 45 insertions(+), 15 deletions(-)
+ create mode 100644 core/lib/scmi-server/sub-optee-stm32mp2.mk
+
+diff --git a/core/lib/scmi-server/sub-optee-fvp.mk b/core/lib/scmi-server/sub-optee-fvp.mk
+index 6600a613e..c822e603b 100644
+--- a/core/lib/scmi-server/sub-optee-fvp.mk
++++ b/core/lib/scmi-server/sub-optee-fvp.mk
+@@ -1,5 +1,5 @@
+-incdirs_ext-y += $(scpfw-path)/product/optee-fvp/fw
+-incdirs_ext-y += $(scpfw-path)/product/optee-fvp/include
++scpfw-incdirs-y += $(scpfw-path)/product/optee-fvp/fw
++scpfw-incdirs-y += $(scpfw-path)/product/optee-fvp/include
+ 
+ srcs-y += $(scpfw-path)/product/optee-fvp/fw/config_clock.c
+ srcs-y += $(scpfw-path)/product/optee-fvp/fw/config_dvfs.c
+diff --git a/core/lib/scmi-server/sub-optee-stm32mp1.mk b/core/lib/scmi-server/sub-optee-stm32mp1.mk
+index b0cddd6b1..7fe512aac 100644
+--- a/core/lib/scmi-server/sub-optee-stm32mp1.mk
++++ b/core/lib/scmi-server/sub-optee-stm32mp1.mk
+@@ -1,4 +1,4 @@
+-incdirs_ext-y += $(scpfw-path)/product/optee-stm32mp1/include
++scpfw-incdirs-y += $(scpfw-path)/product/optee-stm32mp1/include
+ 
+ srcs-y += $(scpfw-path)/product/optee-stm32mp1/fw/config_mbx_smt.c
+ srcs-y += $(scpfw-path)/product/optee-stm32mp1/fw/config_scmi.c
+diff --git a/core/lib/scmi-server/sub-optee-stm32mp2.mk b/core/lib/scmi-server/sub-optee-stm32mp2.mk
+new file mode 100644
+index 000000000..39ae54277
+--- /dev/null
++++ b/core/lib/scmi-server/sub-optee-stm32mp2.mk
+@@ -0,0 +1 @@
++scpfw-incdirs-y += $(scpfw-path)/product/optee-stm32mp2/include
+diff --git a/core/lib/scmi-server/sub.mk b/core/lib/scmi-server/sub.mk
+index 4ede587f6..15834c14b 100644
+--- a/core/lib/scmi-server/sub.mk
++++ b/core/lib/scmi-server/sub.mk
+@@ -7,7 +7,14 @@
+ # The toolchain build directive must also match the list of
+ # embedded modules.
+ 
++ifeq ($(_CFG_SCP_FIRMWARE_IN_TREE),y)
++scpfw-path = SCP-firmware
++scpfw-src-path = core/lib/scmi-server/SCP-firmware
++else
+ scpfw-path = $(CFG_SCP_FIRMWARE)
++scpfw-src-path = $(CFG_SCP_FIRMWARE)
++endif
++
+ scpfw-product = $(CFG_SCMI_SCPFW_PRODUCT)
+ scpfw-out-path := $(out-dir)/$(libdir)
+ 
+@@ -38,9 +45,9 @@ endif
+ gensrcs-y += fwk_module_list
+ force-gensrc-fwk_module_list := y
+ produce-fwk_module_list = build/framework/src/fwk_module_list.c
+-recipe-fwk_module_list = cmake -S $(scpfw-path) -B $(scpfw-out-path)/build \
++recipe-fwk_module_list = cmake -S $(scpfw-src-path) -B $(scpfw-out-path)/build \
+                          $(scpfw-cmake-flags-y) --log-level=WARNING $(scpfw-cmake-redirect)
+-depends-fwk_module_list = $(scpfw-path)/product/$(scpfw-product)/fw/Firmware.cmake $(conf-file)
++depends-fwk_module_list = $(scpfw-src-path)/product/$(scpfw-product)/fw/Firmware.cmake $(conf-file)
+ # Include path of generated header file fwk_module_idx.h
+ incdirs_ext-y += $(scpfw-out-path)/build/framework/include
+ 
+@@ -48,7 +55,7 @@ cppflags-lib-y += -DBUILD_VERSION_MAJOR=$(scpfw-integ-version-maj) \
+ 		  -DBUILD_VERSION_MINOR=$(scpfw-integ-version-min) \
+ 		  -DBUILD_VERSION_PATCH=$(scpfw-integ-version-pat)
+ 
+-scpfw-impl-version := $(shell git -C $(scpfw-path) describe --tags --always --dirty=-dev 2>/dev/null || \
++scpfw-impl-version := $(shell git -C $(scpfw-src-path) describe --tags --always --dirty=-dev 2>/dev/null || \
+                       echo Unknown_$(scpfw-integ-version))
+ cppflags-lib-y += -DBUILD_VERSION_DESCRIBE_STRING=\"$(scpfw-impl-version)\"
+ 
+@@ -103,11 +110,11 @@ cppflags-lib-$(CFG_SCPFW_SENSOR_EXT_ATTRIBS) += -DBUILD_HAS_SENSOR_EXT_ATTRIBS
+ cppflags-lib-$(CFG_SCPFW_SENSOR_SIGNED_VALUE) += -DBUILD_HAS_SENSOR_SIGNED_VALUE
+ cppflags-lib-$(CFG_SCPFW_INBAND_MSG_SUPPORT) += -DBUILD_HAS_INBAND_MSG_SUPPORT
+ 
+-incdirs_ext-y += $(scpfw-path)/arch/none/optee/include
++scpfw-incdirs-y += $(scpfw-path)/arch/none/optee/include
+ srcs-y += $(scpfw-path)/arch/none/optee/src/arch_interrupt.c
+ srcs-y += $(scpfw-path)/arch/none/optee/src/arch_main.c
+ 
+-incdirs_ext-y += $(scpfw-path)/framework/include
++scpfw-incdirs-y += $(scpfw-path)/framework/include
+ srcs-y += $(scpfw-path)/framework/src/fwk_arch.c
+ srcs-y += $(scpfw-path)/framework/src/fwk_dlist.c
+ srcs-y += $(scpfw-path)/framework/src/fwk_id.c
+@@ -148,8 +155,8 @@ srcs-$(CFG_SCPFW_NOTIFICATION) += $(scpfw-path)/framework/src/fwk_notification.c
+ # $3 module parent directory relative path in scpfw tree
+ # $4 module name, uppercase, relates to CFG_SCPFW_MOD_$4
+ define scpfw-embed-mod
+-ifneq (,$$(wildcard $(scpfw-path)/$3/$2/include/*))
+-incdirs_ext-y += $(scpfw-path)/$3/$2/include
++ifneq (,$$(wildcard $(scpfw-src-path)/$3/$2/include/*))
++scpfw-incdirs-y += $(scpfw-path)/$3/$2/include
+ endif
+ srcs-$(CFG_SCPFW_MOD_$4) += $(scpfw-path)/$3/$2/src/mod_$1.c
+ 
+@@ -216,12 +223,21 @@ srcs-$(CFG_SCPFW_MOD_SCMI_SENSOR) += $(scpfw-path)/module/scmi_sensor/src/mod_sc
+ srcs-$(CFG_SCPFW_MOD_SENSOR) += $(scpfw-path)/module/sensor/src/sensor_extended.c
+ 
+ # Architecture arch/none/optee requires optee mbx header file
+-incdirs_ext-y += $(scpfw-path)/module/optee/mbx/include
++scpfw-incdirs-y += $(scpfw-path)/module/optee/mbx/include
+ # Some modules require header files from module that are not embedded
+ ifneq (,$(filter y, $(CFG_SCPFW_MOD_DVFS) $(CFG_SCPFW_MOD_MOCK_PSU) $(CFG_SCPFW_MOD_SCMI_PERF)))
+-incdirs_ext-y += $(scpfw-path)/module/timer/include
++scpfw-incdirs-y += $(scpfw-path)/module/timer/include
+ endif
+-incdirs_ext-$(CFG_SCPFW_MOD_OPTEE_MBX) += $(scpfw-path)/module/msg_smt/include
+-incdirs_ext-$(CFG_SCPFW_MOD_SCMI) += $(scpfw-path)/module/power_domain/include
++scpfw-incdirs-$(CFG_SCPFW_MOD_OPTEE_MBX) += $(scpfw-path)/module/msg_smt/include
++scpfw-incdirs-$(CFG_SCPFW_MOD_SCMI) += $(scpfw-path)/module/power_domain/include
+ 
+ include core/lib/scmi-server/sub-$(CFG_SCMI_SCPFW_PRODUCT).mk
++
++# Build directive for include paths of SCP-firmware header files depends on
++# whether SCP-firmware source files are in-tree or external to OP-TEE OS
++# source tree
++ifeq ($(_CFG_SCP_FIRMWARE_IN_TREE),y)
++incdirs-y += $(scpfw-incdirs-y)
++else
++incdirs_ext-y += $(scpfw-incdirs-y)
++endif
+diff --git a/mk/config.mk b/mk/config.mk
+index b5a8760ff..a197ba7fb 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -791,9 +791,22 @@ $(call force,CFG_SCMI_PTA,y,Required by CFG_SCMI_SCPFW)
+ ifeq (,$(CFG_SCMI_SCPFW_PRODUCT))
+ $(error CFG_SCMI_SCPFW=y requires CFG_SCMI_SCPFW_PRODUCT configuration)
+ endif
++ifeq (,$(CFG_SCP_FIRMWARE))
++$(call force,_CFG_SCP_FIRMWARE_IN_TREE,y)
++endif #CFG_SCP_FIRMWARE empty
++
++ifeq ($(_CFG_SCP_FIRMWARE_IN_TREE),y)
++ifeq (,$(wildcard core/lib/scmi-server/SCP-firmware/CMakeLists.txt))
++$(info WARNING: CFG_SCMI_SCPFW=y without CFG_SCP_FIRMWARE value expects SCP-firmware source tree at core/lib/scmi-serve/SCP-firmware/)
++$(info WARNING: Maybe need to get SCP-firmware source tree and set its absolute path in CFG_SCP_FIRMWARE.)
++$(error CFG_SCMI_SCPFW=y but cannot find the location of SCP-firmware source tree)
++endif
++else #_CFG_SCP_FIRMWARE_IN_TREE
+ ifeq (,$(wildcard $(CFG_SCP_FIRMWARE)/CMakeLists.txt))
+-$(error CFG_SCMI_SCPFW=y requires CFG_SCP_FIRMWARE configuration)
++$(info WARNING: Invalid config SCP-firmware source tree absolute path CFG_SCP_FIRMWARE=$(CFG_SCP_FIRMWARE))
++$(error CFG_SCMI_SCPFW=y but CFG_SCP_FIRMWARE does not seems to provide the source tree location)
+ endif
++endif #_CFG_SCP_FIRMWARE_IN_TREE
+ endif #CFG_SCMI_SCPFW
+ 
+ ifeq ($(CFG_SCMI_MSG_DRIVERS)-$(CFG_SCMI_SCPFW),y-y)
+-- 
+2.47.2
+

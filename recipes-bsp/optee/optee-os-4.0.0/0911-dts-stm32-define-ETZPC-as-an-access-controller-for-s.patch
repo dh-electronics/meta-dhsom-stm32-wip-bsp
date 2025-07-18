@@ -1,0 +1,285 @@
+From 736a4b53e844b3d2e3f8d5b4de075ae061da2252 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Tue, 28 May 2024 14:50:13 +0200
+Subject: [PATCH 0911/1695] dts: stm32: define ETZPC as an access controller
+ for stm32mp13 boards
+
+ETZPC is a firewall controller. Add the access-controllers property to
+all ETZPC sub-nodes. Also add the "simple-bus" compatible for backward
+compatibility and "#access-controllers-cells" to the ETZPC node.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 321b82ff0053c38b20f1641a5b8da4e046549b24 dts: stm32: define ETZPC as an access controller for stm32mp13 boards]
+Change-Id: Id68497dc7e5f8a4e50c21e87e45046bdc665cb27
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/383371
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/dts/stm32mp131.dtsi  | 25 +++++++++++++++++++++++--
+ core/arch/arm/dts/stm32mp135.dtsi  |  3 ++-
+ core/arch/arm/dts/stm32mp13xc.dtsi |  3 +++
+ core/arch/arm/dts/stm32mp13xf.dtsi |  3 +++
+ 4 files changed, 31 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp131.dtsi b/core/arch/arm/dts/stm32mp131.dtsi
+index 7c1145039..f6d69e86f 100644
+--- a/core/arch/arm/dts/stm32mp131.dtsi
++++ b/core/arch/arm/dts/stm32mp131.dtsi
+@@ -9,6 +9,7 @@
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/regulator/st,stm32mp13-regulator.h>
+ #include <dt-bindings/reset/stm32mp13-resets.h>
++#include <dt-bindings/soc/stm32mp13-etzpc.h>
+ 
+ / {
+ 	#address-cells = <1>;
+@@ -586,12 +587,13 @@
+ 			};
+ 		};
+ 
+-		etzpc: etzpc@5c007000 {
+-			compatible = "st,stm32-etzpc", "firewall-bus";
++		etzpc: bus@5c007000 {
++			compatible = "st,stm32-etzpc", "simple-bus";
+ 			reg = <0x5C007000 0x400>;
+ 			clocks = <&rcc TZPC>;
+ 			#address-cells = <1>;
+ 			#size-cells = <1>;
++			#access-controller-cells = <1>;
+ 
+ 			adc_2: adc@48004000 {
+ 				reg = <0x48004000 0x400>;
+@@ -603,6 +605,7 @@
+ 				#interrupt-cells = <1>;
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
++				access-controllers = <&etzpc STM32MP1_ETZPC_ADC2_ID>;
+ 				status = "disabled";
+ 
+ 				adc2: adc@0 {
+@@ -643,6 +646,7 @@
+ 				interrupts = <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>;
+ 				clocks = <&rcc USART1_K>;
+ 				resets = <&rcc USART1_R>;
++				access-controllers = <&etzpc STM32MP1_ETZPC_USART1_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -652,6 +656,7 @@
+ 				interrupts = <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>;
+ 				clocks = <&rcc USART2_K>;
+ 				resets = <&rcc USART2_R>;
++				access-controllers = <&etzpc STM32MP1_ETZPC_USART2_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -664,6 +669,7 @@
+ 				#size-cells = <0>;
+ 				st,syscfg-fmp = <&syscfg 0x4 0x4>;
+ 				i2c-analog-filter;
++				access-controllers = <&etzpc STM32MP1_ETZPC_I2C3_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -676,6 +682,7 @@
+ 				#size-cells = <0>;
+ 				st,syscfg-fmp = <&syscfg 0x4 0x8>;
+ 				i2c-analog-filter;
++				access-controllers = <&etzpc STM32MP1_ETZPC_I2C4_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -688,6 +695,7 @@
+ 				#size-cells = <0>;
+ 				st,syscfg-fmp = <&syscfg 0x4 0x10>;
+ 				i2c-analog-filter;
++				access-controllers = <&etzpc STM32MP1_ETZPC_I2C5_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -699,6 +707,7 @@
+ 				interrupts = <GIC_SPI 104 IRQ_TYPE_LEVEL_HIGH>;
+ 				clocks = <&rcc TIM12_K>;
+ 				clock-names = "int";
++				access-controllers = <&etzpc STM32MP1_ETZPC_TIM12_ID>;
+ 
+ 				counter {
+ 					compatible = "st,stm32-timer-counter";
+@@ -713,6 +722,7 @@
+ 				reg = <0x4c008000 0x400>;
+ 				clocks = <&rcc TIM13_K>;
+ 				clock-names = "int";
++				access-controllers = <&etzpc STM32MP1_ETZPC_TIM13_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -723,6 +733,7 @@
+ 				reg = <0x4c009000 0x400>;
+ 				clocks = <&rcc TIM14_K>;
+ 				clock-names = "int";
++				access-controllers = <&etzpc STM32MP1_ETZPC_TIM14_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -734,6 +745,7 @@
+ 				interrupts = <GIC_SPI 101 IRQ_TYPE_LEVEL_HIGH>;
+ 				clocks = <&rcc TIM15_K>;
+ 				clock-names = "int";
++				access-controllers = <&etzpc STM32MP1_ETZPC_TIM15_ID>;
+ 				status = "disabled";
+ 
+ 				counter {
+@@ -749,6 +761,7 @@
+ 				reg = <0x4c00b000 0x400>;
+ 				clocks = <&rcc TIM16_K>;
+ 				clock-names = "int";
++				access-controllers = <&etzpc STM32MP1_ETZPC_TIM16_ID>;
+ 				status = "disabled";
+ 
+ 			};
+@@ -760,6 +773,7 @@
+ 				reg = <0x4c00c000 0x400>;
+ 				clocks = <&rcc TIM17_K>;
+ 				clock-names = "int";
++				access-controllers = <&etzpc STM32MP1_ETZPC_TIM17_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -771,6 +785,7 @@
+ 				interrupts = <GIC_SPI 116 IRQ_TYPE_LEVEL_HIGH>;
+ 				clocks = <&rcc LPTIM2_K>;
+ 				clock-names = "mux";
++				access-controllers = <&etzpc STM32MP1_ETZPC_LPTIM2_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -782,6 +797,7 @@
+ 				interrupts = <GIC_SPI 117 IRQ_TYPE_LEVEL_HIGH>;
+ 				clocks = <&rcc LPTIM3_K>;
+ 				clock-names = "mux";
++				access-controllers = <&etzpc STM32MP1_ETZPC_LPTIM3_ID>;
+ 				status = "disabled";
+ 
+ 				counter {
+@@ -797,6 +813,7 @@
+ 				regulator-min-microvolt = <1650000>;
+ 				regulator-max-microvolt = <2500000>;
+ 				clocks = <&rcc VREF>;
++				access-controllers = <&etzpc STM32MP1_ETZPC_VREFBUF_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -806,6 +823,7 @@
+ 				interrupts = <GIC_SPI 81 IRQ_TYPE_LEVEL_HIGH>;
+ 				clocks = <&rcc HASH1>;
+ 				resets = <&rcc HASH1_R>;
++				access-controllers = <&etzpc STM32MP1_ETZPC_HASH_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -814,6 +832,7 @@
+ 				reg = <0x54004000 0x400>;
+ 				clocks = <&rcc RNG1_K>;
+ 				resets = <&rcc RNG1_R>;
++				access-controllers = <&etzpc STM32MP1_ETZPC_RNG_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -823,12 +842,14 @@
+ 				interrupts = <GIC_SPI 126 IRQ_TYPE_LEVEL_HIGH>;
+ 				clocks = <&rcc IWDG1>, <&rcc CK_LSI>;
+ 				clock-names = "pclk", "lsi";
++				access-controllers = <&etzpc STM32MP1_ETZPC_IWDG1_ID>;
+ 				status = "disabled";
+ 			};
+ 
+ 			stgen: stgen@5c008000 {
+ 				compatible = "st,stm32-stgen";
+ 				reg = <0x5C008000 0x1000>;
++				access-controllers = <&etzpc STM32MP1_ETZPC_STGENC_ID>;
+ 			};
+ 		};
+ 	};
+diff --git a/core/arch/arm/dts/stm32mp135.dtsi b/core/arch/arm/dts/stm32mp135.dtsi
+index 1e790f9df..f5b076657 100644
+--- a/core/arch/arm/dts/stm32mp135.dtsi
++++ b/core/arch/arm/dts/stm32mp135.dtsi
+@@ -8,7 +8,7 @@
+ 
+ / {
+ 	soc {
+-		etzpc: etzpc@5c007000 {
++		etzpc: bus@5c007000 {
+ 			ltdc: display-controller@5a001000 {
+ 				compatible = "st,stm32-ltdc";
+ 				reg = <0x5a001000 0x400>;
+@@ -17,6 +17,7 @@
+ 				clocks = <&rcc LTDC_PX>;
+ 				clock-names = "lcd";
+ 				resets = <&rcc LTDC_R>;
++				access-controllers = <&etzpc STM32MP1_ETZPC_LTDC_ID>;
+ 				status = "disabled";
+ 			};
+ 		};
+diff --git a/core/arch/arm/dts/stm32mp13xc.dtsi b/core/arch/arm/dts/stm32mp13xc.dtsi
+index 9fb961444..6dcba6ee1 100644
+--- a/core/arch/arm/dts/stm32mp13xc.dtsi
++++ b/core/arch/arm/dts/stm32mp13xc.dtsi
+@@ -12,6 +12,7 @@
+ 		interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_HIGH>;
+ 		clocks = <&rcc CRYP1>;
+ 		resets = <&rcc CRYP1_R>;
++		access-controllers = <&etzpc STM32MP1_ETZPC_CRYP_ID>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -22,6 +23,7 @@
+ 		clocks = <&rcc SAES_K>, <&rcc RNG1_K>;
+ 		clock-names = "bus", "rng";
+ 		resets = <&rcc SAES_R>;
++		access-controllers = <&etzpc STM32MP1_ETZPC_SAES_ID>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -32,6 +34,7 @@
+ 		clocks = <&rcc PKA>, <&rcc RNG1_K>;
+ 		clock-names = "bus", "rng";
+ 		resets = <&rcc PKA_R>;
++		access-controllers = <&etzpc STM32MP1_ETZPC_PKA_ID>;
+ 		status = "disabled";
+ 	};
+ };
+diff --git a/core/arch/arm/dts/stm32mp13xf.dtsi b/core/arch/arm/dts/stm32mp13xf.dtsi
+index 39a179352..2fa9226ac 100644
+--- a/core/arch/arm/dts/stm32mp13xf.dtsi
++++ b/core/arch/arm/dts/stm32mp13xf.dtsi
+@@ -12,6 +12,7 @@
+ 		interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_HIGH>;
+ 		clocks = <&rcc CRYP1>;
+ 		resets = <&rcc CRYP1_R>;
++		access-controllers = <&etzpc STM32MP1_ETZPC_CRYP_ID>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -22,6 +23,7 @@
+ 		clocks = <&rcc SAES_K>, <&rcc RNG1_K>;
+ 		clock-names = "bus", "rng";
+ 		resets = <&rcc SAES_R>;
++		access-controllers = <&etzpc STM32MP1_ETZPC_SAES_ID>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -32,6 +34,7 @@
+ 		clocks = <&rcc PKA>, <&rcc RNG1_K>;
+ 		clock-names = "bus", "rng";
+ 		resets = <&rcc PKA_R>;
++		access-controllers = <&etzpc STM32MP1_ETZPC_PKA_ID>;
+ 		status = "disabled";
+ 	};
+ };
+-- 
+2.47.2
+

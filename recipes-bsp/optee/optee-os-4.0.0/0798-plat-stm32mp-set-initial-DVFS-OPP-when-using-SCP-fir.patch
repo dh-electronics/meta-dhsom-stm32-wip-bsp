@@ -1,0 +1,177 @@
+From 43c3756440da77d970279f803b04270d58918a65 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 10 Apr 2024 16:51:56 +0200
+Subject: [PATCH 0798/1695] plat-stm32mp*: set initial DVFS OPP when using
+ SCP-firmware
+
+Fix CPU DVFS initialization state that was no provided to SCP-firmware
+prior this change.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3ec3e87d20356eb71560fa48396fdb407f50efaa plat-stm32mp*: set initial DVFS OPP when using SCP-firmware]
+Change-Id: Ib8491426ccc54e1149940aafb7345623ea33b926
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372833
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../arm/plat-stm32mp1/scmi_server_scpfw.c     |  4 +++-
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     |  4 +++-
+ core/drivers/stm32_cpu_opp.c                  | 23 +++++++++++++++----
+ .../include/scmi_agent_configuration.h        |  5 +++-
+ 4 files changed, 28 insertions(+), 8 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
+index 4571d8ccb..e341d98b7 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
+@@ -530,7 +530,8 @@ TEE_Result scmi_scpfw_cfg_add_dvfs(unsigned int agent_id,
+ 				   unsigned int domain_id,
+ 				   struct regulator *regulator, struct clk *clk,
+ 				   unsigned int *dvfs_khz,
+-				   unsigned int *dvfs_mv, size_t dvfs_count)
++				   unsigned int *dvfs_mv, size_t dvfs_count,
++				   size_t initial_index)
+ {
+ 	struct scpfw_channel_config *channel_cfg = NULL;
+ 	struct scpfw_agent_config *agent_cfg = NULL;
+@@ -578,6 +579,7 @@ TEE_Result scmi_scpfw_cfg_add_dvfs(unsigned int agent_id,
+ 
+ 	channel_cfg->perfd[domain_id] = (struct scmi_perfd){
+ 		.name = "DVFS",
++		.initial_opp = initial_index,
+ 		.dvfs_opp_count = dvfs_count,
+ 		.dvfs_opp_khz = dvfs_opp_khz,
+ 		.dvfs_opp_mv = dvfs_opp_mv,
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index 20194d3e3..175fe7098 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -811,7 +811,8 @@ TEE_Result scmi_scpfw_cfg_add_dvfs(unsigned int agent_id,
+ 				   unsigned int domain_id,
+ 				   struct regulator *regulator, struct clk *clk,
+ 				   unsigned int *dvfs_khz,
+-				   unsigned int *dvfs_mv, size_t dvfs_count)
++				   unsigned int *dvfs_mv, size_t dvfs_count,
++				   size_t initial_index)
+ {
+ 	struct scpfw_channel_config *channel_cfg = NULL;
+ 	struct scpfw_agent_config *agent_cfg = NULL;
+@@ -859,6 +860,7 @@ TEE_Result scmi_scpfw_cfg_add_dvfs(unsigned int agent_id,
+ 
+ 	channel_cfg->perfd[domain_id] = (struct scmi_perfd){
+ 		.name = "DVFS",
++		.initial_opp = initial_index,
+ 		.dvfs_opp_count = dvfs_count,
+ 		.dvfs_opp_khz = dvfs_opp_khz,
+ 		.dvfs_opp_mv = dvfs_opp_mv,
+diff --git a/core/drivers/stm32_cpu_opp.c b/core/drivers/stm32_cpu_opp.c
+index ad9c85b6f..d10170439 100644
+--- a/core/drivers/stm32_cpu_opp.c
++++ b/core/drivers/stm32_cpu_opp.c
+@@ -48,7 +48,7 @@ struct cpu_dvfs {
+  * @scp_regulator: Regulator instance exposed to scp-firmware SCMI DVFS
+  * @scp_levels_desc: Description of voltage levels for scp-firmware SCMI DVFS
+  * @scp_cpu_opp_levels_uv: Array of voltage levels described by @scp_levels_desc
+- * @default_opp: Initial OPP state for scp-firmware
++ * @default_opp_freq: Operating point frequency to use during initialization
+  */
+ struct cpu_opp {
+ 	unsigned int current_opp;
+@@ -61,7 +61,7 @@ struct cpu_opp {
+ 	struct regulator scp_regulator;
+ 	struct regulator_voltages_desc scp_levels_desc;
+ 	int *scp_cpu_opp_levels_uv;
+-	unsigned int default_opp;
++	unsigned int default_opp_freq;
+ #endif
+ };
+ 
+@@ -346,6 +346,7 @@ static void setup_scp_server_resources(void)
+ 	unsigned int *dvfs_mv = NULL;
+ 	size_t opp = 0;
+ 	struct cpu_dvfs *sorted_dvfs = NULL;
++	unsigned int scpfw_default_opp_index = UINT_MAX;
+ 
+ 	/*
+ 	 * Sort operating points by increasing frequencies as expected by
+@@ -404,14 +405,19 @@ static void setup_scp_server_resources(void)
+ 	for (opp = 0; opp < cpu_opp.opp_count; opp++) {
+ 		dvfs_khz[opp] = sorted_dvfs[opp].freq_khz;
+ 		dvfs_mv[opp] = sorted_dvfs[opp].volt_uv / U(1000);
++		if (cpu_opp.default_opp_freq == dvfs_khz[opp])
++			scpfw_default_opp_index = opp;
+ 	}
++	if (scpfw_default_opp_index == UINT_MAX)
++		panic();
+ 
+ 	free(sorted_dvfs);
+ 
+ 	res = scmi_scpfw_cfg_add_dvfs(0 /*agent*/, 0 /*channel*/, 0 /*domain*/,
+ 				      &cpu_opp.scp_regulator,
+ 				      &cpu_opp.scp_clock,
+-				      dvfs_khz, dvfs_mv, cpu_opp.opp_count);
++				      dvfs_khz, dvfs_mv, cpu_opp.opp_count,
++				      scpfw_default_opp_index);
+ 	if (res)
+ 		panic();
+ 
+@@ -504,7 +510,14 @@ static TEE_Result cpu_opp_pm(enum pm_op op, unsigned int pm_hint __unused,
+ 				break;
+ 		if (opp >= cpu_opp.opp_count) {
+ 			EMSG("Unexpected OPP state, select default");
+-			opp = cpu_opp.default_opp;
++
++			for (opp = 0; opp < cpu_opp.opp_count; opp++)
++				if (cpu_opp.default_opp_freq ==
++				    cpu_opp.dvfs[opp].freq_khz)
++					break;
++
++			if (opp >= cpu_opp.opp_count)
++				panic();
+ 		}
+ 
+ 		DMSG("Suspend to OPP %u", opp);
+@@ -630,7 +643,7 @@ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
+ 
+ 	/* Select the max "st,opp-default" node as current OPP */
+ #ifdef CFG_SCPFW_MOD_DVFS
+-	cpu_opp.default_opp = cpu_opp.current_opp;
++	cpu_opp.default_opp_freq = freq_khz_opp_def;
+ #endif
+ 	clk_cpu = clk_get_rate(cpu_opp.clock);
+ 	assert(clk_cpu);
+diff --git a/core/lib/scmi-server/include/scmi_agent_configuration.h b/core/lib/scmi-server/include/scmi_agent_configuration.h
+index e234734a1..32a95260a 100644
+--- a/core/lib/scmi-server/include/scmi_agent_configuration.h
++++ b/core/lib/scmi-server/include/scmi_agent_configuration.h
+@@ -52,6 +52,7 @@ struct scmi_voltd {
+  * struct scmi_perfd - DVFS/performance domaindescription
+  * @name: DVFS name
+  * @dvfs_opp_count: Number of cells in @dvfs_opp_khz and @dvfs_opp_mv
++ * @initial_opp: Initial operating point
+  * @dvfs_opp_khz: Operating point frequencies in Hertz
+  * @dvfs_opp_mv: Operating point voltage levels in millivolts
+  * @clk: Clock used by the DVFS service
+@@ -63,6 +64,7 @@ struct scmi_voltd {
+ struct scmi_perfd {
+ 	const char *name;
+ 	size_t dvfs_opp_count;
++	size_t initial_opp;
+ 	unsigned int *dvfs_opp_khz;
+ 	unsigned int *dvfs_opp_mv;
+ 	struct clk *clk;
+@@ -134,7 +136,8 @@ TEE_Result scmi_scpfw_cfg_add_dvfs(unsigned int agent, unsigned int channel,
+ 				   unsigned int domain_id,
+ 				   struct regulator *regulator, struct clk *clk,
+ 				   unsigned int *dvfs_khz,
+-				   unsigned int *dvfs_mv, size_t dvfs_count);
++				   unsigned int *dvfs_mv, size_t dvfs_count,
++				   size_t initial_index);
+ 
+ /* Add a voltage domains/regulators service to an SCMI channel */
+ TEE_Result scmi_scpfw_cfg_add_regu(unsigned int agent, unsigned int channel,
+-- 
+2.47.2
+

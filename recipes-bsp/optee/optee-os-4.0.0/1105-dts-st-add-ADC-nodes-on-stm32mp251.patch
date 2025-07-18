@@ -1,0 +1,139 @@
+From 551458b1b5abee220918ea566f44bcd00389092e Mon Sep 17 00:00:00 2001
+From: Cheick Traore <cheick.traore-ext@st.com>
+Date: Mon, 2 Sep 2024 18:04:42 +0200
+Subject: [PATCH 1105/1695] dts: st: add ADC nodes on stm32mp251
+
+Add ADC nodes on STM32MP25 SoC. It has 3 ADCs,
+split into two blocks:
+- ADC12 (ADC1 & ADC2) are tightly coupled.
+- ADC3 is managed independently.
+Also define internal voltage channels for each ADCs, exception made for
+vbat/4 channel (to avoid undesired load on it, in case no conversion is
+needed on this channel). Choice is let to board implementation (via DT)
+to define it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a9a83fba0a11117d33f6e07e1e220e87e73fb7c7 dts: st: add ADC nodes on stm32mp251]
+Change-Id: I619da7ab612309132992a311c79c50da11caf8b0
+Signed-off-by: Cheick Traore <cheick.traore-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/401565
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/dts/stm32mp251.dtsi | 98 +++++++++++++++++++++++++++++++
+ 1 file changed, 98 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp251.dtsi b/core/arch/arm/dts/stm32mp251.dtsi
+index 6c6558127..c3415cb7e 100644
+--- a/core/arch/arm/dts/stm32mp251.dtsi
++++ b/core/arch/arm/dts/stm32mp251.dtsi
+@@ -496,6 +496,104 @@
+ 				status = "disabled";
+ 			};
+ 
++			adc_12: adc@404e0000 {
++				compatible = "st,stm32mp25-adc-core";
++				reg = <0x404e0000 0x400>;
++				interrupts = <GIC_SPI 87 IRQ_TYPE_LEVEL_HIGH>,
++					<GIC_SPI 88 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&rcc CK_KER_ADC12>;
++				clock-names = "adc";
++				interrupt-controller;
++				#interrupt-cells = <1>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				access-controllers = <&rifsc 58>;
++				status = "disabled";
++
++				adc1: adc@0 {
++					compatible = "st,stm32mp25-adc";
++					reg = <0x0>;
++					interrupt-parent = <&adc_12>;
++					interrupts = <0>;
++					#io-channel-cells = <1>;
++					#address-cells = <1>;
++					#size-cells = <0>;
++					status = "disabled";
++					channel@14 {
++						reg = <14>;
++						label = "vrefint";
++					};
++				};
++
++				adc2: adc@100 {
++					compatible = "st,stm32mp25-adc";
++					reg = <0x100>;
++					interrupt-parent = <&adc_12>;
++					interrupts = <1>;
++					#io-channel-cells = <1>;
++					#address-cells = <1>;
++					#size-cells = <0>;
++					status = "disabled";
++					channel@14 {
++						reg = <14>;
++						label = "vrefint";
++					};
++					channel@15 {
++						reg = <15>;
++						label = "vddcore";
++					};
++					channel@17 {
++						reg = <17>;
++						label = "vddcpu";
++					};
++					channel@18 {
++						reg = <18>;
++						label = "vddgpu";
++					};
++				};
++			};
++
++			adc_3: adc@404f0000 {
++				compatible = "st,stm32mp25-adc-core";
++				reg = <0x404f0000 0x400>;
++				interrupts = <GIC_SPI 89 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&rcc CK_KER_ADC3>;
++				clock-names = "adc";
++				interrupt-controller;
++				#interrupt-cells = <1>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				access-controllers = <&rifsc 59>;
++				status = "disabled";
++
++				adc3: adc@0 {
++					compatible = "st,stm32mp25-adc";
++					reg = <0x0>;
++					interrupt-parent = <&adc_3>;
++					interrupts = <0>;
++					#io-channel-cells = <1>;
++					#address-cells = <1>;
++					#size-cells = <0>;
++					status = "disabled";
++					channel@14 {
++						reg = <14>;
++						label = "vrefint";
++					};
++					channel@15 {
++						reg = <15>;
++						label = "vddcore";
++					};
++					channel@17 {
++						reg = <17>;
++						label = "vddcpu";
++					};
++					channel@18 {
++						reg = <18>;
++						label = "vddgpu";
++					};
++				};
++			};
++
+ 			hash: hash@42010000  {
+ 				compatible = "st,stm32mp13-hash";
+ 				reg = <0x42010000  0x400>;
+-- 
+2.47.2
+

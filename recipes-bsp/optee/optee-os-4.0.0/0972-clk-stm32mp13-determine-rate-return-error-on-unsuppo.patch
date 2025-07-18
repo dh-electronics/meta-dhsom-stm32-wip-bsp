@@ -1,0 +1,68 @@
+From 177399fa623abc3f40ec540ba83f420925c42094 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 23 May 2024 09:41:10 +0200
+Subject: [PATCH 0972/1695] clk: stm32mp13: determine rate return error on
+ unsupported frequency
+
+When the functions clk_stm32_xxx_determine_rate() search in the list of
+supported frequencies for the associated OPP defined in device tree, the
+function should return an error to indicate that the requested OPP is not
+defined.
+
+This patch is a preliminary step to skip OPP when the associated
+PLL settings is not provided to the RCC.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 88b59fe045876c46bc84154de535aaa0d3ef82c1 clk: stm32mp13: determine rate return error on unsupported frequency]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I47935cc2087f5ac3028ed0c1300a2821ddf69083
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/382031
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/clk/clk-stm32mp13.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index bf3a5f7ee..4c132dda3 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -2017,7 +2017,7 @@ static TEE_Result clk_stm32_pll1_set_rate(struct clk *clk __maybe_unused,
+ 
+ 	opp = clk_stm32_get_opp_config(pdata->opp->mpu_opp, rate);
+ 	if (!opp)
+-		return TEE_ERROR_GENERIC;
++		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+ 	pll_conf = &opp->pll_cfg;
+ 
+@@ -2081,7 +2081,7 @@ static TEE_Result clk_stm32_mpu_determine_rate(struct clk *clk,
+ 
+ 	opp = clk_stm32_get_opp_config(pdata->opp->mpu_opp, rate);
+ 	if (!opp)
+-		return TEE_SUCCESS;
++		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+ 	index = (opp->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
+ 
+@@ -2111,7 +2111,7 @@ static TEE_Result clk_stm32_axi_determine_rate(struct clk *clk,
+ 
+ 	opp = clk_stm32_get_opp_config(pdata->opp->axi_opp, rate);
+ 	if (!opp)
+-		return TEE_SUCCESS;
++		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+ 	index = (opp->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
+ 	parent = clk_get_parent_by_index(clk, index);
+@@ -2142,7 +2142,7 @@ static TEE_Result clk_stm32_mlahb_determine_rate(struct clk *clk,
+ 
+ 	opp = clk_stm32_get_opp_config(pdata->opp->mlahbs_opp, rate);
+ 	if (!opp)
+-		return TEE_SUCCESS;
++		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+ 	index = (opp->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
+ 	parent = clk_get_parent_by_index(clk, index);
+-- 
+2.47.2
+

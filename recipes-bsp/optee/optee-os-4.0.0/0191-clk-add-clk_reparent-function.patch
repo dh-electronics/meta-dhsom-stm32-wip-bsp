@@ -1,0 +1,71 @@
+From 54ccc6c6f6da523bdc5a7c056a57702100933be2 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Sat, 2 Dec 2023 17:25:30 +0100
+Subject: [PATCH 0191/1695] clk: add clk_reparent() function
+
+Sometime we need to change a parent under a spinlock (during an set rate
+or enable/disable operation for e.g.).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7ff5a4d96f784fdaca14a686cad3a7af6b9febb2 clk: add clk_reparent() function]
+Change-Id: Idbfdcfab5b48d2ece1143c59401cc145ac9d22ed
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 18 ++++++++++++++++++
+ core/include/drivers/clk.h | 12 ++++++++++++
+ 2 files changed, 30 insertions(+)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index a531f7cae..b3d23a6c8 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -101,6 +101,24 @@ static void clk_init_parent(struct clk *clk)
+ 	}
+ }
+ 
++TEE_Result clk_reparent(struct clk *clk, struct clk *parent)
++{
++	size_t i = 0;
++
++	if (clk->parent == parent)
++		return TEE_SUCCESS;
++
++	for (i = 0; i < clk_get_num_parents(clk); i++) {
++		if (clk_get_parent_by_index(clk, i) == parent) {
++			clk->parent = parent;
++			return TEE_SUCCESS;
++		}
++	}
++	EMSG("Clock %s is not a parent of clock %s", parent->name, clk->name);
++
++	return TEE_ERROR_BAD_PARAMETERS;
++}
++
+ TEE_Result clk_register(struct clk *clk)
+ {
+ 	assert(clk_check(clk));
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 54813de6e..1b71c141b 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -271,6 +271,18 @@ TEE_Result clk_get_rates_array(struct clk *clk, size_t start_index,
+ TEE_Result clk_get_rates_steps(struct clk *clk, unsigned long *min,
+ 			       unsigned long *max, unsigned long *step);
+ 
++/**
++ * clk_reparent - Update clock parent
++ *
++ * This function mandates that clock framework is locked against
++ * concurrent accesses on clock tree.
++ *
++ * @clk: Clock for which the parent should be set
++ * @parent: Parent clock to set
++ * Return a TEE_Result compliant value
++ */
++TEE_Result clk_reparent(struct clk *clk, struct clk *parent);
++
+ /**
+  * clk_get_duty_cycle - Get clock duty cycle
+  *
+-- 
+2.47.2
+

@@ -1,0 +1,83 @@
+From cb06170d136daee00d7d38b7457e0d3afa34a7a6 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 22 Jul 2024 11:03:42 +0200
+Subject: [PATCH 1083/1695] drivers: stm32_risab: implement errata on RISABs
+
+Force CID0 access on RISAB so that it can always access memories
+protected by RISABs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b80ee6f655e276e20f67e738f0d73857576c005c drivers: stm32_risab: implement errata on RISABs]
+Change-Id: Ia87985e48be8a877c832855737e4291a535cf689
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/394637
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/firewall/stm32_risab.c | 24 ++++++++++++++++++++----
+ 1 file changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_risab.c b/core/drivers/firewall/stm32_risab.c
+index 4be5a9f8a..83a4aab2f 100644
+--- a/core/drivers/firewall/stm32_risab.c
++++ b/core/drivers/firewall/stm32_risab.c
+@@ -89,6 +89,7 @@ struct stm32_risab_pdata {
+ 	char risab_name[20];
+ 	uint32_t pages_configured;
+ 	bool srwiad;
++	bool errata_ahbrisab;
+ 
+ 	SLIST_ENTRY(stm32_risab_pdata) link;
+ };
+@@ -238,9 +239,15 @@ static void set_read_conf(struct stm32_risab_pdata *risab_d,
+ 	uint32_t mask = GENMASK_32(last_page, subr_cfg->first_page);
+ 
+ 	for (i = 0; i < RISAB_NB_MAX_CID_SUPPORTED; i++) {
+-		if (subr_cfg->rlist[i])
++		/*
++		 * Errata: CID0 must be authorized for RISAB accesses if
++		 * CID filtering is enabled on some RISAB instances so that
++		 * spurious CID0 transactions are handled.
++		 */
++		if (subr_cfg->rlist[i] ||
++		    (risab_d->errata_ahbrisab && i == RIF_CID0))
+ 			io_clrsetbits32(base + _RISAB_CIDxRDCFGR(i), mask,
+-					subr_cfg->rlist[i]);
++					mask);
+ 	}
+ }
+ 
+@@ -254,9 +261,15 @@ static void set_write_conf(struct stm32_risab_pdata *risab_d,
+ 	uint32_t mask = GENMASK_32(last_page, subr_cfg->first_page);
+ 
+ 	for (i = 0; i < RISAB_NB_MAX_CID_SUPPORTED; i++) {
+-		if (subr_cfg->wlist[i])
++		/*
++		 * Errata: CID0 must be authorized for RISAB accesses if
++		 * CID filtering is enabled on some RISAB instances so that
++		 * spurious CID0 transactions are handled.
++		 */
++		if (subr_cfg->wlist[i] ||
++		    (risab_d->errata_ahbrisab && i == RIF_CID0))
+ 			io_clrsetbits32(base + _RISAB_CIDxWRCFGR(i), mask,
+-					subr_cfg->wlist[i]);
++					mask);
+ 	}
+ }
+ 
+@@ -455,6 +468,9 @@ static TEE_Result parse_dt(const void *fdt, int node,
+ 	if (cuint)
+ 		risab_d->srwiad = true;
+ 
++	risab_d->errata_ahbrisab = fdt_getprop(fdt, node, "st,errata-ahbrisab",
++					       NULL);
++
+ 	/* Get the memory region being configured */
+ 	cuint = fdt_getprop(fdt, node, "st,mem-map", &lenp);
+ 	if (!cuint)
+-- 
+2.47.2
+

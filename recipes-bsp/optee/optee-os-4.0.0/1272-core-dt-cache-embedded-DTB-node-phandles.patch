@@ -1,0 +1,240 @@
+From d526191bb49bc36291620a04c56c3c6975006357 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 2 Oct 2024 12:34:07 +0200
+Subject: [PATCH 1272/1695] core: dt: cache embedded DTB node phandles
+
+Parse embedded DTB before drivers get information from and save
+information on nodes phandles if any in order to speed up
+fdt_node_offset_by_phandle() libfdt function
+that parses the DTB from its root node to find a node offset based
+on the node phandle.
+
+The cached information is sorted by phandle value to allow an
+efficient bisect sequence to retrieved desired information.
+
+The cached resources are released once OP-TEE core initialization
+is completed.
+
+This feature is added to CFG_DT_CACHED_NODE_INFO support
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 239218c59a82196c91a76a9adfc4dcd516526c65 core: dt: cache embedded DTB node phandles]
+Change-Id: Ibf9f463c3c3e01e0225555ca5386f6c3104e646e
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/408096
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/include/kernel/dt.h |  16 ++++++
+ core/kernel/dt.c         | 103 +++++++++++++++++++++++++++++++++++++++
+ core/lib/libfdt/fdt_ro.c |  19 ++++++++
+ 3 files changed, 138 insertions(+)
+
+diff --git a/core/include/kernel/dt.h b/core/include/kernel/dt.h
+index f95879187..6aff5f67e 100644
+--- a/core/include/kernel/dt.h
++++ b/core/include/kernel/dt.h
+@@ -493,6 +493,15 @@ int fdt_find_cached_parent_node(const void *fdt, int node_offset,
+  */
+ int fdt_find_cached_parent_reg_cells(const void *fdt, int node_offset,
+ 				     int *address_cells, int *size_cells);
++/*
++ * Find the node offset from its phandle in the phandle cache
++ * @fdt: FDT to work on
++ * @phandle: Node phandle
++ * @node_offset: Pointer to output node offset upon success
++ * @return 0 on success and -FDT_ERR_NOTFOUND on failure
++ */
++int fdt_find_cached_node_phandle(const void *fdt, uint32_t phandle,
++				 int *node_offset);
+ #else
+ static inline int fdt_find_cached_parent_node(const void *fdt __unused,
+ 					      int node_offset __unused,
+@@ -508,5 +517,12 @@ static inline int fdt_find_cached_parent_reg_cells(const void *fdt __unused,
+ {
+ 	return -1;
+ }
++
++static inline int fdt_find_cached_node_phandle(const void *fdt __unused,
++					       uint32_t phandle __unused,
++					       int *node_offset __unused)
++{
++	return -1;
++}
+ #endif /* CFG_DT_CACHED_NODE_INFO */
+ #endif /* __KERNEL_DT_H */
+diff --git a/core/kernel/dt.c b/core/kernel/dt.c
+index 3b27e5548..2200c4ef1 100644
+--- a/core/kernel/dt.c
++++ b/core/kernel/dt.c
+@@ -634,6 +634,101 @@ static TEE_Result add_parent_node_info(const void *fdt __maybe_unused,
+ 	return TEE_SUCCESS;
+ }
+ 
++/*
++ * struct phandle_cache Cache node offsets related to DT phandle
++ * @node_offset: Node offset in FTD @cached_node_info_fdt
++ * @phandle: Phandle associated to @node_offset
++ */
++struct phandle_cache {
++	int node_offset;
++	uint32_t phandle;
++};
++
++static struct phandle_cache_data {
++	struct phandle_cache *array;
++	size_t count;
++	size_t alloced_count;
++} phandle_cache;
++
++static int cmp_phandle_cache(const void *a, const void *b)
++{
++	const struct phandle_cache *cell_a = a;
++	const struct phandle_cache *cell_b = b;
++
++	return CMP_TRILEAN(cell_a->phandle, cell_b->phandle);
++}
++
++int fdt_find_cached_node_phandle(const void *fdt, uint32_t phandle,
++				 int *node_offset)
++{
++	struct phandle_cache *cell = NULL;
++	struct phandle_cache target = {
++		.phandle = phandle,
++	};
++
++	if (!cached_node_info_fdt || fdt != cached_node_info_fdt)
++		return -FDT_ERR_NOTFOUND;
++
++	cell = bisect_equal(phandle_cache.array, phandle_cache.count,
++			    sizeof(*cell), &target, cmp_phandle_cache);
++
++	if (!cell)
++		return -FDT_ERR_NOTFOUND;
++
++	*node_offset = cell->node_offset;
++
++	return 0;
++}
++
++static void release_phandle_cache(void)
++{
++	free(phandle_cache.array);
++	phandle_cache.array = NULL;
++	phandle_cache.count = 0;
++	phandle_cache.alloced_count = 0;
++}
++
++static TEE_Result enlarge_node_phandle_cache(void)
++{
++	if (phandle_cache.count + 1 > phandle_cache.alloced_count) {
++		/* Allocate by chunk of 64 cells for efficiency */
++		size_t new_count = phandle_cache.alloced_count + 64;
++		struct phandle_cache *new = NULL;
++
++		new = realloc(phandle_cache.array, sizeof(*new) * new_count);
++		if (!new)
++			return TEE_ERROR_OUT_OF_MEMORY;
++
++		phandle_cache.array = new;
++		phandle_cache.alloced_count = new_count;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result add_node_phandle_info(const void *fdt __maybe_unused,
++					int node_offset)
++{
++	uint32_t phandle = fdt_get_phandle(fdt, node_offset);
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (phandle <= 0)
++		return TEE_SUCCESS;
++
++	res = enlarge_node_phandle_cache();
++	if (res)
++		return res;
++
++	phandle_cache.array[phandle_cache.count] = (struct phandle_cache){
++		.node_offset = node_offset,
++		.phandle = phandle,
++	};
++
++	phandle_cache.count++;
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result add_node_cached_info(const void *fdt, int node_offset)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+@@ -656,6 +751,10 @@ static TEE_Result add_node_cached_info(const void *fdt, int node_offset)
+ 		if (res)
+ 			return res;
+ 
++		res = add_node_phandle_info(fdt, subnode_offset);
++		if (res)
++			return res;
++
+ 		res = add_node_cached_info(fdt, subnode_offset);
+ 		if (res)
+ 			return res;
+@@ -667,6 +766,7 @@ static TEE_Result add_node_cached_info(const void *fdt, int node_offset)
+ static TEE_Result release_cached_node_info(void)
+ {
+ 	release_parent_node_cache();
++	release_phandle_cache();
+ 
+ 	cached_node_info_fdt = NULL;
+ 
+@@ -693,6 +793,9 @@ static void init_cached_node_info(const void *fdt)
+ 	bisect_sort(parent_node_cache.array, parent_node_cache.count,
+ 		    sizeof(*parent_node_cache.array), cmp_parent_node_cache);
+ 
++	bisect_sort(phandle_cache.array, phandle_cache.count,
++		    sizeof(*phandle_cache.array), cmp_phandle_cache);
++
+ 	cached_node_info_fdt = fdt;
+ }
+ #else
+diff --git a/core/lib/libfdt/fdt_ro.c b/core/lib/libfdt/fdt_ro.c
+index 0421d51c1..4d761970f 100644
+--- a/core/lib/libfdt/fdt_ro.c
++++ b/core/lib/libfdt/fdt_ro.c
+@@ -676,6 +676,22 @@ int fdt_node_offset_by_prop_value(const void *fdt, int startoffset,
+ 	return offset; /* error from fdt_next_node() */
+ }
+ 
++#ifdef CFG_DT_CACHED_NODE_INFO
++/* This function is OP-TEE specific, outside of libfdt */
++int fdt_find_cached_node_phandle(const void *fdt, uint32_t phandle,
++				 int *node_offset);
++#else
++static int fdt_find_cached_node_phandle(const void *fdt, uint32_t phandle,
++					int *node_offset)
++{
++	(void)fdt;
++	(void)phandle;
++	(void)node_offset;
++
++	return -1;
++}
++#endif
++
+ int fdt_node_offset_by_phandle(const void *fdt, uint32_t phandle)
+ {
+ 	int offset;
+@@ -683,6 +699,9 @@ int fdt_node_offset_by_phandle(const void *fdt, uint32_t phandle)
+ 	if ((phandle == 0) || (phandle == -1))
+ 		return -FDT_ERR_BADPHANDLE;
+ 
++	if (fdt_find_cached_node_phandle(fdt, phandle, &offset) == 0)
++		return offset;
++
+ 	FDT_RO_PROBE(fdt);
+ 
+ 	/* FIXME: The algorithm here is pretty horrible: we
+-- 
+2.47.2
+

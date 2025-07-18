@@ -1,0 +1,280 @@
+From 59c20a3622ef1a40f9d28b7acf0c08c02786d724 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Sat, 3 Jun 2023 09:41:55 +0200
+Subject: [PATCH 0451/1695] core: scmi-server: implement SCMI regulator
+ consumers
+
+Implements support for SCMI regulator consumers that allows a platform
+to describe which voltage regulator devices are exposed on an SCMI
+channel using the secure world configuration device tree.
+
+Adds boolean configuration switch CFG_SCMI_SERVER_REGULATOR_CONSUMER
+to embed or not SCMI regulator consumers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 05b65bfa301d12c5f8abaf3467f85d736d0d93a3 core: scmi-server: implement SCMI regulator consumers]
+Change-Id: I0716a5fd2b2e8b16e0a50a7fd4b989d56ccbe7ca
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/312517
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../include/scmi_regulator_consumer.h         |  39 +++++
+ .../lib/scmi-server/scmi_regulator_consumer.c | 146 ++++++++++++++++++
+ core/lib/scmi-server/scmi_server.c            |  11 ++
+ core/lib/scmi-server/sub.mk                   |   1 +
+ 4 files changed, 197 insertions(+)
+ create mode 100644 core/lib/scmi-server/include/scmi_regulator_consumer.h
+ create mode 100644 core/lib/scmi-server/scmi_regulator_consumer.c
+
+diff --git a/core/lib/scmi-server/include/scmi_regulator_consumer.h b/core/lib/scmi-server/include/scmi_regulator_consumer.h
+new file mode 100644
+index 000000000..96064bd41
+--- /dev/null
++++ b/core/lib/scmi-server/include/scmi_regulator_consumer.h
+@@ -0,0 +1,39 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2020-2023, STMicroelectronics
++ */
++
++#ifndef SCMI_SERVER_REGULATOR_CONSUMER_H
++#define SCMI_SERVER_REGULATOR_CONSUMER_H
++
++#include <drivers/regulator.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <tee_api_types.h>
++
++struct scmi_server_regu {
++	uint32_t domain_id;
++	struct rdev *rdev;
++	bool enabled;
++};
++
++struct scmi_server_regu_channel {
++	unsigned int channel_id;
++	struct scmi_server_regu *regu;
++	size_t regu_count;
++};
++
++#ifdef CFG_SCMI_SERVER_REGULATOR_CONSUMER
++/*
++ * Initialize SCMI regulator from regulator consumer information from DT.
++ * Returns a TEE_Result compliant value
++ */
++TEE_Result scmi_regulator_consumer_init(void);
++
++#else
++static inline TEE_Result scmi_regulator_consumer_init(void)
++{
++	return TEE_SUCCESS;
++}
++#endif /* CFG_SCMI_SERVER_REGULATOR_CONSUMER */
++#endif /* SCMI_SERVER_REGULATOR_CONSUMER_H */
+diff --git a/core/lib/scmi-server/scmi_regulator_consumer.c b/core/lib/scmi-server/scmi_regulator_consumer.c
+new file mode 100644
+index 000000000..dddd50eb0
+--- /dev/null
++++ b/core/lib/scmi-server/scmi_regulator_consumer.c
+@@ -0,0 +1,146 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2020-2023, STMicroelectronics
++ */
++
++#include <assert.h>
++#include <config.h>
++#include <drivers/regulator.h>
++#include <initcall.h>
++#include <kernel/boot.h>
++#include <kernel/dt.h>
++#include <kernel/panic.h>
++#include <libfdt.h>
++#include <malloc.h>
++#include <mod_stm32_regu_consumer.h>
++#include <scmi_agent_configuration.h>
++#include <scmi_regulator_consumer.h>
++#include <trace.h>
++
++static TEE_Result init_channel(void *fdt, int node)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct scmi_server_regu_channel voltd_channel = { };
++	size_t voltd_domain_count = 0;
++	const fdt32_t *cuint = NULL;
++	int subnode = 0;
++	size_t n = 0;
++
++	cuint = fdt_getprop(fdt, node, "scmi-channel-id", NULL);
++	if (!cuint)
++		panic("Can't read property scmi-channel-id");
++
++	voltd_channel.channel_id = fdt32_to_cpu(*cuint);
++
++	/* Compute the number of domains to allocate */
++	fdt_for_each_subnode(subnode, fdt, node) {
++		paddr_t reg = _fdt_reg_base_address(fdt, subnode);
++
++		assert(reg != DT_INFO_INVALID_REG);
++		if ((size_t)reg > voltd_domain_count)
++			voltd_domain_count = (uint32_t)reg;
++	}
++
++	voltd_channel.regu_count = voltd_domain_count + 1;
++
++	voltd_channel.regu = calloc(voltd_channel.regu_count,
++				    sizeof(*voltd_channel.regu));
++	if (!voltd_channel.regu)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	fdt_for_each_subnode(subnode, fdt, node) {
++		struct scmi_server_regu *regu = NULL;
++		struct rdev *rdev = NULL;
++		uint32_t domain_id = 0;
++
++		rdev = regulator_get_by_supply_name(fdt, subnode, "voltd");
++		if (!rdev) {
++			DMSG("Regulator not found for voltd %s, skipped",
++			     fdt_get_name(fdt, subnode, NULL));
++			continue;
++		}
++
++		domain_id = (uint32_t)_fdt_reg_base_address(fdt, subnode);
++		regu = voltd_channel.regu + domain_id;
++		regu->domain_id = domain_id;
++
++		/* Check that the domain_id is not already used */
++		if (regu->rdev) {
++			EMSG("Domain ID %"PRIu32" already used", domain_id);
++			panic();
++		}
++		regu->rdev = rdev;
++
++		/*
++		 * Synchronize SCMI regulator current configuration
++		 * Boot-on can be disabled by non secure
++		 * Always-on can not be updated but status will be synchronized
++		 * in non secure.
++		 */
++		if (rdev->flags & REGUL_BOOT_ON ||
++		    rdev->flags & REGUL_ALWAYS_ON) {
++			if (regulator_enable(rdev))
++				IMSG("Failed to enable SCMI regul");
++			else
++				regu->enabled = true;
++		}
++
++		DMSG("scmi voltd shares %s (node %s) on domain ID %"PRIu32,
++		     rdev->reg_name, rdev->desc->node_name, domain_id);
++	}
++
++	/*
++	 * Assign domain IDs to un-exposed regulator as SCMI specification
++	 * require the resource is defined even if not accessible.
++	 */
++	for (n = 0; n < voltd_channel.regu_count; n++) {
++		if (voltd_channel.regu[n].rdev)
++			assert(voltd_channel.regu[n].domain_id == n);
++		else
++			voltd_channel.regu[n].domain_id = n;
++	}
++
++	res = scmi_scpfw_cfg_add_regu(0/*agent*/, voltd_channel.channel_id,
++				      voltd_channel.regu,
++				      voltd_channel.regu_count);
++	if (res)
++		panic();
++
++	/* We can free voltd_channel resources since SCMI server handles them */
++	free(voltd_channel.regu);
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result scmi_regulator_consumer_init(void)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	void *fdt = NULL;
++	int node = -1;
++
++	if (!IS_ENABLED(CFG_SCMI_SERVER_REGULATOR_CONSUMER))
++		return TEE_SUCCESS;
++
++	fdt = get_embedded_dt();
++	if (!fdt)
++		return TEE_SUCCESS;
++
++	node = fdt_node_offset_by_compatible(fdt, node,
++					     "st,scmi-regulator-consumer");
++	if (node == -FDT_ERR_NOTFOUND)
++		return TEE_SUCCESS;
++	if (node < 0)
++		return TEE_ERROR_GENERIC;
++
++	res = init_channel(fdt, node);
++	if (res)
++		return res;
++
++	node = fdt_node_offset_by_compatible(fdt, node,
++					     "st,scmi-regulator-consumer");
++	if (node != -FDT_ERR_NOTFOUND)
++		panic("Too many st,scmi-regulator-consumer compatible nodes");
++
++	return TEE_SUCCESS;
++}
++
+diff --git a/core/lib/scmi-server/scmi_server.c b/core/lib/scmi-server/scmi_server.c
+index f0bb25610..65c1980f2 100644
+--- a/core/lib/scmi-server/scmi_server.c
++++ b/core/lib/scmi-server/scmi_server.c
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: BSD-2-Clause
+ /*
+  * Copyright (c) 2019-2022, Linaro Limited
++ * Copyright (c) 2023, STMicroelectronics
+  */
+ 
+ #include <arch_main.h>
+@@ -9,6 +10,7 @@
+ #include <kernel/panic.h>
+ #include <mm/core_memprot.h>
+ #include <optee_scmi.h>
++#include <scmi_regulator_consumer.h>
+ #include <scmi/scmi_server.h>
+ 
+ /*
+@@ -72,8 +74,17 @@ TEE_Result scmi_server_msg_process_thread(unsigned int channel_id,
+ 
+ static TEE_Result scmi_server_initialize(void)
+ {
++	TEE_Result res = TEE_ERROR_GENERIC;
+ 	int rc = 0;
+ 
++	if (IS_ENABLED(CFG_SCMI_SERVER_REGULATOR_CONSUMER)) {
++		res = scmi_regulator_consumer_init();
++		if (res) {
++			EMSG("SCMI regulator consumer init: %#"PRIx32, res);
++			return res;
++		}
++	}
++
+ 	rc = scmi_arch_init();
+ 	if (rc < 0) {
+ 		EMSG("SCMI server init failed: %d", rc);
+diff --git a/core/lib/scmi-server/sub.mk b/core/lib/scmi-server/sub.mk
+index d719a1c8d..4ede587f6 100644
+--- a/core/lib/scmi-server/sub.mk
++++ b/core/lib/scmi-server/sub.mk
+@@ -19,6 +19,7 @@ scpfw-integ-version-pat = 0
+ scpfw-integ-version = $(scpfw-integ-version-maj).$(scpfw-integ-version-min).$(scpfw-integ-version-pat)
+ 
+ srcs-y += scmi_server.c
++srcs-$(CFG_SCMI_SERVER_REGULATOR_CONSUMER) += scmi_regulator_consumer.c
+ incdirs-y += include
+ 
+ # SCP-firmware cmake configuration generates header fwk_module_idx.h and
+-- 
+2.47.2
+

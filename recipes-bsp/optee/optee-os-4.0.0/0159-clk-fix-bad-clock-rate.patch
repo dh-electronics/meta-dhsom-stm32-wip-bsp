@@ -1,0 +1,47 @@
+From df9de7f4bc7850ea9846dd38382903ecc20ef55d Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 3 Nov 2021 16:34:00 +0100
+Subject: [PATCH 0159/1695] clk: fix bad clock rate
+
+clk_get_rate() return only a cached value of the clock rate.
+
+If you made a set rate of the parent of the clock, the rate is not
+propagated. Same issue if you change the parent.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 24492b920a33c1fb3f36cff3330de505e1f2d424 clk: fix bad clock rate]
+Change-Id: Ie7728a51015209222bd89870fce88b2881330728
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk.c | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index 8f5a6a5d2..51a1814d9 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -195,7 +195,21 @@ void clk_disable(struct clk *clk)
+ 
+ unsigned long clk_get_rate(struct clk *clk)
+ {
+-	return clk->rate;
++	unsigned long rate = clk->rate;
++
++	if (clk->ops->get_rate) {
++		unsigned long parent_rate =  0UL;
++
++		if (clk->parent)
++			parent_rate = clk_get_rate(clk->parent);
++
++		return clk->ops->get_rate(clk, parent_rate);
++	}
++
++	if (clk->parent)
++		rate = clk_get_rate(clk->parent);
++
++	return rate;
+ }
+ 
+ static TEE_Result clk_set_rate_no_lock(struct clk *clk, unsigned long rate)
+-- 
+2.47.2
+

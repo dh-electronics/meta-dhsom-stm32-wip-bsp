@@ -1,0 +1,66 @@
+From 7c8e18a1f36cc33e3dd6b2d4f0764b70a01efd15 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 31 May 2023 15:18:24 +0200
+Subject: [PATCH 0381/1695] dts: stm32: add ommanager node in stm32mp251.dtsi
+
+This patch adds ommanager node in stm32mp251.dtsi
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f6c2471c8d5cf44df567f313fbb534e6c2d17a3e dts: stm32: add ommanager node in stm32mp251.dtsi]
+Change-Id: I849f4b2e7e72abf2726bcf5627b01bbc2a67cf9e
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/309876
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/350015
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/dts/stm32mp251.dtsi | 28 +++++++++++++++++++++++++++-
+ 1 file changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/dts/stm32mp251.dtsi b/core/arch/arm/dts/stm32mp251.dtsi
+index d8ca59605..d034cdf90 100644
+--- a/core/arch/arm/dts/stm32mp251.dtsi
++++ b/core/arch/arm/dts/stm32mp251.dtsi
+@@ -113,8 +113,34 @@
+ 		};
+ 
+ 		ommanager: ommanager@40500000 {
+-			reg = <0x40500000 0x400>;
++			#address-cells = <2>;
++			#size-cells = <1>;
++			compatible = "st,stm32mp25-omm";
++			reg = <0x40500000 0x400>, <0x60000000 0x10000000>;
++			reg-names = "omm", "omm_mm";
++			clocks = <&rcc CK_BUS_OSPIIOM>;
++			resets = <&rcc OSPIIOM_R>;
++			st,syscfg-amcr = <&syscfg 0x2c00 0x7>;
+ 			status = "disabled";
++
++			ranges = <0 0 0x40430000 0x400>,
++				 <1 0 0x40440000 0x400>;
++
++			ospi1: spi@40430000 {
++				compatible = "st,stm32mp25-omi";
++				reg = <0 0 0x400>;
++				clocks = <&rcc CK_KER_OSPI1>;
++				resets = <&rcc OSPI1_R>, <&rcc OSPI1DLL_R>;
++				status = "disabled";
++			};
++
++			ospi2: spi@40440000 {
++				compatible = "st,stm32mp25-omi";
++				reg = <1 0 0x400>;
++				clocks = <&rcc CK_KER_OSPI2>;
++				resets = <&rcc OSPI2_R>, <&rcc OSPI2DLL_R>;
++				status = "disabled";
++			};
+ 		};
+ 
+ 		rifsc: rifsc@42080000 {
+-- 
+2.47.2
+

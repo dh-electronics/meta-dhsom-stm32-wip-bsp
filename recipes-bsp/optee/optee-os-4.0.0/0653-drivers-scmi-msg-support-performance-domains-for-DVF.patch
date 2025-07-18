@@ -1,0 +1,718 @@
+From d6b698acd78c01d212bd5e16610bc4915b00507c Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Wed, 21 Feb 2024 17:48:26 +0100
+Subject: [PATCH 0653/1695] drivers: scmi-msg: support performance domains for
+ DVFS
+
+Implement some of the SCMI performance domain management messages
+in scmi-msg drivers to support basic DVFS scenario.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 796f170735e0dbf5fc382b3918b4e483ad0dc674 drivers: scmi-msg: support performance domains for DVFS]
+Change-Id: I48d958389017229b91c2fb48a8f6ddf55bd7ddd0
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/362289
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/scmi-msg/entry.c       |   4 +
+ core/drivers/scmi-msg/perf_domain.c | 386 ++++++++++++++++++++++++++++
+ core/drivers/scmi-msg/perf_domain.h | 139 ++++++++++
+ core/drivers/scmi-msg/sub.mk        |   1 +
+ core/include/drivers/scmi-msg.h     |  87 ++++++-
+ mk/config.mk                        |   2 +
+ 6 files changed, 618 insertions(+), 1 deletion(-)
+ create mode 100644 core/drivers/scmi-msg/perf_domain.c
+ create mode 100644 core/drivers/scmi-msg/perf_domain.h
+
+diff --git a/core/drivers/scmi-msg/entry.c b/core/drivers/scmi-msg/entry.c
+index 0fd096848..05a3e4dd4 100644
+--- a/core/drivers/scmi-msg/entry.c
++++ b/core/drivers/scmi-msg/entry.c
+@@ -15,6 +15,7 @@
+ #include "base.h"
+ #include "clock.h"
+ #include "common.h"
++#include "perf_domain.h"
+ #include "reset_domain.h"
+ #include "voltage_domain.h"
+ 
+@@ -88,6 +89,9 @@ void scmi_process_message(struct scmi_msg *msg)
+ 	case SCMI_PROTOCOL_ID_VOLTAGE_DOMAIN:
+ 		handler = scmi_msg_get_voltd_handler(msg);
+ 		break;
++	case SCMI_PROTOCOL_ID_PERF:
++		handler = scmi_msg_get_perf_handler(msg);
++		break;
+ 	default:
+ 		break;
+ 	}
+diff --git a/core/drivers/scmi-msg/perf_domain.c b/core/drivers/scmi-msg/perf_domain.c
+new file mode 100644
+index 000000000..ba6068e81
+--- /dev/null
++++ b/core/drivers/scmi-msg/perf_domain.c
+@@ -0,0 +1,386 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2015-2019, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2021, Linaro Limited
++ */
++#include <assert.h>
++#include <confine_array_index.h>
++#include <drivers/scmi-msg.h>
++#include <drivers/scmi.h>
++#include <mm/core_memprot.h>
++#include <string.h>
++#include <util.h>
++
++#include "common.h"
++#include "perf_domain.h"
++
++#define VERBOSE_MSG(...)		FMSG(__VA_ARGS__)
++
++static bool message_id_is_supported(unsigned int message_id);
++
++/* Weak handlers platform shall override on purpose */
++size_t __weak plat_scmi_perf_count(unsigned int channel_id __unused)
++{
++	return 0;
++}
++
++void __weak *plat_scmi_perf_statistics_buf(unsigned int channel_id __unused,
++					   size_t *stats_len)
++{
++	*stats_len = 0;
++
++	return NULL;
++}
++
++const char __weak *plat_scmi_perf_domain_name(unsigned int channel_id __unused,
++					      unsigned int domain_id __unused)
++{
++	return NULL;
++}
++
++int32_t __weak plat_scmi_perf_levels_array(unsigned int channel_id __unused,
++					   unsigned int domain_id __unused,
++					   size_t start_index __unused,
++					   unsigned int *elt __unused,
++					   size_t *nb_elts __unused)
++{
++	return SCMI_NOT_SUPPORTED;
++}
++
++int32_t __weak plat_scmi_perf_level_latency_us(unsigned int channel_id __unused,
++					       unsigned int domain_id __unused,
++					       unsigned int level __unused,
++					       unsigned int *latency __unused)
++{
++	return SCMI_NOT_SUPPORTED;
++}
++
++int32_t __weak plat_scmi_perf_level_power_cost(unsigned int channel_id __unused,
++					       unsigned int domain_id __unused,
++					       unsigned int level __unused,
++					       unsigned int *cost __unused)
++{
++	return SCMI_NOT_SUPPORTED;
++}
++
++int32_t __weak plat_scmi_perf_level_get(unsigned int channel_id __unused,
++					unsigned int domain_id __unused,
++					unsigned int *level __unused)
++{
++	return SCMI_NOT_SUPPORTED;
++}
++
++int32_t __weak plat_scmi_perf_level_set(unsigned int channel_id __unused,
++					unsigned int domain_id __unused,
++					unsigned int level __unused)
++{
++	return SCMI_NOT_SUPPORTED;
++}
++
++static void protocol_version(struct scmi_msg *msg)
++{
++	struct scmi_protocol_version_p2a return_values = {
++		.status = SCMI_SUCCESS,
++		.version = SCMI_PROTOCOL_VERSION_PERF_DOMAIN,
++	};
++
++	VERBOSE_MSG("SCMI perf %#"PRIx32, SCMI_PROTOCOL_VERSION_PERF_DOMAIN);
++
++	if (msg->in_size) {
++		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
++		return;
++	}
++
++	scmi_write_response(msg, &return_values, sizeof(return_values));
++}
++
++static void protocol_attributes(struct scmi_msg *msg)
++{
++	unsigned int channel_id = msg->channel_id;
++	size_t count = plat_scmi_perf_count(channel_id);
++	uint32_t power_in_mw = 0;
++	struct scmi_perf_protocol_attributes_p2a return_values = {
++		.status = SCMI_SUCCESS,
++		.attributes = SCMI_PERF_PROTOCOL_ATTRIBUTES(power_in_mw, count),
++	};
++	void *stats_buf = NULL;
++	size_t stats_len = 0;
++
++	VERBOSE_MSG("channel %u: %zu performance domains", channel_id, count);
++
++	if (msg->in_size) {
++		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
++		return;
++	}
++
++	stats_buf = plat_scmi_perf_statistics_buf(channel_id, &stats_len);
++	if (stats_len) {
++		paddr_t stats_pa = virt_to_phys(stats_buf);
++
++		if (stats_pa && tee_vbuf_is_non_sec(stats_buf, stats_len)) {
++			return_values.statistics_len = stats_len;
++			reg_pair_from_64((uint64_t)stats_pa,
++					 &return_values.statistics_address_high,
++					 &return_values.statistics_address_low);
++		} else {
++			IMSG("Disable SCMI perf statistics: invalid buffer");
++			DMSG("Stats buffer va %p, pa %#"PRIxPA", size %zu",
++			     stats_buf, stats_pa, stats_len);
++		}
++	}
++
++	scmi_write_response(msg, &return_values, sizeof(return_values));
++}
++
++static void protocol_message_attributes(struct scmi_msg *msg)
++{
++	struct scmi_protocol_message_attributes_a2p *in_args = (void *)msg->in;
++	struct scmi_protocol_message_attributes_p2a return_values = {
++		.status = SCMI_SUCCESS,
++		/* For this protocol, attributes shall be zero */
++		.attributes = 0,
++	};
++
++	if (msg->in_size != sizeof(*in_args)) {
++		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
++		return;
++	}
++
++	if (!message_id_is_supported(in_args->message_id)) {
++		scmi_status_response(msg, SCMI_NOT_FOUND);
++		return;
++	}
++
++	scmi_write_response(msg, &return_values, sizeof(return_values));
++}
++
++static int32_t sanitize_message(struct scmi_msg *msg, unsigned int *domain_id,
++				size_t exp_in_size)
++{
++	size_t domain_count = plat_scmi_perf_count(msg->channel_id);
++
++	if (msg->in_size != exp_in_size)
++		return SCMI_PROTOCOL_ERROR;
++
++	if (*domain_id >= domain_count)
++		return SCMI_INVALID_PARAMETERS;
++
++	*domain_id = confine_array_index(*domain_id, domain_count);
++
++	return SCMI_SUCCESS;
++}
++
++static void scmi_perf_domain_attributes(struct scmi_msg *msg)
++{
++	const struct scmi_perf_attributes_a2p *in_args = (void *)msg->in;
++	/* It is safe to read in_args->domain_id before sanitize_message() */
++	unsigned int domain_id = in_args->domain_id;
++	int32_t status = SCMI_GENERIC_ERROR;
++	struct scmi_perf_attributes_p2a return_values = {
++		.attributes = SCMI_PERF_DOMAIN_ATTRIBUTES_CAN_SET_LEVEL,
++		.status = SCMI_SUCCESS,
++	};
++	const char *name = NULL;
++
++	FMSG("channel %u: domain %u", msg->channel_id, domain_id);
++
++	status = sanitize_message(msg, &domain_id, sizeof(*in_args));
++	if (status) {
++		scmi_status_response(msg, status);
++		return;
++	}
++
++	name = plat_scmi_perf_domain_name(msg->channel_id, domain_id);
++	if (!name) {
++		scmi_status_response(msg, SCMI_NOT_FOUND);
++		return;
++	}
++
++	COPY_NAME_IDENTIFIER(return_values.name, name);
++
++	/*
++	 * .rate_limit, .sustained_freq and .sustained_perf_level are
++	 * implicitly set to 0.
++	 */
++
++	VERBOSE_MSG("channel %u: domain %u: name \"%s\"", msg->channel_id,
++		    domain_id, name);
++
++	scmi_write_response(msg, &return_values, sizeof(return_values));
++}
++
++static void scmi_perf_level_get(struct scmi_msg *msg)
++{
++	const struct scmi_perf_level_get_a2p *in_args = (void *)msg->in;
++	/* It is safe to read in_args->domain_id before sanitize_message() */
++	unsigned int domain_id = in_args->domain_id;
++	int32_t status = SCMI_GENERIC_ERROR;
++	unsigned int level = 0;
++	struct scmi_perf_level_get_p2a return_values = {
++		.status = SCMI_SUCCESS,
++	};
++
++	VERBOSE_MSG("channel %u, domain %u", msg->channel_id, domain_id);
++
++	status = sanitize_message(msg, &domain_id, sizeof(*in_args));
++	if (status) {
++		scmi_status_response(msg, status);
++		return;
++	}
++
++	status = plat_scmi_perf_level_get(msg->channel_id, domain_id, &level);
++	if (status) {
++		scmi_status_response(msg, status);
++		return;
++	}
++
++	assert(level <= UINT32_MAX);
++	return_values.performance_level = level;
++
++	VERBOSE_MSG("channel %u, domain %u: level %u", msg->channel_id,
++		    domain_id, level);
++
++	scmi_write_response(msg, &return_values, sizeof(return_values));
++}
++
++static void scmi_perf_level_set(struct scmi_msg *msg)
++{
++	const struct scmi_perf_level_set_a2p *in_args = (void *)msg->in;
++	unsigned int channel_id = msg->channel_id;
++	/* It is safe to read in in_args before sanitize_message() */
++	unsigned int domain_id = in_args->domain_id;
++	unsigned int level = in_args->performance_level;
++	int32_t status = SCMI_GENERIC_ERROR;
++
++	VERBOSE_MSG("channel %u, domain %u: set level %u", channel_id,
++		    domain_id, level);
++
++	status = sanitize_message(msg, &domain_id, sizeof(*in_args));
++	if (status == SCMI_SUCCESS)
++		status = plat_scmi_perf_level_set(channel_id, domain_id, level);
++
++	scmi_status_response(msg, status);
++}
++
++/* List levels array by small chunks fitting in SCMI message max payload size */
++#define LEVELS_ARRAY_SIZE \
++	((SCMI_SEC_PAYLOAD_SIZE - \
++	  sizeof(struct scmi_perf_describe_levels_a2p)) / \
++	 sizeof(struct scmi_perf_level))
++
++static void scmi_perf_describe_levels(struct scmi_msg *msg)
++{
++	const struct scmi_perf_describe_levels_a2p *in_args = (void *)msg->in;
++	size_t nb_levels = 0;
++	/* It is safe to read in_args->domain_id before sanitize_message() */
++	unsigned int domain_id = in_args->domain_id;
++	int32_t status = SCMI_GENERIC_ERROR;
++	/* Use the stack to get the returned a portion of the level array */
++	unsigned int plat_levels[LEVELS_ARRAY_SIZE] = { 0 };
++	size_t ret_nb = 0;
++	size_t rem_nb = 0;
++
++	VERBOSE_MSG("channel %u, domain %u", msg->channel_id, domain_id);
++
++	status = sanitize_message(msg, &domain_id, sizeof(*in_args));
++	if (status)
++		goto err;
++
++	status = plat_scmi_perf_levels_array(msg->channel_id, domain_id, 0,
++					     NULL, &nb_levels);
++	if (status)
++		goto err;
++
++	if (in_args->level_index >= nb_levels) {
++		status = SCMI_INVALID_PARAMETERS;
++		goto err;
++	}
++
++	ret_nb = MIN(ARRAY_SIZE(plat_levels), nb_levels - in_args->level_index);
++	rem_nb = nb_levels - in_args->level_index - ret_nb;
++
++	status =  plat_scmi_perf_levels_array(msg->channel_id, domain_id,
++					      in_args->level_index, plat_levels,
++					      &ret_nb);
++
++	if (status == SCMI_SUCCESS) {
++		struct scmi_perf_describe_levels_p2a p2a = { };
++		struct scmi_perf_level *levels = NULL;
++		size_t n = 0;
++
++		p2a.status = SCMI_SUCCESS;
++		p2a.num_levels = SCMI_PERF_NUM_LEVELS(ret_nb, rem_nb);
++		memcpy(msg->out, &p2a, sizeof(p2a));
++
++		/* By construction these values are 32bit aligned */
++		levels = (void *)(uintptr_t)(msg->out + sizeof(p2a));
++
++		for (n = 0; n < ret_nb; n++) {
++			unsigned int latency = 0;
++			unsigned int power_cost = 0;
++			int32_t rc = SCMI_SUCCESS;
++
++			rc = plat_scmi_perf_level_latency_us(msg->channel_id,
++							     domain_id,
++							     plat_levels[n],
++							     &latency);
++			if (rc != SCMI_SUCCESS && rc != SCMI_NOT_SUPPORTED)
++				panic();
++
++			latency &= SCMI_PERF_LEVEL_ATTRIBUTES_LATENCY_US_MASK;
++
++			rc = plat_scmi_perf_level_power_cost(msg->channel_id,
++							     domain_id,
++							     plat_levels[n],
++							     &power_cost);
++			if (rc != SCMI_SUCCESS && rc != SCMI_NOT_SUPPORTED)
++				panic();
++
++			levels[n] = (struct scmi_perf_level){
++				.performance_level = plat_levels[n],
++				.power_cost = power_cost,
++				.attributes = latency,
++			};
++		}
++
++		msg->out_size_out =
++			sizeof(p2a) + ret_nb * sizeof(struct scmi_perf_level);
++
++		return;
++	}
++
++err:
++	assert(status);
++	scmi_status_response(msg, status);
++}
++
++static const scmi_msg_handler_t scmi_perf_handler_table[] = {
++	[SCMI_PROTOCOL_VERSION] = protocol_version,
++	[SCMI_PROTOCOL_ATTRIBUTES] = protocol_attributes,
++	[SCMI_PROTOCOL_MESSAGE_ATTRIBUTES] = protocol_message_attributes,
++	[SCMI_PERF_DOMAIN_ATTRIBUTES] = scmi_perf_domain_attributes,
++	[SCMI_PERF_DESCRIBE_LEVELS] = scmi_perf_describe_levels,
++	[SCMI_PERF_LEVEL_SET] = scmi_perf_level_set,
++	[SCMI_PERF_LEVEL_GET] = scmi_perf_level_get,
++};
++
++static bool message_id_is_supported(size_t message_id)
++{
++	return message_id < ARRAY_SIZE(scmi_perf_handler_table) &&
++	       scmi_perf_handler_table[message_id];
++}
++
++scmi_msg_handler_t scmi_msg_get_perf_handler(struct scmi_msg *msg)
++{
++	const size_t array_size = ARRAY_SIZE(scmi_perf_handler_table);
++	unsigned int message_id = 0;
++
++	if (msg->message_id >= array_size) {
++		DMSG("handle not found %u", msg->message_id);
++		return NULL;
++	}
++
++	message_id = confine_array_index(msg->message_id, array_size);
++
++	return scmi_perf_handler_table[message_id];
++}
+diff --git a/core/drivers/scmi-msg/perf_domain.h b/core/drivers/scmi-msg/perf_domain.h
+new file mode 100644
+index 000000000..a36d0f2af
+--- /dev/null
++++ b/core/drivers/scmi-msg/perf_domain.h
+@@ -0,0 +1,139 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2015-2020, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2021, Linaro Limited
++ */
++
++#ifndef SCMI_MSG_PERF_DOMAIN_H
++#define SCMI_MSG_PERF_DOMAIN_H
++
++#include <stdint.h>
++#include <util.h>
++
++#include "common.h"
++
++#define SCMI_PROTOCOL_VERSION_PERF_DOMAIN	0x10000
++
++/*
++ * Identifiers of the SCMI Performance Domain Management Protocol commands
++ */
++enum scmi_perf_domain_command_id {
++	SCMI_PERF_DOMAIN_ATTRIBUTES = 0x3,
++	SCMI_PERF_DESCRIBE_LEVELS = 0x4,
++	SCMI_PERF_LIMITS_SET = 0x5,		/* Not supported */
++	SCMI_PERF_LIMITS_GET = 0x6,		/* Not supported */
++	SCMI_PERF_LEVEL_SET = 0x7,
++	SCMI_PERF_LEVEL_GET = 0x8,
++	SCMI_PERF_NOTIFY_LIMITS = 0x9,		/* Not supported */
++	SCMI_PERF_NOTIFY_LEVEL = 0xa,		/* Not supported */
++};
++
++/*
++ * Payloads for SCMI_PROTOCOL_ATTRIBUTES for Performance Domains
++ */
++#define SCMI_PERF_ATTRIBUTES_POWER_MW_BIT	BIT(16)
++#define SCMI_PERF_ATTRIBUTES_NUM_DOMAINS_MASK	GENMASK_32(15, 0)
++
++#define SCMI_PERF_PROTOCOL_ATTRIBUTES(_power_mw, _num_domains) \
++	(((_power_mw) ? SCMI_PERF_ATTRIBUTES_POWER_MW_BIT : 0) | \
++	 ((_num_domains) & SCMI_PERF_ATTRIBUTES_NUM_DOMAINS_MASK))
++
++struct scmi_perf_protocol_attributes_p2a {
++	int32_t status;
++	uint32_t attributes;
++	uint32_t statistics_address_low;
++	uint32_t statistics_address_high;
++	uint32_t statistics_len;
++};
++
++/*
++ * Payloads for SCMI_PERF_DOMAIN_ATTRIBUTES
++ */
++struct scmi_perf_attributes_a2p {
++	uint32_t domain_id;
++};
++
++/* Macro for scmi_perf_domain_attributes_p2a:attributes */
++#define SCMI_PERF_DOMAIN_ATTRIBUTES_CAN_SET_LEVEL	BIT(30)
++
++/* Macro for scmi_perf_domain_attributes_p2a:rate_limit */
++#define SCMI_PERF_DOMAIN_RATE_LIMIT_MASK	GENMASK_32(15, 0)
++
++/* Macro for scmi_perf_domain_attributes_p2a:name */
++#define SCMI_PERF_DOMAIN_ATTR_NAME_SZ		16
++
++struct scmi_perf_attributes_p2a {
++	int32_t status;
++	uint32_t attributes;
++	uint32_t rate_limit;
++	uint32_t sustained_freq;
++	uint32_t sustained_perf_level;
++	char name[SCMI_PERF_DOMAIN_ATTR_NAME_SZ];
++};
++
++/*
++ * Payloads for SCMI_PERF_DESCRIBE_LEVELS
++ */
++#define SCMI_PERF_LEVEL_ATTRIBUTES_LATENCY_US_MASK	GENMASK_32(15, 0)
++
++struct scmi_perf_level {
++	uint32_t performance_level;
++	uint32_t power_cost;
++	uint32_t attributes;
++};
++
++struct scmi_perf_describe_levels_a2p {
++	uint32_t domain_id;
++	uint32_t level_index;
++};
++
++#define SCMI_PERF_NUM_LEVELS_NUM_LEVELS_MASK		GENMASK_32(11, 0)
++#define SCMI_PERF_NUM_LEVELS_REMAINING_LEVELS_MASK	GENMASK_32(31, 16)
++#define SCMI_PERF_NUM_LEVELS_REMAINING_LEVELS_POS	16
++
++#define SCMI_PERF_NUM_LEVELS(_num_levels, _rem_levels) \
++	(((_num_levels) & SCMI_PERF_NUM_LEVELS_NUM_LEVELS_MASK) | \
++	(((_rem_levels) << SCMI_PERF_NUM_LEVELS_REMAINING_LEVELS_POS) & \
++	 SCMI_PERF_NUM_LEVELS_REMAINING_LEVELS_MASK))
++
++struct scmi_perf_describe_levels_p2a {
++	int32_t status;
++	uint32_t num_levels;
++	struct scmi_perf_level perf_levels[];
++};
++
++/* Payloads for SCMI_PERF_LEVEL_SET */
++struct scmi_perf_level_set_a2p {
++	uint32_t domain_id;
++	uint32_t performance_level;
++};
++
++struct scmi_perf_level_set_p2a {
++	int32_t status;
++};
++
++/* Payloads for SCMI_PERF_LEVEL_GET */
++struct scmi_perf_level_get_a2p {
++	uint32_t domain_id;
++};
++
++struct scmi_perf_level_get_p2a {
++	int32_t status;
++	uint32_t performance_level;
++};
++
++#ifdef CFG_SCMI_MSG_PERF_DOMAIN
++/*
++ * scmi_msg_get_perf_handler - Return a handler for a performance domain message
++ * @msg - message to process
++ * Return a function handler for the message or NULL
++ */
++scmi_msg_handler_t scmi_msg_get_perf_handler(struct scmi_msg *msg);
++#else
++static inline
++scmi_msg_handler_t scmi_msg_get_perf_handler(struct scmi_msg *msg __unused)
++{
++	return NULL;
++}
++#endif
++#endif /* SCMI_MSG_PERF_DOMAIN_H */
+diff --git a/core/drivers/scmi-msg/sub.mk b/core/drivers/scmi-msg/sub.mk
+index 3d1f6a715..3043bd98c 100644
+--- a/core/drivers/scmi-msg/sub.mk
++++ b/core/drivers/scmi-msg/sub.mk
+@@ -2,6 +2,7 @@ srcs-y += base.c
+ srcs-$(CFG_SCMI_MSG_CLOCK) += clock.c
+ srcs-$(CFG_SCMI_MSG_USE_CLK) += clock_generic.c
+ srcs-y += entry.c
++srcs-$(CFG_SCMI_MSG_PERF_DOMAIN) += perf_domain.c
+ srcs-$(CFG_SCMI_MSG_REGULATOR_CONSUMER) += regulator_consumer.c
+ srcs-$(CFG_SCMI_MSG_RESET_DOMAIN) += reset_domain.c
+ srcs-$(CFG_SCMI_MSG_SHM_MSG) += shm_msg.c
+diff --git a/core/include/drivers/scmi-msg.h b/core/include/drivers/scmi-msg.h
+index f6fc3c91f..64a240e5d 100644
+--- a/core/include/drivers/scmi-msg.h
++++ b/core/include/drivers/scmi-msg.h
+@@ -416,4 +416,89 @@ int32_t plat_scmi_voltd_get_config(unsigned int channel_id,
+ int32_t plat_scmi_voltd_set_config(unsigned int channel_id,
+ 				   unsigned int scmi_id, uint32_t config);
+ 
+-#endif /* __DRIVERS_SCMI_MSG_H */
++/* Handlers for SCMI Performance Domain Management protocol services */
++
++/*
++ * Return number of performance domains for the channel
++ * @channel_id: SCMI channel ID
++ * Return number of performance domains for the channel
++ */
++size_t plat_scmi_perf_count(unsigned int channel_id);
++
++/*
++ * Return number of performance domains for the channel
++ * @channel_id: SCMI channel ID
++ * @stats_len: Output byte size of the statistics buffer or zero
++ * Return pointer to SCMI server statistics buffer for the channel or NULL
++ */
++void *plat_scmi_perf_statistics_buf(unsigned int channel_id, size_t *stats_len);
++
++/*
++ * Get performance domain string ID (aka name)
++ * @channel_id: SCMI channel ID
++ * @domain_id: SCMI performance domain ID
++ * Return pointer to name or NULL
++ */
++const char *plat_scmi_perf_domain_name(unsigned int channel_id,
++				       unsigned int domain_id);
++
++/*
++ * Get performance domain possible levels as an array of unsigned int
++ *
++ * @channel_id: SCMI channel ID
++ * @domain_id: SCMI performance domain ID
++ * @start_index: Level index to start from.
++ * @levels: If NULL, function returns, else output level array
++ * @nb_elts: Array size of @levels.
++ * Return an SCMI compliant error code
++ */
++int32_t plat_scmi_perf_levels_array(unsigned int channel_id,
++				    unsigned int domain_id, size_t start_index,
++				    unsigned int *elt, size_t *nb_elts);
++
++/*
++ * Get latency is microseconds for transition to target performance level
++ * @channel_id: SCMI channel ID
++ * @domain_id: SCMI performance domain ID
++ * @level: Target performance level
++ * @latency: Output latency value (microsecond) for the target level
++ * Return a compliant SCMI error code
++ */
++int32_t plat_scmi_perf_level_latency_us(unsigned int channel_id,
++					unsigned int domain_id,
++					unsigned int level,
++					unsigned int *latency);
++
++/*
++ * Get power cost value related to target performance level
++ * @channel_id: SCMI channel ID
++ * @domain_id: SCMI performance domain ID
++ * @level: Target performance level
++ * @power_cost: Output power cost for the performance level
++ * Return a compliant SCMI error code
++ */
++int32_t plat_scmi_perf_level_power_cost(unsigned int channel_id,
++					unsigned int domain_id,
++					unsigned int level,
++					unsigned int *power_cost);
++
++/*
++ * Get current performance level of the domain
++ * @channel_id: SCMI channel ID
++ * @domain_id: SCMI performance domain ID
++ * @level: Output performance level
++ * Return a compliant SCMI error code
++ */
++int32_t plat_scmi_perf_level_get(unsigned int channel_id,
++				 unsigned int domain_id, unsigned int *level);
++
++/*
++ * Request change of performance level for the domain
++ * @channel_id: SCMI channel ID
++ * @domain_id: SCMI performance domain ID
++ * @level: Target performance level
++ * Return a compliant SCMI error code
++ */
++int32_t plat_scmi_perf_level_set(unsigned int channel_id,
++				 unsigned int domain_id, unsigned int level);
++#endif /* SCMI_MSG_H */
+diff --git a/mk/config.mk b/mk/config.mk
+index 092564542..c06563247 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -752,6 +752,7 @@ CFG_CORE_TPM_EVENT_LOG ?= n
+ # CFG_SCMI_MSG_REGULATOR_CONSUMER uses DT to list regulators exposed thru SCMI
+ # CFG_SCMI_MSG_SMT embeds a SMT header in shared device memory buffers
+ # CFG_SCMI_MSG_VOLTAGE_DOMAIN embeds SCMI voltage domain protocol support.
++# CFG_SCMI_MSG_PERF_DOMAIN embeds SCMI performance domain management protocol
+ # CFG_SCMI_MSG_SMT_FASTCALL_ENTRY embeds fastcall SMC entry with SMT memory
+ # CFG_SCMI_MSG_SMT_INTERRUPT_ENTRY embeds interrupt entry with SMT memory
+ # CFG_SCMI_MSG_SMT_THREAD_ENTRY embeds threaded entry with SMT memory
+@@ -768,6 +769,7 @@ CFG_SCMI_MSG_SMT_THREAD_ENTRY ?= n
+ CFG_SCMI_MSG_THREAD_ENTRY ?= n
+ CFG_SCMI_MSG_REGULATOR_CONSUMER ?= n
+ CFG_SCMI_MSG_VOLTAGE_DOMAIN ?= n
++CFG_SCMI_MSG_PERF_DOMAIN ?=n
+ $(eval $(call cfg-depends-all,CFG_SCMI_MSG_SMT_FASTCALL_ENTRY,CFG_SCMI_MSG_SMT))
+ $(eval $(call cfg-depends-all,CFG_SCMI_MSG_SMT_INTERRUPT_ENTRY,CFG_SCMI_MSG_SMT))
+ $(eval $(call cfg-depends-one,CFG_SCMI_MSG_SMT_THREAD_ENTRY,CFG_SCMI_MSG_SMT CFG_SCMI_MSG_SHM_MSG))
+-- 
+2.47.2
+

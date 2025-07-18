@@ -1,0 +1,71 @@
+From 955e10c7d8d7becdd080bd0697f330952ad4f504 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 15 Nov 2023 17:24:14 +0100
+Subject: [PATCH 0037/1695] plat-stm32mp1: scmi_server: fix regulator framework
+ integration
+
+Fixes the return value when an SCMI regulator is already in
+the expected state. Prior this change the implementation returned
+SCMI_GENERIC_ERROR instead of SCMI_SUCCESS.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e217cd10e160bf7cf1acbfe780ee006ca197f764 plat-stm32mp1: scmi_server: fix regulator framework integration]
+Change-Id: Id59a08f7970a15e1aae506f4def456869f3b734d
+Fixes: 23e200628dad ("plat-stm32mp1: scmi_server: use registered regulators")
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 021eda8bb8ab5d797aca9005048686936475390b]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/scmi_server.c | 32 ++++++++++++-----------
+ 1 file changed, 17 insertions(+), 15 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index 857809e77..36c1b8e0e 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -875,26 +875,28 @@ int32_t plat_scmi_voltd_set_config(unsigned int channel_id,
+ 		return SCMI_NOT_FOUND;
+ 
+ 	if (voltd->regulator) {
+-		TEE_Result res = TEE_ERROR_GENERIC;
++		switch (config) {
++		case SCMI_VOLTAGE_DOMAIN_CONFIG_ARCH_ON:
++			if (!voltd->state) {
++				if (regulator_enable(voltd->regulator))
++					return SCMI_GENERIC_ERROR;
+ 
+-		if (config == SCMI_VOLTAGE_DOMAIN_CONFIG_ARCH_ON &&
+-		    !voltd->state) {
+-			res = regulator_enable(voltd->regulator);
+-			if (!res)
+ 				voltd->state = true;
+-		} else if (config == SCMI_VOLTAGE_DOMAIN_CONFIG_ARCH_OFF &&
+-			 voltd->state) {
+-			res = regulator_disable(voltd->regulator);
+-			if (!res)
++			}
++			break;
++		case SCMI_VOLTAGE_DOMAIN_CONFIG_ARCH_OFF:
++			if (voltd->state) {
++				if (regulator_disable(voltd->regulator))
++					return SCMI_GENERIC_ERROR;
++
+ 				voltd->state = false;
+-		} else {
+-			res = TEE_ERROR_GENERIC;
++			}
++			break;
++		default:
++			return SCMI_GENERIC_ERROR;
+ 		}
+ 
+-		if (res)
+-			return SCMI_GENERIC_ERROR;
+-		else
+-			return SCMI_SUCCESS;
++		return SCMI_SUCCESS;
+ 	}
+ 
+ 	switch (voltd->priv_dev) {
+-- 
+2.47.2
+

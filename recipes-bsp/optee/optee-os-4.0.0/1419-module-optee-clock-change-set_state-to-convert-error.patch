@@ -1,0 +1,56 @@
+From 943fcb364e49657dee6a07e1448b4a46c82a03ab Mon Sep 17 00:00:00 2001
+From: Theo GOUREAU <theo.goureau-ext@st.com>
+Date: Tue, 5 Nov 2024 13:21:55 +0100
+Subject: [PATCH 1419/1695] module: optee: clock: change set_state() to convert
+ error status
+
+Change set_state() to convert TEE_Result into SCMI framework status to
+provide more detailed error information.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a980492cbb6a512f00063dbf3dba14abf2e9bcd5 module: optee: clock: change set_state() to convert error status]
+Change-Id: If4336b319a25387aed5570b43653d7a345c2b917
+Signed-off-by: Theo GOUREAU <theo.goureau-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/416480
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../module/optee/clock/src/mod_optee_clock.c             | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c b/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c
+index cef284f8b..fff6cba2f 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c
+@@ -14,6 +14,8 @@
+ #include <fwk_module.h>
+ #include <fwk_log.h>
+ 
++#include <arch_main.h>
++
+ #include <mod_clock.h>
+ #include <mod_optee_clock.h>
+ 
+@@ -121,13 +123,16 @@ static int set_state(fwk_id_t dev_id, enum mod_clock_state state)
+         }
+     } else {
+         if (!ctx->enabled) {
++            TEE_Result res;
++
+             FWK_LOG_DEBUG(
+                 MOD_NAME "SCMI optee_clock (%u/\"%s\") enable",
+                 fwk_id_get_element_idx(dev_id),
+                 clk_get_name(ctx->clk));
+ 
+-            if (clk_enable(ctx->clk)) {
+-                return FWK_E_DEVICE;
++            res = clk_enable(ctx->clk);
++            if (res) {
++                return scmi_tee_result_to_fwk_status(res);
+             }
+ 
+             ctx->enabled = true;
+-- 
+2.47.2
+

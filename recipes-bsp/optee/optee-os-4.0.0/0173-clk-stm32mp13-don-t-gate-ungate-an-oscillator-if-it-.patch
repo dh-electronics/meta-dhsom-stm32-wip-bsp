@@ -1,0 +1,103 @@
+From b630ed3f05d6baf36845799937f3437a68fc1615 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 8 Jul 2022 15:29:24 +0200
+Subject: [PATCH 0173/1695] clk: stm32mp13: don't gate/ungate an oscillator if
+ it is not wired
+
+If an oscillator is not wired we shouldn't gate it to avoid a panic.
+Example to disable lse:
++&clk_lse {
++	status = "disabled";
++};
++
+&rcc {
++	clocks = <&clk_hse>, <&clk_hsi>, <&clk_lsi>, <&clk_csi>, <&clk_i2sin>;
++	clock-names = "clk-hse", "clk-hsi", "clk-lsi", "clk-csi", "clk-i2sin";
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 06281c692ba64890459cfdd999c07391c74c3999 clk: stm32mp13: don't gate/ungate an oscillator if it is not wired]
+Change-Id: Ib343a3ee71fc3521122c28d30d3c3d811bebddb9
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp13.c | 59 ++++++++++++++++++++++++++++----
+ 1 file changed, 53 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 1ac1b6fe0..fb8222727 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -1490,7 +1490,7 @@ static int stm32_clk_parse_fdt_all_oscillator(const void *fdt,
+ 		fdt_err = clk_stm32_parse_oscillator_fdt(fdt, osc_node,
+ 							 osc_data->name, osci);
+ 		if (fdt_err < 0)
+-			panic();
++			osci->freq = 0UL;
+ 	}
+ 
+ 	return 0;
+@@ -1979,11 +1979,58 @@ const struct clk_ops ck_timer_ops = {
+ 	}
+ 
+ /* Oscillator clocks */
+-static STM32_GATE_READY(ck_hsi, NULL, 0, GATE_HSI);
+-static STM32_GATE_READY(ck_hse, NULL, 0, GATE_HSE);
+-static STM32_GATE_READY(ck_csi, NULL, 0, GATE_CSI);
+-static STM32_GATE_READY(ck_lsi, NULL, 0, GATE_LSI);
+-static STM32_GATE_READY(ck_lse, NULL, 0, GATE_LSE);
++
++static TEE_Result clk_stm32_oscillator_enable(struct clk *clk)
++{
++	struct clk_stm32_gate_cfg *cfg = clk->priv;
++
++	if (clk->rate == 0U)
++		return TEE_SUCCESS;
++
++	return stm32_gate_rdy_enable(cfg->gate_id);
++}
++
++static void clk_stm32_oscillator_disable(struct clk *clk)
++{
++	struct clk_stm32_gate_cfg *cfg = clk->priv;
++
++	if (clk->rate == 0U)
++		return;
++
++	if (stm32_gate_rdy_disable(cfg->gate_id))
++		panic();
++}
++
++static bool clk_stm32_oscillator_is_enabled(struct clk *clk)
++{
++	struct clk_stm32_gate_cfg *cfg = clk->priv;
++
++	return stm32_gate_is_enabled(cfg->gate_id);
++}
++
++static const struct clk_ops clk_stm32_oscillator_ops = {
++	.enable		= clk_stm32_oscillator_enable,
++	.disable	= clk_stm32_oscillator_disable,
++	.is_enabled	= clk_stm32_oscillator_is_enabled,
++};
++
++#define STM32_OSCILLATOR(_name, _parent, _flags, _gate_id)\
++	struct clk _name = {\
++		.ops = &clk_stm32_oscillator_ops,\
++		.priv = &(struct clk_stm32_gate_cfg) {\
++			.gate_id = _gate_id,\
++		},\
++		.name = #_name,\
++		.flags = (_flags),\
++		.num_parents = 1,\
++		.parents = { _parent },\
++	}
++
++static STM32_OSCILLATOR(ck_hsi, NULL, 0, GATE_HSI);
++static STM32_OSCILLATOR(ck_hse, NULL, 0, GATE_HSE);
++static STM32_OSCILLATOR(ck_csi, NULL, 0, GATE_CSI);
++static STM32_OSCILLATOR(ck_lsi, NULL, 0, GATE_LSI);
++static STM32_OSCILLATOR(ck_lse, NULL, 0, GATE_LSE);
+ 
+ static STM32_FIXED_FACTOR(ck_i2sckin, NULL, 0, 1, 1);
+ static STM32_FIXED_FACTOR(ck_hse_div2, &ck_hse, 0, 1, 2);
+-- 
+2.47.2
+

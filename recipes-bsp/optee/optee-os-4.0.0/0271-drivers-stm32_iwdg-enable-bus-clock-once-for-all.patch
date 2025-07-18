@@ -1,0 +1,70 @@
+From c0471c20f91f6a12e8569a6bc0ff45899be75570 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 18 Dec 2023 09:53:48 +0100
+Subject: [PATCH 0271/1695] drivers: stm32_iwdg: enable bus clock once for all
+
+Enable STM32 IWDG driver bus clock together with the IWDG kernel
+clock when the driver is initialized. This clock is needed to propagate
+IWDG early interrupt to the system.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 57cc47b34866741b6bf309b09e4831ade704aa90 drivers: stm32_iwdg: enable bus clock once for all]
+Acked-by: Jerome Forissier <jerome.forissier@linaro.org>
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/stm32_iwdg.c | 11 ++---------
+ 1 file changed, 2 insertions(+), 9 deletions(-)
+
+diff --git a/core/drivers/stm32_iwdg.c b/core/drivers/stm32_iwdg.c
+index 0ff2a53d2..fba45d312 100644
+--- a/core/drivers/stm32_iwdg.c
++++ b/core/drivers/stm32_iwdg.c
+@@ -150,8 +150,6 @@ static TEE_Result configure_timeout(struct stm32_iwdg_device *iwdg)
+ 	if (!rlr_value)
+ 		return TEE_ERROR_GENERIC;
+ 
+-	clk_enable(iwdg->clk_pclk);
+-
+ 	io_write32(iwdg_base + IWDG_KR_OFFSET, IWDG_KR_ACCESS_KEY);
+ 	io_write32(iwdg_base + IWDG_PR_OFFSET, IWDG_PR_DIV_256);
+ 	io_write32(iwdg_base + IWDG_RLR_OFFSET, rlr_value);
+@@ -159,25 +157,19 @@ static TEE_Result configure_timeout(struct stm32_iwdg_device *iwdg)
+ 
+ 	res = iwdg_wait_sync(iwdg);
+ 
+-	clk_disable(iwdg->clk_pclk);
+-
+ 	return res;
+ }
+ 
+ static void iwdg_start(struct stm32_iwdg_device *iwdg)
+ {
+-	clk_enable(iwdg->clk_pclk);
+ 	io_write32(get_base(iwdg) + IWDG_KR_OFFSET, IWDG_KR_START_KEY);
+-	clk_disable(iwdg->clk_pclk);
+ 
+ 	iwdg->flags |= IWDG_FLAGS_ENABLED;
+ }
+ 
+ static void iwdg_refresh(struct stm32_iwdg_device *iwdg)
+ {
+-	clk_enable(iwdg->clk_pclk);
+ 	io_write32(get_base(iwdg) + IWDG_KR_OFFSET, IWDG_KR_RELOAD_KEY);
+-	clk_disable(iwdg->clk_pclk);
+ }
+ 
+ /* Operators for watchdog OP-TEE interface */
+@@ -340,8 +332,9 @@ static TEE_Result stm32_iwdg_setup(struct stm32_iwdg_device *iwdg,
+ 	if (otp_data.disable_on_standby)
+ 		iwdg->flags |= IWDG_FLAGS_DISABLE_ON_STANDBY;
+ 
+-	/* Enable watchdog source clock once for all */
++	/* Enable watchdog source and bus clocks once for all */
+ 	clk_enable(iwdg->clk_lsi);
++	clk_enable(iwdg->clk_pclk);
+ 
+ 	if (otp_data.hw_enabled) {
+ 		iwdg->flags |= IWDG_FLAGS_ENABLED;
+-- 
+2.47.2
+

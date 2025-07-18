@@ -1,0 +1,128 @@
+From 3633404b0e81da0f5c0b22c75a2d86bbc5154e79 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Sun, 8 Oct 2023 21:23:34 +0200
+Subject: [PATCH 0051/1695] core: interrupt: add interrupt_create_handler()
+
+Adds interrupt_create_handler() API function in interrupt framework.
+The function is to be used with interrupt controls obtained
+from the DT with  interrupt_dt_get() interrupt_dt_get_by_index() or
+interrupt_dt_get_by_name().
+
+The function differs from legacy interrupt_add_handler() in that
+this latter always reconfigure the interrupt while new
+interrupt_create_handler() function assumes the interrupt was configured
+from interrupt_dt_get() or friends.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 58c69a7da206126de4158b606d73d465153ea549 core: interrupt: add interrupt_create_handler()]
+Change-Id: I3b32fd96fe4fece57489ded8ee0d98caf0cace08
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from e9376d025eb57424056b012335aaa5f812691259]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/include/kernel/interrupt.h | 19 ++++++++++++++
+ core/kernel/interrupt.c         | 46 ++++++++++++++++++++++++++++++---
+ 2 files changed, 62 insertions(+), 3 deletions(-)
+
+diff --git a/core/include/kernel/interrupt.h b/core/include/kernel/interrupt.h
+index 700141073..370f4330f 100644
+--- a/core/include/kernel/interrupt.h
++++ b/core/include/kernel/interrupt.h
+@@ -345,6 +345,25 @@ static inline TEE_Result interrupt_add_handler(struct itr_handler *hdl)
+ 	return interrupt_add_configure_handler(hdl, IRQ_TYPE_NONE, 0);
+ }
+ 
++/*
++ * interrupt_create_handler() - Allocate/register an interrupt callback handler
++ * @itr_chip Interrupt chip obtained from dt_get_interrupt_by_*()
++ * @itr_num Interrupt number obtained from dt_get_interrupt_by_*()
++ * @callback Callback handler function
++ * @priv Private dat to pssa to @callback
++ * @flags INTERRUPT_FLAGS_* or 0
++ * @out_hdl Output allocated and registered handler or NULL
++ *
++ * This function  differs from interrupt_add_handler() in that the
++ * interrupt is not reconfigured. interrupt_create_handler() expects
++ * @itr_desc was obtained from a call to dt_get_interrupt_by_index()
++ * or dt_get_interrupt_by_name(). That call configured the interrupt.
++ */
++TEE_Result interrupt_create_handler(struct itr_chip *itr_chip, size_t itr_num,
++				    itr_handler_t callback, void *priv,
++				    uint32_t flags,
++				    struct itr_handler **out_hdl);
++
+ /*
+  * interrupt_add_handler_with_chip() - Register an interrupt handler providing
+  *	the interrupt chip reference in specific argument @chip.
+diff --git a/core/kernel/interrupt.c b/core/kernel/interrupt.c
+index 5413dff21..f46a7700b 100644
+--- a/core/kernel/interrupt.c
++++ b/core/kernel/interrupt.c
+@@ -104,8 +104,9 @@ TEE_Result interrupt_configure(struct itr_chip *chip, size_t itr_num,
+ 	return TEE_SUCCESS;
+ }
+ 
+-TEE_Result interrupt_add_configure_handler(struct itr_handler *hdl,
+-					   uint32_t type, uint32_t prio)
++static TEE_Result add_configure_handler(struct itr_handler *hdl,
++					uint32_t type, uint32_t prio,
++					bool configure)
+ {
+ 	struct itr_handler *h = NULL;
+ 
+@@ -122,13 +123,52 @@ TEE_Result interrupt_add_configure_handler(struct itr_handler *hdl,
+ 		}
+ 	}
+ 
+-	interrupt_configure(hdl->chip, hdl->it, type, prio);
++	if (configure)
++		interrupt_configure(hdl->chip, hdl->it, type, prio);
+ 
+ 	SLIST_INSERT_HEAD(&hdl->chip->handlers, hdl, link);
+ 
+ 	return TEE_SUCCESS;
+ }
+ 
++TEE_Result interrupt_add_configure_handler(struct itr_handler *hdl,
++					   uint32_t type, uint32_t prio)
++{
++	return add_configure_handler(hdl, type, prio, true /* configure */);
++}
++
++TEE_Result interrupt_create_handler(struct itr_chip *itr_chip, size_t itr_num,
++				    itr_handler_t callback, void *priv,
++				    uint32_t flags,
++				    struct itr_handler **out_hdl)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct itr_handler *itr_hdl = NULL;
++
++	itr_hdl = calloc(1, sizeof(*itr_hdl));
++	if (!itr_hdl)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	*itr_hdl = (struct itr_handler){
++		.chip = itr_chip,
++		.it = itr_num,
++		.flags = flags,
++		.handler = callback,
++		.data = priv,
++	};
++
++	res = add_configure_handler(itr_hdl, 0, 0, false /* configure */);
++	if (res) {
++		free(itr_hdl);
++		return res;
++	}
++
++	if (out_hdl)
++		*out_hdl = itr_hdl;
++
++	return TEE_SUCCESS;
++}
++
+ void interrupt_remove_handler(struct itr_handler *hdl)
+ {
+ 	struct itr_handler *h = NULL;
+-- 
+2.47.2
+

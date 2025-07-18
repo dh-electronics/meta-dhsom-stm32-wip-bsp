@@ -1,0 +1,47 @@
+From 2caa184be5fcbfb80d466ef847198f01db22d495 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 10 Oct 2023 15:08:10 +0200
+Subject: [PATCH 0048/1695] core: dt_driver: don't enforce phandle 1st arg is a
+ phandle
+
+Changes local function device_from_provider_prop() to assume its
+argument @prop points to the first argument to pass with phandle.
+
+This change allows a later change to support other DT bindings
+("interrupts" property) where 1st cell of the property is not
+a phandle but the 1st phandle argument to be passed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ba5b7d07be12ab4880cae94cba462c0d09b489bb core: dt_driver: don't enforce phandle 1st arg is a phandle]
+Change-Id: Iabbcc1e0e39379ed33115a3b57618c0e28b8ee37
+[etienne: cherry-picked from 955b02aaf75cc8fdc66006ba3daf6c19c3ded476]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/kernel/dt_driver.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/core/kernel/dt_driver.c b/core/kernel/dt_driver.c
+index 256aefa90..59201f61a 100644
+--- a/core/kernel/dt_driver.c
++++ b/core/kernel/dt_driver.c
+@@ -264,7 +264,7 @@ static TEE_Result device_from_provider_prop(struct dt_driver_provider *prv,
+ 	pargs->phandle_node = phandle_node;
+ 	pargs->args_count = prv->provider_cells;
+ 	for (n = 0; n < prv->provider_cells; n++)
+-		pargs->args[n] = fdt32_to_cpu(prop[n + 1]);
++		pargs->args[n] = fdt32_to_cpu(prop[n]);
+ 
+ 	res = prv->get_of_device(pargs, prv->priv_data, device);
+ 
+@@ -395,6 +395,9 @@ TEE_Result dt_driver_device_from_node_idx_prop(const char *prop_name,
+ 			continue;
+ 		}
+ 
++		/* Skip property cell with the phandle, already handled */
++		idx32++;
++
+ 		return device_from_provider_prop(prv, fdt, phandle_node,
+ 						 prop + idx32, device);
+ 	}
+-- 
+2.47.2
+

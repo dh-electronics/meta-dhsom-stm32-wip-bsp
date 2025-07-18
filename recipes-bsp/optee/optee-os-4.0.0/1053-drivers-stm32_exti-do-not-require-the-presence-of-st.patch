@@ -1,0 +1,52 @@
+From 088e0a3d135b53870e81a6ca06eb23fe2072d9a5 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Tue, 30 Jul 2024 09:44:11 +0200
+Subject: [PATCH 1053/1695] drivers: stm32_exti: do not require the presence of
+ st,protreg
+
+Remove the constraint that made st,protreg mandatory as there are
+use-cases where the driver can be used without setting a RIF
+configuration such as when the CPU running OP-TEE is not TDCID.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c105691393dc97ef334cb5cf8fceecb9e96344b5 drivers: stm32_exti: do not require the presence of st,protreg]
+Change-Id: I580374deec5e878dd9519accee498de023c468ba
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/395785
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_exti.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/stm32_exti.c b/core/drivers/stm32_exti.c
+index 811d7adec..a138124f4 100644
+--- a/core/drivers/stm32_exti.c
++++ b/core/drivers/stm32_exti.c
+@@ -284,8 +284,10 @@ static void stm32_exti_rif_parse_dt(struct stm32_exti_pdata *exti,
+ 		DMSG("No global lock on RIF configuration");
+ 
+ 	cuint = fdt_getprop(fdt, node, "st,protreg", &len);
+-	if (!cuint)
+-		panic("No RIF configuration available");
++	if (!cuint) {
++		DMSG("No RIF configuration available");
++		return;
++	}
+ 
+ 	exti->e_cids = calloc(stm32_exti_nbevents(exti), sizeof(uint32_t));
+ 	exti->c_cids = calloc(stm32_exti_nbcpus(exti), sizeof(uint32_t));
+@@ -332,6 +334,9 @@ static TEE_Result stm32_exti_rif_apply(const struct stm32_exti_pdata *exti)
+ 	uint32_t event = 0;
+ 	unsigned int i = 0;
+ 
++	if (!exti->e_cids)
++		return TEE_SUCCESS;
++
+ 	res = stm32_rifsc_check_tdcid(&is_tdcid);
+ 	if (res)
+ 		return res;
+-- 
+2.47.2
+

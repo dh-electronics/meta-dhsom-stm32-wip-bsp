@@ -1,0 +1,86 @@
+From 0d6203a940114acca14a9058d6921223768e3e54 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Thu, 23 May 2024 18:09:05 +0200
+Subject: [PATCH 0879/1695] plat-stm32mp: scmi_server_scpfw: do not panic
+ during scmi_scpfw_add_regu
+
+In case of error code return from scmi_scpfw_cfg_add_regu(), the system
+panic.
+
+If agent or channel are not defined in scmi_server_scpfw.c
+but its regulators are described in device-tree, the system will panic
+also. But we can just do nothing. It doesn't matter, user will see the log
+"SCMI agent x channel x not found, do not add regulator".
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6a3530bdf43b6178e3f5c9c40bc5d1237388ab2c plat-stm32mp: scmi_server_scpfw: do not panic during scmi_scpfw_add_regu]
+Co-developed-by: Raphael Gallais-Pou <raphael.gallais-pou@foss.st.com>
+Signed-off-by: Raphael Gallais-Pou <raphael.gallais-pou@foss.st.com>
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I5e6e4e4007fb3fc38e39b93efb5bd86554b9bf2c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/382632
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c | 7 +++++--
+ core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c | 7 +++++--
+ core/lib/scmi-server/scmi_regulator_consumer.c  | 7 ++++++-
+ 3 files changed, 16 insertions(+), 5 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
+index e341d98b7..537249a06 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
+@@ -496,8 +496,11 @@ TEE_Result scmi_scpfw_cfg_add_regu(unsigned int agent_id,
+ 		return TEE_SUCCESS;
+ 
+ 	if (agent_id >= scpfw_cfg.agent_count ||
+-	    channel_id >= agent_cfg->channel_count)
+-		return TEE_ERROR_BAD_PARAMETERS;
++	    channel_id >= agent_cfg->channel_count) {
++		EMSG("SCMI agent %u channel %u not found, do not add regulator",
++		     agent_id, channel_id);
++		return TEE_ERROR_ITEM_NOT_FOUND;
++	}
+ 
+ 	if (channel_cfg->voltd) {
+ 		EMSG("Voltage domain already loaded: agent %u, channel %u",
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index ead0428f8..f51bff62e 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -850,8 +850,11 @@ TEE_Result scmi_scpfw_cfg_add_regu(unsigned int agent_id,
+ 		return TEE_SUCCESS;
+ 
+ 	if (agent_id >= scpfw_cfg.agent_count ||
+-	    channel_id >= agent_cfg->channel_count)
+-		return TEE_ERROR_BAD_PARAMETERS;
++	    channel_id >= agent_cfg->channel_count) {
++		EMSG("SCMI agent %u channel %u not found, do not add regulator",
++		     agent_id, channel_id);
++		return TEE_ERROR_ITEM_NOT_FOUND;
++	}
+ 
+ 	if (channel_cfg->voltd) {
+ 		EMSG("Voltage domain already loaded: agent %u, channel %u",
+diff --git a/core/lib/scmi-server/scmi_regulator_consumer.c b/core/lib/scmi-server/scmi_regulator_consumer.c
+index 270934dba..deb702d9f 100644
+--- a/core/lib/scmi-server/scmi_regulator_consumer.c
++++ b/core/lib/scmi-server/scmi_regulator_consumer.c
+@@ -106,7 +106,12 @@ static TEE_Result init_channel(void *fdt, int node)
+ 	res = scmi_scpfw_cfg_add_regu(0/*agent*/, voltd_channel.channel_id,
+ 				      voltd_channel.regu,
+ 				      voltd_channel.regu_count);
+-	if (res)
++	/*
++	 * TEE_ERROR_ITEM_NOT_FOUND means the agent or the channel haven't.
++	 * But regulators are described in the device-tree. This is not an
++	 * issue, just do nothing.
++	 */
++	if (res && res != TEE_ERROR_ITEM_NOT_FOUND)
+ 		panic();
+ 
+ 	/* We can free voltd_channel resources since SCMI server handles them */
+-- 
+2.47.2
+

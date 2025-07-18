@@ -1,0 +1,132 @@
+From a7e83faa9766aa3b082df8cfefb694d77aa2fd9d Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 23 Apr 2024 14:24:04 +0200
+Subject: [PATCH 0842/1695] plat-stm32mp2: add OP-TEE resource manager
+ configuration profile
+
+Adds configuration directive CFG_STM32MP_PROFILE. Can be set either to
+secure_and_system_services or to system_services.
+
+When CFG_STM32MP_PROFILE=system_services OP-TEE does not embed any
+secure services (TAs, StMM, cryptography support).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 68f1a3d30210b95b6347d1e6ea43c31715cb52ef plat-stm32mp2: add OP-TEE resource manager configuration profile]
+Change-Id: I39ba1f9ec46b81291d0e5320fad00f04202f0fa0
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/376016
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../conf.disable-secure-services.mk           | 45 +++++++++++++++++++
+ core/arch/arm/plat-stm32mp2/conf.mk           | 20 ++++++++-
+ 2 files changed, 63 insertions(+), 2 deletions(-)
+ create mode 100644 core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk b/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
+new file mode 100644
+index 000000000..fe97e8965
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
+@@ -0,0 +1,45 @@
++# Deactivate TA support
++$(call force,CFG_ARM32_ldelf,n)
++$(call force,CFG_ARM32_ta_arm32,n)
++$(call force,CFG_ARM64_ldelf,n)
++$(call force,CFG_ARM64_ta_arm32,n)
++$(call force,CFG_ARM64_ta_arm64,n)
++$(call force,CFG_EARLY_TA,n)
++$(call force,CFG_PKCS11_TA,n)
++$(call force,CFG_SECURE_DATA_PATH,n)
++$(call force,CFG_TA_GPROF_SUPPORT,n)
++$(call force,CFG_TA_STM32MP_NVMEM,n)
++$(call force,CFG_TEE_BENCHMARK,n)
++$(call force,CFG_WITH_TUI,n)
++$(call force,CFG_WITH_USER_TA,n)
++
++# Deactivate remote processor support
++$(call force,CFG_STM32MP_REMOTEPROC,n)
++
++# Deactivate crypto support
++$(call force,CFG_CRYPTO,n)
++$(call force,CFG_STM32_CRYP,n)
++$(call force,CFG_STM32_HASH,n)
++$(call force,CFG_STM32_PKA,n)
++$(call force,CFG_STM32_SAES,n)
++$(call force,CFG_WITH_SOFTWARE_PRNG,n)
++
++# Deactivate all PTAs support except BSEC and SCMI PTAs
++$(call force,CFG_APDU_PTA,n)
++$(call force,CFG_ATTESTATION_PTA,n)
++$(call force,CFG_REMOTEPROC_PTA,n)
++$(call force,CFG_SCP03_PTA,n)
++$(call force,CFG_SECSTOR_TA_MGMT_PTA,n)
++$(call force,CFG_SYSTEM_PTA,n)
++
++# Deactivate secure storage support
++$(call force,CFG_REE_FS,n)
++$(call force,CFG_REE_FS_TA,n)
++$(call force,CFG_RPMB_FS,n)
++
++# Default deactivate services related to security configuration
++CFG_STM32_PANIC_ON_IAC_EVENT ?= n
++CFG_STM32_PANIC_ON_SERC_EVENT ?= n
++
++# Default disable some service usually bound to service features
++CFG_STM32_ADC ?= n
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index b3de15376..583260334 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -34,6 +34,11 @@ CFG_EMBED_DTB_SOURCE_FILE ?= $(flavor_dts_file-$(PLATFORM_FLAVOR))
+ endif
+ CFG_EMBED_DTB_SOURCE_FILE ?= stm32mp257f-ev1.dts
+ 
++# CFG_STM32MP2x switches are exclusive.
++# - CFG_STM32MP25 is enabled for STM32MP25x-* targets (default)
++# - CFG_STM32MP23 is enabled for STM32MP23x-* targets
++# - CFG_STM32MP21 is enabled for STM32MP21x-* targets
++# We try to guess the variant from the embedded DT source file name
+ ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-MP25)),)
+ $(call force,CFG_STM32MP25,y)
+ endif
+@@ -60,6 +65,17 @@ $(call force,CFG_STM32MP23,n)
+ $(call force,CFG_STM32MP25,y)
+ endif
+ 
++# CFG_STM32MP_PROFILE selects the profile of the services embedded in OP-TEE
++CFG_STM32MP_PROFILE ?= secure_and_system_services
++
++ifeq ($(filter $(CFG_STM32MP_PROFILE),system_services secure_and_system_services),)
++$(error CFG_STM32MP_PROFILE shall be one of system_services or secure_and_system_services)
++endif
++
++ifeq ($(CFG_STM32MP_PROFILE),system_services)
++include $(platform-dir)/conf.disable-secure-services.mk
++endif
++
+ include core/arch/arm/cpu/cortex-armv8-0.mk
+ supported-ta-targets ?= ta_arm64
+ 
+@@ -87,7 +103,7 @@ $(call force,CFG_STM32_HSE_MONITORING,y)
+ $(call force,CFG_STM32_PWR,y)
+ $(call force,CFG_STM32_PWR_REGUL,y)
+ $(call force,CFG_STM32MP_CLK_CORE,y)
+-$(call force,CFG_STM32MP_REMOTEPROC,y)
++CFG_STM32MP_REMOTEPROC ?= y
+ $(call force,CFG_WITH_ARM_TRUSTED_FW,y)
+ $(call force,CFG_WITH_LPAE,y)
+ 
+@@ -201,7 +217,7 @@ RPROC_SIGN_KEY ?= keys/default.pem
+ endif
+ 
+ # Default enable HWRNG PTA support
+-CFG_HWRNG_PTA ?= y
++CFG_HWRNG_PTA ?= $(CFG_STM32_RNG)
+ ifeq ($(CFG_HWRNG_PTA),y)
+ $(call force,CFG_STM32_RNG,y,Mandated by CFG_HWRNG_PTA)
+ $(call force,CFG_WITH_SOFTWARE_PRNG,n,Mandated by CFG_HWRNG_PTA)
+-- 
+2.47.2
+

@@ -1,0 +1,128 @@
+From a885bf30451a0df57cd9f7e767a53099d4cc905c Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Tue, 2 Aug 2022 15:51:03 +0200
+Subject: [PATCH 0228/1695] drivers: firewall: probe exception for i2c4
+
+The firewall won't probe non-secure IPs.
+
+Add of an exception list of compatibles for non-secure IPs that should be
+probed, regardless of their secure status.
+
+This is a workaround, due to MP15 boot issues on i2c4.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ba97a02574aa8797beed2df0e2747c3f4a5473a7 drivers: firewall: probe exception for i2c4]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Ic1a23593ecdb42cfffa498533ad94aeca5407fe4
+---
+ core/drivers/firewall/stm32_firewall.c | 35 +++++++++++++++++++++++---
+ core/include/drivers/stm32_firewall.h  | 16 ++++++++++++
+ 2 files changed, 47 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_firewall.c b/core/drivers/firewall/stm32_firewall.c
+index 6ad09937c..36a4d28b0 100644
+--- a/core/drivers/firewall/stm32_firewall.c
++++ b/core/drivers/firewall/stm32_firewall.c
+@@ -11,11 +11,17 @@
+ #include <libfdt.h>
+ #include <util.h>
+ 
++#define MAX_COMPAT_LENGTH	30
++
+ static LIST_HEAD(fw_dev_list_head, stm32_firewall_device) fw_dev_list =
+ 	LIST_HEAD_INITIALIZER(fw_dev_list_head);
+ 
+ static unsigned int list_lock = SPINLOCK_UNLOCK;
+ 
++static const char firewall_compatible_exceptions[][MAX_COMPAT_LENGTH] = {
++	"st,stm32mp15-i2c-non-secure"
++};
++
+ static struct stm32_firewall_device *find_device(paddr_t base, size_t size,
+ 						 unsigned int *idx)
+ {
+@@ -125,6 +131,7 @@ static TEE_Result
+ stm32_firewall_bus_dt_register(struct stm32_firewall_device *fdev,
+ 			       const void *fdt, int node)
+ {
++	const char __maybe_unused *name = NULL;
+ 	int idx = 0;
+ 	int len = 0;
+ 	int count = 0;
+@@ -132,8 +139,8 @@ stm32_firewall_bus_dt_register(struct stm32_firewall_device *fdev,
+ 	const char *compat = NULL;
+ 	paddr_t pbase = 0;
+ 
+-	/* Check secure access on main core */
+-	static const struct stm32_firewall_cfg sec_cfg[] = {
++	/* Check accesses */
++	const struct stm32_firewall_cfg sec_cfg[] = {
+ 		{ FWLL_SEC_RW | FWLL_MASTER(0) },
+ 		{ }, /* Null terminated */
+ 	};
+@@ -156,9 +163,29 @@ stm32_firewall_bus_dt_register(struct stm32_firewall_device *fdev,
+ 	if (id == fdev->compat->compat_size)
+ 		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
++	name = fdt_get_name(fdt, node, NULL);
++
++	compat = fdt_getprop(fdt, node, "compatible", &len);
++	assert(compat);
++
+ 	if (fdev->ops->has_access(fdev, id, pbase, 0, sec_cfg)) {
+-		FMSG("Skip the %s is not secured",
+-		     fdt_get_name(fdt, node, NULL));
++		const struct stm32_firewall_cfg non_sec_cfg[] = {
++			{ FWLL_NSEC_PRIV_RW | FWLL_MASTER(0) },
++			{ }, /* Null terminated */
++		};
++		int len_array = ARRAY_SIZE(firewall_compatible_exceptions);
++		bool exception_found = false;
++
++		if (fdev->ops->has_access(fdev, id, pbase, 0, non_sec_cfg))
++			return TEE_SUCCESS;
++
++		for (int i = 0; i < len_array; i++) {
++			if (!strcmp(firewall_compatible_exceptions[i],
++				    compat))
++				exception_found = true;
++		}
++
++		if (!exception_found)
+ 			return TEE_SUCCESS;
+ 	}
+ 
+diff --git a/core/include/drivers/stm32_firewall.h b/core/include/drivers/stm32_firewall.h
+index db1351e00..c6019d91d 100644
+--- a/core/include/drivers/stm32_firewall.h
++++ b/core/include/drivers/stm32_firewall.h
+@@ -43,11 +43,27 @@
+ #define FWLL_NSEC_PRIV		BIT(6)
+ #define FWLL_NSEC_UNPRIV	BIT(7)
+ 
++#define FWLL_SEC_PRIV_RW	(FWLL_SEC_READ | \
++				 FWLL_SEC_WRITE | \
++				 FWLL_SEC_PRIV)
++
++#define FWLL_SEC_UNPRIV_RW	(FWLL_SEC_READ | \
++				 FWLL_SEC_WRITE | \
++				 FWLL_SEC_UNPRIV)
++
+ #define FWLL_SEC_RW		(FWLL_SEC_READ | \
+ 				 FWLL_SEC_WRITE | \
+ 				 FWLL_SEC_PRIV | \
+ 				 FWLL_SEC_UNPRIV)
+ 
++#define FWLL_NSEC_PRIV_RW	(FWLL_NSEC_READ | \
++				 FWLL_NSEC_WRITE | \
++				 FWLL_NSEC_PRIV)
++
++#define FWLL_NSEC_UNPRIV_RW	(FWLL_NSEC_READ | \
++				 FWLL_NSEC_WRITE | \
++				 FWLL_NSEC_UNPRIV)
++
+ #define FWLL_NSEC_RW		(FWLL_NSEC_READ | \
+ 				 FWLL_NSEC_WRITE | \
+ 				 FWLL_NSEC_PRIV | \
+-- 
+2.47.2
+

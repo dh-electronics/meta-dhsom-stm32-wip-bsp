@@ -1,0 +1,197 @@
+From cf2f6a466ea90e11fef8b024aa082e37cbfdc807 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 14 May 2024 21:28:00 +0200
+Subject: [PATCH 1118/1695] core: make is_initializing field a generic service
+ context
+
+Replace fields is_initializing from struct user_mode_ctx and
+struct stmm_ctx with a common new field is_initialing in generic
+struct tee_ta_ctx so that it can be used in generic context loading
+functions for contexts which initialization is done with tee_ta_mutex
+released.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7421cc3bed85e41376068a1b675c366409819ee6 core: make is_initializing field a generic service context]
+Change-Id: Ib340bd02ef315aefbcb3ca14ca22f6298051a3d5
+[cherry-picked from commit fee55718730f47042576fb759bc6d05f0ccfadcd]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/393769
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/arch/arm/include/kernel/stmm_sp.h     |  1 -
+ core/arch/arm/kernel/stmm_sp.c             |  6 +++---
+ core/include/kernel/tee_ta_manager.h       |  1 +
+ core/include/kernel/user_mode_ctx_struct.h |  2 --
+ core/kernel/tee_ta_manager.c               | 22 ++++++++++------------
+ core/kernel/user_ta.c                      |  6 +++---
+ 6 files changed, 17 insertions(+), 21 deletions(-)
+
+diff --git a/core/arch/arm/include/kernel/stmm_sp.h b/core/arch/arm/include/kernel/stmm_sp.h
+index f9da6a027..7726c4a29 100644
+--- a/core/arch/arm/include/kernel/stmm_sp.h
++++ b/core/arch/arm/include/kernel/stmm_sp.h
+@@ -137,7 +137,6 @@ struct stmm_ctx {
+ 	struct thread_ctx_regs regs;
+ 	vaddr_t ns_comm_buf_addr;
+ 	unsigned int ns_comm_buf_size;
+-	bool is_initializing;
+ };
+ 
+ extern const struct ts_ops stmm_sp_ops;
+diff --git a/core/arch/arm/kernel/stmm_sp.c b/core/arch/arm/kernel/stmm_sp.c
+index 6d991a306..1d6d14aa7 100644
+--- a/core/arch/arm/kernel/stmm_sp.c
++++ b/core/arch/arm/kernel/stmm_sp.c
+@@ -343,7 +343,7 @@ TEE_Result stmm_init_session(const TEE_UUID *uuid, struct tee_ta_session *sess)
+ 	if (!spc)
+ 		return TEE_ERROR_OUT_OF_MEMORY;
+ 
+-	spc->is_initializing = true;
++	spc->ta_ctx.is_initializing = true;
+ 
+ 	mutex_lock(&tee_ta_mutex);
+ 	sess->ts_sess.ctx = &spc->ta_ctx.ts_ctx;
+@@ -362,7 +362,7 @@ TEE_Result stmm_init_session(const TEE_UUID *uuid, struct tee_ta_session *sess)
+ 	}
+ 
+ 	mutex_lock(&tee_ta_mutex);
+-	spc->is_initializing = false;
++	spc->ta_ctx.is_initializing = false;
+ 	TAILQ_INSERT_TAIL(&tee_ctxes, &spc->ta_ctx, link);
+ 	mutex_unlock(&tee_ta_mutex);
+ 
+@@ -381,7 +381,7 @@ static TEE_Result stmm_enter_open_session(struct ts_session *s)
+ 	if (ta_sess->param->types != exp_pt)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	if (spc->is_initializing) {
++	if (spc->ta_ctx.is_initializing) {
+ 		/* StMM is initialized in stmm_init_session() */
+ 		ta_sess->err_origin = TEE_ORIGIN_TEE;
+ 		return TEE_ERROR_BAD_STATE;
+diff --git a/core/include/kernel/tee_ta_manager.h b/core/include/kernel/tee_ta_manager.h
+index 8cae35002..2aa467a5c 100644
+--- a/core/include/kernel/tee_ta_manager.h
++++ b/core/include/kernel/tee_ta_manager.h
+@@ -73,6 +73,7 @@ struct tee_ta_ctx {
+ 	uint32_t panic_code;	/* Code supplied for panic */
+ 	uint32_t ref_count;	/* Reference counter for multi session TA */
+ 	bool busy;		/* Context is busy and cannot be entered */
++	bool is_initializing;	/* Context initialization is not completed */
+ 	bool is_releasing;	/* Context is about to be released */
+ 	struct condvar busy_cv;	/* CV used when context is busy */
+ };
+diff --git a/core/include/kernel/user_mode_ctx_struct.h b/core/include/kernel/user_mode_ctx_struct.h
+index 6c91f4eaa..c8812470d 100644
+--- a/core/include/kernel/user_mode_ctx_struct.h
++++ b/core/include/kernel/user_mode_ctx_struct.h
+@@ -26,7 +26,6 @@
+  * @ldelf_stack_ptr:	Stack pointer used for dumping address mappings and
+  *			stack trace
+  * @is_32bit:		True if 32-bit TS, false if 64-bit TS
+- * @is_initializing:	True if TS is not fully loaded
+  * @stack_ptr:		Stack pointer
+  * @bbuf:		Bounce buffer for user buffers
+  * @bbuf_size:		Size of bounce buffer
+@@ -52,7 +51,6 @@ struct user_mode_ctx {
+ 	uaddr_t dl_entry_func;
+ 	uaddr_t ldelf_stack_ptr;
+ 	bool is_32bit;
+-	bool is_initializing;
+ 	vaddr_t stack_ptr;
+ 	uint8_t *bbuf;
+ 	size_t bbuf_size;
+diff --git a/core/kernel/tee_ta_manager.c b/core/kernel/tee_ta_manager.c
+index cb180d433..e9b74f7ef 100644
+--- a/core/kernel/tee_ta_manager.c
++++ b/core/kernel/tee_ta_manager.c
+@@ -532,8 +532,7 @@ static TEE_Result tee_ta_init_session_with_context(struct tee_ta_session *s,
+ 		if (!ctx)
+ 			return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+-		if (!is_user_ta_ctx(&ctx->ts_ctx) ||
+-		    !to_user_ta_ctx(&ctx->ts_ctx)->uctx.is_initializing)
++		if (!ctx->is_initializing)
+ 			break;
+ 		/*
+ 		 * Context is still initializing, wait here until it's
+@@ -545,22 +544,22 @@ static TEE_Result tee_ta_init_session_with_context(struct tee_ta_session *s,
+ 	}
+ 
+ 	/*
+-	 * If TA isn't single instance it should be loaded as new
+-	 * instance instead of doing anything with this instance.
+-	 * So tell the caller that we didn't find the TA it the
+-	 * caller will load a new instance.
++	 * If the trusted service is not a single instance service (e.g. is
++	 * a multi-instance TA) it should be loaded as a new instance instead
++	 * of doing anything with this instance. So tell the caller that we
++	 * didn't find the TA it the caller will load a new instance.
+ 	 */
+ 	if ((ctx->flags & TA_FLAG_SINGLE_INSTANCE) == 0)
+ 		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+ 	/*
+-	 * The TA is single instance, if it isn't multi session we
++	 * The trusted service is single instance, if it isn't multi session we
+ 	 * can't create another session unless its reference is zero
+ 	 */
+ 	if (!(ctx->flags & TA_FLAG_MULTI_SESSION) && ctx->ref_count)
+ 		return TEE_ERROR_BUSY;
+ 
+-	DMSG("Re-open TA %pUl", (void *)&ctx->ts_ctx.uuid);
++	DMSG("Re-open trusted service %pUl", (void *)&ctx->ts_ctx.uuid);
+ 
+ 	ctx->ref_count++;
+ 	s->ts_sess.ctx = &ctx->ts_ctx;
+@@ -808,12 +807,11 @@ static TEE_Result dump_ta_memstats(struct tee_ta_session *s,
+ 	if (!ts_ctx)
+ 		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+-	if (is_user_ta_ctx(ts_ctx) &&
+-	    to_user_ta_ctx(ts_ctx)->uctx.is_initializing)
+-		return TEE_ERROR_BAD_STATE;
+-
+ 	ctx = ts_to_ta_ctx(ts_ctx);
+ 
++	if (ctx->is_initializing)
++		return TEE_ERROR_BAD_STATE;
++
+ 	if (tee_ta_try_set_busy(ctx)) {
+ 		if (!ctx->panicked) {
+ 			s->param = param;
+diff --git a/core/kernel/user_ta.c b/core/kernel/user_ta.c
+index 315f5f16e..2c1b50996 100644
+--- a/core/kernel/user_ta.c
++++ b/core/kernel/user_ta.c
+@@ -251,7 +251,7 @@ static TEE_Result user_ta_enter_invoke_cmd(struct ts_session *s, uint32_t cmd)
+ static void user_ta_enter_close_session(struct ts_session *s)
+ {
+ 	/* Only if the TA was fully initialized by ldelf */
+-	if (!to_user_ta_ctx(s->ctx)->uctx.is_initializing)
++	if (!to_user_ta_ctx(s->ctx)->ta_ctx.is_initializing)
+ 		user_ta_enter(s, UTEE_ENTRY_FUNC_CLOSE_SESSION, 0);
+ }
+ 
+@@ -484,7 +484,7 @@ TEE_Result tee_ta_init_user_ta_session(const TEE_UUID *uuid,
+ 	res = vm_info_init(&utc->uctx, &utc->ta_ctx.ts_ctx);
+ 	if (res)
+ 		goto out;
+-	utc->uctx.is_initializing = true;
++	utc->ta_ctx.is_initializing = true;
+ 
+ #ifdef CFG_TA_PAUTH
+ 	crypto_rng_read(&utc->uctx.keys, sizeof(utc->uctx.keys));
+@@ -516,7 +516,7 @@ TEE_Result tee_ta_init_user_ta_session(const TEE_UUID *uuid,
+ 	mutex_lock(&tee_ta_mutex);
+ 
+ 	if (!res) {
+-		utc->uctx.is_initializing = false;
++		utc->ta_ctx.is_initializing = false;
+ 	} else {
+ 		s->ts_sess.ctx = NULL;
+ 		TAILQ_REMOVE(&tee_ctxes, &utc->ta_ctx, link);
+-- 
+2.47.2
+

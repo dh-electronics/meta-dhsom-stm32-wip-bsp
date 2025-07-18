@@ -1,0 +1,33 @@
+From d38fccd2adb8f2db79d9d971abeab4bebc9fde66 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 25 Jan 2024 17:48:24 +0100
+Subject: [PATCH 0502/1695] drivers: stm32mp15_huk: fix type mismatch in
+ stm32mp15_read_otp
+
+Replace uint32_t with enum stm32_bsec_sec_state to fix warning :
+core/drivers/stm32_bsec3.c:823:12: error: conflicting types for 'stm32_bsec_get_state' due to enum/integer mismatch; have 'TEE_Result(uint32_t *)' {aka 'unsigned int(unsigned int *)'} [-Werror=enum-int-mismatch]
+core/include/drivers/stm32_bsec.h:218:12: note: previous declaration of 'stm32_bsec_get_state' with type 'TEE_Result(enum stm32_bsec_sec_state *)' {aka 'unsigned int(enum stm32_bsec_sec_state *)'}
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1d33bd19456524da5569c115ff32d0ed35e8c4fc drivers: stm32mp15_huk: fix type mismatch in stm32mp15_read_otp]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: I0ffd4b715a35811a5cdc33b47797fae4d11723de
+---
+ core/drivers/stm32mp15_huk.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/core/drivers/stm32mp15_huk.c b/core/drivers/stm32mp15_huk.c
+index e0550d959..b77e09e82 100644
+--- a/core/drivers/stm32mp15_huk.c
++++ b/core/drivers/stm32mp15_huk.c
+@@ -56,7 +56,7 @@ static TEE_Result stm32mp15_read_uid(uint32_t *uid)
+ static TEE_Result stm32mp15_read_otp(uint32_t otp, uint32_t *key, bool *locked)
+ {
+ 	bool tmp = true;
+-	uint32_t state = 0;
++	enum stm32_bsec_sec_state state = BSEC_STATE_INVALID;
+ 
+ 	if (stm32_bsec_get_state(&state))
+ 		panic();
+-- 
+2.47.2
+

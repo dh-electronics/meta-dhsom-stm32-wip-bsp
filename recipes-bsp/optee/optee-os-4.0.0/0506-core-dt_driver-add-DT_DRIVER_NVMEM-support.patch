@@ -1,0 +1,72 @@
+From 79d0a56af55a76bbc7ae9669db5b4be9b1ba3051 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cl=C3=A9ment=20L=C3=A9ger?= <clement.leger@bootlin.com>
+Date: Wed, 22 Mar 2023 11:48:41 +0100
+Subject: [PATCH 0506/1695] core: dt_driver: add DT_DRIVER_NVMEM support
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Handle DT_DRIVER_NVMEM the same way that DT_DRIVER_PINCTRL is handled.
+Indeed, it uses the same kind of DT references (phandle to a subnode of a
+controller) to get a nvmem cell.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5d0ee9007af08194677b74caeab41211482dc6a1 core: dt_driver: add DT_DRIVER_NVMEM support]
+Signed-off-by: Clément Léger <clement.leger@bootlin.com>
+Signed-off-by: Thomas Perrot <thomas.perrot@bootlin.com>
+Reviewed-by: Etienne Carriere <etienne.carriere@foss.st.com>
+(cherry picked from commit 4fd40c392097285c7b49eef466f7a4c3fd99a24f)
+Change-Id: Ic6098fabd5bf13d6e4b97a61240783d9f3666d97
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/354449
+Tested-by: Simeon MARIJON <simeon.marijon@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Simeon MARIJON <simeon.marijon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/include/kernel/dt_driver.h | 2 ++
+ core/kernel/dt_driver.c         | 2 ++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/core/include/kernel/dt_driver.h b/core/include/kernel/dt_driver.h
+index e440e6f5f..d8610bc29 100644
+--- a/core/include/kernel/dt_driver.h
++++ b/core/include/kernel/dt_driver.h
+@@ -25,6 +25,7 @@
+  * DT_DRIVER_PINCTRL Pin controller using generic reset DT bindings
+  * DT_DRIVER_INTERRUPT Interrupt controller using generic DT bindings
+  * DT_DRIVER_REGULATOR Voltage regulator controller using generic DT bindings
++ * DT_DRIVER_NVMEM NVMEM controller using generic NVMEM DT bindings
+  */
+ enum dt_driver_type {
+ 	DT_DRIVER_NOTYPE,
+@@ -36,6 +37,7 @@ enum dt_driver_type {
+ 	DT_DRIVER_PINCTRL,
+ 	DT_DRIVER_INTERRUPT,
+ 	DT_DRIVER_REGULATOR,
++	DT_DRIVER_NVMEM,
+ };
+ 
+ /*
+diff --git a/core/kernel/dt_driver.c b/core/kernel/dt_driver.c
+index 290b18ea3..67c4052fa 100644
+--- a/core/kernel/dt_driver.c
++++ b/core/kernel/dt_driver.c
+@@ -111,6 +111,7 @@ static void assert_type_is_valid(enum dt_driver_type type)
+ 	case DT_DRIVER_PINCTRL:
+ 	case DT_DRIVER_INTERRUPT:
+ 	case DT_DRIVER_REGULATOR:
++	case DT_DRIVER_NVMEM:
+ 		return;
+ 	default:
+ 		assert(0);
+@@ -163,6 +164,7 @@ static bool dt_driver_use_parent_controller(enum dt_driver_type type)
+ {
+ 	switch (type) {
+ 	case DT_DRIVER_PINCTRL:
++	case DT_DRIVER_NVMEM:
+ 		return true;
+ 	default:
+ 		return false;
+-- 
+2.47.2
+

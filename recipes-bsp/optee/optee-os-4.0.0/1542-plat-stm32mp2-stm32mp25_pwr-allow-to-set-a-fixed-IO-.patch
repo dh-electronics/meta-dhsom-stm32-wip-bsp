@@ -1,0 +1,207 @@
+From eab1bc28712ba392ffc09f807e9816bca63b33d0 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 19 Feb 2025 18:04:40 +0100
+Subject: [PATCH 1542/1695] plat-stm32mp2: stm32mp25_pwr: allow to set a fixed
+ IO compensation
+
+Based on new property st,iocomp, allow to set a fixed IO compensation
+or to use the dynamic IO compensation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git defc685d56dd7df8c511c2d66b478b3605419c92 plat-stm32mp2: stm32mp25_pwr: allow to set a fixed IO compensation]
+Change-Id: Ifb868580807c00b58881833296a77d947bef5c9a
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/438577
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../drivers/stm32mp25_pwr_regul.c             | 49 ++++++++++++++++---
+ .../plat-stm32mp2/drivers/stm32mp25_syscfg.c  | 19 ++++++-
+ core/arch/arm/plat-stm32mp2/stm32_sysconf.h   |  6 ++-
+ 3 files changed, 63 insertions(+), 11 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
+index d815d2ff1..f8bac56a3 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
+@@ -71,6 +71,8 @@
+ 
+ #define IO_VOLTAGE_THRESHOLD_UV	2700000
+ 
++#define IOCOMP_CODE_MAX		U(2)
++
+ /*
+  * struct pwr_regu - PWR regulator instance
+  *
+@@ -106,6 +108,9 @@ struct pwr_regu {
+ 	 * accessing to the register
+ 	 */
+ 	uint8_t rifsc_filtering_id;
++	/* IO compensation codes */
++	bool iocomp_fixed;
++	uint32_t iocomp_code[IOCOMP_CODE_MAX];
+ };
+ 
+ static TEE_Result pwr_enable_reg(struct pwr_regu *pwr_regu)
+@@ -192,16 +197,16 @@ static TEE_Result pwr_set_state(struct regulator *regulator, bool enable)
+ 		if (res)
+ 			return res;
+ 
+-		if (pwr_regu->is_an_iod) {
+-			res = stm32mp25_syscfg_enable_io_compensation(iod_idx);
++		if (pwr_regu->is_an_iod && !pwr_regu->iocomp_fixed) {
++			res = stm32mp25_syscfg_enable_iocomp(iod_idx);
+ 			if (res) {
+ 				pwr_disable_reg(pwr_regu);
+ 				return res;
+ 			}
+ 		}
+ 	} else {
+-		if (pwr_regu->is_an_iod) {
+-			res = stm32mp25_syscfg_disable_io_compensation(iod_idx);
++		if (pwr_regu->is_an_iod && !pwr_regu->iocomp_fixed) {
++			res = stm32mp25_syscfg_disable_iocomp(iod_idx);
+ 			if (res)
+ 				return res;
+ 		}
+@@ -361,14 +366,23 @@ static TEE_Result pwr_regu_pm(enum pm_op op, unsigned int pm_hint,
+ 			if (res)
+ 				return res;
+ 
+-			res = stm32mp25_syscfg_disable_io_compensation(iod_idx);
+-			if (res)
+-				return res;
++			if (!pwr_regu->iocomp_fixed) {
++				res = stm32mp25_syscfg_disable_iocomp(iod_idx);
++				if (res)
++					return res;
++			}
+ 		}
+ 	} else {
+ 		FMSG("%s: resume", regulator_name(regulator));
+ 
+ 		if (pwr_regu->is_an_iod) {
++			if (pwr_regu->iocomp_fixed) {
++				stm32mp25_syscfg_fixed_iocomp(
++					pwr_regu->comp_idx,
++					pwr_regu->iocomp_code[0],
++					pwr_regu->iocomp_code[1]);
++			}
++
+ 			res = pwr_set_voltage(regulator, pwr_regu->suspend_uv);
+ 			if (res)
+ 				return res;
+@@ -394,6 +408,12 @@ static TEE_Result pwr_supplied_init(struct regulator *regulator,
+ 		TEE_Result res = TEE_ERROR_GENERIC;
+ 		int level_uv = 0;
+ 
++		if (pwr_regu->iocomp_fixed) {
++			stm32mp25_syscfg_fixed_iocomp(pwr_regu->comp_idx,
++						      pwr_regu->iocomp_code[0],
++						      pwr_regu->iocomp_code[1]);
++		}
++
+ 		res = pwr_get_voltage(regulator, &level_uv);
+ 		if (res)
+ 			return res;
+@@ -560,6 +580,7 @@ static TEE_Result pwr_regulator_probe(const void *fdt, int node,
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	const struct regu_dt_desc *desc = NULL;
+ 	const char *regu_name = NULL;
++	struct pwr_regu *pwr_regu = NULL;
+ 	size_t i = 0;
+ 
+ 	regu_name = fdt_get_name(fdt, node, NULL);
+@@ -578,6 +599,20 @@ static TEE_Result pwr_regulator_probe(const void *fdt, int node,
+ 		return TEE_ERROR_GENERIC;
+ 	}
+ 
++	pwr_regu = desc->priv;
++	if (pwr_regu->is_an_iod) {
++		int ret;
++
++		ret = fdt_read_uint32_array(fdt, node, "st,iocomp",
++					    pwr_regu->iocomp_code,
++					    IOCOMP_CODE_MAX);
++		if (ret && ret != -FDT_ERR_NOTFOUND)
++			return TEE_ERROR_BAD_PARAMETERS;
++
++		if (!ret)
++			pwr_regu->iocomp_fixed = true;
++	}
++
+ 	res = regulator_dt_register(fdt, node, node, desc);
+ 	if (res) {
+ 		EMSG("Failed to register node %s: %#"PRIx32, regu_name, res);
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
+index e0d4e286e..215b5f037 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
+@@ -25,6 +25,7 @@ struct io_pa_va syscfg_base[SYSCON_NB_BANKS] = {
+ #define SYSCFG_CCCR_CS				BIT(9)
+ #define SYSCFG_CCCR_EN				BIT(8)
+ #define SYSCFG_CCCR_RAPSRC_MASK			GENMASK_32(7, 4)
++#define SYSCFG_CCCR_RAPSRC_SHIFT		U(4)
+ #define SYSCFG_CCCR_RANSRC_MASK			GENMASK_32(3, 0)
+ 
+ /* IO compensation CCSR registers bit definition */
+@@ -88,7 +89,7 @@ uint32_t stm32mp_syscfg_read(uint32_t id)
+ 	return io_read32(stm32mp_syscfg_base(id) + SYSCON_OFFSET(id));
+ }
+ 
+-TEE_Result stm32mp25_syscfg_enable_io_compensation(enum syscfg_io_ids id)
++TEE_Result stm32mp25_syscfg_enable_iocomp(enum syscfg_io_ids id)
+ {
+ 	vaddr_t cccr_addr = stm32mp_syscfg_base(SYSCON_SYSCFG) +
+ 			    SYSCON_OFFSET(syscfg_cccr_offset[id]);
+@@ -118,7 +119,7 @@ TEE_Result stm32mp25_syscfg_enable_io_compensation(enum syscfg_io_ids id)
+ 	return TEE_SUCCESS;
+ }
+ 
+-TEE_Result stm32mp25_syscfg_disable_io_compensation(enum syscfg_io_ids id)
++TEE_Result stm32mp25_syscfg_disable_iocomp(enum syscfg_io_ids id)
+ {
+ 	vaddr_t cccr_addr = stm32mp_syscfg_base(SYSCON_SYSCFG) +
+ 			    SYSCON_OFFSET(syscfg_cccr_offset[id]);
+@@ -144,6 +145,20 @@ TEE_Result stm32mp25_syscfg_disable_io_compensation(enum syscfg_io_ids id)
+ 	return TEE_SUCCESS;
+ }
+ 
++void stm32mp25_syscfg_fixed_iocomp(enum syscfg_io_ids id,
++				   uint32_t pmos, uint32_t nmos)
++{
++	vaddr_t cccr_addr = stm32mp_syscfg_base(SYSCON_SYSCFG) +
++			    SYSCON_OFFSET(syscfg_cccr_offset[id]);
++	uint32_t value = 0;
++
++	FMSG("Fixed IO comp for id %u", id);
++
++	value = ((pmos << SYSCFG_CCCR_RAPSRC_SHIFT) & SYSCFG_CCCR_RAPSRC_MASK) |
++		(nmos & SYSCFG_CCCR_RANSRC_MASK);
++	io_write32(cccr_addr, value);
++}
++
+ void stm32mp25_syscfg_set_amcr(size_t mm1_size, size_t mm2_size)
+ {
+ 	vaddr_t amcr_addr = stm32mp_syscfg_base(SYSCON_SYSCFG) +
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_sysconf.h b/core/arch/arm/plat-stm32mp2/stm32_sysconf.h
+index 9cb8f6292..4daf6ca7c 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_sysconf.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_sysconf.h
+@@ -125,8 +125,10 @@ enum syscfg_io_ids {
+ 	SYSFG_NB_IO_ID
+ };
+ 
+-TEE_Result stm32mp25_syscfg_enable_io_compensation(enum syscfg_io_ids id);
+-TEE_Result stm32mp25_syscfg_disable_io_compensation(enum syscfg_io_ids id);
++TEE_Result stm32mp25_syscfg_enable_iocomp(enum syscfg_io_ids id);
++TEE_Result stm32mp25_syscfg_disable_iocomp(enum syscfg_io_ids id);
++void stm32mp25_syscfg_fixed_iocomp(enum syscfg_io_ids id,
++				   uint32_t pmos, uint32_t nmos);
+ 
+ void stm32mp25_syscfg_set_amcr(size_t mm1_size, size_t mm2_size);
+ 
+-- 
+2.47.2
+

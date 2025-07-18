@@ -1,0 +1,86 @@
+From 5c8376aa3c2082e25227858fc0e129351c1d822b Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 30 Jan 2025 11:14:41 +0100
+Subject: [PATCH 1501/1695] dts: st: add access-controllers property in for
+ crypto IPs
+
+Add missing access-controllers property for cryp1, pka, hash1, rng1 and
+saes nodes.
+SAES and PKA use an internal RNG bus linked to RNG1.
+Hence, RNG1 must be manage by the secure to ensure correct functioning
+of those IP.
+Therefore, add RNG1 RIFSC dependency in saes and pka access-controllers
+property
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 795ee496cf7371312cb1da2d4668cae99b319504 dts: st: add access-controllers property in for crypto IPs]
+Fixes: 55973b22976d ("dts: stm32: define RIFSC as an access controller for stm32mp21 boards")
+Change-Id: I115991c295fd0191b31ea408c9db4924036accf7
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/433033
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp211.dtsi  | 2 ++
+ core/arch/arm/dts/stm32mp21xc.dtsi | 5 +++++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp211.dtsi b/core/arch/arm/dts/stm32mp211.dtsi
+index 8e7114014..dccd64c59 100644
+--- a/core/arch/arm/dts/stm32mp211.dtsi
++++ b/core/arch/arm/dts/stm32mp211.dtsi
+@@ -432,6 +432,7 @@
+ 				interrupts = <GIC_SPI 132 IRQ_TYPE_LEVEL_HIGH>;
+ 				clocks = <&rcc CK_BUS_HASH1>;
+ 				resets = <&rcc HASH1_R>;
++				access-controllers = <&rifsc STM32MP21_RIFSC_HASH1_ID>;
+ 				status = "disabled";
+ 			};
+ 
+@@ -441,6 +442,7 @@
+ 				clocks = <&clk_rcbsec>, <&rcc CK_BUS_RNG1>;
+ 				clock-names = "rng_clk", "rng_hclk";
+ 				resets = <&rcc RNG1_R>;
++				access-controllers = <&rifsc STM32MP21_RIFSC_RNG1_ID>;
+ 				status = "disabled";
+ 			};
+ 
+diff --git a/core/arch/arm/dts/stm32mp21xc.dtsi b/core/arch/arm/dts/stm32mp21xc.dtsi
+index fe09c5e5a..43ca3fccb 100644
+--- a/core/arch/arm/dts/stm32mp21xc.dtsi
++++ b/core/arch/arm/dts/stm32mp21xc.dtsi
+@@ -4,6 +4,8 @@
+  * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
+  */
+ 
++#include <dt-bindings/soc/stm32mp21-rifsc.h>
++
+ &rifsc {
+ 	cryp1: cryp@42030000 {
+ 		compatible = "st,stm32mp1-cryp";
+@@ -11,6 +13,7 @@
+ 		interrupts = <GIC_SPI 131 IRQ_TYPE_LEVEL_HIGH>;
+ 		clocks = <&rcc CK_BUS_CRYP1>;
+ 		resets = <&rcc CRYP1_R>;
++		access-controllers = <&rifsc STM32MP21_RIFSC_CRYP1_ID>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -21,6 +24,7 @@
+ 		clocks = <&rcc CK_BUS_SAES>, <&rcc CK_BUS_RNG1>;
+ 		clock-names = "bus", "rng";
+ 		resets = <&rcc SAES_R>;
++		access-controllers = <&rifsc STM32MP21_RIFSC_SAES_ID>, <&rifsc STM32MP21_RIFSC_RNG1_ID>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -31,6 +35,7 @@
+ 		clocks = <&rcc CK_BUS_PKA>, <&rcc CK_BUS_RNG1>;
+ 		clock-names = "bus", "rng";
+ 		resets = <&rcc PKA_R>;
++		access-controllers = <&rifsc STM32MP21_RIFSC_PKA_ID>, <&rifsc STM32MP21_RIFSC_RNG1_ID>;
+ 		status = "disabled";
+ 	};
+ };
+-- 
+2.47.2
+

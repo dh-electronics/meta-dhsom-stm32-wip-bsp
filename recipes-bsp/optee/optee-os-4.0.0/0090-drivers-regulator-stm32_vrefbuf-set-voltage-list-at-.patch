@@ -1,0 +1,106 @@
+From 09308125a7491c0d5e2d037be3b7e61518fecc89 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 30 Nov 2023 15:03:23 +0100
+Subject: [PATCH 0090/1695] drivers: regulator: stm32_vrefbuf: set voltage list
+ at init
+
+Change stm32_vrefbuf driver to set the supported voltage levels list
+at driver initialization rather than at first list query.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c61cb81abe95a6621ec6fd21a08330c1497cfff4 drivers: regulator: stm32_vrefbuf: set voltage list at init]
+Change-Id: Ia4c6cb28d8026a04fc7ba82ac8ca96a04205a386
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-pikced from 91e28a6320b3c10519329ea2e19478695aba4847]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/regulator/stm32_vrefbuf.c | 63 +++++++++++++++-----------
+ 1 file changed, 37 insertions(+), 26 deletions(-)
+
+diff --git a/core/drivers/regulator/stm32_vrefbuf.c b/core/drivers/regulator/stm32_vrefbuf.c
+index f4eafa69f..18ccb099b 100644
+--- a/core/drivers/regulator/stm32_vrefbuf.c
++++ b/core/drivers/regulator/stm32_vrefbuf.c
+@@ -214,36 +214,41 @@ static TEE_Result vrefbuf_list_voltages(struct regulator *regulator __unused,
+ 	struct vrefbuf_regul *vr = regulator_to_vr(regulator);
+ 	const int *levels_ref = vr->compat->voltages;
+ 
+-	if (!vr->voltages_desc.type) {
+-		size_t num_levels = ARRAY_SIZE(vr->compat->voltages);
+-		unsigned int index_high = num_levels - 1;
+-		unsigned int index_low = 0;
+-		unsigned int count = 0;
+-		unsigned int n = 0;
+-
+-		for (n = 0; n <= index_high; n++)
+-			if (vr->compat->voltages[n] >= regulator->min_uv)
+-				break;
+-		if (n > index_high)
+-			return TEE_ERROR_GENERIC;
+-		index_low = n;
++	*desc = &vr->voltages_desc;
++	*levels = levels_ref + vr->voltages_start_index;
+ 
+-		for (n = index_high; n >= index_low; n--)
+-			if (vr->compat->voltages[n] <= regulator->max_uv)
+-				break;
+-		if (n < index_low)
+-			return TEE_ERROR_GENERIC;
+-		index_high = n;
++	return TEE_SUCCESS;
++}
+ 
+-		count = index_high - index_low + 1;
++static TEE_Result set_voltages_desc(struct regulator *regulator)
++{
++	struct vrefbuf_regul *vr = regulator_to_vr(regulator);
++	size_t num_levels = ARRAY_SIZE(vr->compat->voltages);
++	int index_high = num_levels - 1;
++	int index_low = 0;
++	int n = 0;
+ 
+-		vr->voltages_desc.type = VOLTAGE_TYPE_FULL_LIST;
+-		vr->voltages_desc.num_levels = count;
+-		vr->voltages_start_index = index_low;
+-	}
++	vr->voltages_desc.type = VOLTAGE_TYPE_FULL_LIST;
+ 
+-	*desc = &vr->voltages_desc;
+-	*levels = levels_ref + vr->voltages_start_index;
++	for (n = 0; n <= index_high; n++)
++		if (vr->compat->voltages[n] >= regulator->min_uv)
++			break;
++	if (n > index_high)
++		return TEE_ERROR_GENERIC;
++	index_low = n;
++
++	for (n = index_high; n >= index_low; n--)
++		if (vr->compat->voltages[n] <= regulator->max_uv)
++			break;
++	if (n < index_low)
++		return TEE_ERROR_GENERIC;
++	index_high = n;
++
++	assert(index_high - index_low + 1 >= 0 && index_low >= 0);
++
++	vr->voltages_desc.type = VOLTAGE_TYPE_FULL_LIST;
++	vr->voltages_desc.num_levels = index_high - index_low + 1;
++	vr->voltages_start_index = index_low;
+ 
+ 	return TEE_SUCCESS;
+ }
+@@ -291,6 +296,12 @@ static TEE_Result stm32_vrefbuf_init(struct regulator *regulator,
+ 				     const void *fdt __unused,
+ 				     int node __unused)
+ {
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	res = set_voltages_desc(regulator);
++	if (res)
++		return res;
++
+ 	register_pm_driver_cb(stm32_vrefbuf_pm, regulator, "stm32-vrefbuf");
+ 
+ 	return TEE_SUCCESS;
+-- 
+2.47.2
+

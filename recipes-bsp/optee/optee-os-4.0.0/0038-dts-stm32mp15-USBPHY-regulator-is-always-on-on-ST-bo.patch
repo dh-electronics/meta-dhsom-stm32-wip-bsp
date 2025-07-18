@@ -1,0 +1,73 @@
+From 6758c1973b48ecb1e720eed4617553d9411c3404 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 16 Nov 2023 10:27:27 +0100
+Subject: [PATCH 0038/1695] dts: stm32mp15: USBPHY regulator is always-on on ST
+ boards
+
+Sets property regulator-always-on on USB-PHY regulator supply for
+ST boards DK1/DK2/ED1/EV1.
+
+This fixes an issue in the commit that integrated the regulator
+framework in stm32mp1 scmi_server. On the mentioned boards, the
+PWR USB3.3V regulator, exposed through SCMI to Linux/U-Boot, is
+supplied by a PMIC regulator (named vdd_usb). The PMIC is connected
+on an I2C bus currently assigned to non-secure world as used by mainline
+Linux kernel and U-Boot for these boards. Therefore, OP-TEE can
+access the PMIC at boot time to enable that PMIC regulator but not
+at runtime as it could conflict with Linux kernel/U-Boot accesses on
+that bus. Setting that PMIC regulator always-on on OP-TEE side
+prevents OP-TEE from accessing the I2C bus to disable PMIC vdd_usb
+regulator at runtime when Linux or U-Boot disable the PWR USB-3.3V
+regulator using PWR regulator service exposed through SMCI.
+
+On these boards, Linux and U-Boot are not expected to disable this
+PMIC regulator. If so, the effect would be that SCMI requests to
+enable to enable PWR USB-3.3V would simply return a failure code
+and Linux/U-Boot USB stack to not be functional. OP-TEE core itself
+does not use any USB resources on these platforms.
+
+A ideal solution would be to assign that I2C bus to OP-TEE
+(harden its secure configuration) but mainline Linux and U-Boot
+packages are not yet ready for this due to legacy configuration
+of these components for the devices connected on these boards. This
+will come once mainline Linux kernel and U-Boot are ready.
+
+Fixes: 23e200628dad ("plat-stm32mp1: scmi_server: use registered regulators")
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[cherry-picked from 88747678c2e8f86361924ee2e56ae853252600e9]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f2a8a4579f63926324db417cc5adc072a22a45ec dts: stm32mp15: USBPHY regulator is always-on on ST boards]
+Change-Id: I2a79602d7c07787028c01acd861ee7bccfd3e6ae
+---
+ core/arch/arm/dts/stm32mp157c-ed1.dts  | 1 +
+ core/arch/arm/dts/stm32mp15xx-dkx.dtsi | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp157c-ed1.dts b/core/arch/arm/dts/stm32mp157c-ed1.dts
+index 1c5ab2d49..2edb4d42b 100644
+--- a/core/arch/arm/dts/stm32mp157c-ed1.dts
++++ b/core/arch/arm/dts/stm32mp157c-ed1.dts
+@@ -253,6 +253,7 @@
+ 			vdd_usb: ldo4 {
+ 				regulator-name = "vdd_usb";
+ 				interrupts = <IT_CURLIM_LDO4 0>;
++				regulator-always-on;
+ 			};
+ 
+ 			vdd_sd: ldo5 {
+diff --git a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+index cb4b6ac7d..793bf4cc9 100644
+--- a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
++++ b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+@@ -360,6 +360,7 @@
+ 			vdd_usb: ldo4 {
+ 				regulator-name = "vdd_usb";
+ 				interrupts = <IT_CURLIM_LDO4 0>;
++				regulator-always-on;
+ 			};
+ 
+ 			vdda: ldo5 {
+-- 
+2.47.2
+

@@ -1,0 +1,45 @@
+From d5327caa5eecf27104de540d5f4825bc102f40ff Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 18 Jan 2024 16:48:16 +0100
+Subject: [PATCH 0495/1695] plat-stm32mp1: default disable SCMI voltage domains
+ on STM32MP15
+
+Enable SCMI voltage domains and SCMI regulator consumers only
+for STM32MP13 variants, not STM32MP15 since non-secure world
+is currently not expected to use them on these platforms.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 44f2138063663e075fb3a4e46d7a1b0abaf2c4d4 plat-stm32mp1: default disable SCMI voltage domains on STM32MP15]
+Change-Id: Iec83b0dc3734defc43b7c507719e52d0a79365f7
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/352529
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index c012ed6ea..225b09071 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -341,13 +341,15 @@ endif
+ 
+ ifeq ($(CFG_SCMI_MSG_DRIVERS),y)
+ $(call force,CFG_SCMI_MSG_CLOCK,y)
+-$(call force,CFG_SCMI_MSG_REGULATOR_CONSUMER,y)
+ $(call force,CFG_SCMI_MSG_RESET_DOMAIN,y)
++ifeq ($(CFG_STM32MP13),y)
++$(call force,CFG_SCMI_MSG_REGULATOR_CONSUMER,y)
++$(call force,CFG_SCMI_MSG_VOLTAGE_DOMAIN,y)
++endif
+ CFG_SCMI_MSG_SHM_MSG ?= y
+ CFG_SCMI_MSG_SMT ?= y
+ CFG_SCMI_MSG_SMT_THREAD_ENTRY ?= y
+ CFG_SCMI_MSG_THREAD_ENTRY ?= y
+-$(call force,CFG_SCMI_MSG_VOLTAGE_DOMAIN,y)
+ endif
+ 
+ # Enable Early TA NVMEM for provisioning management
+-- 
+2.47.2
+

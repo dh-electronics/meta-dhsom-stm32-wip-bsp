@@ -1,0 +1,133 @@
+From 822959668f41f239d8a0830c411cc5aa5dc9b6fa Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Tue, 28 Jan 2025 17:55:37 +0100
+Subject: [PATCH 1486/1695] core: psa-adac: make it buildable as library for
+ optee-os
+
+Ignore warnings of the library causing build errors.
+
+Fix the prototype of psa_adac_crypto_init() so platform part will compile
+without raising error "no previous prototype for 'psa_adac_crypto_init'".
+
+Fix PSA_ADAC_LOG_TRACE in psa_adac_certificate_verify_sig() so the library
+will compile without raising error: "format '%d' expects argument of type
+'int', but argument 6 has type 'size_t' {aka 'long unsigned int'}"
+
+Created psa_adac_config.h inspired by psa_adac_config.h.in, and adapted
+for OPTEE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c715112550d6cc36b86a4b8bb165ad3083b50b87 core: psa-adac: make it buildable as library for optee-os]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: I9b06bbe0656f3c692ef93edebacf68f9acebc345
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/433586
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/core.mk                                  |  6 ++++++
+ .../psa-adac/core/include/psa_adac_config.h   | 21 +++++++++++++++++++
+ .../core/include/psa_adac_crypto_api.h        |  2 +-
+ .../psa-adac/core/src/adac_certificate.c      |  2 +-
+ core/lib/psa-adac/sub.mk                      | 19 +++++++++++++++++
+ 5 files changed, 48 insertions(+), 2 deletions(-)
+ create mode 100644 core/lib/psa-adac/psa-adac/core/include/psa_adac_config.h
+ create mode 100644 core/lib/psa-adac/sub.mk
+
+diff --git a/core/core.mk b/core/core.mk
+index 53c3c5123..b4690cae3 100644
+--- a/core/core.mk
++++ b/core/core.mk
+@@ -179,6 +179,12 @@ libdir = core/lib/scmi-server
+ include mk/lib.mk
+ endif
+ 
++ifeq ($(CFG_PSA_ADAC),y)
++libname = psa-adac
++libdir = core/lib/psa-adac
++include mk/lib.mk
++endif
++
+ #
+ # Do main source
+ #
+diff --git a/core/lib/psa-adac/psa-adac/core/include/psa_adac_config.h b/core/lib/psa-adac/psa-adac/core/include/psa_adac_config.h
+new file mode 100644
+index 000000000..e442b3bb1
+--- /dev/null
++++ b/core/lib/psa-adac/psa-adac/core/include/psa_adac_config.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2020-2025 Arm Limited. All rights reserved.
++ * Copyright (c) 2025 STMicroelectronic
++ */
++
++#include <trace_levels.h>
++
++#define PSA_ADAC_TARGET
++#define PSA_ADAC_EC_P256
++#if defined(CFG_PSA_ADAC_AUTHENTICATOR_IMPLICIT_TRANSPORT)
++#define PSA_ADAC_AUTHENTICATOR_IMPLICIT_TRANSPORT
++#endif
++
++#if (CFG_TEE_CORE_LOG_LEVEL == TRACE_DEBUG)
++#define PSA_ADAC_DEBUG /* Used to set PSA_ADAC_LOG_LEVEL to Debug */
++#elif (CFG_TEE_CORE_LOG_LEVEL == TRACE_FLOW)
++#define PSA_ADAC_TRACE /* Used to set PSA_ADAC_LOG_LEVEL to Trace */
++#elif (CFG_TEE_CORE_LOG_LEVEL == TRACE_MIN)
++#define PSA_ADAC_QUIET /* Used to disable console output */
++#endif
+diff --git a/core/lib/psa-adac/psa-adac/core/include/psa_adac_crypto_api.h b/core/lib/psa-adac/psa-adac/core/include/psa_adac_crypto_api.h
+index 5458832fa..ae2d34228 100644
+--- a/core/lib/psa-adac/psa-adac/core/include/psa_adac_crypto_api.h
++++ b/core/lib/psa-adac/psa-adac/core/include/psa_adac_crypto_api.h
+@@ -16,7 +16,7 @@
+  *
+  * This function will be called by ADAC library.
+  */
+-psa_status_t psa_adac_crypto_init();
++psa_status_t psa_adac_crypto_init(void);
+ 
+ /** \brief Generate challenge
+  *
+diff --git a/core/lib/psa-adac/psa-adac/core/src/adac_certificate.c b/core/lib/psa-adac/psa-adac/core/src/adac_certificate.c
+index f077d0f12..bf131accc 100644
+--- a/core/lib/psa-adac/psa-adac/core/src/adac_certificate.c
++++ b/core/lib/psa-adac/psa-adac/core/src/adac_certificate.c
+@@ -273,7 +273,7 @@ psa_status_t psa_adac_certificate_verify_sig(uint8_t *crt, size_t crt_size,
+     }
+ 
+     if (PSA_SUCCESS == r) {
+-        PSA_ADAC_LOG_TRACE("crt", "Starting  signature verification (%d)\r\n", sig_size);
++        PSA_ADAC_LOG_TRACE("crt", "Starting  signature verification (%zu)\r\n", sig_size);
+         r = psa_adac_verify_signature(key_type, key, key_size, hash_algo, (const uint8_t **) &crt, &tbs_size, 1,
+                                       sig_algo, sig, sig_size);
+         PSA_ADAC_LOG_DEBUG("crt", "Signature verification: %s\r\n", (r == PSA_SUCCESS) ? "success" : "failure");
+diff --git a/core/lib/psa-adac/sub.mk b/core/lib/psa-adac/sub.mk
+new file mode 100644
+index 000000000..688e482f7
+--- /dev/null
++++ b/core/lib/psa-adac/sub.mk
+@@ -0,0 +1,19 @@
++global-incdirs-y += psa-adac/core/include
++srcs-y += psa-adac/core/src/adac_certificate.c
++srcs-y += psa-adac/core/src/adac_crypto.c
++srcs-y += psa-adac/core/src/adac_token.c
++global-incdirs-y += psa-adac/sda/include
++srcs-y += psa-adac/sda/src/psa_adac_sda.c
++global-incdirs-y += transport_layer/transports
++srcs-y += transport_layer/transports/static_buffer_msg.c
++srcs-y += psa_adac_crypto.c
++
++cflags-lib-y += -Wno-cast-align \
++		-Wno-missing-prototypes \
++		-Wno-missing-declarations \
++		-Wno-old-style-definition \
++		-Wno-declaration-after-statement \
++		-Wno-unused-parameter \
++		-Wno-sign-compare \
++		-Wno-strict-aliasing \
++		-Wno-unused-value
+-- 
+2.47.2
+

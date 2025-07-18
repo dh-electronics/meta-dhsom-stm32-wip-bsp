@@ -1,0 +1,581 @@
+From 1aa083a4632e7d6c3f76ab793f9343d41d8abef3 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 21 Jun 2024 14:31:02 +0200
+Subject: [PATCH 0933/1695] drivers: stm32_rif: rework RIF device tree parsing
+
+Rework the RIF device tree configuration parsing to rely on macros
+defined in binding files. Also change the position of the resource ID
+field in the RIFPROT macro so that it is present in the first 8 bits
+instead of the 8 last.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d4f5d1e73e87dbe4c86e4e7cde883bdabeaab4d8 drivers: stm32_rif: rework RIF device tree parsing]
+Change-Id: Ia6ad4703af13fceccd2c83c902f8dc5f244f9ba1
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/389467
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/firewall/stm32_rif.c             | 79 ++++++++++---------
+ core/drivers/firewall/stm32_rifsc.c           | 74 ++++++++---------
+ core/include/drivers/stm32_rif.h              | 29 ++++---
+ .../include/dt-bindings/soc/stm32mp21-rifsc.h | 38 ++++-----
+ core/include/dt-bindings/soc/stm32mp25-rif.h  | 41 ++++++----
+ .../include/dt-bindings/soc/stm32mp25-rifsc.h | 38 ++++-----
+ 6 files changed, 151 insertions(+), 148 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_rif.c b/core/drivers/firewall/stm32_rif.c
+index e8bf250d3..eebf9ea17 100644
+--- a/core/drivers/firewall/stm32_rif.c
++++ b/core/drivers/firewall/stm32_rif.c
+@@ -3,8 +3,10 @@
+  * Copyright (c) 2021-2022, STMicroelectronics
+  */
+ 
+- #include <drivers/stm32_rif.h>
+- #include <kernel/panic.h>
++#include <drivers/stm32_rif.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <kernel/panic.h>
++#include <util.h>
+ 
+ TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
+ 				  uint32_t semcr,
+@@ -15,10 +17,14 @@ TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
+ 	uint32_t msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
+ 				   __builtin_clz(nb_cid_supp | 1) - 1;
+ 
+-	/* SCID bitfield highend can't be > SCID_SHIFT + MAX_CID_BITFIELD */
++	/*
++	 * SCID bitfield highend can't be > _CIDCFGR_SCID_SHIFT +
++	 * MAX_CID_BITFIELD
++	 */
+ 	assert(msb_nb_cid_supp < MAX_CID_BITFIELD);
+ 
+-	scid_mask = GENMASK_32(SCID_SHIFT + msb_nb_cid_supp, SCID_SHIFT);
++	scid_mask = GENMASK_32(_CIDCFGR_SCID_SHIFT + msb_nb_cid_supp,
++			       _CIDCFGR_SCID_SHIFT);
+ 
+ 	if (!(cidcfgr & _CIDCFGR_CFEN))
+ 		return TEE_SUCCESS;
+@@ -28,7 +34,8 @@ TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
+ 
+ 	if (SEM_EN_AND_OK(cidcfgr, cid_to_check)) {
+ 		if (!(semcr & _SEMCR_MUTEX) ||
+-		    ((semcr & scid_mask) >> SCID_SHIFT) == cid_to_check) {
++		    ((semcr & scid_mask) >> _CIDCFGR_SCID_SHIFT) ==
++		    cid_to_check) {
+ 			return TEE_SUCCESS;
+ 		}
+ 	}
+@@ -39,53 +46,43 @@ TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
+ void stm32_rif_parse_cfg(uint32_t rif_conf,
+ 			 struct rif_conf_data *conf_data,
+ 			 unsigned int nb_cid_supp,
+-			 unsigned int nb_channel)
++			 unsigned int nb_resource)
+ {
+-	uint32_t cidcfdg_conf_mask = 0;
+-	uint32_t channel_id = 0;
+-	uint32_t msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
+-				   __builtin_clz(nb_cid_supp | 1) - 1;
+-	uint32_t scid_mask = 0;
+-	uint32_t semwl_mask = 0;
++	uint32_t resource_id = 0;
+ 	unsigned int conf_index = 0;
+ 
+-	/* SCID bitfield highend can't be > SCID_SHIFT + MAX_CID_BITFIELD */
+-	assert(msb_nb_cid_supp < MAX_CID_BITFIELD);
+-
+-	scid_mask = GENMASK_32(SCID_SHIFT + msb_nb_cid_supp, SCID_SHIFT);
+-	semwl_mask = GENMASK_32(SEMWL_SHIFT + nb_cid_supp, SEMWL_SHIFT);
+-
+-	cidcfdg_conf_mask = scid_mask | semwl_mask | _CIDCFGR_CFEN |
+-			    _CIDCFGR_SEMEN;
++	if (nb_cid_supp > MAX_CID_SUPPORTED)
++		panic();
+ 
+ 	/* Shift corresponding to the desired resources */
+-	channel_id = RIF_CHANNEL_ID(rif_conf);
+-	if (channel_id >= nb_channel)
++	resource_id = rif_conf & RIF_PER_ID_MASK;
++	if (resource_id >= nb_resource)
+ 		panic("Bad RIF controllers number");
+ 
+ 	/*
+ 	 * Make sure we set the bits in the right sec and priv conf register.
+ 	 * This is done to support IPS having more than 32 channels.
+ 	 */
+-	conf_index = channel_id / 32;
++	conf_index = resource_id / 32;
+ 
+ 	/* Privilege configuration */
+-	if (rif_conf & RIFPROT_PRIV)
+-		conf_data->priv_conf[conf_index] |= BIT(channel_id);
++	if (rif_conf & BIT(RIF_PRIV_SHIFT))
++		conf_data->priv_conf[conf_index] |= BIT(resource_id);
+ 
+ 	/* Security RIF configuration */
+-	if (rif_conf & RIFPROT_SEC)
+-		conf_data->sec_conf[conf_index] |= BIT(channel_id);
++	if (rif_conf & BIT(RIF_SEC_SHIFT))
++		conf_data->sec_conf[conf_index] |= BIT(resource_id);
+ 
+ 	/* RIF configuration lock */
+-	if (rif_conf & RIFPROT_LOCK && conf_data->lock_conf)
+-		conf_data->lock_conf[conf_index] |= BIT(channel_id);
++	if (rif_conf & BIT(RIF_LOCK_SHIFT) && conf_data->lock_conf)
++		conf_data->lock_conf[conf_index] |= BIT(resource_id);
+ 
+ 	/* CID configuration */
+-	conf_data->cid_confs[channel_id] = rif_conf & cidcfdg_conf_mask;
++	conf_data->cid_confs[resource_id] = (rif_conf & RIF_PERx_CID_MASK) >>
++					     RIF_PERx_CID_SHIFT;
+ 
+ 	/* This resource will be configured */
+-	conf_data->access_mask[conf_index] |= BIT(channel_id);
++	conf_data->access_mask[conf_index] |= BIT(resource_id);
+ }
+ 
+ bool stm32_rif_is_semaphore_available(vaddr_t addr)
+@@ -100,16 +97,20 @@ TEE_Result stm32_rif_acquire_semaphore(vaddr_t addr,
+ 				   __builtin_clz(nb_cid_supp | 1) - 1;
+ 	uint32_t scid_mask = 0;
+ 
+-	/* SCID bitfield highend can't be > SCID_SHIFT + MAX_CID_BITFIELD */
++	/*
++	 * SCID bitfield highend can't be > _CIDCFGR_SCID_SHIFT +
++	 * MAX_CID_BITFIELD
++	 */
+ 	assert(msb_nb_cid_supp < MAX_CID_BITFIELD);
+ 
+-	scid_mask = GENMASK_32(SCID_SHIFT + msb_nb_cid_supp, SCID_SHIFT);
++	scid_mask = GENMASK_32(_CIDCFGR_SCID_SHIFT + msb_nb_cid_supp,
++			       _CIDCFGR_SCID_SHIFT);
+ 
+ 	io_setbits32(addr, _SEMCR_MUTEX);
+ 
+ 	/* Check that cortex A has the semaphore */
+ 	if (stm32_rif_is_semaphore_available(addr) ||
+-	    ((io_read32(addr) & scid_mask) >> SCID_SHIFT) != RIF_CID1)
++	    ((io_read32(addr) & scid_mask) >> _CIDCFGR_SCID_SHIFT) != RIF_CID1)
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
+ 	return TEE_SUCCESS;
+@@ -122,19 +123,23 @@ TEE_Result stm32_rif_release_semaphore(vaddr_t addr,
+ 				       __builtin_clz(nb_cid_supp | 1) - 1;
+ 	uint32_t scid_mask = 0;
+ 
+-	/* SCID bitfield highend can't be > SCID_SHIFT + MAX_CID_BITFIELD */
++	/*
++	 * SCID bitfield highend can't be > _CIDCFGR_SCID_SHIFT +
++	 * MAX_CID_BITFIELD
++	 */
+ 	assert(msb_nb_cid_supp <= MAX_CID_BITFIELD);
+ 
+ 	if (stm32_rif_is_semaphore_available(addr))
+ 		return TEE_SUCCESS;
+ 
+-	scid_mask = GENMASK_32(SCID_SHIFT + msb_nb_cid_supp, SCID_SHIFT);
++	scid_mask = GENMASK_32(_CIDCFGR_SCID_SHIFT + msb_nb_cid_supp,
++			       _CIDCFGR_SCID_SHIFT);
+ 
+ 	io_clrbits32(addr, _SEMCR_MUTEX);
+ 
+ 	/* Ok if another compartment takes the semaphore before the check */
+ 	if (!stm32_rif_is_semaphore_available(addr) &&
+-	    ((io_read32(addr) & scid_mask) >> SCID_SHIFT) == RIF_CID1)
++	    ((io_read32(addr) & scid_mask) >> _CIDCFGR_SCID_SHIFT) == RIF_CID1)
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/drivers/firewall/stm32_rifsc.c b/core/drivers/firewall/stm32_rifsc.c
+index aca38dcff..8e4569d81 100644
+--- a/core/drivers/firewall/stm32_rifsc.c
++++ b/core/drivers/firewall/stm32_rifsc.c
+@@ -77,14 +77,16 @@
+ #define _PERIPH_IDS_PER_REG		U(32)
+ #define _OFFSET_PERX_CIDCFGR		U(0x8)
+ 
+-#define RIFSC_RISC_CFEN_MASK		BIT(0)
+-#define RIFSC_RISC_SEM_EN_MASK		BIT(1)
+-#define RIFSC_RISC_SCID_MASK		GENMASK_32(6, 4)
+-#define RIFSC_RISC_SEC_MASK		BIT(8)
+-#define RIFSC_RISC_PRIV_MASK		BIT(9)
+-#define RIFSC_RISC_LOCK_MASK		BIT(10)
+-#define RIFSC_RISC_SEML_MASK		GENMASK_32(23, 16)
+-#define RIFSC_RISC_PER_ID_MASK		GENMASK_32(31, 24)
++#define RIFSC_RISC_CIDCFGR_CFEN_MASK	BIT(0)
++#define RIFSC_RISC_CIDCFGR_CFEN_SHIFT	U(0)
++#define RIFSC_RISC_CIDCFGR_SEM_EN_MASK	BIT(1)
++#define RIFSC_RISC_CIDCFGR_SEM_EN_SHIFT	U(1)
++#define RIFSC_RISC_CIDCFGR_SCID_MASK	GENMASK_32(6, 4)
++#define RIFSC_RISC_CIDCFGR_SCID_SHIFT	U(4)
++#define RIFSC_RISC_CIDCFGR_LOCK_MASK	BIT(10)
++#define RIFSC_RISC_CIDCFGR_LOCK_SHIFT	U(10)
++#define RIFSC_RISC_CIDCFGR_SEML_MASK	GENMASK_32(23, 16)
++#define RIFSC_RISC_CIDCFGR_SEML_SHIFT	U(16)
+ 
+ #define RIFSC_RISC_PERx_CID_MASK	(RIFSC_RISC_CFEN_MASK | \
+ 					 RIFSC_RISC_SEM_EN_MASK | \
+@@ -95,20 +97,11 @@
+ #define RIFSC_RIMC_MCID_MASK		GENMASK_32(6, 4)
+ #define RIFSC_RIMC_MSEC_MASK		BIT(8)
+ #define RIFSC_RIMC_MPRIV_MASK		BIT(9)
+-#define RIFSC_RIMC_M_ID_MASK		GENMASK_32(23, 16)
+-
+-#define RIFSC_RIMC_ATTRx_MASK		(RIFSC_RIMC_MODE_MASK | \
+-					 RIFSC_RIMC_MCID_MASK | \
+-					 RIFSC_RIMC_MSEC_MASK | \
+-					 RIFSC_RIMC_MPRIV_MASK)
+ 
+ /* max entries */
+ #define MAX_RIMU			U(16)
+ #define MAX_RISUP			U(128)
+ 
+-#define _RIF_FLD_PREP(field, value)	(((uint32_t)(value) << (field ## _SHIFT)) & (field ## _MASK))
+-#define _RIF_FLD_GET(field, value)	(((uint32_t)(value) & (field ## _MASK)) >> (field ## _SHIFT))
+-
+ struct rifsc_driver_data {
+ 	uint32_t version;
+ 	uint8_t nb_rimu;
+@@ -225,11 +218,11 @@ static TEE_Result stm32_rifsc_dt_conf_risup(const void *fdt, int node,
+ 		uint32_t value = fdt32_to_cpu(cuint[i]);
+ 		struct risup_cfg *risup = *risups + i;
+ 
+-		risup->id = _RIF_FLD_GET(RIFSC_RISC_PER_ID, value);
+-		risup->sec = (bool)_RIF_FLD_GET(RIFSC_RISC_SEC, value);
+-		risup->priv = (bool)_RIF_FLD_GET(RIFSC_RISC_PRIV, value);
+-		risup->lock = (bool)_RIF_FLD_GET(RIFSC_RISC_LOCK, value);
+-		risup->cid_attr = _RIF_FLD_GET(RIFSC_RISC_PERx_CID, value);
++		risup->id = _RIF_FLD_GET(RIF_PER_ID, value);
++		risup->sec = (value & BIT(RIF_SEC_SHIFT)) != 0;
++		risup->priv = (value & BIT(RIF_PRIV_SHIFT)) != 0;
++		risup->lock = (value & BIT(RIF_LOCK_SHIFT)) != 0;
++		risup->cid_attr = _RIF_FLD_GET(RIF_PERx_CID, value);
+ 	}
+ 
+ 	return TEE_SUCCESS;
+@@ -259,9 +252,9 @@ static TEE_Result stm32_rifsc_dt_conf_rimu(const void *fdt, int node,
+ 		uint32_t value = fdt32_to_cpu(cuint[i]);
+ 		struct rimu_cfg *rimu = pdata->rimu + i;
+ 
+-		rimu->id = _RIF_FLD_GET(RIFSC_RIMC_M_ID, value) -
++		rimu->id = _RIF_FLD_GET(RIMUPROT_RIMC_M_ID, value) -
+ 			   RIMU_ID_OFFSET;
+-		rimu->attr = _RIF_FLD_GET(RIFSC_RIMC_ATTRx, value);
++		rimu->attr = _RIF_FLD_GET(RIMUPROT_RIMC_ATTRx, value);
+ 	}
+ 
+ 	return TEE_SUCCESS;
+@@ -434,11 +427,11 @@ TEE_Result stm32_rifsc_reconfigure_risup(unsigned int risup_id,
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 	}
+ 
+-	risup->cid_attr = cid << RIFSC_RISC_SCID_SHIFT;
++	risup->cid_attr = cid << RIFSC_RISC_CIDCFGR_SCID_SHIFT;
+ 	if (cfen)
+-		risup->cid_attr |= RIFSC_RISC_CFEN_MASK;
++		risup->cid_attr |= RIFSC_RISC_CIDCFGR_CFEN_MASK;
+ 	else
+-		risup->cid_attr &= ~RIFSC_RISC_CFEN_MASK;
++		risup->cid_attr &= ~RIFSC_RISC_CIDCFGR_CFEN_MASK;
+ 
+ 	risup->sec = sec;
+ 	risup->priv = priv;
+@@ -516,10 +509,9 @@ static TEE_Result stm32_rifsc_check_access(struct firewall_query *firewall)
+ 			    cid_reg_offset);
+ 	seccfgr = io_read32(rifsc_base + _RIFSC_RISC_SECCFGR0 + 0x4 * reg_id);
+ 	privcfgr = io_read32(rifsc_base + _RIFSC_RISC_PRIVCFGR0 + 0x4 * reg_id);
+-	sec_check = _RIF_FLD_GET(RIFSC_RISC_SEC, firewall->args[1]) != 0;
+-	priv_check = _RIF_FLD_GET(RIFSC_RISC_PRIV, firewall->args[1]) != 0;
+-	cid_to_check = _RIF_FLD_GET(RIFSC_RISC_PERx_CID, firewall->args[1]) >>
+-		       RIFSC_RISC_SCID_SHIFT;
++	sec_check = (BIT(RIF_SEC_SHIFT) & firewall->args[1]) != 0;
++	priv_check = (BIT(RIF_PRIV_SHIFT) & firewall->args[1]) != 0;
++	cid_to_check = (firewall->args[1] & RIF_SCID_MASK) >> RIF_SCID_SHIFT;
+ 
+ 	if (!sec_check && seccfgr & BIT(periph_offset))
+ 		return TEE_ERROR_ACCESS_DENIED;
+@@ -533,7 +525,7 @@ static TEE_Result stm32_rifsc_check_access(struct firewall_query *firewall)
+ 	if ((cidcfgr & _CIDCFGR_SEMEN &&
+ 	     !SEM_EN_AND_OK(cidcfgr, cid_to_check)) ||
+ 	    (!(cidcfgr & _CIDCFGR_SEMEN) &&
+-	     !SCID_OK(cidcfgr, RIFSC_RISC_SCID_MASK, cid_to_check)))
++	     !SCID_OK(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK, cid_to_check)))
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+ 	return TEE_SUCCESS;
+@@ -578,7 +570,7 @@ static TEE_Result stm32_rifsc_acquire_access(struct firewall_query *firewall)
+ 						   MAX_CID_SUPPORTED);
+ 	}
+ 
+-	if (!SCID_OK(cidcfgr, RIFSC_RISC_SCID_MASK, RIF_CID1))
++	if (!SCID_OK(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK, RIF_CID1))
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
+ 	return TEE_SUCCESS;
+@@ -606,11 +598,11 @@ static TEE_Result stm32_rifsc_set_config(struct firewall_query *firewall)
+ 		struct risup_cfg risup = { };
+ 		uint32_t cidcfgr = 0;
+ 
+-		risup.id = firewall->args[0];
+-		risup.sec = _RIF_FLD_GET(RIFSC_RISC_SEC, conf) != 0;
+-		risup.priv = _RIF_FLD_GET(RIFSC_RISC_PRIV, conf) != 0;
+-		risup.lock = _RIF_FLD_GET(RIFSC_RISC_LOCK, conf) != 0;
+-		risup.cid_attr = _RIF_FLD_GET(RIFSC_RISC_PERx_CID, conf);
++		risup.id = id;
++		risup.sec = (BIT(RIF_SEC_SHIFT) & conf) != 0;
++		risup.priv = (BIT(RIF_PRIV_SHIFT) & conf) != 0;
++		risup.lock = (BIT(RIF_LOCK_SHIFT) & conf) != 0;
++		risup.cid_attr = _RIF_FLD_GET(RIF_PERx_CID, conf);
+ 
+ 		if (!is_tdcid) {
+ 			cidcfgr = io_read32(rifsc_pdata.base +
+@@ -627,8 +619,8 @@ static TEE_Result stm32_rifsc_set_config(struct firewall_query *firewall)
+ 	if (!is_tdcid)
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
+-	rimu.id = _RIF_FLD_GET(RIFSC_RIMC_M_ID, conf) - RIMU_ID_OFFSET;
+-	rimu.attr = _RIF_FLD_GET(RIFSC_RIMC_ATTRx, conf);
++	rimu.id = _RIF_FLD_GET(RIMUPROT_RIMC_M_ID, conf) - RIMU_ID_OFFSET;
++	rimu.attr = _RIF_FLD_GET(RIMUPROT_RIMC_ATTRx, conf);
+ 
+ 	return stm32_rimu_cfg(&rifsc_pdata, &rimu);
+ }
+@@ -750,7 +742,7 @@ TEE_Result stm32_rifsc_check_tdcid(bool *tdcid_state)
+ 	*tdcid_state = false;
+ 
+ 	if (((io_read32(rifsc_pdata.base + _RIFSC_RIMC_CR) &
+-	     _RIFSC_RIMC_CR_TDCID_MASK)) == (RIF_CID1 << SCID_SHIFT))
++	     _RIFSC_RIMC_CR_TDCID_MASK)) == (RIF_CID1 << _CIDCFGR_SCID_SHIFT))
+ 		*tdcid_state = true;
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/include/drivers/stm32_rif.h b/core/include/drivers/stm32_rif.h
+index 2f74c04aa..5130d70a2 100644
+--- a/core/include/drivers/stm32_rif.h
++++ b/core/include/drivers/stm32_rif.h
+@@ -45,6 +45,13 @@
+ #define RIFPROT_PRIV			BIT(9)
+ #define RIFPROT_LOCK			BIT(10)
+ 
++#define _RIF_FLD_PREP(field, value)	(((uint32_t)(value) << \
++					  (field ## _SHIFT)) & \
++					 (field ## _MASK))
++#define _RIF_FLD_GET(field, value)	(((uint32_t)(value) & \
++					  (field ## _MASK)) >> \
++					 (field ## _SHIFT))
++
+ #define SCID_OK(cidcfgr, scid_m, cid)	(((cidcfgr) & (scid_m)) ==	\
+ 					 ((cid) << (SCID_SHIFT)) &&	\
+ 					 !((cidcfgr) & (_CIDCFGR_SEMEN)))
+@@ -193,24 +200,24 @@ static inline TEE_Result
+ /*
+  * Parse RIF config from Device Tree extracted information
+  * @rif_conf: Configuration read in the device tree
+- * @conf_data: Buffer containing the RIF configuration to apply for an IP
+- * @sec_conf: Buffer containing the secure RIF configuration for an IP
+- * @priv_conf: Buffer containing the CID RIF configurations for an IP channels
+- *             (i.e: GPIO pins, FMC controllers)
+- * @nb_cid_supp: Number of supported CID for the IP
+- * @nb_channel: Number of channels for the IP
++ * @conf_data: Buffer containing the RIF configuration to apply for a peripheral
++ * @sec_conf: Buffer containing the secure RIF configuration for a peripheral
++ * @priv_conf: Buffer containing the CID RIF configuration for a peripheral's
++ * resources (i.e: GPIO pins, FMC controllers)
++ * @nb_cid_supp: Number of supported CID for the peripheral
++ * @nb_resource: Number of resources for the peripheral
+  */
+ #ifdef CFG_STM32_RIF
+ void stm32_rif_parse_cfg(uint32_t rif_conf,
+ 			 struct rif_conf_data *conf_data,
+ 			 unsigned int nb_cid_supp,
+-			 unsigned int nb_channel);
++			 unsigned int nb_resource);
+ #else
+ static inline void
+-		stm32_rif_parse_cfg(uint32_t rif_conf __unused,
+-				    struct rif_conf_data *conf_data __unused,
+-				    unsigned int nb_cid_supp __unused,
+-				    unsigned int nb_channel __unused)
++stm32_rif_parse_cfg(uint32_t rif_conf __unused,
++		    struct rif_conf_data *conf_data __unused,
++		    unsigned int nb_cid_supp __unused,
++		    unsigned int nb_resource __unused)
+ {
+ }
+ #endif
+diff --git a/core/include/dt-bindings/soc/stm32mp21-rifsc.h b/core/include/dt-bindings/soc/stm32mp21-rifsc.h
+index 5ef999554..f37c1aa63 100644
+--- a/core/include/dt-bindings/soc/stm32mp21-rifsc.h
++++ b/core/include/dt-bindings/soc/stm32mp21-rifsc.h
+@@ -110,16 +110,6 @@
+ #define STM32MP21_RIFSC_GPIOI_ID		168
+ #define STM32MP21_RIFSC_GPIOZ_ID		171
+ 
+-#define RIFSC_RISC_CFEN_SHIFT			0
+-#define RIFSC_RISC_SEM_EN_SHIFT			1
+-#define RIFSC_RISC_SCID_SHIFT			4
+-#define RIFSC_RISC_SEC_SHIFT			8
+-#define RIFSC_RISC_PRIV_SHIFT			9
+-#define RIFSC_RISC_LOCK_SHIFT			10
+-#define RIFSC_RISC_SEML_SHIFT			16
+-#define RIFSC_RISC_PER_ID_SHIFT			24
+-#define RIFSC_RISC_PERx_CID_SHIFT		0
+-
+ /* Global lock bindings */
+ #define RIFSC_RIMU_GLOCK			1
+ #define RIFSC_RISUP_GLOCK			2
+@@ -132,19 +122,25 @@
+ #define RIF_CIDSEL_P	0x0 /* config from RISUP */
+ #define RIF_CIDSEL_M	0x1 /* config from RIMU */
+ 
+-#define RIFSC_RIMC_MODE_SHIFT		2
+-#define RIFSC_RIMC_MCID_SHIFT		4
+-#define RIFSC_RIMC_MSEC_SHIFT		8
+-#define RIFSC_RIMC_MPRIV_SHIFT		9
+-#define RIFSC_RIMC_M_ID_SHIFT		16
+-#define RIFSC_RIMC_ATTRx_SHIFT		0
++#define RIMUPROT_RIMC_M_ID_SHIFT	0
++#define RIMUPROT_RIMC_MODE_SHIFT	10
++#define RIMUPROT_RIMC_MCID_SHIFT	12
++#define RIMUPROT_RIMC_MSEC_SHIFT	16
++#define RIMUPROT_RIMC_MPRIV_SHIFT	17
++#define RIMUPROT_RIMC_ATTRx_SHIFT	8
++#define RIMUPROT_RIMC_M_ID_MASK		GENMASK_32(7, 0)
++#define RIMUPROT_RIMC_MCID_MASK		GENMASK_32(15, 12)
++#define RIMUPROT_RIMC_ATTRx_MASK	(BIT(RIMUPROT_RIMC_MODE_SHIFT) | \
++					 RIMUPROT_RIMC_MCID_MASK | \
++					 BIT(RIMUPROT_RIMC_MSEC_SHIFT) | \
++					 BIT(RIMUPROT_RIMC_MPRIV_SHIFT))
+ 
+ #define RIMUPROT(rimuid, mcid, msec, mpriv, mode) \
+-	(((rimuid) << RIFSC_RIMC_M_ID_SHIFT) | \
+-	 ((mpriv) << RIFSC_RIMC_MPRIV_SHIFT) | \
+-	 ((msec) << RIFSC_RIMC_MSEC_SHIFT) | \
+-	 ((mcid) << RIFSC_RIMC_MCID_SHIFT) | \
+-	 ((mode) << RIFSC_RIMC_MODE_SHIFT))
++	(((rimuid) << RIMUPROT_RIMC_M_ID_SHIFT) | \
++	 ((mpriv) << RIMUPROT_RIMC_MPRIV_SHIFT) | \
++	 ((msec) << RIMUPROT_RIMC_MSEC_SHIFT) | \
++	 ((mcid) << RIMUPROT_RIMC_MCID_SHIFT) | \
++	 ((mode) << RIMUPROT_RIMC_MODE_SHIFT))
+ 
+ #endif /* _DT_BINDINGS_STM32_RIFSC_H */
+ 
+diff --git a/core/include/dt-bindings/soc/stm32mp25-rif.h b/core/include/dt-bindings/soc/stm32mp25-rif.h
+index dba5fd3e1..758a37647 100644
+--- a/core/include/dt-bindings/soc/stm32mp25-rif.h
++++ b/core/include/dt-bindings/soc/stm32mp25-rif.h
+@@ -77,24 +77,31 @@
+ 
+ #define RIF_TAMP_RESOURCE(x)	(x)
+ 
+-#define RISC_CFEN_SHIFT			0
+-#define RISC_SEM_EN_SHIFT		1
+-#define RISC_SCID_SHIFT			4
+-#define RISC_SEC_SHIFT			8
+-#define RISC_PRIV_SHIFT			9
+-#define RISC_LOCK_SHIFT			10
+-#define RISC_SEML_SHIFT			16
+-#define RISC_PER_ID_SHIFT		24
+-#define RISC_PERx_CID_SHIFT		0
++#define RIF_PER_ID_SHIFT		0
++#define RIF_CFEN_SHIFT			8
++#define RIF_SEM_EN_SHIFT		9
++#define RIF_SCID_SHIFT			12
++#define RIF_SEC_SHIFT			16
++#define RIF_PRIV_SHIFT			17
++#define RIF_LOCK_SHIFT			18
++#define RIF_SEML_SHIFT			24
++#define RIF_PERx_CID_SHIFT		8
++#define RIF_PER_ID_MASK			GENMASK_32(7, 0)
++#define RIF_SCID_MASK			GENMASK_32(15, 12)
++#define RIF_SEML_MASK			GENMASK_32(31, 24)
++
++#define RIF_PERx_CID_MASK		(BIT(RIF_CFEN_SHIFT) | \
++					 BIT(RIF_SEM_EN_SHIFT) | \
++					 RIF_SCID_MASK | RIF_SEML_MASK)
+ 
+ #define RIFPROT(rifid, sem_list, lock, sec, priv, scid, sem_en, cfen) \
+-	(((rifid) << RISC_PER_ID_SHIFT) | \
+-	 ((sem_list) << RISC_SEML_SHIFT) | \
+-	 ((lock) << RISC_LOCK_SHIFT) | \
+-	 ((priv) << RISC_PRIV_SHIFT) | \
+-	 ((sec) << RISC_SEC_SHIFT) | \
+-	 ((scid) << RISC_SCID_SHIFT) | \
+-	 ((sem_en) << RISC_SEM_EN_SHIFT) | \
+-	 ((cfen) << RISC_CFEN_SHIFT))
++	(((sem_list) << RIF_SEML_SHIFT) | \
++	 ((lock) << RIF_LOCK_SHIFT) | \
++	 ((priv) << RIF_PRIV_SHIFT) | \
++	 ((sec) << RIF_SEC_SHIFT) | \
++	 ((scid) << RIF_SCID_SHIFT) | \
++	 ((sem_en) << RIF_SEM_EN_SHIFT) | \
++	 ((cfen) << RIF_CFEN_SHIFT) | \
++	 ((rifid) << RIF_PER_ID_SHIFT))
+ 
+ #endif /* _DT_BINDINGS_STM32MP25_RIF_H */
+diff --git a/core/include/dt-bindings/soc/stm32mp25-rifsc.h b/core/include/dt-bindings/soc/stm32mp25-rifsc.h
+index 18c23ec94..08d589b5e 100644
+--- a/core/include/dt-bindings/soc/stm32mp25-rifsc.h
++++ b/core/include/dt-bindings/soc/stm32mp25-rifsc.h
+@@ -139,16 +139,6 @@
+ #define STM32MP25_RIFSC_GPIOK_ID		170
+ #define STM32MP25_RIFSC_GPIOZ_ID		171
+ 
+-#define RIFSC_RISC_CFEN_SHIFT			0
+-#define RIFSC_RISC_SEM_EN_SHIFT			1
+-#define RIFSC_RISC_SCID_SHIFT			4
+-#define RIFSC_RISC_SEC_SHIFT			8
+-#define RIFSC_RISC_PRIV_SHIFT			9
+-#define RIFSC_RISC_LOCK_SHIFT			10
+-#define RIFSC_RISC_SEML_SHIFT			16
+-#define RIFSC_RISC_PER_ID_SHIFT			24
+-#define RIFSC_RISC_PERx_CID_SHIFT		0
+-
+ /* Global lock bindings */
+ #define RIFSC_RIMU_GLOCK			1
+ #define RIFSC_RISUP_GLOCK			2
+@@ -161,19 +151,25 @@
+ #define RIF_CIDSEL_P	0x0 /* config from RISUP */
+ #define RIF_CIDSEL_M	0x1 /* config from RIMU */
+ 
+-#define RIFSC_RIMC_MODE_SHIFT		2
+-#define RIFSC_RIMC_MCID_SHIFT		4
+-#define RIFSC_RIMC_MSEC_SHIFT		8
+-#define RIFSC_RIMC_MPRIV_SHIFT		9
+-#define RIFSC_RIMC_M_ID_SHIFT		16
+-#define RIFSC_RIMC_ATTRx_SHIFT		0
++#define RIMUPROT_RIMC_M_ID_SHIFT	0
++#define RIMUPROT_RIMC_MODE_SHIFT	10
++#define RIMUPROT_RIMC_MCID_SHIFT	12
++#define RIMUPROT_RIMC_MSEC_SHIFT	16
++#define RIMUPROT_RIMC_MPRIV_SHIFT	17
++#define RIMUPROT_RIMC_ATTRx_SHIFT	8
++#define RIMUPROT_RIMC_M_ID_MASK		GENMASK_32(7, 0)
++#define RIMUPROT_RIMC_MCID_MASK		GENMASK_32(15, 12)
++#define RIMUPROT_RIMC_ATTRx_MASK	(BIT(RIMUPROT_RIMC_MODE_SHIFT) | \
++					 RIMUPROT_RIMC_MCID_MASK | \
++					 BIT(RIMUPROT_RIMC_MSEC_SHIFT) | \
++					 BIT(RIMUPROT_RIMC_MPRIV_SHIFT))
+ 
+ #define RIMUPROT(rimuid, mcid, msec, mpriv, mode) \
+-	(((rimuid) << RIFSC_RIMC_M_ID_SHIFT) | \
+-	 ((mpriv) << RIFSC_RIMC_MPRIV_SHIFT) | \
+-	 ((msec) << RIFSC_RIMC_MSEC_SHIFT) | \
+-	 ((mcid) << RIFSC_RIMC_MCID_SHIFT) | \
+-	 ((mode) << RIFSC_RIMC_MODE_SHIFT))
++	(((rimuid) << RIMUPROT_RIMC_M_ID_SHIFT) | \
++	 ((mpriv) << RIMUPROT_RIMC_MPRIV_SHIFT) | \
++	 ((msec) << RIMUPROT_RIMC_MSEC_SHIFT) | \
++	 ((mcid) << RIMUPROT_RIMC_MCID_SHIFT) | \
++	 ((mode) << RIMUPROT_RIMC_MODE_SHIFT))
+ 
+ #endif /* _DT_BINDINGS_STM32_RIFSC_H */
+ 
+-- 
+2.47.2
+

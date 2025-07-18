@@ -1,0 +1,62 @@
+From ddadf49e8786e4e31b46ea413b6cae155f267e08 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 29 Jun 2023 08:10:15 +0200
+Subject: [PATCH 0479/1695] clk: stm32mp25: restore flexgen clocks after a
+ standby
+
+Restore gating, rate, and the parent of all FlexGen clocks depending
+on access rights
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ce20491d7c82b14eb3077c7ed0bf53d73be758d8 clk: stm32mp25: restore flexgen clocks after a standby]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I849272d3d9a55f09377b48a9151c19c668f5543f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/326480
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index c97bac486..1d04b8673 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -2785,6 +2785,25 @@ static unsigned long clk_stm32_flexgen_round_rate(struct clk *clk __unused,
+ 	return clk_stm32_flexgen_get_round_rate(rate, prate, &prediv, &findiv);
+ }
+ 
++#ifdef CFG_PM
++static void clk_stm32_flexgen_pm_restore(struct clk *clk)
++{
++	TEE_Result ret = TEE_ERROR_GENERIC;
++	size_t pidx = 0;
++
++	ret = clk_get_parent_idx(clk, clk->parent, &pidx);
++	if (ret)
++		panic();
++
++	clk_stm32_flexgen_set_parent(clk, pidx);
++
++	clk_stm32_flexgen_set_rate(clk, clk->rate, clk->parent->rate);
++
++	if (clk_is_enabled(clk))
++		clk_stm32_flexgen_enable(clk);
++}
++#endif
++
+ static const struct clk_ops clk_stm32_flexgen_ops = {
+ 	.get_rate	= clk_stm32_flexgen_get_rate,
+ 	.set_rate	= clk_stm32_flexgen_set_rate,
+@@ -2794,6 +2813,7 @@ static const struct clk_ops clk_stm32_flexgen_ops = {
+ 	.disable	= clk_stm32_flexgen_disable,
+ 	.is_enabled	= clk_stm32_flexgen_is_enabled,
+ 	.round_rate	= clk_stm32_flexgen_round_rate,
++	.restore_context = clk_stm32_flexgen_pm_restore,
+ };
+ 
+ #define MUX_A35_OFFSET		A35_SS_CHGCLKREQ
+-- 
+2.47.2
+

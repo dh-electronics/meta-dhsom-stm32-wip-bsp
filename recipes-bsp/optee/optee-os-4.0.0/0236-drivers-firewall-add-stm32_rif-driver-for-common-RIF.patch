@@ -1,0 +1,310 @@
+From 829f04e548912990909a314a788a417c2b0eb292 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 18 Dec 2023 15:43:55 +0100
+Subject: [PATCH 0236/1695] drivers: firewall: add stm32_rif driver for common
+ RIF features
+
+This file should have generic features shared between all drivers managing
+RIF configuration.
+
+It contains:
+-Different useful RIF macros
+-RIF access helper
+-RIF config parser
+-RIF semaphore functions
+
+Checkpatch false-positive:
+
+Macro argument reuse 'cidcfgr' - possible side-effects?
+281: FILE: core/include/drivers/stm32_rif.h:42:
++#define SEM_EN_AND_OK(cidcfgr, wl)     (((cidcfgr) & _CIDCFGR_SEMEN) &&\
++                                        ((cidcfgr) & _CIDCFGR_SEMWL(wl)))
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0f8d24b0f1aeef1071130d5e575591aff21db9ac drivers: firewall: add stm32_rif driver for common RIF features]
+Change-Id: I8d4c903b915dac150919b79452406e4937d6892f
+Signed-off-by: Gatien Chevallier <gatien.chevallier@st.com>
+---
+ core/drivers/firewall/stm32_rif.c | 137 ++++++++++++++++++++++++++++++
+ core/drivers/firewall/sub.mk      |   1 +
+ core/include/drivers/stm32_rif.h  | 117 +++++++++++++++++++++++++
+ 3 files changed, 255 insertions(+)
+ create mode 100644 core/drivers/firewall/stm32_rif.c
+ create mode 100644 core/include/drivers/stm32_rif.h
+
+diff --git a/core/drivers/firewall/stm32_rif.c b/core/drivers/firewall/stm32_rif.c
+new file mode 100644
+index 000000000..8a3e0947d
+--- /dev/null
++++ b/core/drivers/firewall/stm32_rif.c
+@@ -0,0 +1,137 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2021-2022, STMicroelectronics
++ */
++
++ #include <drivers/stm32_rif.h>
++ #include <kernel/panic.h>
++
++TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
++				  uint32_t semcr,
++				  unsigned int nb_cid_supp,
++				  unsigned int cid_to_check)
++{
++	uint32_t scid_mask = 0;
++	uint32_t msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
++				   __builtin_clz(nb_cid_supp | 1) - 1;
++
++	/* SCID bitfield highend can't be > SCID_SHIFT + MAX_CID_BITFIELD */
++	assert(msb_nb_cid_supp < MAX_CID_BITFIELD);
++
++	scid_mask = GENMASK_32(SCID_SHIFT + msb_nb_cid_supp, SCID_SHIFT);
++
++	if (!(cidcfgr & _CIDCFGR_CFEN))
++		return TEE_SUCCESS;
++
++	if (SCID_OK(cidcfgr, scid_mask, cid_to_check))
++		return TEE_SUCCESS;
++
++	if (SEM_EN_AND_OK(cidcfgr, cid_to_check)) {
++		if (!(semcr & _SEMCR_MUTEX) ||
++		    ((semcr & scid_mask) >> SCID_SHIFT) == cid_to_check) {
++			return TEE_SUCCESS;
++		}
++	}
++
++	return TEE_ERROR_ACCESS_DENIED;
++}
++
++void stm32_rif_parse_cfg(uint32_t rif_conf,
++			 struct rif_conf_data *conf_data,
++			 unsigned int nb_cid_supp,
++			 unsigned int nb_channel)
++{
++	uint32_t cidcfdg_conf_mask = 0;
++	uint32_t channel_id = 0;
++	uint32_t msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
++				   __builtin_clz(nb_cid_supp | 1) - 1;
++	uint32_t scid_mask = 0;
++	uint32_t semwl_mask = 0;
++	unsigned int conf_index = 0;
++
++	/* SCID bitfield highend can't be > SCID_SHIFT + MAX_CID_BITFIELD */
++	assert(msb_nb_cid_supp < MAX_CID_BITFIELD);
++
++	scid_mask = GENMASK_32(SCID_SHIFT + msb_nb_cid_supp, SCID_SHIFT);
++	semwl_mask = GENMASK_32(SEMWL_SHIFT + nb_cid_supp, SEMWL_SHIFT);
++
++	cidcfdg_conf_mask = scid_mask | semwl_mask | _CIDCFGR_CFEN |
++			    _CIDCFGR_SEMEN;
++
++	/* Shift corresponding to the desired resources */
++	channel_id = RIF_CHANNEL_ID(rif_conf);
++	if (channel_id >= nb_channel)
++		panic("Bad RIF controllers number");
++
++	/*
++	 * Make sure we set the bits in the right sec and priv conf register.
++	 * This is done to support IPS having more than 32 channels.
++	 */
++	conf_index = channel_id / 32;
++
++	/* Privilege configuration */
++	if (rif_conf & RIFPROT_PRIV)
++		conf_data->priv_conf[conf_index] |= BIT(channel_id);
++
++	/* Security RIF configuration */
++	if (rif_conf & RIFPROT_SEC)
++		conf_data->sec_conf[conf_index] |= BIT(channel_id);
++
++	/* CID configuration */
++	conf_data->cid_confs[channel_id] = rif_conf & cidcfdg_conf_mask;
++
++	/* This resource will be configured */
++	conf_data->access_mask[conf_index] |= BIT(channel_id);
++}
++
++bool stm32_rif_is_semaphore_available(vaddr_t addr)
++{
++	return !(io_read32(addr) & _SEMCR_MUTEX);
++}
++
++TEE_Result stm32_rif_acquire_semaphore(vaddr_t addr,
++				       unsigned int nb_cid_supp)
++{
++	uint32_t msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
++				   __builtin_clz(nb_cid_supp | 1) - 1;
++	uint32_t scid_mask = 0;
++
++	/* SCID bitfield highend can't be > SCID_SHIFT + MAX_CID_BITFIELD */
++	assert(msb_nb_cid_supp < MAX_CID_BITFIELD);
++
++	scid_mask = GENMASK_32(SCID_SHIFT + msb_nb_cid_supp, SCID_SHIFT);
++
++	io_setbits32(addr, _SEMCR_MUTEX);
++
++	/* Check that cortex A has the semaphore */
++	if (stm32_rif_is_semaphore_available(addr) ||
++	    ((io_read32(addr) & scid_mask) >> SCID_SHIFT) != RIF_CID1)
++		return TEE_ERROR_ACCESS_DENIED;
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stm32_rif_release_semaphore(vaddr_t addr,
++				       unsigned int nb_cid_supp)
++{
++	unsigned int msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
++				       __builtin_clz(nb_cid_supp | 1) - 1;
++	uint32_t scid_mask = 0;
++
++	/* SCID bitfield highend can't be > SCID_SHIFT + MAX_CID_BITFIELD */
++	assert(msb_nb_cid_supp <= MAX_CID_BITFIELD);
++
++	if (stm32_rif_is_semaphore_available(addr))
++		return TEE_SUCCESS;
++
++	scid_mask = GENMASK_32(SCID_SHIFT + msb_nb_cid_supp, SCID_SHIFT);
++
++	io_clrbits32(addr, _SEMCR_MUTEX);
++
++	/* Ok if another compartment takes the semaphore before the check */
++	if (!stm32_rif_is_semaphore_available(addr) &&
++	    ((io_read32(addr) & scid_mask) >> SCID_SHIFT) == RIF_CID1)
++		return TEE_ERROR_ACCESS_DENIED;
++
++	return TEE_SUCCESS;
++}
+diff --git a/core/drivers/firewall/sub.mk b/core/drivers/firewall/sub.mk
+index 5ca035b5f..8dc57fdf0 100644
+--- a/core/drivers/firewall/sub.mk
++++ b/core/drivers/firewall/sub.mk
+@@ -1,2 +1,3 @@
+ srcs-$(CFG_STM32_FIREWALL) += stm32_firewall.c
+ srcs-$(CFG_STM32_ETZPC) += stm32_etzpc.c
++srcs-$(CFG_STM32_RIF) += stm32_rif.c
+diff --git a/core/include/drivers/stm32_rif.h b/core/include/drivers/stm32_rif.h
+new file mode 100644
+index 000000000..31ac6dd43
+--- /dev/null
++++ b/core/include/drivers/stm32_rif.h
+@@ -0,0 +1,117 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2022, STMicroelectronics
++ */
++
++#ifndef __DRIVERS_STM32_RIF_H
++#define __DRIVERS_STM32_RIF_H
++
++#include <drivers/stm32mp_dt_bindings.h>
++#include <io.h>
++#include <mm/core_memprot.h>
++#include <util.h>
++
++/*
++ * CIDCFGR register
++ */
++#define _CIDCFGR_CFEN			BIT(0)
++#define _CIDCFGR_SEMEN			BIT(1)
++#define _CIDCFGR_SEMWL(x)		BIT(SEMWL_SHIFT + (x))
++
++/*
++ * SEMCR register
++ */
++#define _SEMCR_MUTEX			BIT(0)
++#define _SEMCR_SEMCID_SHIFT		U(4)
++#define _SEMCR_SEMCID_MASK		GENMASK_32(6, 4)
++
++/*
++ * Miscellaneous
++ */
++#define MAX_CID_BITFIELD		U(3)
++#define MAX_CID_SUPPORTED		U(7)
++
++#define SCID_SHIFT			U(4)
++#define SEMWL_SHIFT			U(16)
++#define RIF_ID_SHIFT			U(24)
++
++#define RIF_ID_MASK			GENMASK_32(31, 24)
++#define RIF_CHANNEL_ID(x)		((RIF_ID_MASK & (x)) >> RIF_ID_SHIFT)
++
++#define RIFPROT_SEC			BIT(8)
++#define RIFPROT_PRIV			BIT(9)
++
++#define SCID_OK(cidcfgr, scid_m, cid)	(((cidcfgr) & (scid_m)) ==	\
++					 ((cid) << (SCID_SHIFT)) &&	\
++					 !((cidcfgr) & (_CIDCFGR_SEMEN)))
++
++#define SEM_EN_AND_OK(cidcfgr, wl)	(((cidcfgr) & _CIDCFGR_CFEN) &&  \
++					 ((cidcfgr) & _CIDCFGR_SEMEN) && \
++					 ((cidcfgr) & _CIDCFGR_SEMWL(wl)))
++
++#define SEM_MODE_INCORRECT(cidcfgr)	(!((cidcfgr) & _CIDCFGR_CFEN) ||  \
++					 !((cidcfgr) & _CIDCFGR_SEMEN) || \
++					 (!((cidcfgr) &			  \
++					    _CIDCFGR_SEMWL(RIF_CID1)) &&  \
++					  ((cidcfgr) & _CIDCFGR_SEMEN)))
++
++/*
++ * Structure containing RIF configuration data
++ * @access_mask: Mask of the registers which will be configured.
++ * @sec_conf: Secure configuration registers.
++ * @priv_conf: Privilege configuration registers.
++ * @cid_confs: CID filtering configuration register value for an IP channel
++ *             (i.e: GPIO pins, FMC controllers)
++ * @lock_conf: RIF configuration locking registers
++ *
++ * For a hardware block having 56 channels, there will be 56 cid_confs
++ * registers and 2 sec_conf and priv_conf registers
++ */
++struct rif_conf_data {
++	uint32_t *access_mask;
++	uint32_t *sec_conf;
++	uint32_t *priv_conf;
++	uint32_t *cid_confs;
++};
++
++/*
++ * Check every possible configuration where accessing RIF
++ * is possible :
++ * -When no CID filtering is enabled on a controller
++ * -When CID filtering is enabled on a controller, semaphore
++ *  is disabled, and static CID corresponds to Cortex A35
++ * -When CID filtering is enabled on a controller, semaphore
++ *  is enabled and is not taken, and Cortex A35 CID is
++ *  white-listed
++ * -When CID filtering is enabled on a controller, semaphore
++ *  is enabled and is taken, and Cortex A35 CID is
++ *  white-listed and semaphore is already taken by Cortex A35
++ */
++TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
++				  uint32_t semcr,
++				  unsigned int nb_cid_supp,
++				  unsigned int cid_to_check);
++
++/*
++ * Parse RIF config from Device Tree extracted information
++ * @rif_conf: Configuration read in the device tree
++ * @conf_data: Buffer containing the RIF configuration to apply for an IP
++ * @sec_conf: Buffer containing the secure RIF configuration for an IP
++ * @priv_conf: Buffer containing the CID RIF configurations for an IP channels
++ *             (i.e: GPIO pins, FMC controllers)
++ * @nb_cid_supp: Number of supported CID for the IP
++ * @nb_channel: Number of channels for the IP
++ */
++void stm32_rif_parse_cfg(uint32_t rif_conf,
++			 struct rif_conf_data *conf_data,
++			 unsigned int nb_cid_supp,
++			 unsigned int nb_channel);
++
++/* RIF semaphore functions */
++bool stm32_rif_is_semaphore_available(vaddr_t addr);
++TEE_Result stm32_rif_acquire_semaphore(vaddr_t addr,
++				       unsigned int nb_cid_supp);
++TEE_Result stm32_rif_release_semaphore(vaddr_t addr,
++				       unsigned int nb_cid_supp);
++
++#endif /* __DRIVERS_STM32_RIF_H */
+-- 
+2.47.2
+

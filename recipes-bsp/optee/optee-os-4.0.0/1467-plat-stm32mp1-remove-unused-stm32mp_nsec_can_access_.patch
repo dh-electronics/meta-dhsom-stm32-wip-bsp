@@ -1,0 +1,98 @@
+From 0b87a0b19bf4ae184c8e91f7d6f4b2204b29fd46 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 23 Oct 2024 10:36:25 +0200
+Subject: [PATCH 1467/1695] plat-stm32mp1: remove unused
+ stm32mp_nsec_can_access_reset()
+
+Remove unused platform function stm32mp_nsec_can_access_reset().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cc97f1ebee24c0cba6eb56688a4ad0f170be07eb plat-stm32mp1: remove unused stm32mp_nsec_can_access_reset()]
+Change-Id: Ic4d9e249c311d373a25568bfbe77bf7779fbd648
+Link: https://github.com/OP-TEE/optee_os/commit/90c3f1373313e8e71d2fed4732cc2d665230d162
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/413526
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../arch/arm/plat-stm32mp1/shared_resources.c | 42 -------------------
+ core/arch/arm/plat-stm32mp1/stm32_util.h      | 10 -----
+ 2 files changed, 52 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/shared_resources.c b/core/arch/arm/plat-stm32mp1/shared_resources.c
+index 3a6e8be1d..b527e4786 100644
+--- a/core/arch/arm/plat-stm32mp1/shared_resources.c
++++ b/core/arch/arm/plat-stm32mp1/shared_resources.c
+@@ -472,48 +472,6 @@ bool stm32mp_gpio_bank_is_secure(unsigned int bank)
+ 	return secure > 0 && secure == get_gpioz_nbpin();
+ }
+ 
+-bool stm32mp_nsec_can_access_reset(unsigned int reset_id)
+-{
+-	enum stm32mp_shres shres_id = STM32MP1_SHRES_COUNT;
+-
+-	switch (reset_id) {
+-	case GPIOZ_R:
+-		return stm32mp_gpio_bank_is_non_secure(GPIO_BANK_Z);
+-	case SPI6_R:
+-		shres_id = STM32MP1_SHRES_SPI6;
+-		break;
+-	case I2C4_R:
+-		shres_id = STM32MP1_SHRES_I2C4;
+-		break;
+-	case I2C6_R:
+-		shres_id = STM32MP1_SHRES_I2C6;
+-		break;
+-	case USART1_R:
+-		shres_id = STM32MP1_SHRES_USART1;
+-		break;
+-	case CRYP1_R:
+-		shres_id = STM32MP1_SHRES_CRYP1;
+-		break;
+-	case HASH1_R:
+-		shres_id = STM32MP1_SHRES_HASH1;
+-		break;
+-	case RNG1_R:
+-		shres_id = STM32MP1_SHRES_RNG1;
+-		break;
+-	case MDMA_R:
+-		shres_id = STM32MP1_SHRES_MDMA;
+-		break;
+-	case MCU_R:
+-	case MCU_HOLD_BOOT_R:
+-		shres_id = STM32MP1_SHRES_MCU;
+-		break;
+-	default:
+-		return false;
+-	}
+-
+-	return !stm32mp_periph_is_secure(shres_id);
+-}
+-
+ static bool mckprot_resource(enum stm32mp_shres id)
+ {
+ 	switch (id) {
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index 448322344..7b35ef5be 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -84,16 +84,6 @@ static inline void stm32mp_register_online_cpu(void)
+ uint32_t may_spin_lock(unsigned int *lock);
+ void may_spin_unlock(unsigned int *lock, uint32_t exceptions);
+ 
+-#ifdef CFG_STM32MP1_SHARED_RESOURCES
+-/* Return true if and only if @reset_id relates to a non-secure peripheral */
+-bool stm32mp_nsec_can_access_reset(unsigned int reset_id);
+-#else /* CFG_STM32MP1_SHARED_RESOURCES */
+-static inline bool stm32mp_nsec_can_access_reset(unsigned int reset_id __unused)
+-{
+-	return true;
+-}
+-#endif /* CFG_STM32MP1_SHARED_RESOURCES */
+-
+ /*
+  * Shared reference counter: increments by 2 on secure increment
+  * request, decrements by 2 on secure decrement request. Bit #0
+-- 
+2.47.2
+

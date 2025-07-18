@@ -1,0 +1,47 @@
+From a731dbef223e25fc60d111522bc1a92d90be01ef Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@foss.st.com>
+Date: Wed, 12 Feb 2025 09:34:45 +0100
+Subject: [PATCH 1477/1695] drivers: stpmic2: fix a mistake with over-current
+ handling
+
+Resolve a mismatch in over-current protection handling
+where an over-current detected on BUCK7 results in
+the disabling of BUCK6.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git fab164261b4aa7b90da4c52537b7ad167efce471 drivers: stpmic2: fix a mistake with over-current handling]
+Change-Id: Id63630015a20f225232291d07928ee37ec8d2aac
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/436417
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Pascal PAILLET <p.paillet@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stpmic2.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/stpmic2.c b/core/drivers/stpmic2.c
+index f0cd5a8eb..9f06b708b 100644
+--- a/core/drivers/stpmic2.c
++++ b/core/drivers/stpmic2.c
+@@ -687,7 +687,13 @@ static void stpmic2_handle_irq_reg(struct stpmic2 *pmic,
+ 
+ 			/* handle over-current protection */
+ 			if (res != ITRR_HANDLED && it_id >= IT_BUCK1_OCP) {
+-				uint8_t regu_id = (reg_index - U(2)) * U(8) + i;
++				uint8_t regu_id = it_id - IT_BUCK1_OCP +
++						  STPMIC2_BUCK1;
++
++				/* handle Offset due to BUCK1H */
++				if (it_id >= IT_BUCK2_OCP)
++					regu_id = it_id - IT_BUCK2_OCP +
++						   STPMIC2_BUCK2;
+ 
+ 				EMSG("Overcurrent on %s, disable regulator",
+ 				     regul_table[regu_id].name);
+-- 
+2.47.2
+

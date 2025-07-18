@@ -1,0 +1,266 @@
+From 780b84526c9f58096003d71d506c22d12ba70206 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 5 Feb 2025 16:25:18 +0100
+Subject: [PATCH 1471/1695] drivers: firewall: stm32_etzpc: remove header file
+
+Remove stm32_etzpc.h header file that is not required since the
+declared and defined resources are used internally in stm32_etzpc.c
+
+By the way, also remove inclusion of stm32mp15-etzpc.h DT bindings
+header file from stm32_rng.c where it is not needed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 894a1a8f9ef492151a2f9a9a185d0cc9d38f64e8 drivers: firewall: stm32_etzpc: remove header file]
+Change-Id: I574808d82ed51c544732c730f901ed5325e95b5b
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434763
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c         |  1 -
+ core/arch/arm/plat-stm32mp1/pm/low_power.c |  1 -
+ core/arch/arm/plat-stm32mp1/scmi_server.c  |  1 -
+ core/drivers/firewall/stm32_etzpc.c        | 56 ++++++++++------------
+ core/drivers/stm32_rng.c                   |  1 -
+ core/include/drivers/stm32_etzpc.h         | 30 ------------
+ 6 files changed, 26 insertions(+), 64 deletions(-)
+ delete mode 100644 core/include/drivers/stm32_etzpc.h
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index ef0eabc68..220b27826 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -13,7 +13,6 @@
+ #include <drivers/gic.h>
+ #include <drivers/pinctrl.h>
+ #include <drivers/stm32_bsec.h>
+-#include <drivers/stm32_etzpc.h>
+ #include <drivers/stm32_gpio.h>
+ #include <drivers/stm32_tamp.h>
+ #include <drivers/stm32_uart.h>
+diff --git a/core/arch/arm/plat-stm32mp1/pm/low_power.c b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+index c0c6afc49..f0b680b4b 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/low_power.c
++++ b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+@@ -11,7 +11,6 @@
+ #include <drivers/clk.h>
+ #include <drivers/gic.h>
+ #include <drivers/regulator.h>
+-#include <drivers/stm32_etzpc.h>
+ #include <drivers/stm32mp_dt_bindings.h>
+ #include <drivers/stm32mp1_ddrc.h>
+ #include <drivers/stm32mp1_pwr.h>
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index f7d910327..0cff91878 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -14,7 +14,6 @@
+ #include <drivers/scmi-msg.h>
+ #include <drivers/scmi.h>
+ #include <drivers/stm32_cpu_opp.h>
+-#include <drivers/stm32_etzpc.h>
+ #include <drivers/stm32_remoteproc.h>
+ #include <drivers/stm32mp_dt_bindings.h>
+ #include <initcall.h>
+diff --git a/core/drivers/firewall/stm32_etzpc.c b/core/drivers/firewall/stm32_etzpc.c
+index 5acb1ffd9..257bcd76e 100644
+--- a/core/drivers/firewall/stm32_etzpc.c
++++ b/core/drivers/firewall/stm32_etzpc.c
+@@ -12,12 +12,12 @@
+ 
+ #include <assert.h>
+ #include <drivers/clk_dt.h>
+-#include <drivers/stm32_etzpc.h>
++#include <drivers/firewall.h>
++#include <drivers/firewall_device.h>
++#include <drivers/stm32mp_dt_bindings.h>
+ #ifdef CFG_STM32MP15
+ #include <drivers/stm32mp1_rcc.h>
+ #endif
+-#include <drivers/firewall.h>
+-#include <drivers/stm32mp_dt_bindings.h>
+ #include <initcall.h>
+ #include <io.h>
+ #include <keep.h>
+@@ -66,6 +66,15 @@
+ #define TZMA_PM_LOCK_BIT		BIT(15)
+ #define TZMA_PM_VALUE_MASK		GENMASK_32(9, 0)
+ 
++/* ETZPC DECPROT bit field values */
++enum etzpc_decprot_attributes {
++	ETZPC_DECPROT_S_RW = 0,
++	ETZPC_DECPROT_NS_R_S_W = 1,
++	ETZPC_DECPROT_MCU_ISOLATION = 2,
++	ETZPC_DECPROT_NS_RW = 3,
++	ETZPC_DECPROT_MAX = 4,
++};
++
+ /*
+  * struct stm32_etzpc_platdata - Driver data set at initialization
+  *
+@@ -115,21 +124,6 @@ static const char *const etzpc_decprot_strings[] __maybe_unused = {
+ 	[ETZPC_DECPROT_NS_RW] = "ETZPC_DECPROT_NS_RW",
+ };
+ 
+-/* Temporary firewall controller reference */
+-static struct firewall_controller *fw_ctrl;
+-
+-TEE_Result stm32_etzpc_check_ns_access(unsigned int id)
+-{
+-	uint32_t query_arg = DECPROT(id, DECPROT_NS_RW, DECPROT_UNLOCK);
+-	struct firewall_query query = {
+-		.arg_count = 1,
+-		.args = &query_arg,
+-		.ctrl = fw_ctrl,
+-	};
+-
+-	return firewall_check_access(&query);
+-}
+-
+ static uint32_t etzpc_lock(struct etzpc_device *dev)
+ {
+ 	return may_spin_lock(&dev->lock);
+@@ -508,7 +502,7 @@ static bool pager_permits_decprot_config(uint32_t decprot_id,
+ 
+ 	if (stm32mp1_ram_intersect_pager_ram(ram_base, ram_size) &&
+ 	    attr != ETZPC_DECPROT_S_RW) {
+-		EMSG("Internal RAM %#"PRIxPA"..%#"PRIxPA" is used by pager, shall be secure",
++		EMSG("Internal RAM %#"PRIxPA"..%#"PRIxPA" is used by pager, must be secure",
+ 		     ram_base, ram_base + ram_size);
+ 		return false;
+ 	}
+@@ -523,12 +517,17 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 	struct etzpc_device *etzpc_dev = firewall->ctrl->priv;
+ 	enum etzpc_decprot_attributes attr = ETZPC_DECPROT_MAX;
+ 	unsigned int total_sz = 0;
++	bool lock = false;
++	uint32_t mode = 0;
+ 	uint32_t id = 0;
+ 
+ 	if (firewall->arg_count != 1)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+ 	id = firewall->args[0] & ETZPC_ID_MASK;
++	mode = (firewall->args[0] & ETZPC_MODE_MASK) >> ETZPC_MODE_SHIFT;
++	attr = etzpc_binding2decprot(mode);
++	lock = firewall->args[0] & ETZPC_LOCK_MASK;
+ 
+ 	if (id < etzpc_dev->ddata->num_per_sec &&
+ 	    (id == STM32MP1_ETZPC_SRAM1_ID || id == STM32MP1_ETZPC_SRAM2_ID ||
+@@ -536,8 +535,6 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 	     id == STM32MP1_ETZPC_SRAM4_ID || id == STM32MP1_ETZPC_RETRAM_ID ||
+ #endif /* defined(CFG_STM32MP15) */
+ 	     id == STM32MP1_ETZPC_SRAM3_ID)) {
+-		uint32_t mode = 0;
+-
+ 		paddr = stm32mp1_pa_or_sram_alias_pa(paddr);
+ 
+ 		switch (id) {
+@@ -567,18 +564,12 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 			panic();
+ 		}
+ 
+-		mode = (firewall->args[0] & ETZPC_MODE_MASK) >>
+-		       ETZPC_MODE_SHIFT;
+-		attr = etzpc_binding2decprot(mode);
+-
+ 		if (decprot_is_locked(etzpc_dev, id)) {
+ 			if (etzpc_do_get_decprot(etzpc_dev, id) != attr) {
+ 				EMSG("Internal RAM configuration locked");
+ 				return TEE_ERROR_ACCESS_DENIED;
+ 			}
+ 
+-			sanitize_decprot_config(id, attr);
+-
+ 			return TEE_SUCCESS;
+ 		}
+ 
+@@ -588,7 +579,7 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ #endif
+ 
+ 		etzpc_do_configure_decprot(etzpc_dev, id, attr);
+-		if (firewall->args[0] & ETZPC_LOCK_MASK)
++		if (lock)
+ 			etzpc_do_lock_decprot(etzpc_dev, id);
+ 
+ 		return TEE_SUCCESS;
+@@ -622,6 +613,11 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 
+ 		total_sz = ROUNDUP_DIV(size, SMALL_PAGE_SIZE);
+ 
++#ifdef CFG_STM32MP15
++		if (!pager_permits_decprot_config(id, attr))
++			return TEE_ERROR_ACCESS_DENIED;
++#endif
++
+ 		if (tzma_is_locked(etzpc_dev, tzma_id)) {
+ 			if (etzpc_do_get_tzma(etzpc_dev, tzma_id) != total_sz) {
+ 				EMSG("TZMA configuration locked");
+@@ -632,6 +628,8 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 		}
+ 
+ 		etzpc_do_configure_tzma(etzpc_dev, tzma_id, total_sz);
++		if (lock)
++			etzpc_do_lock_tzma(etzpc_dev, tzma_id);
+ 	} else {
+ 		EMSG("Unknown firewall ID: %"PRIu32, id);
+ 
+@@ -939,8 +937,6 @@ static TEE_Result stm32_etzpc_probe(const void *fdt, int node,
+ 	if (res)
+ 		goto err;
+ 
+-	fw_ctrl = controller;
+-
+ 	register_pm_core_service_cb(etzpc_pm, etzpc_dev, "stm32-etzpc");
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index 6858a3108..85366ae47 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -7,7 +7,6 @@
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+ #include <drivers/rstctrl.h>
+-#include <drivers/stm32_etzpc.h>
+ #include <drivers/stm32_rng.h>
+ #if defined(CFG_STM32MP15)
+ #include <drivers/stm32mp_dt_bindings.h>
+diff --git a/core/include/drivers/stm32_etzpc.h b/core/include/drivers/stm32_etzpc.h
+deleted file mode 100644
+index 3b8f42e66..000000000
+--- a/core/include/drivers/stm32_etzpc.h
++++ /dev/null
+@@ -1,30 +0,0 @@
+-/* SPDX-License-Identifier: BSD-3-Clause */
+-/*
+- * Copyright (c) 2014, ARM Limited and Contributors. All rights reserved.
+- * Copyright (c) 2018-2023, STMicroelectronics
+- */
+-
+-#ifndef __DRIVERS_STM32_ETZPC_H
+-#define __DRIVERS_STM32_ETZPC_H
+-
+-#include <util.h>
+-#include <types_ext.h>
+-
+-enum etzpc_decprot_attributes {
+-	ETZPC_DECPROT_S_RW = 0,
+-	ETZPC_DECPROT_NS_R_S_W = 1,
+-	ETZPC_DECPROT_MCU_ISOLATION = 2,
+-	ETZPC_DECPROT_NS_RW = 3,
+-	ETZPC_DECPROT_MAX = 4,
+-};
+-
+-#if defined(CFG_STM32_ETZPC)
+-TEE_Result stm32_etzpc_check_ns_access(unsigned int id);
+-#else
+-static inline TEE_Result stm32_etzpc_check_ns_access(unsigned int id __unused)
+-{
+-	return TEE_ERROR_ACCESS_DENIED;
+-}
+-#endif
+-
+-#endif /*__DRIVERS_STM32_ETZPC_H*/
+-- 
+2.47.2
+

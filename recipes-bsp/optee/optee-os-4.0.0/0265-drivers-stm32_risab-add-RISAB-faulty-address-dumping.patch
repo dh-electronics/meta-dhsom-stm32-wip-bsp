@@ -1,0 +1,107 @@
+From 304601d42681b88be94b53f52b6772877a4b7a87 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 18 Sep 2023 09:37:00 +0200
+Subject: [PATCH 0265/1695] drivers: stm32_risab: add RISAB faulty address
+ dumping for debug
+
+Add a debug function that dumps faulty addresses on all RISAB instances.
+
+If there is a illegal address detected, dump the faulty address and
+information on who's responsible for it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d16507efd290854c755f9c6b8168c1c5aa62c629 drivers: stm32_risab: add RISAB faulty address dumping for debug]
+Change-Id: I22a3b8e49e4cd34e19db96e6d5711b84a152b057
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+---
+ core/drivers/firewall/stm32_risab.c | 33 +++++++++++++++++++++++++++++
+ core/include/drivers/stm32_risab.h  | 12 ++++++++++-
+ 2 files changed, 44 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/firewall/stm32_risab.c b/core/drivers/firewall/stm32_risab.c
+index 7a2b9eccf..a40810895 100644
+--- a/core/drivers/firewall/stm32_risab.c
++++ b/core/drivers/firewall/stm32_risab.c
+@@ -76,6 +76,7 @@ struct stm32_risab_pdata {
+ 	struct clk *clock;
+ 	struct mem_region region_cfged;
+ 	struct stm32_risab_rif_conf *subr_cfg;
++	char risab_name[20];
+ 	uintptr_t base;
+ 	uint32_t pages_configured;
+ 	bool srwiad;
+@@ -88,6 +89,36 @@ static SLIST_HEAD(, stm32_risab_pdata) risab_list =
+ 
+ static bool is_tdcid;
+ 
++#ifdef CFG_TEE_CORE_DEBUG
++void stm32_risab_dump_erroneous_data(void)
++{
++	struct stm32_risab_pdata *risab = NULL;
++
++	SLIST_FOREACH(risab, &risab_list, link) {
++		if (clk_enable(risab->clock))
++			panic("Can't enable RISAB clock");
++
++		/* Check if faulty address on this RISAB */
++		if (!io_read32(risab->base + _RISAB_IASR)) {
++			clk_disable(risab->clock);
++			continue;
++		}
++
++		EMSG("\n\nDUMPING DATA FOR %s\n\n", risab->risab_name);
++		EMSG("=====================================================");
++		EMSG("Status register (IAESR): %#x",
++		     io_read32(risab->base + _RISAB_IAESR));
++		EMSG("-----------------------------------------------------");
++		EMSG("Faulty address (IADDR): %#x",
++		     io_read32(risab->base + _RISAB_IADDR));
++
++		EMSG("=====================================================\n");
++
++		clk_disable(risab->clock);
++	};
++}
++#endif /* CFG_TEE_CORE_DEBUG */
++
+ static bool regs_access_granted(struct stm32_risab_pdata *risab_d,
+ 				unsigned int reg_idx)
+ {
+@@ -371,6 +402,8 @@ static TEE_Result parse_dt(const void *fdt, int node,
+ 	if (res)
+ 		return res;
+ 
++	strncpy(risab_d->risab_name, fdt_get_name(fdt, node, NULL), 19);
++
+ 	cuint = fdt_getprop(fdt, node, "st,srwiad", NULL);
+ 	if (cuint)
+ 		risab_d->srwiad = true;
+diff --git a/core/include/drivers/stm32_risab.h b/core/include/drivers/stm32_risab.h
+index 8a8d52b0b..2cd5160a9 100644
+--- a/core/include/drivers/stm32_risab.h
++++ b/core/include/drivers/stm32_risab.h
+@@ -6,6 +6,8 @@
+ #ifndef __DRIVERS_STM32_RISAB_H__
+ #define __DRIVERS_STM32_RISAB_H__
+ 
++#include <trace.h>
++
+ #define RISAB_NB_MAX_CID_SUPPORTED		U(7)
+ 
+ struct mem_region {
+@@ -13,4 +15,12 @@ struct mem_region {
+ 	size_t size;
+ };
+ 
+-#endif /*__DRIVERS_STM32_RISAF_H__*/
++#ifdef CFG_TEE_CORE_DEBUG
++void stm32_risab_dump_erroneous_data(void);
++#else /* CFG_TEE_CORE_DEBUG */
++static inline void stm32_risab_dump_erroneous_data(void)
++{
++}
++#endif /* CFG_TEE_CORE_DEBUG */
++
++#endif /*__DRIVERS_STM32_RISAB_H__*/
+-- 
+2.47.2
+

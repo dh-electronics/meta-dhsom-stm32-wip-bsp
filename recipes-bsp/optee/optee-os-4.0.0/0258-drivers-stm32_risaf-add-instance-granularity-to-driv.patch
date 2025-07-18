@@ -1,0 +1,78 @@
+From 2c5d3987c7e5a1a2932c99a72fd3452bae639dbc Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Fri, 2 Jun 2023 15:15:55 +0200
+Subject: [PATCH 0258/1695] drivers: stm32_risaf: add instance granularity to
+ driver data
+
+Region addresses must follow a minimum granularity defined by the IP
+hardware configuration register. This is used when checking region
+boundaries.
+Add this value in driver data structure for each instance.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d0891bd8a2033a2194d3ce2836f1f7cd1ce6d915 drivers: stm32_risaf: add instance granularity to driver data]
+Change-Id: I5189a0267367c93044f09856ebca1c5e94185777
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+---
+ core/drivers/firewall/stm32_risaf.c | 18 +++++++++++-------
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index 118432351..b4d5ab786 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -136,6 +136,7 @@ struct stm32_risaf_pdata {
+ struct stm32_risaf_ddata {
+ 	uint32_t mask_regions;
+ 	uint32_t max_base_regions;
++	uint32_t granularity;
+ };
+ 
+ struct stm32_risaf_instance {
+@@ -246,7 +247,6 @@ bool risaf_is_hw_encryption_enabled(struct stm32_risaf_instance *risaf)
+ static TEE_Result check_region_address(struct stm32_risaf_instance *risaf,
+ 				       struct stm32_risaf_region *region)
+ {
+-	uint32_t granularity = 0;
+ 	uintptr_t end_paddr = 0;
+ 
+ 	assert(region->len != 0U);
+@@ -266,12 +266,9 @@ static TEE_Result check_region_address(struct stm32_risaf_instance *risaf,
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 	}
+ 
+-	/* Get IP region granularity */
+-	granularity = io_read32(risaf_base(risaf) + _RISAF_HWCFGR);
+-	granularity = BIT((granularity & _RISAF_HWCFGR_CFG3_MASK) >>
+-			  _RISAF_HWCFGR_CFG3_SHIFT);
+-	if (((region->addr % granularity) != 0U) ||
+-	    ((region->len % granularity) != 0U)) {
++	if (!risaf->ddata->granularity ||
++	    (region->addr % risaf->ddata->granularity) ||
++	    (region->len % risaf->ddata->granularity)) {
+ 		EMSG("RISAF %#"PRIxPTR": start/end address granularity not respected",
+ 		     risaf->pdata.base.pa);
+ 		return TEE_ERROR_BAD_PARAMETERS;
+@@ -381,6 +378,7 @@ static TEE_Result stm32_risaf_init_ddata(struct stm32_risaf_instance *risaf)
+ 	uint32_t hwcfgr = 0;
+ 	uint32_t mask_lsb = 0;
+ 	uint32_t mask_msb = 0;
++	uint32_t granularity = 0;
+ 
+ 	risaf->ddata = calloc(1, sizeof(*risaf->ddata));
+ 	if (!risaf->ddata)
+@@ -396,6 +394,12 @@ static TEE_Result stm32_risaf_init_ddata(struct stm32_risaf_instance *risaf)
+ 	risaf->ddata->max_base_regions = (hwcfgr & _RISAF_HWCFGR_CFG1_MASK) >>
+ 					 _RISAF_HWCFGR_CFG1_SHIFT;
+ 
++	/* Get IP region granularity */
++	granularity = io_read32(risaf_base(risaf) + _RISAF_HWCFGR);
++	granularity = BIT((granularity & _RISAF_HWCFGR_CFG3_MASK) >>
++			  _RISAF_HWCFGR_CFG3_SHIFT);
++	risaf->ddata->granularity = granularity;
++
+ 	return TEE_SUCCESS;
+ }
+ 
+-- 
+2.47.2
+

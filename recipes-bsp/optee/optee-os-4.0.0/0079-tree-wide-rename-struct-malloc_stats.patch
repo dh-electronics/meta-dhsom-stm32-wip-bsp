@@ -1,0 +1,215 @@
+From 62870af1a045eebc8c3ef4c7af29ed47b50bfb06 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 22 Nov 2023 13:45:08 +0100
+Subject: [PATCH 0079/1695] tree wide: rename struct malloc_stats
+
+Rename struct malloc_stats to struct pta_stats_alloc to prepare
+the creation of pta_stats.h header file that will define the
+whole statistics PTA API and ABI, located in libutee/include/
+as already done for all other PTAs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 75f50495a595ebf558cc407ebb333069f3150960 tree wide: rename struct malloc_stats]
+Change-Id: I6573235868707c16d571dfc55a826ed7c30478e4
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 2617f49f6e0145170668d49fa2ecbdef7c531e8b]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/include/mm/tee_mm.h           |  2 +-
+ core/kernel/tee_ta_manager.c       |  2 +-
+ core/mm/tee_mm.c                   |  2 +-
+ core/pta/stats.c                   |  6 +++---
+ lib/libutee/user_ta_entry.c        |  2 +-
+ lib/libutils/ext/mempool.c         |  2 +-
+ lib/libutils/isoc/bget_malloc.c    | 10 +++++-----
+ lib/libutils/isoc/include/malloc.h |  9 +++++----
+ 8 files changed, 18 insertions(+), 17 deletions(-)
+
+diff --git a/core/include/mm/tee_mm.h b/core/include/mm/tee_mm.h
+index b249e4bed..d6683d484 100644
+--- a/core/include/mm/tee_mm.h
++++ b/core/include/mm/tee_mm.h
+@@ -112,7 +112,7 @@ bool tee_mm_addr_is_within_range(const tee_mm_pool_t *pool, paddr_t addr);
+ bool tee_mm_is_empty(tee_mm_pool_t *pool);
+ 
+ #ifdef CFG_WITH_STATS
+-void tee_mm_get_pool_stats(tee_mm_pool_t *pool, struct malloc_stats *stats,
++void tee_mm_get_pool_stats(tee_mm_pool_t *pool, struct pta_stats_alloc *stats,
+ 			   bool reset);
+ #endif
+ 
+diff --git a/core/kernel/tee_ta_manager.c b/core/kernel/tee_ta_manager.c
+index 645eaefe6..f17ef926f 100644
+--- a/core/kernel/tee_ta_manager.c
++++ b/core/kernel/tee_ta_manager.c
+@@ -41,7 +41,7 @@ struct tee_ta_dump_stats {
+ 	TEE_UUID uuid;
+ 	uint32_t panicked;	/* True if TA has panicked */
+ 	uint32_t sess_num;	/* Number of opened session */
+-	struct malloc_stats heap;
++	struct pta_stats_alloc heap;
+ };
+ 
+ struct tee_ta_dump_ctx {
+diff --git a/core/mm/tee_mm.c b/core/mm/tee_mm.c
+index c61306d75..dc8ddfc6c 100644
+--- a/core/mm/tee_mm.c
++++ b/core/mm/tee_mm.c
+@@ -104,7 +104,7 @@ static size_t tee_mm_stats_allocated(tee_mm_pool_t *pool)
+ 	return sz << pool->shift;
+ }
+ 
+-void tee_mm_get_pool_stats(tee_mm_pool_t *pool, struct malloc_stats *stats,
++void tee_mm_get_pool_stats(tee_mm_pool_t *pool, struct pta_stats_alloc *stats,
+ 			   bool reset)
+ {
+ 	uint32_t exceptions;
+diff --git a/core/pta/stats.c b/core/pta/stats.c
+index 933d8e104..9abcd981c 100644
+--- a/core/pta/stats.c
++++ b/core/pta/stats.c
+@@ -53,7 +53,7 @@
+ 
+ static TEE_Result get_alloc_stats(uint32_t type, TEE_Param p[TEE_NUM_PARAMS])
+ {
+-	struct malloc_stats *stats;
++	struct pta_stats_alloc *stats;
+ 	uint32_t size_to_retrieve;
+ 	uint32_t pool_id;
+ 	uint32_t i;
+@@ -63,7 +63,7 @@ static TEE_Result get_alloc_stats(uint32_t type, TEE_Param p[TEE_NUM_PARAMS])
+ 	 *   - 0 means all the pools to be retrieved
+ 	 *   - 1..n means pool id
+ 	 * p[0].value.b = 0 if no reset of the stats
+-	 * p[1].memref.buffer = output buffer to struct malloc_stats
++	 * p[1].memref.buffer = output buffer to struct pta_stats_alloc
+ 	 */
+ 	if (TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
+ 			    TEE_PARAM_TYPE_MEMREF_OUTPUT,
+@@ -76,7 +76,7 @@ static TEE_Result get_alloc_stats(uint32_t type, TEE_Param p[TEE_NUM_PARAMS])
+ 	if (pool_id > STATS_NB_POOLS)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	size_to_retrieve = sizeof(struct malloc_stats);
++	size_to_retrieve = sizeof(struct pta_stats_alloc);
+ 	if (!pool_id)
+ 		size_to_retrieve *= STATS_NB_POOLS;
+ 
+diff --git a/lib/libutee/user_ta_entry.c b/lib/libutee/user_ta_entry.c
+index 2ac3e2558..b33953f42 100644
+--- a/lib/libutee/user_ta_entry.c
++++ b/lib/libutee/user_ta_entry.c
+@@ -392,7 +392,7 @@ static TEE_Result entry_dump_memstats(unsigned long session_id __unused,
+ {
+ 	uint32_t param_types = 0;
+ 	TEE_Param params[TEE_NUM_PARAMS] = { };
+-	struct malloc_stats stats = { };
++	struct pta_stats_alloc stats = { };
+ 
+ 	from_utee_params(params, &param_types, up);
+ 	ta_header_save_params(param_types, params);
+diff --git a/lib/libutils/ext/mempool.c b/lib/libutils/ext/mempool.c
+index 30508aad0..04c818122 100644
+--- a/lib/libutils/ext/mempool.c
++++ b/lib/libutils/ext/mempool.c
+@@ -146,7 +146,7 @@ void *mempool_alloc(struct mempool *pool, size_t size)
+ 	p = raw_malloc(0, 0, size, pool->mctx);
+ 	if (p) {
+ #ifdef CFG_MEMPOOL_REPORT_LAST_OFFSET
+-		struct malloc_stats stats = { };
++		struct pta_stats_alloc stats = { };
+ 
+ 		raw_malloc_get_stats(pool->mctx, &stats);
+ 		if (stats.max_allocated > pool->max_allocated) {
+diff --git a/lib/libutils/isoc/bget_malloc.c b/lib/libutils/isoc/bget_malloc.c
+index 15745bbbc..d156d70e3 100644
+--- a/lib/libutils/isoc/bget_malloc.c
++++ b/lib/libutils/isoc/bget_malloc.c
+@@ -135,7 +135,7 @@ struct malloc_ctx {
+ 	struct malloc_pool *pool;
+ 	size_t pool_len;
+ #ifdef BufStats
+-	struct malloc_stats mstats;
++	struct pta_stats_alloc mstats;
+ #endif
+ #ifdef __KERNEL__
+ 	unsigned int spinlock;
+@@ -308,7 +308,7 @@ void malloc_reset_stats(void)
+ }
+ 
+ static void gen_malloc_get_stats(struct malloc_ctx *ctx,
+-				 struct malloc_stats *stats)
++				 struct pta_stats_alloc *stats)
+ {
+ 	uint32_t exceptions = malloc_lock(ctx);
+ 
+@@ -316,7 +316,7 @@ static void gen_malloc_get_stats(struct malloc_ctx *ctx,
+ 	malloc_unlock(ctx, exceptions);
+ }
+ 
+-void malloc_get_stats(struct malloc_stats *stats)
++void malloc_get_stats(struct pta_stats_alloc *stats)
+ {
+ 	gen_malloc_get_stats(&malloc_ctx, stats);
+ }
+@@ -996,7 +996,7 @@ bool raw_malloc_buffer_is_within_alloced(struct malloc_ctx *ctx,
+ }
+ 
+ #ifdef CFG_WITH_STATS
+-void raw_malloc_get_stats(struct malloc_ctx *ctx, struct malloc_stats *stats)
++void raw_malloc_get_stats(struct malloc_ctx *ctx, struct pta_stats_alloc *stats)
+ {
+ 	memcpy_unchecked(stats, &ctx->mstats, sizeof(*stats));
+ 	stats->allocated = ctx->poolset.totalloc;
+@@ -1130,7 +1130,7 @@ void nex_malloc_reset_stats(void)
+ 	gen_malloc_reset_stats(&nex_malloc_ctx);
+ }
+ 
+-void nex_malloc_get_stats(struct malloc_stats *stats)
++void nex_malloc_get_stats(struct pta_stats_alloc *stats)
+ {
+ 	gen_malloc_get_stats(&nex_malloc_ctx, stats);
+ }
+diff --git a/lib/libutils/isoc/include/malloc.h b/lib/libutils/isoc/include/malloc.h
+index d26195585..a842fbfdc 100644
+--- a/lib/libutils/isoc/include/malloc.h
++++ b/lib/libutils/isoc/include/malloc.h
+@@ -85,7 +85,7 @@ void malloc_add_pool(void *buf, size_t len);
+  */
+ 
+ #define TEE_ALLOCATOR_DESC_LENGTH 32
+-struct malloc_stats {
++struct pta_stats_alloc {
+ 	char desc[TEE_ALLOCATOR_DESC_LENGTH];
+ 	uint32_t allocated;               /* Bytes currently allocated */
+ 	uint32_t max_allocated;           /* Tracks max value of allocated */
+@@ -95,7 +95,7 @@ struct malloc_stats {
+ 	uint32_t biggest_alloc_fail_used; /* Alloc bytes when above occurred */
+ };
+ 
+-void malloc_get_stats(struct malloc_stats *stats);
++void malloc_get_stats(struct pta_stats_alloc *stats);
+ void malloc_reset_stats(void);
+ #endif /* CFG_WITH_STATS */
+ 
+@@ -142,7 +142,7 @@ void nex_malloc_add_pool(void *buf, size_t len);
+  * Get/reset allocation statistics
+  */
+ 
+-void nex_malloc_get_stats(struct malloc_stats *stats);
++void nex_malloc_get_stats(struct pta_stats_alloc *stats);
+ void nex_malloc_reset_stats(void);
+ 
+ #endif	/* CFG_WITH_STATS */
+@@ -174,7 +174,8 @@ bool raw_malloc_buffer_overlaps_heap(struct malloc_ctx *ctx,
+ bool raw_malloc_buffer_is_within_alloced(struct malloc_ctx *ctx,
+ 					 void *buf, size_t len);
+ #ifdef CFG_WITH_STATS
+-void raw_malloc_get_stats(struct malloc_ctx *ctx, struct malloc_stats *stats);
++void raw_malloc_get_stats(struct malloc_ctx *ctx,
++			  struct pta_stats_alloc *stats);
+ #endif
+ 
+ #endif /* __MALLOC_H */
+-- 
+2.47.2
+

@@ -1,0 +1,110 @@
+From cccc39310d5462dac336b7844f33fddf5e4a0086 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 7 Oct 2022 14:07:22 +0200
+Subject: [PATCH 0161/1695] clk: stm32mp13: implement 'is_enabled' clock ops
+
+Now we are able to have hardware gate status of a clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 50115f8cd09acafa2af316a94f20696a2b3e4768 clk: stm32mp13: implement 'is_enabled' clock ops]
+Change-Id: Ibea9c5a88487662f17e8f52ec9bea9a2384dcd03
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32-core.c | 17 +++++++++++++++++
+ core/drivers/clk/clk-stm32-core.h |  1 +
+ core/drivers/clk/clk-stm32mp13.c  |  3 +++
+ 3 files changed, 21 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32-core.c b/core/drivers/clk/clk-stm32-core.c
+index 308045dd8..ad7ce239e 100644
+--- a/core/drivers/clk/clk-stm32-core.c
++++ b/core/drivers/clk/clk-stm32-core.c
+@@ -350,9 +350,17 @@ static void clk_stm32_gate_disable(struct clk *clk)
+ 	stm32_gate_disable(cfg->gate_id);
+ }
+ 
++static bool clk_stm32_gate_is_enabled(struct clk *clk)
++{
++	struct clk_stm32_gate_cfg *cfg = clk->priv;
++
++	return stm32_gate_is_enabled(cfg->gate_id);
++}
++
+ const struct clk_ops clk_stm32_gate_ops = {
+ 	.enable		= clk_stm32_gate_enable,
+ 	.disable	= clk_stm32_gate_disable,
++	.is_enabled	= clk_stm32_gate_is_enabled,
+ };
+ 
+ static TEE_Result clk_stm32_gate_ready_enable(struct clk *clk)
+@@ -373,6 +381,7 @@ static void clk_stm32_gate_ready_disable(struct clk *clk)
+ const struct clk_ops clk_stm32_gate_ready_ops = {
+ 	.enable		= clk_stm32_gate_ready_enable,
+ 	.disable	= clk_stm32_gate_ready_disable,
++	.is_enabled	= clk_stm32_gate_is_enabled,
+ };
+ 
+ /* STM32 DIV clock operators */
+@@ -459,6 +468,13 @@ void clk_stm32_composite_gate_disable(struct clk *clk)
+ 	stm32_gate_disable(cfg->gate_id);
+ }
+ 
++bool clk_stm32_composite_gate_is_enabled(struct clk *clk)
++{
++	struct clk_stm32_composite_cfg *cfg = clk->priv;
++
++	return stm32_gate_is_enabled(cfg->gate_id);
++}
++
+ const struct clk_ops clk_stm32_composite_ops = {
+ 	.get_parent	= clk_stm32_composite_get_parent,
+ 	.set_parent	= clk_stm32_composite_set_parent,
+@@ -466,6 +482,7 @@ const struct clk_ops clk_stm32_composite_ops = {
+ 	.set_rate	= clk_stm32_composite_set_rate,
+ 	.enable		= clk_stm32_composite_gate_enable,
+ 	.disable	= clk_stm32_composite_gate_disable,
++	.is_enabled	= clk_stm32_composite_gate_is_enabled,
+ };
+ 
+ TEE_Result clk_stm32_set_parent_by_index(struct clk *clk, size_t pidx)
+diff --git a/core/drivers/clk/clk-stm32-core.h b/core/drivers/clk/clk-stm32-core.h
+index c540d6c30..585d4d439 100644
+--- a/core/drivers/clk/clk-stm32-core.h
++++ b/core/drivers/clk/clk-stm32-core.h
+@@ -146,6 +146,7 @@ TEE_Result clk_stm32_composite_set_rate(struct clk *clk, unsigned long rate,
+ 					unsigned long parent_rate);
+ TEE_Result clk_stm32_composite_gate_enable(struct clk *clk);
+ void clk_stm32_composite_gate_disable(struct clk *clk);
++bool clk_stm32_composite_gate_is_enabled(struct clk *clk);
+ 
+ TEE_Result clk_stm32_set_parent_by_index(struct clk *clk, size_t pidx);
+ 
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index ca93f7567..646d8b8c2 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -1790,6 +1790,7 @@ static const struct clk_ops clk_stm32_pll_ops = {
+ 	.get_rate	= clk_stm32_pll_get_rate,
+ 	.enable		= clk_stm32_pll_enable,
+ 	.disable	= clk_stm32_pll_disable,
++	.is_enabled	= clk_stm32_pll_is_enabled,
+ };
+ 
+ static struct
+@@ -1866,12 +1867,14 @@ static const struct clk_ops clk_stm32_pll1_ops = {
+ 	.get_rate	= clk_stm32_pll_get_rate,
+ 	.enable		= clk_stm32_pll_enable,
+ 	.disable	= clk_stm32_pll_disable,
++	.is_enabled	= clk_stm32_pll_is_enabled,
+ };
+ 
+ static const struct clk_ops clk_stm32_pll1p_ops = {
+ 	.get_rate	= clk_stm32_composite_get_rate,
+ 	.enable		= clk_stm32_composite_gate_enable,
+ 	.disable	= clk_stm32_composite_gate_disable,
++	.is_enabled	= clk_stm32_composite_gate_is_enabled,
+ };
+ 
+ static const struct clk_ops clk_stm32_mpu_ops = {
+-- 
+2.47.2
+

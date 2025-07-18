@@ -1,0 +1,60 @@
+From eb4fca719fa0bb3c41856af91d619d827b38f0fd Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 10 Oct 2023 15:27:38 +0200
+Subject: [PATCH 0195/1695] clk: stm32mp25: add support of pinctrl and clock
+ for RCC node
+
+Use the generic stm32mp clock driver to support the OP-TEE initialization
+of pinctrl and clock defined in the RCC sub-node with compatible "st,rcc".
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0d73fd94513c624727caa80ec24765a46971f0fb clk: stm32mp25: add support of pinctrl and clock for RCC node]
+Change-Id: I42f13800a6b3f9ddad06a6594e4bd8713281b1e0
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 10 ++++++++++
+ core/drivers/clk/sub.mk          |  2 +-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 644fcab17..df0e1a6c0 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -3450,6 +3450,7 @@ static TEE_Result stm32mp2_clk_probe(const void *fdt, int node,
+ 	int rc = 0;
+ 	struct clk_stm32_priv *priv = &stm32mp25_clock_data;
+ 	struct stm32_clk_platdata *pdata = &stm32mp25_clock_pdata;
++	int subnode = 0;
+ 
+ 	fdt_rc = stm32_clk_parse_fdt(fdt, node, pdata);
+ 	if (fdt_rc) {
+@@ -3457,6 +3458,15 @@ static TEE_Result stm32mp2_clk_probe(const void *fdt, int node,
+ 		return TEE_ERROR_GENERIC;
+ 	}
+ 
++	fdt_for_each_subnode(subnode, fdt, node) {
++		res = dt_driver_maybe_add_probe_node(fdt, subnode);
++		if (res) {
++			EMSG("Failed on node %s with %#"PRIx32,
++			     fdt_get_name(fdt, subnode, NULL), res);
++			return res;
++		}
++	}
++
+ 	rc = clk_stm32_init(priv, stm32_rcc_base());
+ 	if (rc)
+ 		return TEE_ERROR_GENERIC;
+diff --git a/core/drivers/clk/sub.mk b/core/drivers/clk/sub.mk
+index f10483768..00060069d 100644
+--- a/core/drivers/clk/sub.mk
++++ b/core/drivers/clk/sub.mk
+@@ -4,6 +4,6 @@ srcs-$(CFG_DRIVERS_CLK_FIXED) += fixed_clk.c
+ srcs-$(CFG_STM32MP_CLK_CORE) += clk-stm32-core.c
+ srcs-$(CFG_STM32MP13_CLK) += clk-stm32mp13.c clk-stm32-rcc.c
+ srcs-$(CFG_STM32MP15_CLK) += clk-stm32mp15.c clk-stm32-rcc.c
+-srcs-$(CFG_STM32MP25_CLK) += clk-stm32mp25.c
++srcs-$(CFG_STM32MP25_CLK) += clk-stm32mp25.c clk-stm32-rcc.c
+ 
+ subdirs-$(CFG_DRIVERS_SAM_CLK) += sam
+-- 
+2.47.2
+

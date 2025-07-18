@@ -1,0 +1,1783 @@
+From 0f95eec88d67a7e3c46564c9f4b3f45457d19dbd Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 10 Jan 2024 17:44:32 +0100
+Subject: [PATCH 0472/1695] plat-stm32mp*: conf: sync with SCP-firmware v2.13
+ dev branch
+
+Synchronize stm32mp1 and stm32mp2 with SCP-firmware development
+branch v2.13-stm32mp-dev. SCP-firmware includes a module to bind SCMI
+voltage domains to optee regulator instances, hence the API has changed.
+
+Stm32mp2 requires SCP-firmware as SCMI service implementation.
+Stm32mp13 default use OP-TEE native SCMI server implementation, based
+on scmi-msg drivers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cc3423e1904daf15c7a1273d8da68497e0f61734 plat-stm32mp*: conf: sync with SCP-firmware v2.13 dev branch]
+Change-Id: I34b0cef28e8262da9386014546957678d0a355a4
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk           |  32 +-
+ .../arm/plat-stm32mp1/scmi_server_scpfw.c     | 589 +++++++++++++++
+ core/arch/arm/plat-stm32mp1/sub.mk            |   1 +
+ core/arch/arm/plat-stm32mp2/conf.mk           |   5 +
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     | 689 ++++++++++++++++++
+ core/arch/arm/plat-stm32mp2/sub.mk            |   1 +
+ .../product/optee-stm32mp2/fw/config_all.c    |  11 +-
+ core/lib/scmi-server/conf-optee-stm32mp1.mk   |  12 +-
+ core/lib/scmi-server/conf-optee-stm32mp2.mk   |  23 +
+ core/lib/scmi-server/conf.mk                  |   1 +
+ .../include/scmi_agent_configuration.h        | 147 ++++
+ core/lib/scmi-server/scmi_server.c            |  15 +-
+ core/lib/scmi-server/sub-optee-stm32mp1.mk    |  13 +-
+ core/lib/scmi-server/sub-optee-stm32mp2.mk    |   6 +
+ core/lib/scmi-server/sub.mk                   |   3 +-
+ 15 files changed, 1512 insertions(+), 36 deletions(-)
+ create mode 100644 core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
+ create mode 100644 core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+ create mode 100644 core/lib/scmi-server/conf-optee-stm32mp2.mk
+ create mode 100644 core/lib/scmi-server/include/scmi_agent_configuration.h
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 29418f03b..fa90e79ce 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -294,6 +294,8 @@ CFG_WDT_SM_HANDLER_ID ?= 0xbc000000
+ CFG_STM32MP_PANIC_ON_TZC_PERM_VIOLATION ?= y
+ 
+ # Default enable scmi-msg server if SCP-firmware SCMI server is disabled
++CFG_SCMI_PTA ?= y
++CFG_SCMI_SCPFW ?= n
+ ifneq ($(CFG_SCMI_SCPFW),y)
+ CFG_SCMI_MSG_DRIVERS ?= y
+ endif
+@@ -315,23 +317,28 @@ ifeq ($(CFG_STM32_BSEC_PTA),y)
+ $(call force,CFG_STM32_BSEC,y,Required by CFG_STM32_BSEC_PTA)
+ endif
+ 
+-# Default enable SCMI PTA support
+-CFG_SCMI_PTA ?= y
+-ifeq ($(CFG_SCMI_PTA),y)
+-ifneq ($(CFG_SCMI_SCPFW),y)
+-$(call force,CFG_SCMI_MSG_DRIVERS,y,Mandated by CFG_SCMI_PTA)
+-CFG_SCMI_MSG_SMT_THREAD_ENTRY ?= y
+-CFG_SCMI_MSG_SHM_MSG ?= y
+-CFG_SCMI_MSG_SMT ?= y
+-endif # !CFG_SCMI_SCPFW
+-endif # CFG_SCMI_PTA
++# SCMI configuration
++# When SCMI is embedded, either CFG_SCMI_SCPFW or CFG_SCMI_MSG_DRIVERS
++# shall be enabled exclusively.
++ifeq ($(CFG_SCMI_MSG_DRIVERS)-$(CFG_SCMI_SCPFW),y-y)
++$(error CFG_SCMI_MSG_DRIVERS and CFG_SCMI_SCPFW are exclusive)
++endif
++ifeq ($(filter $(CFG_SCMI_MSG_DRIVERS) $(CFG_SCMI_SCPFW),y),)
++$(error One of CFG_SCMI_MSG_DRIVERS or CFG_SCMI_SCPFW must be enabled)
++endif
+ 
+-CFG_SCMI_SCPFW ?= n
+ ifeq ($(CFG_SCMI_SCPFW),y)
++$(call force,CFG_SCMI_SERVER_REGULATOR_CONSUMER,y)
+ $(call force,CFG_SCMI_SCPFW_PRODUCT,optee-stm32mp1)
+ endif
+ 
+-CFG_SCMI_MSG_DRIVERS ?= n
++ifeq ($(CFG_SCMI_MSG_DRIVERS)-$(CFG_SCMI_SCPFW),y-y)
++$(error CFG_SCMI_MSG_DRIVERS and CFG_SCMI_SCPFW are exclusive)
++endif
++ifeq ($(filter $(CFG_SCMI_MSG_DRIVERS) $(CFG_SCMI_SCPFW),y),)
++$(error One of CFG_SCMI_MSG_DRIVERS or CFG_SCMI_SCPFW must be enabled)
++endif
++
+ ifeq ($(CFG_SCMI_MSG_DRIVERS),y)
+ $(call force,CFG_SCMI_MSG_CLOCK,y)
+ $(call force,CFG_SCMI_MSG_REGULATOR_CONSUMER,y)
+@@ -339,6 +346,7 @@ $(call force,CFG_SCMI_MSG_RESET_DOMAIN,y)
+ CFG_SCMI_MSG_SHM_MSG ?= y
+ CFG_SCMI_MSG_SMT ?= y
+ CFG_SCMI_MSG_SMT_THREAD_ENTRY ?= y
++CFG_SCMI_MSG_THREAD_ENTRY ?= y
+ $(call force,CFG_SCMI_MSG_VOLTAGE_DOMAIN,y)
+ endif
+ 
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
+new file mode 100644
+index 000000000..4571d8ccb
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
+@@ -0,0 +1,589 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2022, STMicroelectronics
++ */
++#include <assert.h>
++#include <compiler.h>
++#include <config.h>
++#include <confine_array_index.h>
++#include <drivers/clk.h>
++#include <drivers/clk_dt.h>
++#include <drivers/rstctrl.h>
++#include <drivers/scmi-msg.h>
++#include <drivers/scmi.h>
++#ifdef CFG_STM32_CPU_OPP
++#include <drivers/stm32_cpu_opp.h>
++#endif
++#include <drivers/stm32_firewall.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <initcall.h>
++#include <mm/core_memprot.h>
++#include <mm/core_mmu.h>
++#include <platform_config.h>
++#include <scmi_agent_configuration.h>
++#include <scmi_regulator_consumer.h>
++#include <stdint.h>
++#include <speculation_barrier.h>
++#include <stm32_util.h>
++#include <string.h>
++#include <tee_api_defines.h>
++#include <util.h>
++
++#define TIMEOUT_US_1MS		1000
++
++/*
++ * struct stm32_scmi_clk - Data for the exposed clock
++ * @clock_id: Clock identifier in RCC clock driver
++ * @name: Clock string ID exposed to channel
++ * @enabled: State of the SCMI clock at initialization
++ * @change_rate: SCMMI agent is allowed to change the rate
++ * @clk: Clock device manipulated by the SCMI channel
++ */
++struct stm32_scmi_clk {
++	unsigned long clock_id;
++	const char *name;
++	bool enabled;
++	bool change_rate;
++	struct clk *clk;
++};
++
++/*
++ * struct stm32_scmi_rd - Data for the exposed reset controller
++ * @reset_id: Reset identifier in RCC reset driver
++ * @base: Physical controller address
++ * @name: Reset string ID exposed to channel
++ * @rstctrl: Reset controller manipulated by the SCMI channel
++ * @rstctrl_be: Backend reset controller device
++ */
++struct stm32_scmi_rd {
++	unsigned long reset_id;
++	paddr_t base;
++	const char *name;
++	struct rstctrl *rstctrl;
++	struct rstctrl *rstctrl_be;
++};
++
++/*
++ * struct stm32_scmi_perfd - Data for the exposed performance domains
++ * @name: Performance domain string ID (aka name) exposed to channel
++ */
++struct stm32_scmi_perfd {
++	const char *name;
++};
++
++#define CLOCK_CELL(_scmi_id, _id, _name, _init_enabled) \
++	[_scmi_id] = { \
++		.clock_id = _id, \
++		.name = _name, \
++		.enabled = _init_enabled, \
++	}
++
++#define CLOCK_CELL_RATES(_scmi_id, _id, _name, _init_enabled) \
++	[_scmi_id] = { \
++		.clock_id = _id, \
++		.name = _name, \
++		.enabled = _init_enabled, \
++		.change_rate = true, \
++	}
++
++#define RESET_CELL(_scmi_id, _id, _base, _name) \
++	[_scmi_id] = { \
++		.reset_id = _id, \
++		.base = _base, \
++		.name = _name, \
++	}
++
++#define PERFD_CELL(_scmi_id, _name) \
++	[_scmi_id] = { \
++		.name = (_name), \
++	}
++
++struct channel_resources {
++	struct stm32_scmi_clk *clock;
++	size_t clock_count;
++	struct stm32_scmi_rd *rd;
++	size_t rd_count;
++	struct stm32_scmi_perfd *perfd;
++	size_t perfd_count;
++};
++
++#ifdef CFG_STM32MP13
++static struct stm32_scmi_clk stm32_scmi_clock[] = {
++	CLOCK_CELL(CK_SCMI_HSE, CK_HSE, "ck_hse", true),
++	CLOCK_CELL(CK_SCMI_HSI, CK_HSI, "ck_hsi", true),
++	CLOCK_CELL(CK_SCMI_CSI, CK_CSI, "ck_csi", true),
++	CLOCK_CELL(CK_SCMI_LSE, CK_LSE, "ck_lse", true),
++	CLOCK_CELL(CK_SCMI_LSI, CK_LSI, "ck_lsi", true),
++	CLOCK_CELL(CK_SCMI_HSE_DIV2, CK_HSE_DIV2, "clk-hse-div2", true),
++	CLOCK_CELL(CK_SCMI_PLL2_Q, PLL2_Q, "pll2_q", true),
++	CLOCK_CELL(CK_SCMI_PLL2_R, PLL2_R, "pll2_r", true),
++	CLOCK_CELL(CK_SCMI_PLL3_P, PLL3_P, "pll3_p", true),
++	CLOCK_CELL(CK_SCMI_PLL3_Q, PLL3_Q, "pll3_q", true),
++	CLOCK_CELL(CK_SCMI_PLL3_R, PLL3_R, "pll3_r", true),
++	CLOCK_CELL(CK_SCMI_PLL4_P, PLL4_P, "pll4_p", true),
++	CLOCK_CELL_RATES(CK_SCMI_PLL4_Q, PLL4_Q, "pll4_q", true),
++	CLOCK_CELL(CK_SCMI_PLL4_R, PLL4_R, "pll4_r", true),
++	CLOCK_CELL(CK_SCMI_MPU, CK_MPU, "ck_mpu", true),
++	CLOCK_CELL(CK_SCMI_AXI, CK_AXI, "ck_axi", true),
++	CLOCK_CELL(CK_SCMI_MLAHB, CK_MLAHB, "ck_mlahb", true),
++	CLOCK_CELL(CK_SCMI_CKPER, CK_PER, "ck_per", true),
++	CLOCK_CELL(CK_SCMI_PCLK1, PCLK1, "pclk1", true),
++	CLOCK_CELL(CK_SCMI_PCLK2, PCLK2, "pclk2", true),
++	CLOCK_CELL(CK_SCMI_PCLK3, PCLK3, "pclk3", true),
++	CLOCK_CELL(CK_SCMI_PCLK4, PCLK4, "pclk4", true),
++	CLOCK_CELL(CK_SCMI_PCLK5, PCLK5, "pclk5", true),
++	CLOCK_CELL(CK_SCMI_PCLK6, PCLK6, "pclk6", true),
++	CLOCK_CELL(CK_SCMI_CKTIMG1, CK_TIMG1, "timg1_ck", true),
++	CLOCK_CELL(CK_SCMI_CKTIMG2, CK_TIMG2, "timg2_ck", true),
++	CLOCK_CELL(CK_SCMI_CKTIMG3, CK_TIMG3, "timg3_ck", true),
++	CLOCK_CELL(CK_SCMI_RTC, RTC, "ck_rtc", true),
++	CLOCK_CELL(CK_SCMI_RTCAPB, RTCAPB, "rtcapb", true),
++	CLOCK_CELL(CK_SCMI_BSEC, BSEC, "bsec", true),
++};
++#endif
++
++#ifdef CFG_STM32MP15
++static struct stm32_scmi_clk stm32_scmi_clock[] = {
++	CLOCK_CELL(CK_SCMI_HSE, CK_HSE, "ck_hse", true),
++	CLOCK_CELL(CK_SCMI_HSI, CK_HSI, "ck_hsi", true),
++	CLOCK_CELL(CK_SCMI_CSI, CK_CSI, "ck_csi", true),
++	CLOCK_CELL(CK_SCMI_LSE, CK_LSE, "ck_lse", true),
++	CLOCK_CELL(CK_SCMI_LSI, CK_LSI, "ck_lsi", true),
++	CLOCK_CELL(CK_SCMI_PLL2_Q, PLL2_Q, "pll2_q", true),
++	CLOCK_CELL(CK_SCMI_PLL2_R, PLL2_R, "pll2_r", true),
++	CLOCK_CELL_RATES(CK_SCMI_MPU, CK_MPU, "ck_mpu", true),
++	CLOCK_CELL(CK_SCMI_AXI, CK_AXI, "ck_axi", true),
++	CLOCK_CELL(CK_SCMI_BSEC, BSEC, "bsec", true),
++	CLOCK_CELL(CK_SCMI_CRYP1, CRYP1, "cryp1", false),
++	CLOCK_CELL(CK_SCMI_GPIOZ, GPIOZ, "gpioz", false),
++	CLOCK_CELL(CK_SCMI_HASH1, HASH1, "hash1", false),
++	CLOCK_CELL(CK_SCMI_I2C4, I2C4_K, "i2c4_k", false),
++	CLOCK_CELL(CK_SCMI_I2C6, I2C6_K, "i2c6_k", false),
++	CLOCK_CELL(CK_SCMI_IWDG1, IWDG1, "iwdg1", false),
++	CLOCK_CELL(CK_SCMI_RNG1, RNG1_K, "rng1_k", true),
++	CLOCK_CELL(CK_SCMI_RTC, RTC, "ck_rtc", true),
++	CLOCK_CELL(CK_SCMI_RTCAPB, RTCAPB, "rtcapb", true),
++	CLOCK_CELL(CK_SCMI_SPI6, SPI6_K, "spi6_k", false),
++	CLOCK_CELL(CK_SCMI_USART1, USART1_K, "usart1_k", false),
++};
++#endif
++
++#ifdef CFG_STM32MP13
++static struct stm32_scmi_rd stm32_scmi_reset[] = {
++	RESET_CELL(RST_SCMI_LTDC, LTDC_R, LTDC_BASE, "ltdc"),
++	RESET_CELL(RST_SCMI_MDMA, MDMA_R, MDMA_BASE, "mdma"),
++};
++#endif
++
++#ifdef CFG_STM32MP15
++static struct stm32_scmi_rd stm32_scmi_reset[] = {
++	RESET_CELL(RST_SCMI_SPI6, SPI6_R, SPI6_BASE, "spi6"),
++	RESET_CELL(RST_SCMI_I2C4, I2C4_R, I2C4_BASE, "i2c4"),
++	RESET_CELL(RST_SCMI_I2C6, I2C6_R, I2C6_BASE, "i2c6"),
++	RESET_CELL(RST_SCMI_USART1, USART1_R, USART1_BASE, "usart1"),
++	RESET_CELL(RST_SCMI_STGEN, STGEN_R, STGEN_BASE, "stgen"),
++	RESET_CELL(RST_SCMI_GPIOZ, GPIOZ_R, GPIOZ_BASE, "gpioz"),
++	RESET_CELL(RST_SCMI_CRYP1, CRYP1_R, CRYP1_BASE, "cryp1"),
++	RESET_CELL(RST_SCMI_HASH1, HASH1_R, HASH1_BASE, "hash1"),
++	RESET_CELL(RST_SCMI_RNG1, RNG1_R, RNG1_BASE, "rng1"),
++	RESET_CELL(RST_SCMI_MDMA, MDMA_R, MDMA_BASE, "mdma"),
++	RESET_CELL(RST_SCMI_MCU, MCU_R, 0, "mcu"),
++	RESET_CELL(RST_SCMI_MCU_HOLD_BOOT, MCU_HOLD_BOOT_R, 0,
++		   "mcu_hold_boot"),
++};
++#endif
++
++static const struct channel_resources scmi_channel[] = {
++	[0] = {
++		.clock = stm32_scmi_clock,
++		.clock_count = ARRAY_SIZE(stm32_scmi_clock),
++		.rd = stm32_scmi_reset,
++		.rd_count = ARRAY_SIZE(stm32_scmi_reset),
++	},
++};
++
++/*
++ * Platform clocks exposed with SCMI
++ */
++static struct clk plat_clocks[ARRAY_SIZE(stm32_scmi_clock)];
++
++static TEE_Result plat_scmi_clk_get_rates_steps(struct clk *clk,
++						unsigned long *min,
++						unsigned long *max,
++						unsigned long *step)
++{
++	struct stm32_scmi_clk *scmi_clk = clk->priv;
++
++	if (scmi_clk->change_rate) {
++		*min = 0;
++		*max = UINT32_MAX;
++		*step = 0;
++	} else {
++		*min = clk->rate;
++		*max = *min;
++		*step = 0;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static const struct clk_ops plat_scmi_clk_ops = {
++	.get_rates_steps = plat_scmi_clk_get_rates_steps,
++};
++
++static void get_scmi_clocks(void)
++{
++	size_t i = 0;
++
++	for (i = 0; i < ARRAY_SIZE(stm32_scmi_clock); i++) {
++		struct stm32_scmi_clk *scmi_clk = stm32_scmi_clock + i;
++		struct clk *clk = plat_clocks + i;
++
++		clk->ops = &plat_scmi_clk_ops;
++		clk->priv = scmi_clk;
++		clk->name = scmi_clk->name;
++		clk->parent = stm32mp_rcc_clock_id_to_clk(scmi_clk->clock_id);
++		assert(clk->parent);
++
++		if (scmi_clk->change_rate)
++			clk->flags = CLK_SET_RATE_PARENT;
++
++		clk->flags |= CLK_DUTY_CYCLE_PARENT;
++
++		if (clk_register(clk))
++			panic();
++
++		scmi_clk->clk = clk;
++	}
++}
++
++/*
++ * Platform reset controllers exposed with SCMI
++ */
++static struct rstctrl plat_resets[ARRAY_SIZE(stm32_scmi_reset)];
++
++static TEE_Result plat_scmi_reset_assert_level(struct rstctrl *rstctrl,
++					       unsigned int to_us)
++{
++	const struct stm32_firewall_cfg nsec_cfg[] = {
++		{ FWLL_NSEC_PRIV_RW | FWLL_MASTER(0) },
++		{ }, /* Null terminated */
++	};
++	int index = rstctrl - plat_resets;
++	paddr_t domain_iobase = 0;
++
++	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
++	domain_iobase = stm32_scmi_reset[index].base;
++
++	if (domain_iobase &&
++	    stm32_firewall_check_access(domain_iobase, 0, nsec_cfg))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	return rstctrl_assert_to(stm32_scmi_reset[index].rstctrl_be, to_us);
++}
++
++static TEE_Result plat_scmi_reset_deassert_level(struct rstctrl *rstctrl,
++						 unsigned int to_us)
++{
++	const struct stm32_firewall_cfg nsec_cfg[] = {
++		{ FWLL_NSEC_PRIV_RW | FWLL_MASTER(0) },
++		{ }, /* Null terminated */
++	};
++	int index = rstctrl - plat_resets;
++	paddr_t domain_iobase = 0;
++
++	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
++	domain_iobase = stm32_scmi_reset[index].base;
++
++	if (domain_iobase &&
++	    stm32_firewall_check_access(domain_iobase, 0, nsec_cfg))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	return rstctrl_deassert_to(stm32_scmi_reset[index].rstctrl_be, to_us);
++}
++
++static const char *plat_scmi_reset_get_name(struct rstctrl *rstctrl)
++{
++	int index = rstctrl - plat_resets;
++
++	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
++
++	return rstctrl_name(stm32_scmi_reset[index].rstctrl_be);
++}
++
++static const struct rstctrl_ops plat_scmi_reset_ops = {
++	.assert_level = plat_scmi_reset_assert_level,
++	.deassert_level = plat_scmi_reset_deassert_level,
++	.get_name = plat_scmi_reset_get_name,
++};
++
++static void get_scmi_resets(void)
++{
++	size_t i = 0;
++
++	for (i = 0; i < ARRAY_SIZE(stm32_scmi_reset); i++) {
++		struct stm32_scmi_rd *scmi_reset = stm32_scmi_reset + i;
++		struct rstctrl *rstctrl = plat_resets + i;
++
++		rstctrl->ops = &plat_scmi_reset_ops;
++
++		scmi_reset->rstctrl_be =
++			stm32mp_rcc_reset_id_to_rstctrl(scmi_reset->reset_id);
++		assert(scmi_reset->rstctrl_be);
++
++		scmi_reset->rstctrl = rstctrl;
++	}
++}
++
++/*
++ * Build the structure used to initialize SCP firmware.
++ * We target a description from the DT so SCP firmware configuration
++ * but we currently rely on local data (clock, reset) and 2 DT node
++ * (voltage domain/regulators and DVFS).
++ *
++ * At early_init initcall level, prepare scpfw_cfg agent and channel parts.
++ * At driver_init_late initcall level, get clock and reset devices.
++ * When scmi-regulator-consumer driver probes, it adds the regulators.
++ * When CPU OPP driver probesn it adds the DVFS part.
++ */
++static struct scpfw_config scpfw_cfg;
++
++struct scpfw_config *scmi_scpfw_get_configuration(void)
++{
++	assert(scpfw_cfg.agent_count);
++
++	return &scpfw_cfg;
++}
++
++static TEE_Result scmi_scpfw_cfg_early_init(void)
++{
++	/* There is 1 agent with 1 channel */
++
++	scpfw_cfg.agent_count = 1;
++	scpfw_cfg.agent_config = calloc(scpfw_cfg.agent_count,
++					sizeof(*scpfw_cfg.agent_config));
++
++	scpfw_cfg.agent_config[0].name = "agent";
++	scpfw_cfg.agent_config[0].agent_id = 1;
++	scpfw_cfg.agent_config[0].channel_count = ARRAY_SIZE(scmi_channel);
++	scpfw_cfg.agent_config[0].channel_config =
++		calloc(scpfw_cfg.agent_config[0].channel_count,
++		       sizeof(*scpfw_cfg.agent_config[0].channel_config));
++
++	return TEE_SUCCESS;
++}
++
++early_init(scmi_scpfw_cfg_early_init);
++
++static TEE_Result scmi_scpfw_cfg_init(void)
++{
++	struct scpfw_channel_config *channel_cfg = NULL;
++	size_t i = 0;
++	size_t j = 0;
++
++	get_scmi_clocks();
++	get_scmi_resets();
++
++	for (i = 0; i < ARRAY_SIZE(scmi_channel); i++) {
++		/* Clock and reset are exposed to agent#0/channel#0 */
++		channel_cfg = scpfw_cfg.agent_config[0].channel_config + i;
++		channel_cfg->name = "channel";
++
++		channel_cfg->clock_count = ARRAY_SIZE(stm32_scmi_clock);
++		if (channel_cfg->clock_count) {
++			channel_cfg->clock =
++				calloc(channel_cfg->clock_count,
++				       sizeof(*channel_cfg->clock));
++
++			for (j = 0; j < channel_cfg->clock_count; j++) {
++				channel_cfg->clock[j] = (struct scmi_clock){
++					.name = stm32_scmi_clock[j].name,
++					.clk = stm32_scmi_clock[j].clk,
++					.enabled = stm32_scmi_clock[j].enabled,
++				};
++			}
++		}
++
++		channel_cfg->reset_count = ARRAY_SIZE(stm32_scmi_reset);
++		if (channel_cfg->reset_count) {
++			channel_cfg->reset =
++				calloc(channel_cfg->reset_count,
++				       sizeof(*channel_cfg->reset));
++
++			for (j = 0; j < channel_cfg->reset_count; j++) {
++				channel_cfg->reset[j] = (struct scmi_reset){
++					.name = stm32_scmi_reset[j].name,
++					.rstctrl = stm32_scmi_reset[j].rstctrl,
++				};
++			}
++		}
++	}
++
++	/* DVFS will be populated from cpu_opp driver */
++
++	if (IS_ENABLED(CFG_SCMI_SERVER_REGULATOR_CONSUMER)) {
++		TEE_Result res = TEE_ERROR_GENERIC;
++
++		res = scmi_regulator_consumer_init();
++		if (res) {
++			EMSG("SCMI regulator consumer init: %#"PRIx32, res);
++			return res;
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
++driver_init_late(scmi_scpfw_cfg_init);
++
++void scmi_scpfw_release_configuration(void)
++{
++	struct scpfw_channel_config *channel_cfg = NULL;
++	struct scpfw_agent_config *agent_cfg = NULL;
++	size_t i = 0;
++	size_t j = 0;
++	size_t k = 0;
++
++	for (i = 0; i < scpfw_cfg.agent_count; i++) {
++		agent_cfg = scpfw_cfg.agent_config + i;
++
++		for (j = 0; j < agent_cfg->channel_count; j++) {
++			channel_cfg = agent_cfg->channel_config + j;
++
++			free(channel_cfg->clock);
++			free(channel_cfg->reset);
++			free(channel_cfg->voltd);
++
++			for (k = 0; k < channel_cfg->perfd_count; k++) {
++				free(channel_cfg->perfd[k].dvfs_opp_khz);
++				free(channel_cfg->perfd[k].dvfs_opp_mv);
++			}
++
++			free(channel_cfg->perfd);
++		}
++
++		free(agent_cfg->channel_config);
++	}
++
++	free(scpfw_cfg.agent_config);
++}
++
++static unsigned int voltd_id_count(struct scmi_server_regu *regu,
++				   size_t regu_count)
++{
++	unsigned int max_id = 0;
++	size_t i = 0;
++
++	for (i = 0; i < regu_count; i++)
++		max_id = MAX(max_id, regu[i].domain_id);
++
++	return max_id + 1;
++}
++
++TEE_Result scmi_scpfw_cfg_add_regu(unsigned int agent_id,
++				   unsigned int channel_id,
++				   struct scmi_server_regu *regu,
++				   size_t regu_count)
++{
++	struct scpfw_channel_config *channel_cfg = NULL;
++	struct scpfw_agent_config *agent_cfg = NULL;
++	size_t i = 0;
++
++	agent_cfg = scpfw_cfg.agent_config + agent_id;
++	channel_cfg = agent_cfg->channel_config + channel_id;
++
++	if (!regu_count)
++		return TEE_SUCCESS;
++
++	if (agent_id >= scpfw_cfg.agent_count ||
++	    channel_id >= agent_cfg->channel_count)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (channel_cfg->voltd) {
++		EMSG("Voltage domain already loaded: agent %u, channel %u",
++		     agent_id, channel_id);
++		panic();
++	}
++
++	channel_cfg->voltd_count = voltd_id_count(regu, regu_count);
++	channel_cfg->voltd = calloc(channel_cfg->voltd_count,
++				    sizeof(*channel_cfg->voltd));
++	assert(channel_cfg->voltd);
++
++	for (i = 0; i < regu_count; i++) {
++		unsigned int domain_id = regu[i].domain_id;
++
++		if (regu[i].regulator) {
++			channel_cfg->voltd[domain_id] = (struct scmi_voltd){
++				.name = regulator_name(regu[i].regulator),
++				.regulator = regu[i].regulator,
++				.enabled = regu[i].enabled,
++			};
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result scmi_scpfw_cfg_add_dvfs(unsigned int agent_id,
++				   unsigned int channel_id,
++				   unsigned int domain_id,
++				   struct regulator *regulator, struct clk *clk,
++				   unsigned int *dvfs_khz,
++				   unsigned int *dvfs_mv, size_t dvfs_count)
++{
++	struct scpfw_channel_config *channel_cfg = NULL;
++	struct scpfw_agent_config *agent_cfg = NULL;
++	unsigned int *dvfs_opp_khz = NULL;
++	unsigned int *dvfs_opp_mv = NULL;
++
++	agent_cfg = scpfw_cfg.agent_config + agent_id;
++	channel_cfg = agent_cfg->channel_config + channel_id;
++
++	if (agent_id >= scpfw_cfg.agent_count ||
++	    channel_id >= agent_cfg->channel_count || !dvfs_count)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	dvfs_opp_khz = calloc(dvfs_count, sizeof(*dvfs_opp_khz));
++	dvfs_opp_mv = calloc(dvfs_count, sizeof(*dvfs_opp_mv));
++	if (!dvfs_opp_khz || !dvfs_opp_mv) {
++		free(dvfs_opp_khz);
++		free(dvfs_opp_mv);
++
++		return TEE_ERROR_OUT_OF_MEMORY;
++	}
++	memcpy(dvfs_opp_khz, dvfs_khz, dvfs_count * sizeof(*dvfs_opp_khz));
++	memcpy(dvfs_opp_mv, dvfs_mv, dvfs_count * sizeof(*dvfs_opp_mv));
++
++	if (channel_cfg->perfd_count <= domain_id) {
++		void *ptr = realloc(channel_cfg->perfd,
++				    (domain_id + 1) *
++				    sizeof(*channel_cfg->perfd));
++
++		if (!ptr) {
++			free(dvfs_opp_khz);
++			free(dvfs_opp_mv);
++			return TEE_ERROR_OUT_OF_MEMORY;
++		}
++
++		channel_cfg->perfd = ptr;
++		memset(channel_cfg->perfd + channel_cfg->perfd_count, 0,
++		       (domain_id + 1 - channel_cfg->perfd_count) *
++		       sizeof(*channel_cfg->perfd));
++
++		channel_cfg->perfd_count = domain_id + 1;
++	}
++
++	assert(!channel_cfg->perfd->dvfs_opp_khz);
++
++	channel_cfg->perfd[domain_id] = (struct scmi_perfd){
++		.name = "DVFS",
++		.dvfs_opp_count = dvfs_count,
++		.dvfs_opp_khz = dvfs_opp_khz,
++		.dvfs_opp_mv = dvfs_opp_mv,
++		.clk = clk,
++		.regulator = regulator,
++	};
++
++	return TEE_SUCCESS;
++}
+diff --git a/core/arch/arm/plat-stm32mp1/sub.mk b/core/arch/arm/plat-stm32mp1/sub.mk
+index fa6e1486d..9d60a6a63 100644
+--- a/core/arch/arm/plat-stm32mp1/sub.mk
++++ b/core/arch/arm/plat-stm32mp1/sub.mk
+@@ -3,6 +3,7 @@ global-incdirs-y += .
+ srcs-y += main.c
+ srcs-y += reset.S
+ srcs-$(CFG_SCMI_MSG_DRIVERS) += scmi_server.c
++srcs-$(CFG_SCMI_SCPFW) += scmi_server_scpfw.c
+ srcs-$(CFG_STM32MP1_SHARED_RESOURCES) += shared_resources.c
+ srcs-$(CFG_TZC400) += plat_tzc400.c
+ srcs-$(CFG_WITH_PAGER) += link_dummies_paged.c
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index d05aa8d64..a5810a030 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -46,6 +46,11 @@ $(call force,CFG_DT,y)
+ $(call force,CFG_GIC,y)
+ $(call force,CFG_HALT_CORES_ON_PANIC_SGI,15)
+ $(call force,CFG_INIT_CNTVOFF,y)
++$(call force,CFG_SCMI_MSG_DRIVERS,n)
++$(call force,CFG_SCMI_PTA,y)
++$(call force,CFG_SCMI_SCPFW,y)
++$(call force,CFG_SCMI_SCPFW_PRODUCT,optee-stm32mp2)
++$(call force,CFG_SCMI_SERVER_REGULATOR_CONSUMER,y)
+ $(call force,CFG_SECURE_TIME_SOURCE_CNTPCT,y)
+ $(call force,CFG_STM32_SHARED_IO,y)
+ $(call force,CFG_STM32_FIREWALL,y)
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+new file mode 100644
+index 000000000..24733173a
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -0,0 +1,689 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2022, STMicroelectronics
++ */
++#include <assert.h>
++#include <compiler.h>
++#include <config.h>
++#include <confine_array_index.h>
++#include <drivers/clk.h>
++#include <drivers/clk_dt.h>
++#include <drivers/rstctrl.h>
++#include <drivers/scmi-msg.h>
++#include <drivers/scmi.h>
++#ifdef CFG_STM32_CPU_OPP
++#include <drivers/stm32_cpu_opp.h>
++#endif
++#include <drivers/stm32_firewall.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <initcall.h>
++#include <mm/core_memprot.h>
++#include <mm/core_mmu.h>
++#include <platform_config.h>
++#include <scmi_agent_configuration.h>
++#include <scmi_regulator_consumer.h>
++#include <stdint.h>
++#include <speculation_barrier.h>
++#include <stm32_util.h>
++#include <string.h>
++#include <tee_api_defines.h>
++#include <util.h>
++
++#define TIMEOUT_US_1MS		1000
++
++/*
++ * struct stm32_scmi_clk - Data for the exposed clock
++ * @clock_id: Clock identifier in RCC clock driver
++ * @is_exposed: True if SMCI clock is exposed, false if it is not reachable
++ * @name: Clock string ID exposed to channel
++ * @enabled: State of the SCMI clock at initialization
++ * @change_rate: SCMMI agent is allowed to change the rate
++ * @clk: Clock device manipulated by the SCMI channel
++ */
++struct stm32_scmi_clk {
++	unsigned long clock_id;
++	bool is_exposed;
++	const char *name;
++	bool enabled;
++	bool change_rate;
++	struct clk *clk;
++};
++
++/*
++ * struct stm32_scmi_rd - Data for the exposed reset controller
++ * @reset_id: Reset identifier in RCC reset driver
++ * @is_exposed: True if SMCI reset is exposed, false if it is not reachable
++ * @base: Physical controller address
++ * @name: Reset string ID exposed to channel
++ * @rstctrl: Reset controller manipulated by the SCMI channel
++ * @rstctrl_be: Backend reset controller device
++ */
++struct stm32_scmi_rd {
++	unsigned long reset_id;
++	bool is_exposed;
++	paddr_t base;
++	const char *name;
++	struct rstctrl *rstctrl;
++	struct rstctrl *rstctrl_be;
++};
++
++/*
++ * struct stm32_scmi_perfd - Data for the exposed performance domains
++ * @name: Performance domain string ID (aka name) exposed to channel
++ */
++struct stm32_scmi_perfd {
++	const char *name;
++};
++
++#define CLOCK_CELL(_scmi_id, _id, _name, _init_enabled) \
++	[_scmi_id] = { \
++		.clock_id = _id, \
++		.name = _name, \
++		.enabled = _init_enabled, \
++		.is_exposed = true, \
++	}
++
++#define CLOCK_CELL_RATES(_scmi_id, _id, _name, _init_enabled) \
++	[_scmi_id] = { \
++		.clock_id = _id, \
++		.name = _name, \
++		.enabled = _init_enabled, \
++		.change_rate = true, \
++		.is_exposed = true, \
++	}
++
++#define RESET_CELL(_scmi_id, _id, _base, _name) \
++	[_scmi_id] = { \
++		.reset_id = _id, \
++		.base = _base, \
++		.name = _name, \
++		.is_exposed = true, \
++	}
++
++#define PERFD_CELL(_scmi_id, _name) \
++	[_scmi_id] = { \
++		.name = (_name), \
++	}
++
++struct channel_resources {
++	struct stm32_scmi_clk *clock;
++	size_t clock_count;
++	struct stm32_scmi_rd *rd;
++	size_t rd_count;
++	struct stm32_scmi_perfd *perfd;
++	size_t perfd_count;
++};
++
++static struct stm32_scmi_clk stm32_scmi_clock[] = {
++	/*
++	 * Some SCMI clocks are allowed to manipulate their rate:
++	 * FLXEGEN_10: SPI2 & SPI3
++	 * FLEXGEN_16: SPI1
++	 * FLEXGEN_24: SAI1
++	 * FLEXGEN_24: SAI2
++	 * FLEXGEN_25: SAI3 & SAI4
++	 * FLEXGEN_27: LTDC
++	 */
++	CLOCK_CELL(CK_SCMI_ICN_HS_MCU, CK_ICN_HS_MCU, "ck_icn_hs_mcu", true),
++
++	CLOCK_CELL(CK_SCMI_ICN_SDMMC, CK_ICN_SDMMC, "ck_icn_sdmmc", true),
++
++	CLOCK_CELL(CK_SCMI_ICN_DDR, CK_ICN_DDR, "ck_icn_ddr", true),
++	CLOCK_CELL(CK_SCMI_ICN_DISPLAY, CK_ICN_DISPLAY, "ck_icn_display", true),
++	CLOCK_CELL(CK_SCMI_ICN_HSL, CK_ICN_HSL, "ck_icn_hsl", true),
++	CLOCK_CELL(CK_SCMI_ICN_NIC, CK_ICN_NIC, "ck_icn_nic", true),
++	CLOCK_CELL(CK_SCMI_ICN_VID, CK_ICN_VID, "ck_icn_vid", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_07, CK_FLEXGEN_07, "ck_flexgen_07", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_08, CK_FLEXGEN_08, "ck_flexgen_08", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_09, CK_FLEXGEN_09, "ck_flexgen_09", true),
++
++	CLOCK_CELL_RATES(CK_SCMI_FLEXGEN_10, CK_FLEXGEN_10, "ck_flexgen_10",
++			 true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_11, CK_FLEXGEN_11, "ck_flexgen_11", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_12, CK_FLEXGEN_12, "ck_flexgen_12", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_13, CK_FLEXGEN_13, "ck_flexgen_13", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_14, CK_FLEXGEN_14, "ck_flexgen_14", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_15, CK_FLEXGEN_15, "ck_flexgen_15", true),
++	CLOCK_CELL_RATES(CK_SCMI_FLEXGEN_16, CK_FLEXGEN_16, "ck_flexgen_16",
++			 true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_17, CK_FLEXGEN_17, "ck_flexgen_17", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_18, CK_FLEXGEN_18, "ck_flexgen_18", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_19, CK_FLEXGEN_19, "ck_flexgen_19", true),
++
++	CLOCK_CELL(CK_SCMI_FLEXGEN_20, CK_FLEXGEN_20, "ck_flexgen_20", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_21, CK_FLEXGEN_21, "ck_flexgen_21", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_22, CK_FLEXGEN_22, "ck_flexgen_22", true),
++	CLOCK_CELL_RATES(CK_SCMI_FLEXGEN_23, CK_FLEXGEN_23, "ck_flexgen_23",
++			 true),
++	CLOCK_CELL_RATES(CK_SCMI_FLEXGEN_24, CK_FLEXGEN_24, "ck_flexgen_24",
++			 true),
++	CLOCK_CELL_RATES(CK_SCMI_FLEXGEN_25, CK_FLEXGEN_25, "ck_flexgen_25",
++			 true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_26, CK_FLEXGEN_26, "ck_flexgen_26", true),
++	CLOCK_CELL_RATES(CK_SCMI_FLEXGEN_27, CK_FLEXGEN_27, "ck_flexgen_27",
++			 true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_28, CK_FLEXGEN_28, "ck_flexgen_28", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_29, CK_FLEXGEN_29, "ck_flexgen_29", true),
++
++	CLOCK_CELL(CK_SCMI_FLEXGEN_30, CK_FLEXGEN_30, "ck_flexgen_30", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_31, CK_FLEXGEN_31, "ck_flexgen_31", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_32, CK_FLEXGEN_32, "ck_flexgen_32", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_33, CK_FLEXGEN_33, "ck_flexgen_33", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_34, CK_FLEXGEN_34, "ck_flexgen_34", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_35, CK_FLEXGEN_35, "ck_flexgen_35", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_36, CK_FLEXGEN_36, "ck_flexgen_36", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_37, CK_FLEXGEN_37, "ck_flexgen_37", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_38, CK_FLEXGEN_38, "ck_flexgen_38", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_39, CK_FLEXGEN_39, "ck_flexgen_39", true),
++
++	CLOCK_CELL(CK_SCMI_FLEXGEN_40, CK_FLEXGEN_40, "ck_flexgen_40", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_41, CK_FLEXGEN_41, "ck_flexgen_41", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_42, CK_FLEXGEN_42, "ck_flexgen_42", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_43, CK_FLEXGEN_43, "ck_flexgen_43", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_44, CK_FLEXGEN_44, "ck_flexgen_44", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_45, CK_FLEXGEN_45, "ck_flexgen_45", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_46, CK_FLEXGEN_46, "ck_flexgen_46", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_47, CK_FLEXGEN_47, "ck_flexgen_47", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_48, CK_FLEXGEN_48, "ck_flexgen_48", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_49, CK_FLEXGEN_49, "ck_flexgen_49", true),
++
++	CLOCK_CELL(CK_SCMI_FLEXGEN_50, CK_FLEXGEN_50, "ck_flexgen_50", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_51, CK_FLEXGEN_51, "ck_flexgen_51", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_52, CK_FLEXGEN_52, "ck_flexgen_52", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_53, CK_FLEXGEN_53, "ck_flexgen_53", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_54, CK_FLEXGEN_54, "ck_flexgen_54", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_55, CK_FLEXGEN_55, "ck_flexgen_55", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_56, CK_FLEXGEN_56, "ck_flexgen_56", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_57, CK_FLEXGEN_57, "ck_flexgen_57", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_58, CK_FLEXGEN_58, "ck_flexgen_58", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_59, CK_FLEXGEN_59, "ck_flexgen_59", true),
++
++	CLOCK_CELL(CK_SCMI_FLEXGEN_60, CK_FLEXGEN_60, "ck_flexgen_60", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_61, CK_FLEXGEN_61, "ck_flexgen_61", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_62, CK_FLEXGEN_62, "ck_flexgen_62", true),
++	CLOCK_CELL(CK_SCMI_FLEXGEN_63, CK_FLEXGEN_63, "ck_flexgen_63", true),
++
++	CLOCK_CELL(CK_SCMI_ICN_LS_MCU, CK_ICN_LS_MCU, "ck_icn_ls_mcu", true),
++	CLOCK_CELL(CK_SCMI_HSE, HSE_CK, "hse_ck", true),
++	CLOCK_CELL(CK_SCMI_LSE, LSE_CK, "lse_ck", true),
++	CLOCK_CELL(CK_SCMI_HSI, HSI_CK, "hsi_ck", true),
++	CLOCK_CELL(CK_SCMI_LSI, LSI_CK, "lsi_ck", true),
++	CLOCK_CELL(CK_SCMI_MSI, MSI_CK, "msi_ck", true),
++
++	CLOCK_CELL(CK_SCMI_RTCCK, RTC_CK, "rtc_ck", true),
++
++	CLOCK_CELL(CK_SCMI_ICN_APB1, CK_ICN_APB1, "ck_icn_apb1", true),
++	CLOCK_CELL(CK_SCMI_ICN_APB2, CK_ICN_APB2, "ck_icn_apb2", true),
++	CLOCK_CELL(CK_SCMI_ICN_APB3, CK_ICN_APB3, "ck_icn_apb3", true),
++	CLOCK_CELL(CK_SCMI_ICN_APB4, CK_ICN_APB4, "ck_icn_apb4", true),
++	CLOCK_CELL(CK_SCMI_ICN_APBDBG, CK_ICN_APBDBG, "ck_icn_apbdbg", true),
++
++	CLOCK_CELL(CK_SCMI_TIMG1, TIMG1_CK, "timg1_ck", true),
++	CLOCK_CELL(CK_SCMI_TIMG2, TIMG2_CK, "timg2_ck", true),
++
++	CLOCK_CELL(CK_SCMI_BKPSRAM, CK_BUS_BKPSRAM, "ck_bus_bkpsram", true),
++	CLOCK_CELL(CK_SCMI_BSEC, CK_BUS_BSEC, "ck_bus_bsec", true),
++	CLOCK_CELL(CK_SCMI_ETR, CK_BUS_ETR, "ck_bus_etr", true),
++	CLOCK_CELL(CK_SCMI_FMC, CK_KER_FMC, "ck_ker_fmc", true),
++	CLOCK_CELL(CK_SCMI_GPIOA, CK_BUS_GPIOA, "ck_bus_gpioa", true),
++	CLOCK_CELL(CK_SCMI_GPIOB, CK_BUS_GPIOB, "ck_bus_gpiob", true),
++	CLOCK_CELL(CK_SCMI_GPIOC, CK_BUS_GPIOC, "ck_bus_gpioc", true),
++	CLOCK_CELL(CK_SCMI_GPIOD, CK_BUS_GPIOD, "ck_bus_gpiod", true),
++	CLOCK_CELL(CK_SCMI_GPIOE, CK_BUS_GPIOE, "ck_bus_gpioe", true),
++	CLOCK_CELL(CK_SCMI_GPIOF, CK_BUS_GPIOF, "ck_bus_gpiof", true),
++	CLOCK_CELL(CK_SCMI_GPIOG, CK_BUS_GPIOG, "ck_bus_gpiog", true),
++	CLOCK_CELL(CK_SCMI_GPIOH, CK_BUS_GPIOH, "ck_bus_gpioh", true),
++	CLOCK_CELL(CK_SCMI_GPIOI, CK_BUS_GPIOI, "ck_bus_gpioi", true),
++	CLOCK_CELL(CK_SCMI_GPIOJ, CK_BUS_GPIOJ, "ck_bus_gpioj", true),
++	CLOCK_CELL(CK_SCMI_GPIOK, CK_BUS_GPIOK, "ck_bus_gpiok", true),
++	CLOCK_CELL(CK_SCMI_GPIOZ, CK_BUS_GPIOZ, "ck_bus_gpioz", true),
++	CLOCK_CELL(CK_SCMI_HPDMA1, CK_BUS_HPDMA1, "ck_bus_hpdma1", true),
++	CLOCK_CELL(CK_SCMI_HPDMA2, CK_BUS_HPDMA2, "ck_bus_hpdma2", true),
++	CLOCK_CELL(CK_SCMI_HPDMA3, CK_BUS_HPDMA3, "ck_bus_hpdma3", true),
++	CLOCK_CELL(CK_SCMI_HSEM, CK_BUS_HSEM, "ck_bus_hsem", true),
++	CLOCK_CELL(CK_SCMI_IPCC1, CK_BUS_IPCC1, "ck_bus_ipcc1", true),
++	CLOCK_CELL(CK_SCMI_IPCC2, CK_BUS_IPCC2, "ck_bus_ipcc2", true),
++	CLOCK_CELL(CK_SCMI_LPDMA, CK_BUS_LPDMA, "ck_bus_lpdma", true),
++	CLOCK_CELL(CK_SCMI_RETRAM, CK_BUS_RETRAM, "ck_bus_retram", true),
++	CLOCK_CELL(CK_SCMI_RTC, CK_BUS_RTC, "ck_bus_rtc", true),
++	CLOCK_CELL(CK_SCMI_SRAM1, CK_BUS_SRAM1, "ck_bus_sram1", true),
++	CLOCK_CELL(CK_SCMI_SRAM2, CK_BUS_SRAM2, "ck_bus_sram2", true),
++	CLOCK_CELL(CK_SCMI_SYSCPU1, CK_BUS_SYSCPU1, "ck_bus_syscpu1", true),
++	CLOCK_CELL(CK_SCMI_CPU1, CK_CPU1, "ck_cpu1", true),
++	CLOCK_CELL(CK_SCMI_HSE_DIV2, HSE_DIV2_CK, "hse_div2_ck", false),
++	CLOCK_CELL(CK_SCMI_PLL2, PLL2_CK, "ck_pll2", true),
++	CLOCK_CELL(CK_SCMI_PLL3, PLL3_CK, "ck_pll3", false),
++	CLOCK_CELL(CK_SCMI_LPSRAM1, CK_BUS_LPSRAM1, "ck_icn_lpsram1", true),
++	CLOCK_CELL(CK_SCMI_LPSRAM2, CK_BUS_LPSRAM2, "ck_icn_lpsram2 ", true),
++	CLOCK_CELL(CK_SCMI_LPSRAM3, CK_BUS_LPSRAM3, "ck_icn_lpsram3", true),
++	CLOCK_CELL(CK_SCMI_VDERAM, CK_BUS_VDERAM, "ck_icn_s_vderam", true),
++	CLOCK_CELL(CK_SCMI_SYSRAM, CK_BUS_SYSRAM, "ck_icn_s_sysram", true),
++	CLOCK_CELL(CK_SCMI_OSPI1, CK_KER_OSPI1, "ck_ker_ospi1", true),
++	CLOCK_CELL(CK_SCMI_OSPI2, CK_KER_OSPI2, "ck_ker_ospi2", true),
++	CLOCK_CELL(CK_SCMI_TPIU, CK_KER_TPIU, "ck_ker_tpiu", true),
++	CLOCK_CELL(CK_SCMI_SYSDBG, CK_SYSDBG, "ck_sys_dbg", true),
++	CLOCK_CELL(CK_SCMI_SYSATB, CK_BUS_SYSATB, "ck_sys_atb", true),
++	CLOCK_CELL(CK_SCMI_TSDBG, CK_KER_TSDBG, "ck_ker_tsdbg", true),
++	CLOCK_CELL(CK_SCMI_STM500, CK_BUS_STM500, "ck_icn_s_stm500", true),
++};
++
++static struct stm32_scmi_rd stm32_scmi_reset[] = {
++	RESET_CELL(RST_SCMI_C1_R, C1_R, 0, "c1"),
++	RESET_CELL(RST_SCMI_C2_R, C2_R, 0, "c2"),
++	RESET_CELL(RST_SCMI_C1_HOLDBOOT_R, C1_HOLDBOOT_R, 0, "c1_holdboot"),
++	RESET_CELL(RST_SCMI_C2_HOLDBOOT_R, C2_HOLDBOOT_R, 0, "c2_holdboot"),
++	/* SCMI FMC reset allowed: RCC driver stubs request if necessary */
++	RESET_CELL(RST_SCMI_FMC, FMC_R, 0, "fmc"),
++	RESET_CELL(RST_SCMI_OSPI1, OSPI1_R, OSPI1_BASE, "ospi1"),
++	RESET_CELL(RST_SCMI_OSPI2, OSPI2_R, OSPI2_BASE, "ospi2"),
++	RESET_CELL(RST_SCMI_OSPI1DLL, OSPI1DLL_R, OSPI1_BASE, "ospi1_ddl"),
++	RESET_CELL(RST_SCMI_OSPI2DLL, OSPI2DLL_R, OSPI2_BASE, "ospi2_ddl"),
++};
++
++static const struct channel_resources scmi_channel[] = {
++	[0] = {
++		.clock = stm32_scmi_clock,
++		.clock_count = ARRAY_SIZE(stm32_scmi_clock),
++		.rd = stm32_scmi_reset,
++		.rd_count = ARRAY_SIZE(stm32_scmi_reset),
++	},
++};
++
++/*
++ * Platform clocks exposed with SCMI
++ */
++static struct clk plat_clocks[ARRAY_SIZE(stm32_scmi_clock)];
++
++static TEE_Result plat_scmi_clk_get_rates_steps(struct clk *clk,
++						unsigned long *min,
++						unsigned long *max,
++						unsigned long *step)
++{
++	struct stm32_scmi_clk *scmi_clk = clk->priv;
++
++	if (scmi_clk->change_rate) {
++		*min = 0;
++		*max = UINT32_MAX;
++		*step = 0;
++	} else {
++		*min = clk->rate;
++		*max = *min;
++		*step = 0;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static const struct clk_ops plat_scmi_clk_ops = {
++	.get_rates_steps = plat_scmi_clk_get_rates_steps,
++};
++
++static void get_scmi_clocks(void)
++{
++	size_t i = 0;
++
++	for (i = 0; i < ARRAY_SIZE(stm32_scmi_clock); i++) {
++		struct stm32_scmi_clk *scmi_clk = stm32_scmi_clock + i;
++		struct clk *clk = plat_clocks + i;
++
++		if (!scmi_clk->is_exposed) {
++			/* Empty name clocks discarded by Linux kernel */
++			scmi_clk->name = "";
++			continue;
++		}
++
++		clk->ops = &plat_scmi_clk_ops;
++		clk->priv = scmi_clk;
++		clk->name = scmi_clk->name;
++		clk->parent = stm32mp_rcc_clock_id_to_clk(scmi_clk->clock_id);
++		assert(clk->parent);
++
++		if (scmi_clk->change_rate)
++			clk->flags = CLK_SET_RATE_PARENT;
++
++		clk->flags |= CLK_DUTY_CYCLE_PARENT;
++
++		if (clk_register(clk))
++			panic();
++
++		scmi_clk->clk = clk;
++	}
++}
++
++/*
++ * Platform reset controllers exposed with SCMI
++ */
++static struct rstctrl plat_resets[ARRAY_SIZE(stm32_scmi_reset)];
++
++static TEE_Result plat_scmi_reset_assert_level(struct rstctrl *rstctrl,
++					       unsigned int to_us)
++{
++	const struct stm32_firewall_cfg nsec_cfg[] = {
++		{ FWLL_NSEC_PRIV_RW | FWLL_MASTER(0) },
++		{ }, /* Null terminated */
++	};
++	int index = rstctrl - plat_resets;
++	paddr_t domain_iobase = 0;
++
++	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
++	domain_iobase = stm32_scmi_reset[index].base;
++
++	if (domain_iobase &&
++	    stm32_firewall_check_access(domain_iobase, 0, nsec_cfg))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	return rstctrl_assert_to(stm32_scmi_reset[index].rstctrl_be, to_us);
++}
++
++static TEE_Result plat_scmi_reset_deassert_level(struct rstctrl *rstctrl,
++						 unsigned int to_us)
++{
++	const struct stm32_firewall_cfg nsec_cfg[] = {
++		{ FWLL_NSEC_PRIV_RW | FWLL_MASTER(0) },
++		{ }, /* Null terminated */
++	};
++	int index = rstctrl - plat_resets;
++	paddr_t domain_iobase = 0;
++
++	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
++	domain_iobase = stm32_scmi_reset[index].base;
++
++	if (domain_iobase &&
++	    stm32_firewall_check_access(domain_iobase, 0, nsec_cfg))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	return rstctrl_deassert_to(stm32_scmi_reset[index].rstctrl_be, to_us);
++}
++
++static const char *plat_scmi_reset_get_name(struct rstctrl *rstctrl)
++{
++	int index = rstctrl - plat_resets;
++
++	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
++
++	return rstctrl_name(stm32_scmi_reset[index].rstctrl_be);
++}
++
++static const struct rstctrl_ops plat_scmi_reset_ops = {
++	.assert_level = plat_scmi_reset_assert_level,
++	.deassert_level = plat_scmi_reset_deassert_level,
++	.get_name = plat_scmi_reset_get_name,
++};
++
++static void get_scmi_resets(void)
++{
++	size_t i = 0;
++
++	for (i = 0; i < ARRAY_SIZE(stm32_scmi_reset); i++) {
++		struct stm32_scmi_rd *scmi_reset = stm32_scmi_reset + i;
++		struct rstctrl *rstctrl = plat_resets + i;
++
++		if (!scmi_reset->is_exposed) {
++			/* SCP-firmware needs a name */
++			scmi_reset->name = "<reserved>";
++			continue;
++		}
++
++		rstctrl->ops = &plat_scmi_reset_ops;
++
++		scmi_reset->rstctrl_be =
++			stm32mp_rcc_reset_id_to_rstctrl(scmi_reset->reset_id);
++		assert(scmi_reset->rstctrl_be);
++
++		scmi_reset->rstctrl = rstctrl;
++	}
++}
++
++/*
++ * Build the structure used to initialize SCP firmware.
++ * We target a description from the DT so SCP firmware configuration
++ * but we currently rely on local data (clock, reset) and 2 DT node
++ * (voltage domain/regulators and DVFS).
++ *
++ * At early_init initcall level, prepare scpfw_cfg agent and channel parts.
++ * At driver_init_late initcall level, get clock and reset devices.
++ * When scmi-regulator-consumer driver probes, it adds the regulators.
++ * When CPU OPP driver probesn it adds the DVFS part.
++ */
++static struct scpfw_config scpfw_cfg;
++
++struct scpfw_config *scmi_scpfw_get_configuration(void)
++{
++	assert(scpfw_cfg.agent_count);
++
++	return &scpfw_cfg;
++}
++
++static TEE_Result scmi_scpfw_cfg_early_init(void)
++{
++	/* There is 1 agent with 1 channel */
++
++	scpfw_cfg.agent_count = 1;
++	scpfw_cfg.agent_config = calloc(scpfw_cfg.agent_count,
++					sizeof(*scpfw_cfg.agent_config));
++
++	scpfw_cfg.agent_config[0].name = "agent";
++	scpfw_cfg.agent_config[0].agent_id = 1;
++	scpfw_cfg.agent_config[0].channel_count = ARRAY_SIZE(scmi_channel);
++	scpfw_cfg.agent_config[0].channel_config =
++		calloc(scpfw_cfg.agent_config[0].channel_count,
++		       sizeof(*scpfw_cfg.agent_config[0].channel_config));
++
++	return TEE_SUCCESS;
++}
++
++early_init(scmi_scpfw_cfg_early_init);
++
++static TEE_Result scmi_scpfw_cfg_init(void)
++{
++	struct scpfw_channel_config *channel_cfg = NULL;
++	size_t i = 0;
++	size_t j = 0;
++
++	get_scmi_clocks();
++	get_scmi_resets();
++
++	for (i = 0; i < ARRAY_SIZE(scmi_channel); i++) {
++		/* Clock and reset are exposed to agent#0/channel#0 */
++		channel_cfg = scpfw_cfg.agent_config[0].channel_config + i;
++		channel_cfg->name = "channel";
++
++		channel_cfg->clock_count = ARRAY_SIZE(stm32_scmi_clock);
++		if (channel_cfg->clock_count) {
++			channel_cfg->clock =
++				calloc(channel_cfg->clock_count,
++				       sizeof(*channel_cfg->clock));
++
++			for (j = 0; j < channel_cfg->clock_count; j++) {
++				channel_cfg->clock[j] = (struct scmi_clock){
++					.name = stm32_scmi_clock[j].name,
++					.clk = stm32_scmi_clock[j].clk,
++					/* Default OFF for RIF issues */
++					.enabled = false,
++				};
++			}
++		}
++
++		channel_cfg->reset_count = ARRAY_SIZE(stm32_scmi_reset);
++		if (channel_cfg->reset_count) {
++			channel_cfg->reset =
++				calloc(channel_cfg->reset_count,
++				       sizeof(*channel_cfg->reset));
++
++			for (j = 0; j < channel_cfg->reset_count; j++) {
++				channel_cfg->reset[j] = (struct scmi_reset){
++					.name = stm32_scmi_reset[j].name,
++					.rstctrl = stm32_scmi_reset[j].rstctrl,
++				};
++			}
++		}
++	}
++
++	/* DVFS will be populated from cpu_opp driver */
++
++	if (IS_ENABLED(CFG_SCMI_SERVER_REGULATOR_CONSUMER)) {
++		TEE_Result res = TEE_ERROR_GENERIC;
++
++		res = scmi_regulator_consumer_init();
++		if (res) {
++			EMSG("SCMI regulator consumer init: %#"PRIx32, res);
++			return res;
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
++driver_init_late(scmi_scpfw_cfg_init);
++
++void scmi_scpfw_release_configuration(void)
++{
++	struct scpfw_channel_config *channel_cfg = NULL;
++	struct scpfw_agent_config *agent_cfg = NULL;
++	size_t i = 0;
++	size_t j = 0;
++	size_t k = 0;
++
++	for (i = 0; i < scpfw_cfg.agent_count; i++) {
++		agent_cfg = scpfw_cfg.agent_config + i;
++
++		for (j = 0; j < agent_cfg->channel_count; j++) {
++			channel_cfg = agent_cfg->channel_config + j;
++
++			free(channel_cfg->clock);
++			free(channel_cfg->reset);
++			free(channel_cfg->voltd);
++
++			for (k = 0; k < channel_cfg->perfd_count; k++) {
++				free(channel_cfg->perfd[k].dvfs_opp_khz);
++				free(channel_cfg->perfd[k].dvfs_opp_mv);
++			}
++
++			free(channel_cfg->perfd);
++		}
++
++		free(agent_cfg->channel_config);
++	}
++
++	free(scpfw_cfg.agent_config);
++}
++
++static unsigned int voltd_id_count(struct scmi_server_regu *regu,
++				   size_t regu_count)
++{
++	unsigned int max_id = 0;
++	size_t i = 0;
++
++	for (i = 0; i < regu_count; i++)
++		max_id = MAX(max_id, regu[i].domain_id);
++
++	return max_id + 1;
++}
++
++TEE_Result scmi_scpfw_cfg_add_regu(unsigned int agent_id,
++				   unsigned int channel_id,
++				   struct scmi_server_regu *regu,
++				   size_t regu_count)
++{
++	struct scpfw_channel_config *channel_cfg = NULL;
++	struct scpfw_agent_config *agent_cfg = NULL;
++	size_t i = 0;
++
++	agent_cfg = scpfw_cfg.agent_config + agent_id;
++	channel_cfg = agent_cfg->channel_config + channel_id;
++
++	if (!regu_count)
++		return TEE_SUCCESS;
++
++	if (agent_id >= scpfw_cfg.agent_count ||
++	    channel_id >= agent_cfg->channel_count)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (channel_cfg->voltd) {
++		EMSG("Voltage domain already loaded: agent %u, channel %u",
++		     agent_id, channel_id);
++		panic();
++	}
++
++	channel_cfg->voltd_count = voltd_id_count(regu, regu_count);
++	channel_cfg->voltd = calloc(channel_cfg->voltd_count,
++				    sizeof(*channel_cfg->voltd));
++	assert(channel_cfg->voltd);
++
++	for (i = 0; i < regu_count; i++) {
++		unsigned int domain_id = regu[i].domain_id;
++
++		if (regu[i].regulator) {
++			channel_cfg->voltd[domain_id] = (struct scmi_voltd){
++				.name = regulator_name(regu[i].regulator),
++				.regulator = regu[i].regulator,
++				.enabled = regu[i].enabled,
++			};
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result scmi_scpfw_cfg_add_dvfs(unsigned int agent_id,
++				   unsigned int channel_id,
++				   unsigned int domain_id,
++				   struct regulator *regulator, struct clk *clk,
++				   unsigned int *dvfs_khz,
++				   unsigned int *dvfs_mv, size_t dvfs_count)
++{
++	struct scpfw_channel_config *channel_cfg = NULL;
++	struct scpfw_agent_config *agent_cfg = NULL;
++	unsigned int *dvfs_opp_khz = NULL;
++	unsigned int *dvfs_opp_mv = NULL;
++
++	agent_cfg = scpfw_cfg.agent_config + agent_id;
++	channel_cfg = agent_cfg->channel_config + channel_id;
++
++	if (agent_id >= scpfw_cfg.agent_count ||
++	    channel_id >= agent_cfg->channel_count || !dvfs_count)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	dvfs_opp_khz = calloc(dvfs_count, sizeof(*dvfs_opp_khz));
++	dvfs_opp_mv = calloc(dvfs_count, sizeof(*dvfs_opp_mv));
++	if (!dvfs_opp_khz || !dvfs_opp_mv) {
++		free(dvfs_opp_khz);
++		free(dvfs_opp_mv);
++
++		return TEE_ERROR_OUT_OF_MEMORY;
++	}
++	memcpy(dvfs_opp_khz, dvfs_khz, dvfs_count * sizeof(*dvfs_opp_khz));
++	memcpy(dvfs_opp_mv, dvfs_mv, dvfs_count * sizeof(*dvfs_opp_mv));
++
++	if (channel_cfg->perfd_count <= domain_id) {
++		void *ptr = realloc(channel_cfg->perfd,
++				    (domain_id + 1) *
++				    sizeof(*channel_cfg->perfd));
++
++		if (!ptr) {
++			free(dvfs_opp_khz);
++			free(dvfs_opp_mv);
++			return TEE_ERROR_OUT_OF_MEMORY;
++		}
++
++		channel_cfg->perfd = ptr;
++		memset(channel_cfg->perfd + channel_cfg->perfd_count, 0,
++		       (domain_id + 1 - channel_cfg->perfd_count) *
++		       sizeof(*channel_cfg->perfd));
++
++		channel_cfg->perfd_count = domain_id + 1;
++	}
++
++	assert(!channel_cfg->perfd->dvfs_opp_khz);
++
++	channel_cfg->perfd[domain_id] = (struct scmi_perfd){
++		.name = "DVFS",
++		.dvfs_opp_count = dvfs_count,
++		.dvfs_opp_khz = dvfs_opp_khz,
++		.dvfs_opp_mv = dvfs_opp_mv,
++		.clk = clk,
++		.regulator = regulator,
++	};
++
++	return TEE_SUCCESS;
++}
+diff --git a/core/arch/arm/plat-stm32mp2/sub.mk b/core/arch/arm/plat-stm32mp2/sub.mk
+index 3a097a470..716023bd1 100644
+--- a/core/arch/arm/plat-stm32mp2/sub.mk
++++ b/core/arch/arm/plat-stm32mp2/sub.mk
+@@ -3,3 +3,4 @@ global-incdirs-y += .
+ srcs-y += main.c
+ srcs-y += stm32mp_pm.c
+ subdirs-y += drivers
++srcs-$(CFG_SCMI_SCPFW) += scmi_server_scpfw.c
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
+index a456b2370..9a041b005 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
+@@ -464,7 +464,7 @@ static void allocate_global_resources(struct scpfw_config *cfg)
+ 
+ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+ {
+-    unsigned int channel_index;
++    unsigned int channel_index = 0;
+     size_t i, j;
+     /* @cfg does not consider agent #0 this the reserved platform/server agent */
+     size_t scmi_agent_count = cfg->agent_count + 1;
+@@ -494,8 +494,6 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+         .sub_vendor_identifier = "STMicroelectronics",
+     };
+ 
+-    channel_index = 0;
+-
+     for (i = 0; i < cfg->agent_count; i++) {
+         struct scpfw_agent_config *agent_cfg = cfg->agent_config + i;
+         size_t agent_index = i + 1;
+@@ -509,7 +507,8 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+ 
+             service_data = fwk_mm_calloc(1, sizeof(*service_data));
+             *service_data = (struct mod_scmi_service_config){
+-                .transport_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT, 0),
++                .transport_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT,
++                                                              channel_index),
+                 .transport_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
+                                                               MOD_MSG_SMT_API_IDX_SCMI_TRANSPORT),
+                 .scmi_agent_id = agent_cfg->agent_id,
+@@ -679,8 +678,8 @@ static void set_resources(struct scpfw_config *cfg)
+                         name = reserved;
+                     }
+ 
+-                    dev[regu_index].element_id =
+-                       (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_VOLTAGE_DOMAIN, k);
++                    dev[k].element_id =
++                       (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_VOLTAGE_DOMAIN, regu_index);
+ 
+                     optee_regu_elt[regu_index].name = name;
+                     optee_regu_elt[regu_index].data = (void *)(optee_regu_data + regu_index);
+diff --git a/core/lib/scmi-server/conf-optee-stm32mp1.mk b/core/lib/scmi-server/conf-optee-stm32mp1.mk
+index a5d043836..9621e5190 100644
+--- a/core/lib/scmi-server/conf-optee-stm32mp1.mk
++++ b/core/lib/scmi-server/conf-optee-stm32mp1.mk
+@@ -8,11 +8,19 @@ $(call force,CFG_SCPFW_MOD_RESET_DOMAIN,y)
+ $(call force,CFG_SCPFW_MOD_SCMI,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_CLOCK,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_RESET_DOMAIN,y)
++
++ifeq ($(CFG_STM32MP13),y)
++$(call force,CFG_SCPFW_MOD_DVFS,n)
++$(call force,CFG_SCPFW_MOD_OPTEE_VOLTD_REGULATOR,y)
++$(call force,CFG_SCPFW_MOD_PSU,n)
++$(call force,CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR,n)
++$(call force,CFG_SCPFW_MOD_SCMI_PERF,n)
+ $(call force,CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN,y)
+ $(call force,CFG_SCPFW_MOD_VOLTAGE_DOMAIN,y)
++endif
+ 
+-$(call force,CFG_SCPFW_MOD_STM32_PMIC_REGU,$(CFG_STPMIC1))
+-$(call force,CFG_SCPFW_MOD_STM32_PWR_REGU,y)
++# Info level is sufficient for scp-firmware
++CFG_SCPFW_LOG_LEVEL ?= 1
+ 
+ $(call force,CFG_SCPFW_NOTIFICATION,n)
+ $(call force,CFG_SCPFW_FAST_CHANNEL,n)
+diff --git a/core/lib/scmi-server/conf-optee-stm32mp2.mk b/core/lib/scmi-server/conf-optee-stm32mp2.mk
+new file mode 100644
+index 000000000..686702972
+--- /dev/null
++++ b/core/lib/scmi-server/conf-optee-stm32mp2.mk
+@@ -0,0 +1,23 @@
++$(call force,CFG_SCPFW_MOD_CLOCK,y)
++$(call force,CFG_SCPFW_MOD_DVFS,n)
++$(call force,CFG_SCPFW_MOD_MSG_SMT,y)
++$(call force,CFG_SCPFW_MOD_OPTEE_CLOCK,y)
++$(call force,CFG_SCPFW_MOD_OPTEE_CONSOLE,y)
++$(call force,CFG_SCPFW_MOD_OPTEE_MBX,y)
++$(call force,CFG_SCPFW_MOD_OPTEE_RESET,y)
++$(call force,CFG_SCPFW_MOD_OPTEE_VOLTD_REGULATOR,y)
++$(call force,CFG_SCPFW_MOD_PSU,n)
++$(call force,CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR,n)
++$(call force,CFG_SCPFW_MOD_RESET_DOMAIN,y)
++$(call force,CFG_SCPFW_MOD_SCMI,y)
++$(call force,CFG_SCPFW_MOD_SCMI_CLOCK,y)
++$(call force,CFG_SCPFW_MOD_SCMI_PERF,n)
++$(call force,CFG_SCPFW_MOD_SCMI_RESET_DOMAIN,y)
++$(call force,CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN,y)
++$(call force,CFG_SCPFW_MOD_VOLTAGE_DOMAIN,y)
++
++# Info level is sufficient for scp-firmware
++CFG_SCPFW_LOG_LEVEL ?= 1
++
++$(call force,CFG_SCPFW_NOTIFICATION,n)
++$(call force,CFG_SCPFW_FAST_CHANNEL,n)
+diff --git a/core/lib/scmi-server/conf.mk b/core/lib/scmi-server/conf.mk
+index f52dbf4ab..46abb0dba 100644
+--- a/core/lib/scmi-server/conf.mk
++++ b/core/lib/scmi-server/conf.mk
+@@ -42,6 +42,7 @@ CFG_SCPFW_MOD_OPTEE_CONSOLE ?= y
+ CFG_SCPFW_MOD_OPTEE_MBX ?= n
+ CFG_SCPFW_MOD_OPTEE_RESET ?= n
+ CFG_SCPFW_MOD_OPTEE_SMT ?= n
++CFG_SCPFW_MOD_OPTEE_VOLTD_REGULATOR ?= n
+ CFG_SCPFW_MOD_POWER_DOMAIN ?= n
+ CFG_SCPFW_MOD_PSU ?= n
+ CFG_SCPFW_MOD_REG_SENSOR ?= n
+diff --git a/core/lib/scmi-server/include/scmi_agent_configuration.h b/core/lib/scmi-server/include/scmi_agent_configuration.h
+new file mode 100644
+index 000000000..e234734a1
+--- /dev/null
++++ b/core/lib/scmi-server/include/scmi_agent_configuration.h
+@@ -0,0 +1,147 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2023, STMicroelectronics
++ */
++
++#ifndef SCMI_AGENT_CONFIGURATION_H
++#define SCMI_AGENT_CONFIGURATION_H
++
++#include <drivers/clk.h>
++#include <drivers/regulator.h>
++#include <drivers/rstctrl.h>
++#include <scmi_regulator_consumer.h>
++#include <stdint.h>
++
++/* Structure used to describe the SCMI agents */
++
++/*
++ * struct scmi_clock - Description of a clock domain
++ * @name: Domain name
++ * @clk: Clock instance controlled by the domain
++ * @enabled: Default state of the clock
++ */
++struct scmi_clock {
++	const char *name;
++	struct clk *clk;
++	bool enabled;
++};
++
++/*
++ * struct scmi_reset - Description of a reset domain
++ * @name: Domain name
++ * @rstctrl: Reset controlled by the domain
++ */
++struct scmi_reset {
++	const char *name;
++	struct rstctrl *rstctrl;
++};
++
++/*
++ * struct scmi_voltd - Description of a voltage domaine resource
++ * @name: Domain name
++ * @regulator: Regulator controlled by the voltage domain
++ * @enabled: Default state of the regulator
++ */
++struct scmi_voltd {
++	const char *name;
++	struct regulator *regulator;
++	bool enabled;
++};
++
++/*
++ * struct scmi_perfd - DVFS/performance domaindescription
++ * @name: DVFS name
++ * @dvfs_opp_count: Number of cells in @dvfs_opp_khz and @dvfs_opp_mv
++ * @dvfs_opp_khz: Operating point frequencies in Hertz
++ * @dvfs_opp_mv: Operating point voltage levels in millivolts
++ * @clk: Clock used by the DVFS service
++ * @regulator: Regulator used by the DVFS service
++ *
++ * SCP firmware configuration expects array couple @dvfs_opp_khz and
++ * @dvfs_opp_mv values are ordered by increasing performance operating points.
++ */
++struct scmi_perfd {
++	const char *name;
++	size_t dvfs_opp_count;
++	unsigned int *dvfs_opp_khz;
++	unsigned int *dvfs_opp_mv;
++	struct clk *clk;
++	struct regulator *regulator;
++};
++
++/*
++ * struct scpfw_channel_config - SCMI channel resources
++ * @name: Channel name
++ * @channel_id: ID for the channel in OP-TEE SCMI bindings
++ * @clock: Description of the clocks exposed on the channel
++ * @clock_count: Number of cells of @clock
++ * @reset: Description of the reset conntrollers exposed on the channel
++ * @reset_count: Number of cells of @reset
++ * @voltd: Description of the regulators exposed on the channel
++ * @voltd_count: Number of cells of @voltd
++ * @perfd: Description of the DVFS/perf exposed on the channel
++ * @perfd_count: Number of cells of @perfd
++ */
++struct scpfw_channel_config {
++	const char *name;
++	unsigned int channel_id;
++	struct scmi_clock *clock;
++	size_t clock_count;
++	struct scmi_reset *reset;
++	size_t reset_count;
++	struct scmi_voltd *voltd;
++	size_t voltd_count;
++	struct scmi_perfd *perfd;
++	size_t perfd_count;
++};
++
++/*
++ * struct scpfw_agent_config - SCMI agent description
++ * @name: Agent name exposed through SCMI
++ * @agent_id: Agent ID exposed through SCMI
++ * @channel_config: Channel exposed by the agent
++ * @channel_count: Number of cells in @channel_config
++ *
++ * There is currently a constraint that mandate @agent_id is the
++ * index minus 1 of the agent in array struct scpfw_config::agent_config
++ * This is used as agent ID 0 is always the SCMI server ID value.
++ */
++struct scpfw_agent_config {
++	const char *name;
++	unsigned int agent_id;
++	struct scpfw_channel_config *channel_config;
++	size_t channel_count;
++};
++
++/*
++ * struct scpfw_config - SCP firmware configuration root node
++ * @agent_config: Agents exposed with SCMI
++ * @agent_count: Number of cells in @agent_config
++ */
++struct scpfw_config {
++	struct scpfw_agent_config *agent_config;
++	size_t agent_count;
++};
++
++/* Get the platform configuration data for the SCP firmware */
++struct scpfw_config *scmi_scpfw_get_configuration(void);
++
++/* Release resources allocated to create SCP-firmware configuration data */
++void scmi_scpfw_release_configuration(void);
++
++/* Add a DVFS service in the SCMI server */
++TEE_Result scmi_scpfw_cfg_add_dvfs(unsigned int agent, unsigned int channel,
++				   unsigned int domain_id,
++				   struct regulator *regulator, struct clk *clk,
++				   unsigned int *dvfs_khz,
++				   unsigned int *dvfs_mv, size_t dvfs_count);
++
++/* Add a voltage domains/regulators service to an SCMI channel */
++TEE_Result scmi_scpfw_cfg_add_regu(unsigned int agent, unsigned int channel,
++				   struct scmi_server_regu *regu,
++				   size_t regu_count);
++
++/* SCP firmware SCMI server configuration entry point */
++void scpfw_configure(struct scpfw_config *cfg);
++
++#endif /* SCMI_AGENT_CONFIGURATION_H */
+diff --git a/core/lib/scmi-server/scmi_server.c b/core/lib/scmi-server/scmi_server.c
+index 65c1980f2..b68657403 100644
+--- a/core/lib/scmi-server/scmi_server.c
++++ b/core/lib/scmi-server/scmi_server.c
+@@ -10,6 +10,7 @@
+ #include <kernel/panic.h>
+ #include <mm/core_memprot.h>
+ #include <optee_scmi.h>
++#include <scmi_agent_configuration.h>
+ #include <scmi_regulator_consumer.h>
+ #include <scmi/scmi_server.h>
+ 
+@@ -74,16 +75,14 @@ TEE_Result scmi_server_msg_process_thread(unsigned int channel_id,
+ 
+ static TEE_Result scmi_server_initialize(void)
+ {
+-	TEE_Result res = TEE_ERROR_GENERIC;
++	struct scpfw_config *cfg = NULL;
+ 	int rc = 0;
+ 
+-	if (IS_ENABLED(CFG_SCMI_SERVER_REGULATOR_CONSUMER)) {
+-		res = scmi_regulator_consumer_init();
+-		if (res) {
+-			EMSG("SCMI regulator consumer init: %#"PRIx32, res);
+-			return res;
+-		}
+-	}
++	cfg = scmi_scpfw_get_configuration();
++	assert(cfg);
++
++	scpfw_configure(cfg);
++	scmi_scpfw_release_configuration();
+ 
+ 	rc = scmi_arch_init();
+ 	if (rc < 0) {
+diff --git a/core/lib/scmi-server/sub-optee-stm32mp1.mk b/core/lib/scmi-server/sub-optee-stm32mp1.mk
+index 7fe512aac..8555faae4 100644
+--- a/core/lib/scmi-server/sub-optee-stm32mp1.mk
++++ b/core/lib/scmi-server/sub-optee-stm32mp1.mk
+@@ -1,10 +1,9 @@
+ scpfw-incdirs-y += $(scpfw-path)/product/optee-stm32mp1/include
+ 
+-srcs-y += $(scpfw-path)/product/optee-stm32mp1/fw/config_mbx_smt.c
+-srcs-y += $(scpfw-path)/product/optee-stm32mp1/fw/config_scmi.c
+-srcs-y += $(scpfw-path)/product/optee-stm32mp1/fw/config_scmi_clocks.c
+-srcs-y += $(scpfw-path)/product/optee-stm32mp1/fw/config_scmi_reset_domains.c
+-srcs-y += $(scpfw-path)/product/optee-stm32mp1/fw/config_scmi_voltage_domains.c
++srcs-y += $(scpfw-path)/product/optee-stm32mp1/fw/config_all.c
+ 
+-$(eval $(call scpfw-embed-product-module,stm32_pmic_regu))
+-$(eval $(call scpfw-embed-product-module,stm32_pwr_regu))
++ifeq ($(CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR),y)
++$(eval $(call scpfw-embed-product-module,psu_optee_regulator))
++endif
++
++scpfw-cmake-flags-y += -DCFG_STM32MP13=$(CFG_STM32MP13)
+diff --git a/core/lib/scmi-server/sub-optee-stm32mp2.mk b/core/lib/scmi-server/sub-optee-stm32mp2.mk
+index 39ae54277..f275178ce 100644
+--- a/core/lib/scmi-server/sub-optee-stm32mp2.mk
++++ b/core/lib/scmi-server/sub-optee-stm32mp2.mk
+@@ -1 +1,7 @@
+ scpfw-incdirs-y += $(scpfw-path)/product/optee-stm32mp2/include
++
++srcs-y += $(scpfw-path)/product/optee-stm32mp2/fw/config_all.c
++
++ifeq ($(CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR),y)
++$(eval $(call scpfw-embed-product-module,psu_optee_regulator))
++endif
+diff --git a/core/lib/scmi-server/sub.mk b/core/lib/scmi-server/sub.mk
+index 07467c02a..0064954c3 100644
+--- a/core/lib/scmi-server/sub.mk
++++ b/core/lib/scmi-server/sub.mk
+@@ -27,7 +27,7 @@ scpfw-integ-version = $(scpfw-integ-version-maj).$(scpfw-integ-version-min).$(sc
+ 
+ srcs-y += scmi_server.c
+ srcs-$(CFG_SCMI_SERVER_REGULATOR_CONSUMER) += scmi_regulator_consumer.c
+-incdirs-y += include
++global-incdirs-y += include
+ 
+ # SCP-firmware cmake configuration generates header fwk_module_idx.h and
+ # source files fwk_module_list.c needed for scp-firmware compilation.
+@@ -216,6 +216,7 @@ $(eval $(call scpfw-embed-optee-module,console))
+ $(eval $(call scpfw-embed-optee-module,mbx))
+ $(eval $(call scpfw-embed-optee-module,reset))
+ $(eval $(call scpfw-embed-optee-module,smt))
++$(eval $(call scpfw-embed-optee-module,voltd_regulator))
+ 
+ srcs-$(CFG_SCPFW_MOD_CLOCK) += $(scpfw-path)/module/clock/src/clock_tree_management.c
+ srcs-$(CFG_SCPFW_MOD_POWER_DOMAIN) += $(scpfw-path)/module/power_domain/src/power_domain_utils.c
+-- 
+2.47.2
+

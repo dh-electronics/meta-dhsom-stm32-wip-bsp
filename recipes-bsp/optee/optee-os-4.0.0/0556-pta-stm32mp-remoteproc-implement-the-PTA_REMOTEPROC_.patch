@@ -1,0 +1,76 @@
+From d72214c278b29e9d904f595e0b864b9c3ecfb89e Mon Sep 17 00:00:00 2001
+From: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+Date: Fri, 1 Dec 2023 14:36:06 +0100
+Subject: [PATCH 0556/1695] pta: stm32mp: remoteproc: implement the
+ PTA_REMOTEPROC_CLEAN API
+
+The clean-up API allows the remoteproc TA to clean allocated resources
+dedicated to the coprocessor on the stm32mp platforms.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bd3f1ea3ee0853940dba545ac8af80c7b774623b pta: stm32mp: remoteproc: implement the PTA_REMOTEPROC_CLEAN API]
+Change-Id: I5d34d204baa1b8d911f827c81f52ff779ba7abc2
+Signed-off-by: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+---
+ core/pta/stm32mp/remoteproc_pta.c    | 19 +++++++++++++++++++
+ lib/libutee/include/remoteproc_pta.h |  9 +++++++++
+ 2 files changed, 28 insertions(+)
+
+diff --git a/core/pta/stm32mp/remoteproc_pta.c b/core/pta/stm32mp/remoteproc_pta.c
+index eaf4ef059..5a124f550 100644
+--- a/core/pta/stm32mp/remoteproc_pta.c
++++ b/core/pta/stm32mp/remoteproc_pta.c
+@@ -338,6 +338,23 @@ static TEE_Result rproc_pta_tlv_param(uint32_t pt,
+ 	return TEE_ERROR_NOT_IMPLEMENTED;
+ }
+ 
++static TEE_Result rproc_pta_clean(uint32_t pt, TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	/* Clean the resources */
++	return stm32_rproc_clean(params[0].value.a);
++}
++
+ static TEE_Result rproc_pta_invoke_command(void *session __unused,
+ 					   uint32_t cmd_id,
+ 					   uint32_t param_types,
+@@ -360,6 +377,8 @@ static TEE_Result rproc_pta_invoke_command(void *session __unused,
+ 		return rproc_pta_verify_digest(param_types, params);
+ 	case PTA_REMOTEPROC_TLV_PARAM:
+ 		return rproc_pta_tlv_param(param_types, params);
++	case PTA_REMOTEPROC_CLEAN:
++		return rproc_pta_clean(param_types, params);
+ 	default:
+ 		return TEE_ERROR_NOT_IMPLEMENTED;
+ 	}
+diff --git a/lib/libutee/include/remoteproc_pta.h b/lib/libutee/include/remoteproc_pta.h
+index 0520e8d1b..7868ae08d 100644
+--- a/lib/libutee/include/remoteproc_pta.h
++++ b/lib/libutee/include/remoteproc_pta.h
+@@ -168,4 +168,13 @@ static inline size_t rproc_pta_keyinfo_size(struct rproc_pta_key_info *keyinf)
+  */
+ #define PTA_REMOTEPROC_TLV_PARAM	9
+ 
++/*
++ * Remote processor resources clean-up.
++ *
++ * Clean the resources of the remote processor firmware.
++ *
++ * [in]  params[0].value.a:	Unique 32bit remote processor identifier
++ */
++#define PTA_REMOTEPROC_CLEAN		10
++
+ #endif /* __REMOTEPROC_PTA_H */
+-- 
+2.47.2
+

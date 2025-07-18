@@ -1,0 +1,43 @@
+From bb545b38756e290d82cfbd2ba726571dea3ac8eb Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 23 Mar 2022 19:37:08 +0100
+Subject: [PATCH 0322/1695] plat-stm32mp2: conf: add the PTA NVMEM
+
+Activate the TA NVMEM for STM32MP25x support, based on the
+BSEC PTA and BSEC3 driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 51471d31ebd9c9b08775c5f0be7788632dd25254 plat-stm32mp2: conf: add the PTA NVMEM]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ida03da5b06b3c0c2c12403a6ac9c3bc6d0de74d4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/247737
+---
+ core/arch/arm/plat-stm32mp2/conf.mk | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index ebee31883..68d29cbe2 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -97,6 +97,19 @@ $(call force,CFG_DRIVERS_RSTCTRL,y)
+ $(call force,CFG_STM32_RSTCTRL,y)
+ endif
+ 
++# Enable BSEC PTA for fuses access management
++CFG_STM32_BSEC_PTA ?= y
++ifeq ($(CFG_STM32_BSEC_PTA),y)
++$(call force,CFG_STM32_BSEC3,y,Mandated by CFG_STM32_BSEC_PTA)
++endif
++
++# Enable Early TA NVMEM for provisioning management
++CFG_TA_STM32MP_NVMEM ?= y
++ifeq ($(CFG_TA_STM32MP_NVMEM),y)
++$(call force,CFG_STM32_BSEC_PTA,y,Mandated by CFG_TA_STM32MP_NVMEM)
++CFG_IN_TREE_EARLY_TAS += stm32mp_nvmem/1a8342cc-81a5-4512-99fe-9e2b3e37d626
++endif
++
+ # Optional behavior upon receiving illegal access events
+ CFG_STM32_PANIC_ON_IAC_EVENT ?= y
+ ifeq ($(CFG_TEE_CORE_DEBUG),y)
+-- 
+2.47.2
+

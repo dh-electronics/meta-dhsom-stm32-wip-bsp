@@ -1,0 +1,173 @@
+From 56e75c889091ee1287476a74a442c1a626e2a55a Mon Sep 17 00:00:00 2001
+From: Ludovic Barre <ludovic.barre@foss.st.com>
+Date: Tue, 29 Oct 2024 15:29:56 +0100
+Subject: [PATCH 1416/1695] product/tfm-stm32mp2: add firewall support in power
+ domain
+
+Add firewall support to set gpu power domain which access
+to clocks (pll3, gpu) and regulator PWR_CR12.
+
+errata 2 3 5:
+Once the compartment filtering is enabled, the registers are
+not writeable by any CIDs even the permitted one.
+
+Workaround:
+CID filtering should be disabled before accessing:
+- PWR_CR12 (regulator)
+- gpu clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a4c187a44f7f0c477274a07ad59179a51a6571ca product/tfm-stm32mp2: add firewall support in power domain]
+Change-Id: If89799f41ea783c3c8efdbd039b37577c727d76f
+Signed-off-by: Ludovic Barre <ludovic.barre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/415066
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../product/tfm-stm32mp2/fw/config_all.c      |  2 +
+ .../module/stm32_pd/include/mod_stm32_pd.h    |  2 +
+ .../module/stm32_pd/src/mod_stm32_pd.c        | 62 ++++++++++++++++---
+ 3 files changed, 59 insertions(+), 7 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
+index d359f706e..24c0f6dfe 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
+@@ -740,6 +740,8 @@ static void set_resources(struct scpfw_config *cfg)
+                     mod_stm32_pd_config->name = scmi_pd->name;
+                     mod_stm32_pd_config->clk = scmi_pd->clk;
+                     mod_stm32_pd_config->regu = scmi_pd->regu;
++                    mod_stm32_pd_config->firewall = scmi_pd->firewall;
++                    mod_stm32_pd_config->n_firewall = scmi_pd->n_firewall;
+ 
+                     stm32_pd_elt_k->name = scmi_pd->name;
+                     stm32_pd_elt_k->data = (void *)mod_stm32_pd_config;
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/stm32_pd/include/mod_stm32_pd.h b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/stm32_pd/include/mod_stm32_pd.h
+index 0897384f7..d517fdc0c 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/stm32_pd/include/mod_stm32_pd.h
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/stm32_pd/include/mod_stm32_pd.h
+@@ -14,6 +14,8 @@ struct mod_stm32_pd_config {
+ 	const char *name;
+ 	struct clk *clk;
+ 	const struct device *regu;
++	const struct firewall_spec *firewall;
++	int n_firewall;
+ };
+ 
+ #endif /* MOD_STM32_PD_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+index ced746ca0..ed869e0bb 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+@@ -6,6 +6,7 @@
+ 
+ #include <clk.h>
+ #include <regulator.h>
++#include <firewall.h>
+ 
+ #include <mod_power_domain.h>
+ #include <mod_stm32_pd.h>
+@@ -55,12 +56,35 @@ static int stm32_pd_reset(fwk_id_t pd_id)
+     return FWK_E_SUPPORT;
+ }
+ 
++/*
++ * stm32_pd_set_state_gpu
++ *
++ * A firewall configuration may be defined to fix Errata Section 2 3 5
++ * cf: https://www.st.com/resource/en/errata_sheet/es0598-stm32mp251x3x5x7x-device-errata-stmicroelectronics.pdf
++ * Compartment filtering of PWR_CR11 and PWR_CR12 registers is not functional
++ *
++ * Description:
++ * Once the compartment filtering is enabled on PWR_CR11 (RCC internal
++ * resource 104) and PWR_CR12 (RIFSC peripheral #79), the registers are
++ * not writeable by any CIDs even the permitted one.
++ *
++ * Workaround:
++ * CID filtering should be disabled before accessing PWR_CR11 and PWR_CR12 registers.
++ *
++ * - Set errata configuration (defined in DT) to disable filtering.
++ * - Access to clock and regulator
++ * - Release this configuration to return at initial runtime configuration.
++ */
+ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
+ {
+     struct mod_stm32_pd *ctx = mod_stm32_pd_ctx + fwk_id_get_element_idx(pd_id);
+-    struct clk *clk = ctx->config->clk;
+-    const struct device *regu = ctx->config->regu;
+-    int status;
++    const struct mod_stm32_pd_config *cfg = ctx->config;
++    const struct device *regu = cfg->regu;
++    struct firewall_spec *firewall;
++    struct clk *clk = cfg->clk;
++    int status = FWK_E_DEVICE;
++    int i;
++    int err;
+ 
+     fwk_assert(ctx->pd_driver_input_api != NULL);
+     fwk_assert(fwk_id_get_element_idx(pd_id) == PD_SCMI_GPU);
+@@ -70,16 +94,28 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
+         return FWK_SUCCESS;
+     }
+ 
++    err = set_for_each_firewall(cfg->firewall, firewall, cfg->n_firewall, i);
++    if (err) {
++        FWK_LOG_ERR("%s: set firewall[%d] fail, err:%d", __func__, i, err);
++        status = FWK_E_DEVICE;
++        goto out;
++    }
++
+     switch (state) {
+         case MOD_PD_STATE_ON:
+             if (regu != NULL && regulator_enable(regu) != 0) {
+-                return FWK_E_DEVICE;
++                status = FWK_E_DEVICE;
++                break;
+             }
++
+             if (clk != NULL && clk_enable(clk) != 0) {
+                 if (regu != NULL)
+                     regulator_disable(regu);
+-                return FWK_E_DEVICE;
++
++                status = FWK_E_DEVICE;
++                break;
+             }
++            status = FWK_SUCCESS;
+             break;
+         case MOD_PD_STATE_OFF:
+             if (clk != NULL) {
+@@ -89,16 +125,28 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
+                 if (clk != NULL) {
+                     clk_enable(clk);
+                 }
+-                return FWK_E_DEVICE;
++
++                status = FWK_E_DEVICE;
++                break;
+             }
++            status = FWK_SUCCESS;
+             break;
+         default:
+             FWK_LOG_ERR("State %d not supported on power domain %s",
+                         state,
+                         fwk_module_get_element_name(pd_id));
+-            return FWK_E_SUPPORT;
+     }
+ 
++out:
++    err = release_for_each_firewall(cfg->firewall, firewall, cfg->n_firewall, i);
++    if (err) {
++        FWK_LOG_ERR("%s: release firewall[%d] fail, err:%d", __func__, i, err);
++        status = FWK_E_DEVICE;
++    }
++
++    if (status != FWK_SUCCESS)
++        return status;
++
+     status = ctx->pd_driver_input_api->report_power_state_transition(
+         ctx->requester_id,
+         state);
+-- 
+2.47.2
+

@@ -1,0 +1,68 @@
+From 2b2ac1810b2e0aabff36cf3419ff93a3b8434abc Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 19 Oct 2022 15:41:44 +0200
+Subject: [PATCH 0106/1695] plat-stm32mp1: nsec-service: deprecate scmi agent 1
+
+There is no more SCMI agent0/1. Do not support this obsolete feature.
+STM32_SIP_SVC_FUNC_SCMI_AGENT1 is kept for legacy.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e89bcced983384ea310063dc983fc994d554d04b plat-stm32mp1: nsec-service: deprecate scmi agent 1]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Ide1367ece28591d00656b135a6f5ef8285e1b9ea
+---
+ core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h  | 6 +++---
+ .../arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c  | 9 ++-------
+ 2 files changed, 5 insertions(+), 10 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
+index 0dce13816..55fffd317 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
+@@ -93,14 +93,14 @@
+ #define STM32_SIP_SVC_BSEC_WRLOCK_OTP		0x7
+ 
+ /*
+- * SIP function STM32_SIP_SVC_FUNC_SCMI_AGENT0
+- * SIP function STM32_SIP_SVC_FUNC_SCMI_AGENT1
++ * SIP function STM32_SIP_SVC_FUNC_SCMI_AGENT
++ * SIP function STM32_SIP_SVC_FUNC_SCMI_AGENT1 - Obsolete
+  *
+  * Process SCMI message pending in related SCMI shared memory buffer.
+  *
+  * Argument a0: (input) SMCC ID
+  */
+-#define STM32_SIP_SVC_FUNC_SCMI_AGENT0		0x2000
++#define STM32_SIP_SVC_FUNC_SCMI_AGENT		0x2000
+ #define STM32_SIP_SVC_FUNC_SCMI_AGENT1		0x2001
+ 
+ /*
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+index 1b2e78f01..4377c6291 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+@@ -30,7 +30,7 @@ static enum sm_handler_ret sip_service(struct sm_ctx *ctx __unused,
+ 		args->a2 = STM32_SIP_SVC_UID_2;
+ 		args->a3 = STM32_SIP_SVC_UID_3;
+ 		break;
+-	case STM32_SIP_SVC_FUNC_SCMI_AGENT0:
++	case STM32_SIP_SVC_FUNC_SCMI_AGENT:
+ 		if (IS_ENABLED(CFG_STM32MP1_SCMI_SIP)) {
+ 			scmi_smt_fastcall_smc_entry(0);
+ 			args->a0 = STM32_SIP_SVC_OK;
+@@ -39,12 +39,7 @@ static enum sm_handler_ret sip_service(struct sm_ctx *ctx __unused,
+ 		}
+ 		break;
+ 	case STM32_SIP_SVC_FUNC_SCMI_AGENT1:
+-		if (IS_ENABLED(CFG_STM32MP1_SCMI_SIP)) {
+-			scmi_smt_fastcall_smc_entry(1);
+-			args->a0 = STM32_SIP_SVC_OK;
+-		} else {
+-			args->a0 = ARM_SMCCC_RET_NOT_SUPPORTED;
+-		}
++		args->a0 = ARM_SMCCC_RET_NOT_SUPPORTED;
+ 		break;
+ 	case STM32_SIP_SVC_FUNC_BSEC:
+ 		bsec_main(args);
+-- 
+2.47.2
+

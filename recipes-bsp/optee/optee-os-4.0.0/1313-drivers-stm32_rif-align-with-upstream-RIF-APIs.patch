@@ -1,0 +1,1203 @@
+From 22d2c5da7fc94a601d593ff95fb6bf9e156d866e Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 14 Oct 2024 16:31:58 +0200
+Subject: [PATCH 1313/1695] drivers: stm32_rif: align with upstream RIF APIs
+
+Align with upstream RIF APIs and proceed with all necessary changes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8026779eac697570938567b1ff6f0ba13cd52f07 drivers: stm32_rif: align with upstream RIF APIs]
+Change-Id: I9ddd0602c0cad6bdc2c00a597a1a48fd8c3b74f2
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/411361
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../arm/plat-stm32mp2/drivers/stm32mp25_pwr.c |   6 +-
+ .../drivers/stm32mp25_pwr_regul.c             |   1 +
+ core/drivers/clk/clk-stm32mp21.c              |   9 +-
+ core/drivers/clk/clk-stm32mp25.c              |   9 +-
+ core/drivers/firewall/stm32_rif.c             | 132 ++++----
+ core/drivers/firewall/stm32_rifsc.c           | 108 +++----
+ core/drivers/nvmem/stm32_tamp_nvram.c         |   6 +-
+ core/drivers/stm32_exti.c                     |   1 -
+ core/drivers/stm32_fmc.c                      |   5 +-
+ core/drivers/stm32_gpio.c                     |  21 +-
+ core/drivers/stm32_hpdma.c                    |   5 +-
+ core/drivers/stm32_hsem.c                     |   3 +-
+ core/drivers/stm32_ipcc.c                     |   4 +-
+ core/drivers/stm32_rtc.c                      |   1 -
+ core/drivers/stm32_tamp.c                     |   3 +-
+ core/include/drivers/stm32_rif.h              | 290 +++++++++---------
+ 16 files changed, 289 insertions(+), 315 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c
+index 89fe3f2c0..ac602595f 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c
+@@ -9,6 +9,7 @@
+ #include <drivers/clk_dt.h>
+ #include <drivers/stm32_rif.h>
+ #include <drivers/stm32mp25_pwr.h>
++#include <drivers/stm32mp_dt_bindings.h>
+ #include <io.h>
+ #include <kernel/boot.h>
+ #include <kernel/delay.h>
+@@ -149,7 +150,7 @@ static TEE_Result apply_rif_config(bool is_tdcid)
+ 		 * Therefore, there's no need to handle SEMCR not existing for
+ 		 * these resources.
+ 		 */
+-		if (SEM_MODE_INCORRECT(cidcfgr))
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+ 			continue;
+ 
+ 		/* If not TDCID, we want to acquire semaphores assigned to us */
+@@ -201,7 +202,7 @@ static TEE_Result apply_rif_config(bool is_tdcid)
+ 		}
+ 
+ 		/* Check if the resources is in semaphore mode */
+-		if (SEM_MODE_INCORRECT(cidcfgr))
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+ 			continue;
+ 
+ 		res = stm32_rif_release_semaphore(pwr_d->base +
+@@ -281,7 +282,6 @@ static void parse_dt(const void *fdt, int node)
+ 
+ 	for (i = 0; i < pwr_d->nb_ressources; i++)
+ 		stm32_rif_parse_cfg(fdt32_to_cpu(cuint[i]), pwr_d->conf_data,
+-				    _PWR_NB_MAX_CID_SUPPORTED,
+ 				    _PWR_NB_RESSOURCES);
+ 
+ skip_rif:
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
+index a6ffcd493..79e679508 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
+@@ -8,6 +8,7 @@
+ #include <drivers/regulator.h>
+ #include <drivers/stm32mp25_pwr.h>
+ #include <drivers/stm32_rif.h>
++#include <dt-bindings/soc/stm32mp25-rifsc.h>
+ #include <io.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index 9288f3408..6b8770b25 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -12,6 +12,7 @@
+ #include <drivers/stm32mp21_rcc.h>
+ #include <dt-bindings/clock/st,stm32mp21-rcc.h>
+ #include <dt-bindings/clock/stm32mp21-clksrc.h>
++#include <dt-bindings/soc/stm32mp21-rifsc.h>
+ #include <initcall.h>
+ #include <io.h>
+ #include <kernel/boot.h>
+@@ -1280,7 +1281,6 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
+ 
+ 		stm32_rif_parse_cfg(rif_conf,
+ 				    &pdata->conf_data,
+-				    RCC_NB_MAX_CID_SUPPORTED,
+ 				    RCC_NB_RIF_RES);
+ 	}
+ 
+@@ -2052,7 +2052,8 @@ static int stm32_clk_configure_mux(struct clk_stm32_priv *priv __unused,
+ 	bool sem_taken = false;
+ 	int ret = 0;
+ 
+-	if (tab_mux_rifsc[mux].is_rifsc && SEM_EN_AND_OK(cidcfgr, RIF_CID1)) {
++	if (tab_mux_rifsc[mux].is_rifsc &&
++	    stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1)) {
+ 		if (stm32_rif_acquire_semaphore(rifsc_base +
+ 						_RIFSC_RISC_PER0_SEMCR +
+ 						per_offset,
+@@ -4332,7 +4333,7 @@ static TEE_Result apply_rcc_rif_config(bool is_tdcid)
+ 		cidcfgr = io_read32(pdata->rcc_base + RCC_CIDCFGR(i));
+ 
+ 		/* Check if the resource is in semaphore mode */
+-		if (SEM_MODE_INCORRECT(cidcfgr))
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+ 			continue;
+ 
+ 		/* If not TDCID, we want to acquire semaphores assigned to us */
+@@ -4374,7 +4375,7 @@ static TEE_Result apply_rcc_rif_config(bool is_tdcid)
+ 		 * Take semaphore if the resource is in semaphore mode
+ 		 * and secured
+ 		 */
+-		if (SEM_MODE_INCORRECT(cidcfgr) ||
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1) ||
+ 		    !(io_read32(pdata->rcc_base + RCC_SECCFGR(index)) &
+ 		      BIT(i % 32))) {
+ 			res =
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index e59f150f1..364228190 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -12,6 +12,7 @@
+ #include <drivers/stm32mp25_rcc.h>
+ #include <dt-bindings/clock/stm32mp25-clks.h>
+ #include <dt-bindings/clock/stm32mp25-clksrc.h>
++#include <dt-bindings/soc/stm32mp25-rifsc.h>
+ #include <initcall.h>
+ #include <io.h>
+ #include <kernel/boot.h>
+@@ -1436,7 +1437,6 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
+ 
+ 		stm32_rif_parse_cfg(rif_conf,
+ 				    &pdata->conf_data,
+-				    RCC_NB_MAX_CID_SUPPORTED,
+ 				    RCC_NB_RIF_RES);
+ 	}
+ 
+@@ -2215,7 +2215,8 @@ static int stm32_clk_configure_mux(struct clk_stm32_priv *priv __unused,
+ 	bool sem_taken = false;
+ 	int ret = 0;
+ 
+-	if (tab_mux_rifsc[mux].is_rifsc && SEM_EN_AND_OK(cidcfgr, RIF_CID1)) {
++	if (tab_mux_rifsc[mux].is_rifsc &&
++	    stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1)) {
+ 		if (stm32_rif_acquire_semaphore(rifsc_base +
+ 						_RIFSC_RISC_PER0_SEMCR +
+ 						per_offset,
+@@ -4752,7 +4753,7 @@ static TEE_Result apply_rcc_rif_config(bool is_tdcid)
+ 		cidcfgr = io_read32(pdata->rcc_base + RCC_CIDCFGR(i));
+ 
+ 		/* Check if the resource is in semaphore mode */
+-		if (SEM_MODE_INCORRECT(cidcfgr))
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+ 			continue;
+ 
+ 		/* If not TDCID, we want to acquire semaphores assigned to us */
+@@ -4794,7 +4795,7 @@ static TEE_Result apply_rcc_rif_config(bool is_tdcid)
+ 		 * Take semaphore if the resource is in semaphore mode
+ 		 * and secured
+ 		 */
+-		if (SEM_MODE_INCORRECT(cidcfgr) ||
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1) ||
+ 		    !(io_read32(pdata->rcc_base + RCC_SECCFGR(index)) &
+ 		      BIT(i % 32))) {
+ 			res =
+diff --git a/core/drivers/firewall/stm32_rif.c b/core/drivers/firewall/stm32_rif.c
+index eebf9ea17..30dcf872a 100644
+--- a/core/drivers/firewall/stm32_rif.c
++++ b/core/drivers/firewall/stm32_rif.c
+@@ -1,41 +1,55 @@
+ // SPDX-License-Identifier: BSD-2-Clause
+ /*
+- * Copyright (c) 2021-2022, STMicroelectronics
++ * Copyright (c) 2021-2024, STMicroelectronics
+  */
+ 
++#include <assert.h>
+ #include <drivers/stm32_rif.h>
+ #include <drivers/stm32mp_dt_bindings.h>
++#include <io.h>
+ #include <kernel/panic.h>
+-#include <util.h>
++#include <mm/core_memprot.h>
++
++#define MAX_CID_BITFIELD	U(3)
++
++/**
++ * get_scid_mask() - Get the static CID mask according to the number of
++ *		     supported CIDs
++ *
++ * @nb_cid_supp: Number of CIDs supported. Cannot be 0.
++ */
++static uint32_t get_scid_mask(unsigned int nb_cid_supp)
++{
++	uint32_t msb_nb_cid_supp = 0;
++
++	assert(nb_cid_supp);
++
++	msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
++			  __builtin_clz((nb_cid_supp - 1) | 1);
++
++	/* SCID bitfield highend can't be > SCID_SHIFT + MAX_CID_BITFIELD */
++	assert(msb_nb_cid_supp <= MAX_CID_BITFIELD);
++
++	return GENMASK_32(_CIDCFGR_SCID_SHIFT + msb_nb_cid_supp - 1,
++			  _CIDCFGR_SCID_SHIFT);
++}
+ 
+ TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
+ 				  uint32_t semcr,
+ 				  unsigned int nb_cid_supp,
+ 				  unsigned int cid_to_check)
+ {
+-	uint32_t scid_mask = 0;
+-	uint32_t msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
+-				   __builtin_clz(nb_cid_supp | 1) - 1;
+-
+-	/*
+-	 * SCID bitfield highend can't be > _CIDCFGR_SCID_SHIFT +
+-	 * MAX_CID_BITFIELD
+-	 */
+-	assert(msb_nb_cid_supp < MAX_CID_BITFIELD);
+-
+-	scid_mask = GENMASK_32(_CIDCFGR_SCID_SHIFT + msb_nb_cid_supp,
+-			       _CIDCFGR_SCID_SHIFT);
++	uint32_t scid_mask = get_scid_mask(nb_cid_supp);
+ 
+ 	if (!(cidcfgr & _CIDCFGR_CFEN))
+ 		return TEE_SUCCESS;
+ 
+-	if (SCID_OK(cidcfgr, scid_mask, cid_to_check))
++	if (stm32_rif_scid_ok(cidcfgr, scid_mask, cid_to_check))
+ 		return TEE_SUCCESS;
+ 
+-	if (SEM_EN_AND_OK(cidcfgr, cid_to_check)) {
++	if (stm32_rif_semaphore_enabled_and_ok(cidcfgr, cid_to_check)) {
+ 		if (!(semcr & _SEMCR_MUTEX) ||
+-		    ((semcr & scid_mask) >> _CIDCFGR_SCID_SHIFT) ==
+-		    cid_to_check) {
++		    ((semcr & scid_mask) >> SCID_SHIFT) == cid_to_check) {
+ 			return TEE_SUCCESS;
+ 		}
+ 	}
+@@ -43,102 +57,72 @@ TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
+ 	return TEE_ERROR_ACCESS_DENIED;
+ }
+ 
+-void stm32_rif_parse_cfg(uint32_t rif_conf,
+-			 struct rif_conf_data *conf_data,
+-			 unsigned int nb_cid_supp,
+-			 unsigned int nb_resource)
++void stm32_rif_parse_cfg(uint32_t rif_conf, struct rif_conf_data *conf_data,
++			 unsigned int nb_channel)
+ {
+-	uint32_t resource_id = 0;
++	uint32_t channel_id = 0;
+ 	unsigned int conf_index = 0;
+ 
+-	if (nb_cid_supp > MAX_CID_SUPPORTED)
+-		panic();
+-
+ 	/* Shift corresponding to the desired resources */
+-	resource_id = rif_conf & RIF_PER_ID_MASK;
+-	if (resource_id >= nb_resource)
++	channel_id = RIF_CHANNEL_ID(rif_conf);
++	if (channel_id >= nb_channel)
+ 		panic("Bad RIF controllers number");
+ 
+-	/*
+-	 * Make sure we set the bits in the right sec and priv conf register.
+-	 * This is done to support IPS having more than 32 channels.
+-	 */
+-	conf_index = resource_id / 32;
++	/* Some peripherals have more than 32 RIF channels */
++	conf_index = channel_id / 32;
+ 
+ 	/* Privilege configuration */
+ 	if (rif_conf & BIT(RIF_PRIV_SHIFT))
+-		conf_data->priv_conf[conf_index] |= BIT(resource_id);
++		conf_data->priv_conf[conf_index] |= BIT(channel_id);
+ 
+ 	/* Security RIF configuration */
+ 	if (rif_conf & BIT(RIF_SEC_SHIFT))
+-		conf_data->sec_conf[conf_index] |= BIT(resource_id);
++		conf_data->sec_conf[conf_index] |= BIT(channel_id);
+ 
+ 	/* RIF configuration lock */
+ 	if (rif_conf & BIT(RIF_LOCK_SHIFT) && conf_data->lock_conf)
+-		conf_data->lock_conf[conf_index] |= BIT(resource_id);
++		conf_data->lock_conf[conf_index] |= BIT(channel_id);
+ 
+ 	/* CID configuration */
+-	conf_data->cid_confs[resource_id] = (rif_conf & RIF_PERx_CID_MASK) >>
+-					     RIF_PERx_CID_SHIFT;
++	conf_data->cid_confs[channel_id] = (rif_conf & RIF_PERx_CID_MASK) >>
++					   RIF_PERx_CID_SHIFT;
+ 
+-	/* This resource will be configured */
+-	conf_data->access_mask[conf_index] |= BIT(resource_id);
++	/* Store that this RIF resource is to be configured */
++	conf_data->access_mask[conf_index] |= BIT(channel_id);
+ }
+ 
+-bool stm32_rif_is_semaphore_available(vaddr_t addr)
++bool stm32_rif_semaphore_is_available(vaddr_t addr)
+ {
+ 	return !(io_read32(addr) & _SEMCR_MUTEX);
+ }
+ 
+-TEE_Result stm32_rif_acquire_semaphore(vaddr_t addr,
+-				       unsigned int nb_cid_supp)
++TEE_Result stm32_rif_acquire_semaphore(vaddr_t addr, unsigned int nb_cid_supp)
+ {
+-	uint32_t msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
+-				   __builtin_clz(nb_cid_supp | 1) - 1;
+-	uint32_t scid_mask = 0;
+-
+-	/*
+-	 * SCID bitfield highend can't be > _CIDCFGR_SCID_SHIFT +
+-	 * MAX_CID_BITFIELD
+-	 */
+-	assert(msb_nb_cid_supp < MAX_CID_BITFIELD);
+-
+-	scid_mask = GENMASK_32(_CIDCFGR_SCID_SHIFT + msb_nb_cid_supp,
+-			       _CIDCFGR_SCID_SHIFT);
++	uint32_t scid_mask = get_scid_mask(nb_cid_supp);
+ 
++	/* Take the semaphore */
+ 	io_setbits32(addr, _SEMCR_MUTEX);
+ 
+-	/* Check that cortex A has the semaphore */
+-	if (stm32_rif_is_semaphore_available(addr) ||
++	/* Check that the Cortex-A has the semaphore */
++	if (stm32_rif_semaphore_is_available(addr) ||
+ 	    ((io_read32(addr) & scid_mask) >> _CIDCFGR_SCID_SHIFT) != RIF_CID1)
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
+ 	return TEE_SUCCESS;
+ }
+ 
+-TEE_Result stm32_rif_release_semaphore(vaddr_t addr,
+-				       unsigned int nb_cid_supp)
++TEE_Result stm32_rif_release_semaphore(vaddr_t addr, unsigned int nb_cid_supp)
+ {
+-	unsigned int msb_nb_cid_supp = sizeof(nb_cid_supp) * 8 -
+-				       __builtin_clz(nb_cid_supp | 1) - 1;
+-	uint32_t scid_mask = 0;
+-
+-	/*
+-	 * SCID bitfield highend can't be > _CIDCFGR_SCID_SHIFT +
+-	 * MAX_CID_BITFIELD
+-	 */
+-	assert(msb_nb_cid_supp <= MAX_CID_BITFIELD);
++	uint32_t scid_mask = get_scid_mask(nb_cid_supp);
+ 
+-	if (stm32_rif_is_semaphore_available(addr))
++	if (stm32_rif_semaphore_is_available(addr))
+ 		return TEE_SUCCESS;
+ 
+-	scid_mask = GENMASK_32(_CIDCFGR_SCID_SHIFT + msb_nb_cid_supp,
+-			       _CIDCFGR_SCID_SHIFT);
+-
++	/* Release the semaphore */
+ 	io_clrbits32(addr, _SEMCR_MUTEX);
+ 
+-	/* Ok if another compartment takes the semaphore before the check */
+-	if (!stm32_rif_is_semaphore_available(addr) &&
++	/* Check that current compartment no more owns the semaphore */
++	if (!stm32_rif_semaphore_is_available(addr) &&
+ 	    ((io_read32(addr) & scid_mask) >> _CIDCFGR_SCID_SHIFT) == RIF_CID1)
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
+diff --git a/core/drivers/firewall/stm32_rifsc.c b/core/drivers/firewall/stm32_rifsc.c
+index 1c77d05b9..bcc6e3c14 100644
+--- a/core/drivers/firewall/stm32_rifsc.c
++++ b/core/drivers/firewall/stm32_rifsc.c
+@@ -106,6 +106,10 @@
+ #define RIFSC_RIMC_MSEC_MASK		BIT(8)
+ #define RIFSC_RIMC_MPRIV_MASK		BIT(9)
+ 
++#define _RIF_FLD_GET(field, value)	(((uint32_t)(value) & \
++					  (field ## _MASK)) >>\
++					 (field ## _SHIFT))
++
+ struct rifsc_driver_data {
+ 	uint32_t version;
+ 	uint8_t nb_rimu;
+@@ -521,31 +525,31 @@ static TEE_Result stm32_risup_cfg(struct rifsc_platdata *pdata,
+ 		}
+ 	}
+ 
+-	/*
+-	 * Take semaphore if the resource is in semaphore mode
+-	 * and secured.
+-	 */
+-	if (SEM_MODE_INCORRECT(risup->cid_attr) ||
+-	    !(io_read32(pdata->base + _RIFSC_RISC_SECCFGR0 + offset) &
+-	      BIT(shift))) {
+-		res = stm32_rif_release_semaphore(pdata->base +
+-						  _RIFSC_RISC_PER0_SEMCR +
+-						  cidcfgr_offset,
+-						  MAX_CID_SUPPORTED);
+-		if (res) {
+-			EMSG("Couldn't release semaphore for resource %u",
+-			     risup->id);
+-			return TEE_ERROR_ACCESS_DENIED;
+-		}
+-	} else {
+-		res = stm32_rif_acquire_semaphore(pdata->base +
+-						  _RIFSC_RISC_PER0_SEMCR +
+-						  cidcfgr_offset,
+-						  MAX_CID_SUPPORTED);
+-		if (res) {
+-			EMSG("Couldn't acquire semaphore for resource %u",
+-			     risup->id);
+-			return TEE_ERROR_ACCESS_DENIED;
++	/* Take semaphore if the resource is in semaphore mode and secured */
++	if (stm32_rif_semaphore_enabled_and_ok(risup->cid_attr, RIF_CID1)) {
++		if (!(io_read32(pdata->base + _RIFSC_RISC_SECCFGR0 + offset) &
++		      BIT(shift))) {
++			res =
++			stm32_rif_release_semaphore(pdata->base +
++						    _RIFSC_RISC_PER0_SEMCR +
++						    cidcfgr_offset,
++						    MAX_CID_SUPPORTED);
++			if (res) {
++				EMSG("Couldn't release semaphore for resource %"PRIu32,
++				     risup->id);
++				return TEE_ERROR_ACCESS_DENIED;
++			}
++		} else {
++			res =
++			stm32_rif_acquire_semaphore(pdata->base +
++						    _RIFSC_RISC_PER0_SEMCR +
++						    cidcfgr_offset,
++						    MAX_CID_SUPPORTED);
++			if (res) {
++				EMSG("Couldn't acquire semaphore for resource %"PRIu32,
++				     risup->id);
++				return TEE_ERROR_ACCESS_DENIED;
++			}
+ 		}
+ 	}
+ 
+@@ -716,45 +720,6 @@ static TEE_Result stm32_risal_setup(struct rifsc_platdata *pdata)
+ }
+ #endif /* defined(CFG_STM32MP25) */
+ 
+-TEE_Result stm32_rifsc_reconfigure_risup(unsigned int risup_id,
+-					 unsigned int cid,
+-					 bool sec, bool priv, bool cfen)
+-{
+-	unsigned int offset = sizeof(uint32_t) *
+-			      (risup_id / _PERIPH_IDS_PER_REG);
+-	TEE_Result res = TEE_ERROR_GENERIC;
+-	struct risup_cfg *risup = NULL;
+-
+-	if (risup_id > rifsc_pdata.drv_data->nb_risup ||
+-	    cid > MAX_CID_SUPPORTED)
+-		return TEE_ERROR_BAD_PARAMETERS;
+-
+-	risup = &rifsc_pdata.risup[risup_id];
+-
+-	if (io_read32(rifsc_pdata.base + _RIFSC_RISC_RCFGLOCKR0 + offset) &
+-	    BIT(risup_id % _PERIPH_IDS_PER_REG)) {
+-		DMSG("RIMU configuration is locked");
+-		return TEE_ERROR_ACCESS_DENIED;
+-	}
+-
+-	risup->cid_attr = cid << RIFSC_RISC_CIDCFGR_SCID_SHIFT;
+-	if (cfen)
+-		risup->cid_attr |= RIFSC_RISC_CIDCFGR_CFEN_MASK;
+-	else
+-		risup->cid_attr &= ~RIFSC_RISC_CIDCFGR_CFEN_MASK;
+-
+-	risup->sec = sec;
+-	risup->priv = priv;
+-
+-	res = stm32_risup_cfg(&rifsc_pdata, risup);
+-	if (res) {
+-		EMSG("RISUP %u reconfiguration error", risup_id);
+-		return res;
+-	}
+-
+-	return TEE_SUCCESS;
+-}
+-
+ bool stm32_rifsc_cid_is_enabled(unsigned int  rifc_id)
+ {
+ 	struct io_pa_va rifsc_addr = { .pa = RIFSC_BASE };
+@@ -832,9 +797,10 @@ static TEE_Result stm32_rifsc_check_access(struct firewall_query *firewall)
+ 		return TEE_SUCCESS;
+ 
+ 	if ((cidcfgr & _CIDCFGR_SEMEN &&
+-	     !SEM_EN_AND_OK(cidcfgr, cid_to_check)) ||
++	     !stm32_rif_semaphore_enabled_and_ok(cidcfgr, cid_to_check)) ||
+ 	    (!(cidcfgr & _CIDCFGR_SEMEN) &&
+-	     !SCID_OK(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK, cid_to_check)))
++	     !stm32_rif_scid_ok(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK,
++				cid_to_check)))
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+ 	return TEE_SUCCESS;
+@@ -880,7 +846,7 @@ static TEE_Result stm32_rifsc_acquire_access(struct firewall_query *firewall)
+ 		return TEE_SUCCESS;
+ 
+ 	if (cidcfgr & _CIDCFGR_SEMEN) {
+-		if (!SEM_EN_AND_OK(cidcfgr, RIF_CID1))
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+ 			return TEE_ERROR_BAD_PARAMETERS;
+ 
+ 		/* Take the semaphore, static CID is irrelevant here */
+@@ -890,7 +856,7 @@ static TEE_Result stm32_rifsc_acquire_access(struct firewall_query *firewall)
+ 						   MAX_CID_SUPPORTED);
+ 	}
+ 
+-	if (!SCID_OK(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK, RIF_CID1))
++	if (!stm32_rif_scid_ok(cidcfgr, RIFSC_RISC_CIDCFGR_SCID_MASK, RIF_CID1))
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
+ 	return TEE_SUCCESS;
+@@ -966,7 +932,7 @@ static void stm32_rifsc_release_access(struct firewall_query *firewall)
+ 			    _OFFSET_PERX_CIDCFGR * id);
+ 
+ 	/* Only thing possible is to release a semaphore taken by OP-TEE CID */
+-	if (SEM_EN_AND_OK(cidcfgr, RIF_CID1))
++	if (stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+ 		if (stm32_rif_release_semaphore(rifsc_base +
+ 						_RIFSC_RISC_PER0_SEMCR +
+ 						id * _OFFSET_PERX_CIDCFGR,
+@@ -1024,7 +990,9 @@ static TEE_Result stm32_rifsc_sem_pm_resume(void)
+ 		risup->lock = (bool)(lockcfgr & BIT(perih_offset));
+ 
+ 		/* Acquire available appropriate semaphores */
+-		if (SEM_MODE_INCORRECT(risup->cid_attr) || !risup->pm_sem)
++		if (!stm32_rif_semaphore_enabled_and_ok(risup->cid_attr,
++							RIF_CID1) ||
++		    !risup->pm_sem)
+ 			continue;
+ 
+ 		res = stm32_rif_acquire_semaphore(rifsc_pdata.base +
+diff --git a/core/drivers/nvmem/stm32_tamp_nvram.c b/core/drivers/nvmem/stm32_tamp_nvram.c
+index 05a903497..067eba3de 100644
+--- a/core/drivers/nvmem/stm32_tamp_nvram.c
++++ b/core/drivers/nvmem/stm32_tamp_nvram.c
+@@ -5,7 +5,7 @@
+ 
+ #include <assert.h>
+ #include <drivers/nvmem.h>
+-#include <dt-bindings/soc/stm32mp25-rif.h>
++#include <drivers/stm32mp_dt_bindings.h>
+ #include <initcall.h>
+ #include <io.h>
+ #include <kernel/dt.h>
+@@ -21,7 +21,11 @@
+ #include <types_ext.h>
+ #include <util.h>
+ 
++#if defined(CFG_STM32_RIF)
+ #define CURRENT_CID RIF_CID1
++#else
++#define CURRENT_CID 0x1
++#endif
+ #define NB_ZONES_STM32MP1 U(3)
+ #define NB_ZONES_STM32MP2 U(7)
+ 
+diff --git a/core/drivers/stm32_exti.c b/core/drivers/stm32_exti.c
+index 2b4f1d328..124f78824 100644
+--- a/core/drivers/stm32_exti.c
++++ b/core/drivers/stm32_exti.c
+@@ -295,7 +295,6 @@ static void stm32_exti_rif_parse_dt(struct stm32_exti_pdata *exti,
+ 		rif_conf = fdt32_to_cpu(cuint[i]);
+ 
+ 		stm32_rif_parse_cfg(rif_conf, &conf_data,
+-				    stm32_exti_maxcid(exti),
+ 				    stm32_exti_nbevents(exti));
+ 	}
+ 
+diff --git a/core/drivers/stm32_fmc.c b/core/drivers/stm32_fmc.c
+index 79d40796e..2022209c6 100644
+--- a/core/drivers/stm32_fmc.c
++++ b/core/drivers/stm32_fmc.c
+@@ -123,7 +123,7 @@ static TEE_Result apply_rif_config(void)
+ 		cidcfgr = io_read32(fmc_d->base + _FMC_CIDCFGR(i));
+ 
+ 		/* Check if the controller is in semaphore mode */
+-		if (SEM_MODE_INCORRECT(cidcfgr))
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+ 			continue;
+ 
+ 		/* If not TDCID, we want to acquire semaphores assigned to us */
+@@ -160,7 +160,7 @@ static TEE_Result apply_rif_config(void)
+ 		 * Take semaphore if the resource is in semaphore mode
+ 		 * and secured
+ 		 */
+-		if (SEM_MODE_INCORRECT(cidcfgr) ||
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1) ||
+ 		    !(io_read32(fmc_d->base + _FMC_SECCFGR) & BIT(i))) {
+ 			res =
+ 			stm32_rif_release_semaphore(fmc_d->base + _FMC_SEMCR(i),
+@@ -271,7 +271,6 @@ static TEE_Result parse_dt(const void *fdt, int node)
+ 		rif_conf = fdt32_to_cpu(cuint[i]);
+ 
+ 		stm32_rif_parse_cfg(rif_conf, fmc_d->conf_data,
+-				    FMC_NB_MAX_CID_SUPPORTED,
+ 				    FMC_RIF_CONTROLLERS);
+ 	}
+ 
+diff --git a/core/drivers/stm32_gpio.c b/core/drivers/stm32_gpio.c
+index 4eb50c1d8..383e23934 100644
+--- a/core/drivers/stm32_gpio.c
++++ b/core/drivers/stm32_gpio.c
+@@ -424,10 +424,11 @@ static bool pin_is_accessible(struct stm32_gpio_bank *bank, unsigned int pin)
+ 	if (!(cidcfgr & _CIDCFGR_CFEN)) {
+ 		/* Resource can be accessed when CID filtering is disabled */
+ 		accessible = true;
+-	} else if (SCID_OK(cidcfgr, GPIO_CIDCFGR_SCID_MASK, RIF_CID1)) {
++	} else if (stm32_rif_scid_ok(cidcfgr, GPIO_CIDCFGR_SCID_MASK,
++				     RIF_CID1)) {
+ 		/* Resource can be accessed if CID1 is statically allowed */
+ 		accessible = true;
+-	} else if (SEM_EN_AND_OK(cidcfgr, RIF_CID1)) {
++	} else if (stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1)) {
+ 		/* We must acquire the semaphore to access the resource */
+ 		res = stm32_rif_acquire_semaphore(bank->base + GPIO_SEMCR(pin),
+ 						  GPIO_MAX_CID_SUPPORTED);
+@@ -866,6 +867,7 @@ static bool bank_is_registered(const void *fdt, int node)
+ 	return false;
+ }
+ 
++#ifdef CFG_STM32_RIF
+ static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank,
+ 				   uint32_t gpios_mask)
+ {
+@@ -896,7 +898,7 @@ static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank,
+ 		cidcfgr = io_read32(bank->base + GPIO_CIDCFGR(i));
+ 
+ 		/* Check if the controller is in semaphore mode */
+-		if (SEM_MODE_INCORRECT(cidcfgr))
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+ 			continue;
+ 
+ 		/* If not TDCID, we want to acquire semaphores assigned to us */
+@@ -934,7 +936,7 @@ static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank,
+ 		 * Take semaphore if the resource is in semaphore mode
+ 		 * and secured.
+ 		 */
+-		if (SEM_MODE_INCORRECT(cidcfgr) ||
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1) ||
+ 		    !(io_read32(bank->base + GPIO_SECR_OFFSET) & BIT(i))) {
+ 			res = stm32_rif_release_semaphore(bank->base +
+ 				GPIO_SEMCR(i),
+@@ -987,6 +989,13 @@ out:
+ 
+ 	return res;
+ }
++#else /* CFG_STM32_RIF */
++static TEE_Result apply_rif_config(struct stm32_gpio_bank *bank __unused,
++				   uint32_t gpios_mask __unused)
++{
++	return TEE_SUCCESS;
++}
++#endif /* CFG_STM32_RIF */
+ 
+ /* Forward reference to stm32_gpio_set_conf_sec() defined below */
+ static void stm32_gpio_set_conf_sec(struct stm32_gpio_bank *bank);
+@@ -1020,7 +1029,7 @@ static TEE_Result stm32_gpio_fw_configure(struct firewall_query *firewall)
+ 		 * and apply it.
+ 		 */
+ 		stm32_rif_parse_cfg(firewall->args[0], bank->rif_cfg,
+-				    GPIO_MAX_CID_SUPPORTED, bank->ngpios);
++				    bank->ngpios);
+ 		return apply_rif_config(bank, gpios_mask);
+ 	}
+ 
+@@ -1104,7 +1113,7 @@ static void stm32_parse_gpio_rif_conf(struct stm32_gpio_bank *bank,
+ 
+ 	for (i = 0; i < nb_rif_conf; i++)
+ 		stm32_rif_parse_cfg(fdt32_to_cpu(cuint[i]), bank->rif_cfg,
+-				    GPIO_MAX_CID_SUPPORTED, bank->ngpios);
++				    bank->ngpios);
+ }
+ 
+ /* Get GPIO bank information from the DT */
+diff --git a/core/drivers/stm32_hpdma.c b/core/drivers/stm32_hpdma.c
+index 6ea88ee55..67101fd3c 100644
+--- a/core/drivers/stm32_hpdma.c
++++ b/core/drivers/stm32_hpdma.c
+@@ -144,7 +144,7 @@ static TEE_Result apply_rif_config(struct hpdma_pdata *hpdma_d, bool is_tdcid)
+ 		cidcfgr = io_read32(hpdma_d->base + _HPDMA_CIDCFGR(i));
+ 
+ 		/* Check if the channel is in semaphore mode */
+-		if (SEM_MODE_INCORRECT(cidcfgr))
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1))
+ 			continue;
+ 
+ 		/* If not TDCID, we want to acquire semaphores assigned to us */
+@@ -201,7 +201,7 @@ static TEE_Result apply_rif_config(struct hpdma_pdata *hpdma_d, bool is_tdcid)
+ 		 * Take semaphore if the resource is in semaphore
+ 		 * mode and secured.
+ 		 */
+-		if (SEM_MODE_INCORRECT(cidcfgr) ||
++		if (!stm32_rif_semaphore_enabled_and_ok(cidcfgr, RIF_CID1) ||
+ 		    !(io_read32(hpdma_d->base + _HPDMA_SECCFGR) & BIT(i))) {
+ 			res =
+ 			stm32_rif_release_semaphore(hpdma_d->base +
+@@ -305,7 +305,6 @@ static TEE_Result parse_dt(const void *fdt, int node,
+ 		rif_conf = fdt32_to_cpu(cuint[i]);
+ 
+ 		stm32_rif_parse_cfg(rif_conf, hpdma_d->conf_data,
+-				    HPDMA_NB_MAX_CID_SUPPORTED,
+ 				    HPDMA_RIF_CHANNELS);
+ 	}
+ 
+diff --git a/core/drivers/stm32_hsem.c b/core/drivers/stm32_hsem.c
+index f19cbb56d..34c130757 100644
+--- a/core/drivers/stm32_hsem.c
++++ b/core/drivers/stm32_hsem.c
+@@ -8,6 +8,7 @@
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+ #include <drivers/stm32_rif.h>
++#include <io.h>
+ #include <kernel/boot.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+@@ -57,7 +58,6 @@
+ #define HSEM_NB_SEM_GROUPS		U(4)
+ #define HSEM_NB_SEM_PER_GROUP		U(4)
+ 
+-#define HSEM_NB_MAX_CID_SUPPORTED	U(7)
+ #define HSEM_RIF_RESOURCES		U(16)
+ 
+ struct hsem_pdata {
+@@ -214,7 +214,6 @@ static TEE_Result parse_dt(const void *fdt, int node)
+ 		rif_conf = fdt32_to_cpu(cuint[i]);
+ 
+ 		stm32_rif_parse_cfg(rif_conf, &hsem_d->conf_data,
+-				    HSEM_NB_MAX_CID_SUPPORTED,
+ 				    HSEM_RIF_RESOURCES);
+ 	}
+ 
+diff --git a/core/drivers/stm32_ipcc.c b/core/drivers/stm32_ipcc.c
+index b8f98891a..a61369e1b 100644
+--- a/core/drivers/stm32_ipcc.c
++++ b/core/drivers/stm32_ipcc.c
+@@ -9,6 +9,7 @@
+ #include <drivers/clk_dt.h>
+ #include <drivers/stm32_rif.h>
+ #include <drivers/mailbox.h>
++#include <io.h>
+ #include <kernel/boot.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+@@ -98,8 +99,6 @@
+  */
+ #define IPCC_NB_MAX_RIF_CHAN		U(16)
+ 
+-#define IPCC_NB_MAX_CID_SUPPORTED	U(7)
+-
+ enum {
+ 	IPCC_ITR_RXO,
+ 	IPCC_ITR_TXF,
+@@ -714,7 +713,6 @@ static TEE_Result parse_dt(const void *fdt, int node, struct ipcc_pdata *ipcc_d)
+ 		rif_conf = fdt32_to_cpu(cuint[i]);
+ 
+ 		stm32_rif_parse_cfg(rif_conf, ipcc_d->conf_data,
+-				    IPCC_NB_MAX_CID_SUPPORTED,
+ 				    IPCC_NB_MAX_RIF_CHAN * 2);
+ 	}
+ 
+diff --git a/core/drivers/stm32_rtc.c b/core/drivers/stm32_rtc.c
+index c030f7c66..02ee6a8d7 100644
+--- a/core/drivers/stm32_rtc.c
++++ b/core/drivers/stm32_rtc.c
+@@ -837,7 +837,6 @@ static TEE_Result parse_dt(const void *fdt, int node)
+ 		rif_conf = fdt32_to_cpu(cuint[i]);
+ 
+ 		stm32_rif_parse_cfg(rif_conf, rtc_dev.conf_data,
+-				    RTC_NB_MAX_CID_SUPPORTED,
+ 				    RTC_NB_RIF_RESOURCES);
+ 	}
+ 
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index 72036bce5..26b3981ac 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -25,6 +25,7 @@
+ #if defined(CFG_STM32MP21)
+ #include <drivers/stm32mp21_rcc.h>
+ #endif
++#include <drivers/stm32mp_dt_bindings.h>
+ #include <io.h>
+ #include <kernel/boot.h>
+ #include <kernel/delay.h>
+@@ -251,7 +252,6 @@
+  * RIF miscellaneous
+  */
+ #define TAMP_RIF_RESOURCES		U(3)
+-#define TAMP_NB_MAX_CID_SUPPORTED	U(7)
+ 
+ enum stm32_tamp_out_id {
+ 	OUT_TAMP1 = LAST_TAMP,
+@@ -2006,7 +2006,6 @@ static TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
+ 			rif_conf = fdt32_to_cpu(cuint[i]);
+ 
+ 			stm32_rif_parse_cfg(rif_conf, pdata->conf_data,
+-					    TAMP_NB_MAX_CID_SUPPORTED,
+ 					    TAMP_RIF_RESOURCES);
+ 		}
+ 	}
+diff --git a/core/include/drivers/stm32_rif.h b/core/include/drivers/stm32_rif.h
+index 526f0040c..521824059 100644
+--- a/core/include/drivers/stm32_rif.h
++++ b/core/include/drivers/stm32_rif.h
+@@ -1,15 +1,14 @@
+-/* SPDX-License-Identifier: BSD-3-Clause */
++/* SPDX-License-Identifier: BSD-2-Clause */
+ /*
+- * Copyright (c) 2022, STMicroelectronics
++ * Copyright (c) 2022-2024, STMicroelectronics
+  */
+ 
+ #ifndef __DRIVERS_STM32_RIF_H
+ #define __DRIVERS_STM32_RIF_H
+ 
+ #include <drivers/stm32mp_dt_bindings.h>
+-#include <io.h>
+-#include <kernel/panic.h>
+-#include <mm/core_memprot.h>
++#include <tee_api_types.h>
++#include <types_ext.h>
+ #include <util.h>
+ 
+ /*
+@@ -31,40 +30,21 @@
+ /*
+  * Miscellaneous
+  */
+-#define MAX_CID_BITFIELD		U(3)
+-#define MAX_CID_SUPPORTED		U(7)
++#define MAX_CID_SUPPORTED		U(8)
+ 
+-#define _RIF_FLD_PREP(field, value)	(((uint32_t)(value) << \
+-					  (field ## _SHIFT)) & \
+-					 (field ## _MASK))
+-#define _RIF_FLD_GET(field, value)	(((uint32_t)(value) & \
+-					  (field ## _MASK)) >> \
+-					 (field ## _SHIFT))
++#define SCID_SHIFT			U(4)
++#define SEMWL_SHIFT			U(16)
+ 
+-#define SCID_OK(cidcfgr, scid_m, cid)	(((cidcfgr) & (scid_m)) ==	\
+-					 ((cid) << (_CIDCFGR_SCID_SHIFT)) && \
+-					 !((cidcfgr) & (_CIDCFGR_SEMEN)))
++#define RIF_CHANNEL_ID(x)		(RIF_PER_ID_MASK & (x))
+ 
+-#define SEM_EN_AND_OK(cidcfgr, wl)	(((cidcfgr) & _CIDCFGR_CFEN) &&  \
+-					 ((cidcfgr) & _CIDCFGR_SEMEN) && \
+-					 ((cidcfgr) & _CIDCFGR_SEMWL(wl)))
+-#ifdef CFG_STM32_RIF
+-#define SEM_MODE_INCORRECT(cidcfgr)	(!((cidcfgr) & _CIDCFGR_CFEN) ||  \
+-					 !((cidcfgr) & _CIDCFGR_SEMEN) || \
+-					 (!((cidcfgr) &			  \
+-					    _CIDCFGR_SEMWL(RIF_CID1)) &&  \
+-					  ((cidcfgr) & _CIDCFGR_SEMEN)))
+-#else /* CFG_STM32_RIF */
+-#define SEM_MODE_INCORRECT(cidcfgr)	(cidcfgr)
+-#endif /* CFG_STM32_RIF */
+-
+-/*
+- * Structure containing RIF configuration data
+- * @access_mask: Mask of the registers which will be configured.
++/**
++ * struct rif_conf_data - Structure containing RIF configuration data
++ *
++ * @access_mask: Array of the masks of the registers which will be configured.
+  * @sec_conf: Secure configuration registers.
+  * @priv_conf: Privilege configuration registers.
+- * @cid_confs: CID filtering configuration register value for an IP channel
+- *             (i.e: GPIO pins, FMC controllers)
++ * @cid_confs: CID filtering configuration register value for a peripheral
++ *             resource (e.g: GPIO pins, FMC controllers)
+  * @lock_conf: RIF configuration locking registers
+  *
+  * For a hardware block having 56 channels, there will be 56 cid_confs
+@@ -78,60 +58,81 @@ struct rif_conf_data {
+ 	uint32_t *lock_conf;
+ };
+ 
+-/* This function checks if execution context is TDCID or not.
+- * @tdcid_state: [out] Set to true if TDCID, false otherwise.
+- * Returns TEE_ERROR_DEFER_DRIVER_INIT if RIFSC driver isn't probed, TEE_SUCCESS
+- * otherwise.
+- */
+ #ifdef CFG_STM32_RIF
+-TEE_Result stm32_rifsc_check_tdcid(bool *tdcid_state);
+-#else
+-static inline TEE_Result stm32_rifsc_check_tdcid(bool *tdcid_state)
++/**
++ * stm32_rif_scid_ok() - Check if a given static CID configuration authorizes
++ *			 access to a given CID
++ *
++ * @cidcfgr: Value of the CIDCFGR register
++ * @scid_m: Mask of the static CID in the register
++ * @cid_to_check: CID of the target compartment
++ *
++ * Returns true if given CID is authorized, false otherwise.
++ */
++static inline bool stm32_rif_scid_ok(uint32_t cidcfgr, uint32_t scid_m,
++				     uint32_t cid_to_check)
+ {
+-	/* Without CFG_STM32_RIF every CPU can behave as TDCID */
+-	*tdcid_state = true;
++	return (cidcfgr & scid_m) ==
++		SHIFT_U32(cid_to_check, _CIDCFGR_SCID_SHIFT) &&
++	       !(cidcfgr & _CIDCFGR_SEMEN);
++}
+ 
+-	return TEE_SUCCESS;
++/**
++ * stm32_rif_semaphore_enabled_and_ok() - Check if semaphore mode is enabled and
++ *					  that a given CID can request the
++ *					  semaphore ownership
++ *
++ * @cidcfgr: Value of the cidcfgr register
++ * @cid_to_check: CID to check
++ *
++ * Returns true if the requested CID can request the semaphore ownership,
++ * false otherwise.
++ */
++static inline bool stm32_rif_semaphore_enabled_and_ok(uint32_t cidcfgr,
++						      uint32_t cid_to_check)
++{
++	return (cidcfgr & _CIDCFGR_CFEN) && (cidcfgr & _CIDCFGR_SEMEN) &&
++	       (cidcfgr & _CIDCFGR_SEMWL(cid_to_check));
+ }
+-#endif
+ 
+-/*
+- * Reconfigures a specific RISUP
++/**
++ * stm32_rifsc_check_tdcid() - Check if the execution context is TDCID or not
+  *
+- * @risup_id:	ID of the RISUP to reconfigure.
+- * @cid:	CID to set.
+- * @sec:	Peripheral is set to secure/non-secure
+- * @priv:	Peripheral is set to privileged/non-privileged
+- * @cfen:	Activate cid filetring
++ * @tdcid_state: [out] Set to true if TDCID, false otherwise.
+  *
+- * Returns TEE_SUCCESS in case of success.
+- * Returns TEE_ERROR_BAD_PARAMETERS if either the RISUP ID or the master cid is
+- * incorrect.
+- * Returns TEE_ERROR_ACCESS_DENIED if the RISUP can't be reconfigured.
+- * Returns any TEE_Result compliant code in case of error.
++ * Returns TEE_ERROR_DEFER_DRIVER_INIT if RIFSC driver isn't probed, TEE_SUCCESS
++ * otherwise.
+  */
+-TEE_Result stm32_rifsc_reconfigure_risup(unsigned int risup_id,
+-					 unsigned int cid,
+-					 bool sec, bool priv, bool cfen);
++TEE_Result stm32_rifsc_check_tdcid(bool *tdcid_state);
+ 
+-/*
+- * Reconfigures a specific RIMU
++/**
++ * stm32_rif_check_access() - Test peripheral access for a given compartment
+  *
+- * @id:		ID of the RIMU to reconfigure.
+- * @master_cid: CID that will be linked to the RIMU.
+- * @cid_sel:	Drives the inheritance of the CID of the RIMU.
+- * @sec:	Master is secure/non-secure
+- * @priv:	Master is privileged/non-privileged
++ * @cidcfgr: CIDCFGR configuration register value
++ * @semcr: SEMCR register value
++ * @nb_cid_supp: Number of supported CID for the peripheral
++ * @cid_to_check: CID of the target compartment
+  *
+- * Returns TEE_SUCCESS in case of success.
+- * Returns TEE_ERROR_BAD_PARAMETERS if either the RIMU ID or the master cid is
+- * incorrect.
+- * Returns TEE_ERROR_ACCESS_DENIED if the RIMU can't be reconfigured.
+- * Returns any TEE_Result compliant code in case of error.
++ * Returns TEE_SUCCESS if access is authorized, a TEE_Result error value
++ * otherwise.
+  */
+-TEE_Result stm32_rifsc_reconfigure_rimu(unsigned int id,
+-					unsigned int master_cid,
+-					bool cid_sel, bool sec, bool priv);
++TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
++				  uint32_t semcr,
++				  unsigned int nb_cid_supp,
++				  unsigned int cid_to_check);
++
++/**
++ * stm32_rif_parse_cfg() - Parse RIF config from Device Tree extracted
++ *			   information
++ *
++ * @rif_conf: Configuration read in the device tree
++ * @conf_data: Buffer containing the RIF configuration to apply for a peripheral
++ * @nb_cid_supp: Number of supported CID for the peripheral
++ * @nb_channel: Number of channels for the peripheral
++ */
++void stm32_rif_parse_cfg(uint32_t rif_conf,
++			 struct rif_conf_data *conf_data,
++			 unsigned int nb_channel);
+ 
+ /*
+  * Verify if CID filtering is enabled
+@@ -157,98 +158,111 @@ void stm32_rifsc_cid_enable(unsigned int risup_id);
+  */
+ void stm32_rifsc_cid_disable(unsigned int risup_id);
+ 
++/**
++ * stm32_rif_semaphore_is_available() - Checks if the _SEMCR_MUTEX bit is set
++ *
++ * @addr: Address of the register to read from
++ */
++bool stm32_rif_semaphore_is_available(vaddr_t addr);
++
++/**
++ * stm32_rif_semaphore_is_available() - Acquires the semaphore by setting the
++ *					_SEMCR_MUTEX bit
++ *
++ * @addr: Address of the register to write to
++ * @nb_cid_supp: Number of CID supported
++ */
++TEE_Result stm32_rif_acquire_semaphore(vaddr_t addr,
++				       unsigned int nb_cid_supp);
++
++/**
++ * stm32_rif_semaphore_is_available() - Releases the semaphore by clearing the
++ *					_SEMCR_MUTEX bit
++ *
++ * @addr: Address of the register to write to
++ * @nb_cid_supp: Number of CID supported
++ */
++TEE_Result stm32_rif_release_semaphore(vaddr_t addr,
++				       unsigned int nb_cid_supp);
++
+ /*
+- * Check every possible configuration where accessing RIF
+- * is possible :
+- * -When no CID filtering is enabled on a controller
+- * -When CID filtering is enabled on a controller, semaphore
+- *  is disabled, and static CID corresponds to Cortex A35
+- * -When CID filtering is enabled on a controller, semaphore
+- *  is enabled and is not taken, and Cortex A35 CID is
+- *  white-listed
+- * -When CID filtering is enabled on a controller, semaphore
+- *  is enabled and is taken, and Cortex A35 CID is
+- *  white-listed and semaphore is already taken by Cortex A35
++ * The action to take upon an access violation depends on the platform.
++ * Therefore, it should be defined at platform level.
+  */
+-#ifdef CFG_STM32_RIF
+-TEE_Result stm32_rif_check_access(uint32_t cidcfgr,
+-				  uint32_t semcr,
+-				  unsigned int nb_cid_supp,
+-				  unsigned int cid_to_check);
++void stm32_rif_access_violation_action(void);
+ #else
++static inline bool stm32_rif_stm32_rif_scid_ok(uint32_t cidcfgr __unused,
++					       uint32_t scid_m __unused,
++					       uint32_t cid_to_check __unused)
++{
++	return true;
++}
++
++static inline bool
++stm32_rif_semaphore_enabled_and_ok(uint32_t cidcfgr __unused,
++				   uint32_t cid_to_check __unused)
++{
++	return true;
++}
++
++static inline TEE_Result stm32_rifsc_check_tdcid(bool *tdcid_state __unused)
++{
++	/* Without CFG_STM32_RIF every CPU can behave as TDCID */
++	*tdcid_state = true;
++
++	return TEE_SUCCESS;
++}
++
+ static inline TEE_Result
+-		stm32_rif_check_access(uint32_t cidcfgr __unused,
+-				       uint32_t semcr __unused,
+-				       unsigned int nb_cid_supp __unused,
+-				       unsigned int cid_to_check __unused)
++stm32_rif_check_access(uint32_t cidcfgr __unused,
++		       uint32_t semcr __unused,
++		       unsigned int nb_cid_supp __unused,
++		       unsigned int cid_to_check __unused)
+ {
+ 	return TEE_SUCCESS;
+ }
+-#endif
+ 
+-/*
+- * Parse RIF config from Device Tree extracted information
+- * @rif_conf: Configuration read in the device tree
+- * @conf_data: Buffer containing the RIF configuration to apply for a peripheral
+- * @sec_conf: Buffer containing the secure RIF configuration for a peripheral
+- * @priv_conf: Buffer containing the CID RIF configuration for a peripheral's
+- * resources (i.e: GPIO pins, FMC controllers)
+- * @nb_cid_supp: Number of supported CID for the peripheral
+- * @nb_resource: Number of resources for the peripheral
+- */
+-#ifdef CFG_STM32_RIF
+-void stm32_rif_parse_cfg(uint32_t rif_conf,
+-			 struct rif_conf_data *conf_data,
+-			 unsigned int nb_cid_supp,
+-			 unsigned int nb_resource);
+-#else
+ static inline void
+ stm32_rif_parse_cfg(uint32_t rif_conf __unused,
+ 		    struct rif_conf_data *conf_data __unused,
+-		    unsigned int nb_cid_supp __unused,
+-		    unsigned int nb_resource __unused)
++		    unsigned int nb_channel __unused)
+ {
+ }
+-#endif
+ 
+-#ifdef CFG_STM32_RIF
+-/* RIF semaphore functions */
+-bool stm32_rif_is_semaphore_available(vaddr_t addr);
+-TEE_Result stm32_rif_acquire_semaphore(vaddr_t addr,
+-				       unsigned int nb_cid_supp);
+-TEE_Result stm32_rif_release_semaphore(vaddr_t addr,
+-				       unsigned int nb_cid_supp);
+-#else
+-static inline bool stm32_rif_is_semaphore_available(vaddr_t addr __unused)
++static inline bool stm32_rif_semaphore_is_available(vaddr_t addr __unused)
+ {
+ 	return true;
+ }
+ 
+ static inline TEE_Result
+-		stm32_rif_acquire_semaphore(vaddr_t addr __unused,
+-					    unsigned int nb_cid_supp __unused)
++stm32_rif_acquire_semaphore(vaddr_t addr __unused,
++			    unsigned int nb_cid_supp __unused)
+ {
+ 	return TEE_SUCCESS;
+ }
+ 
+ static inline TEE_Result
+-		stm32_rif_release_semaphore(vaddr_t addr __unused,
+-					    unsigned int nb_cid_supp __unused)
++stm32_rif_release_semaphore(vaddr_t addr __unused,
++			    unsigned int nb_cid_supp __unused)
+ {
+ 	return TEE_SUCCESS;
+ }
+-#endif
+ 
+-/*
+- * The action to take upon an access violation depends on the platform.
+- * Therefore, it should be defined at platform level
+- */
+-#ifdef CFG_STM32_RIF
+-void stm32_rif_access_violation_action(void);
+-#else /* CFG_STM32_RIF */
+ static inline void stm32_rif_access_violation_action(void)
+ {
+ }
+-#endif /* CFG_STM32_RIF */
+ 
++static inline bool stm32_rifsc_cid_is_enabled(unsigned int risup_id __unused)
++{
++	return false;
++}
++
++static inline void stm32_rifsc_cid_enable(unsigned int risup_id __unused)
++{
++}
++
++static inline void stm32_rifsc_cid_disable(unsigned int risup_id __unused)
++{
++}
++#endif /* CFG_STM32_RIF */
+ #endif /* __DRIVERS_STM32_RIF_H */
+-- 
+2.47.2
+

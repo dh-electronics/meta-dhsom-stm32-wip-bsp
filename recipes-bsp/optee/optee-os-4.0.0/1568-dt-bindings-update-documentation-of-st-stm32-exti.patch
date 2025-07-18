@@ -1,0 +1,98 @@
+From 4cab5568fdcce63ef2c8eea21c37683d8fb597b8 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Wed, 29 Jan 2025 15:12:34 +0100
+Subject: [PATCH 1568/1695] dt-bindings: update documentation of st,stm32-exti
+
+Align the binding with Linux kernel.
+Drop 'interrupt-map' and use 'interrupts-extended' property.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 45772e6a44453a7dc73c99d7091aaa56efe5cbfb dt-bindings: update documentation of st,stm32-exti]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I906cf3b260932ef7deb24d2cceb097ab36534060
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434915
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../interrupt-controller/st,stm32-exti.yaml   | 39 ++++++-------------
+ 1 file changed, 11 insertions(+), 28 deletions(-)
+
+diff --git a/documentation/devicetree/bindings/interrupt-controller/st,stm32-exti.yaml b/documentation/devicetree/bindings/interrupt-controller/st,stm32-exti.yaml
+index 0c43b1fbe..e78359eaf 100644
+--- a/documentation/devicetree/bindings/interrupt-controller/st,stm32-exti.yaml
++++ b/documentation/devicetree/bindings/interrupt-controller/st,stm32-exti.yaml
+@@ -4,11 +4,11 @@
+ $id: http://devicetree.org/schemas/interrupt-controller/st,stm32-exti.yaml#
+ $schema: http://devicetree.org/meta-schemas/core.yaml#
+ 
+-title: STM32 External Interrupt Controller Device Tree Bindings
++title: STM32 External Interrupt Controller
+ 
+ maintainers:
+-  - Alexandre Torgue <alexandre.torgue@st.com>
+-  - Ludovic Barre <ludovic.barre@st.com>
++  - Alexandre Torgue <alexandre.torgue@foss.st.com>
++  - Ludovic Barre <ludovic.barre@foss.st.com>
+ 
+ properties:
+   compatible:
+@@ -112,22 +112,6 @@ properties:
+       the EXTI RIF configuration. When set, Security, privilege, and CID
+       configurations are locked and can't be modified until next reset.
+ 
+-patternProperties:
+-  '^exti-interrupt-map$':
+-    type: object
+-    properties:
+-      interrupt-map: true
+-      interrupt-map-mask: true
+-      "#interrupt-cells":
+-        const: 2
+-      "#address-cells":
+-        const: 0
+-
+-    required:
+-      - interrupt-map
+-      - "#interrupt-cells"
+-      - "#address-cells"
+-
+ required:
+   - "#interrupt-cells"
+   - compatible
+@@ -185,24 +169,23 @@ examples:
+         reg = <0x5000d000 0x400>;
+     };
+ 
++  - |
+     //Example 2
++    #include <dt-bindings/interrupt-controller/arm-gic.h>
+     exti2: interrupt-controller@5000d000 {
+         compatible = "st,stm32mp1-exti", "syscon";
+         interrupt-controller;
+         #interrupt-cells = <2>;
+         reg = <0x5000d000 0x400>;
+         wakeup-parent = <&pwr_irq>;
+-        exti-interrupt-map {
+-            #address-cells = <0>;
+-            #interrupt-cells = <2>;
+-            interrupt-map-mask = <0xffffffff 0>;
+-            interrupt-map =
+-                <0 0 &intc GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>,
+-                <3 0 &intc GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>,
+-                <55 0 &pwr_irq 0 IRQ_TYPE_EDGE_FALLING 0>;
+-        };
++        interrupts-extended =
++            <&intc GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>,
++            <0>,
++            <&pwr_irq 0 IRQ_TYPE_EDGE_FALLING 0>,
++            <&intc GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;
+     };
+ 
++  - |
+     //Example 3
+     exti3: interrupt-controller@40013c00 {
+         compatible = "st,stm32-exti";
+-- 
+2.47.2
+

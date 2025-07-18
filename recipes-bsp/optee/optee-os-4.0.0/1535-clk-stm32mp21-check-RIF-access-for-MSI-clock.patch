@@ -1,0 +1,54 @@
+From f7df980dc31612dc6d7b033e141b143d9ffb8e3e Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 14 Feb 2025 16:40:00 +0100
+Subject: [PATCH 1535/1695] clk: stm32mp21: check RIF access for MSI clock
+
+In case of M33 TDCID don't enable MSI clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1a6a7f19689941439644181a1c54695b63c71e91 clk: stm32mp21: check RIF access for MSI clock]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I4e18e64fe99f709358c49b955a0c9d342e4c7932
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/437401
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp21.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index 91e4d1e09..7365ac578 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -913,9 +913,17 @@ static void stm32_enable_oscillator_lsi(struct clk_stm32_priv *priv __unused,
+ 		panic("timeout to enable lsi clock");
+ }
+ 
+-static void stm32_enable_oscillator_msi(void)
++static void stm32_enable_oscillator_msi(struct clk_stm32_priv *priv __unused,
++					struct stm32_clk_platdata *pdata)
+ {
+ 	struct clk_oscillator_data *osc_data = clk_oscillator_get_data(OSC_MSI);
++	struct stm32_osci_dt_cfg *osci = &pdata->osci[OSC_MSI];
++
++	if (!stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
++		return;
++
++	if (osci->freq == 0U)
++		return;
+ 
+ 	/* Enable clock and wait ready bit */
+ 	if (stm32_gate_rdy_enable(osc_data->gate_id))
+@@ -956,7 +964,7 @@ static void stm32_clk_oscillators_enable(struct clk_stm32_priv *priv,
+ 	stm32_enable_oscillator_hse(priv, pdata);
+ 	stm32_enable_oscillator_lse(priv, pdata);
+ 	stm32_enable_oscillator_lsi(priv, pdata);
+-	stm32_enable_oscillator_msi();
++	stm32_enable_oscillator_msi(priv, pdata);
+ }
+ 
+ enum stm32_pll_id {
+-- 
+2.47.2
+

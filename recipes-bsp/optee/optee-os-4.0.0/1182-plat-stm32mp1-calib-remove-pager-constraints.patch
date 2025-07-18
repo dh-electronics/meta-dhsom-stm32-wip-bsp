@@ -1,0 +1,74 @@
+From d27b160595f9f2db9d5b4039592cfa269f13ecb3 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 5 Jul 2024 06:51:16 +0200
+Subject: [PATCH 1182/1695] plat-stm32mp1: calib: remove pager constraints
+
+Remove the unpaged declaration on calibration functions since they are
+not needed. Only the suspend/resume PM callback need to be resident
+in secure memory when pager is enabled.
+
+Remove local function stm32mp_alarm_calib() that is not used.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cf27f0422a41e3212d1dfa41e65daeb1624c24cd plat-stm32mp1: calib: remove pager constraints]
+Change-Id: Ida8f609841ee5788ccd090e52d9dab8815e9b9a1
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391999
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c | 10 ----------
+ 1 file changed, 10 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c
+index aeb48b4f3..f73147603 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c
+@@ -138,7 +138,6 @@ static unsigned int stm32mp1_clk_hsi_get_cal(void)
+ 	return (io_read32(stm32_rcc_base() + RCC_HSICFGR) &
+ 		RCC_HSICFGR_HSICAL_MASK_LIMITED) >> RCC_HSICFGR_HSICAL_SHIFT;
+ }
+-DECLARE_KEEP_PAGER(stm32mp1_clk_hsi_get_cal);
+ 
+ static void stm32mp1_clk_hsi_set_trim(unsigned int cal, unsigned int cal_ref)
+ {
+@@ -152,14 +151,12 @@ static void stm32mp1_clk_hsi_set_trim(unsigned int cal, unsigned int cal_ref)
+ 	io_clrsetbits32(stm32_rcc_base() + RCC_HSICFGR,
+ 			RCC_HSICFGR_HSITRIM_MASK, trim);
+ }
+-DECLARE_KEEP_PAGER(stm32mp1_clk_hsi_set_trim);
+ 
+ static unsigned int stm32mp1_clk_csi_get_cal(void)
+ {
+ 	return (io_read32(stm32_rcc_base() + RCC_CSICFGR) &
+ 		RCC_CSICFGR_CSICAL_MASK) >> RCC_CSICFGR_CSICAL_SHIFT;
+ }
+-DECLARE_KEEP_PAGER(stm32mp1_clk_csi_get_cal);
+ 
+ static void stm32mp1_clk_csi_set_trim(unsigned int cal, unsigned int cal_ref)
+ {
+@@ -172,7 +169,6 @@ static void stm32mp1_clk_csi_set_trim(unsigned int cal, unsigned int cal_ref)
+ 	io_clrsetbits32(stm32_rcc_base() + RCC_CSICFGR,
+ 			RCC_CSICFGR_CSITRIM_MASK, trim);
+ }
+-DECLARE_KEEP_PAGER(stm32mp1_clk_csi_set_trim);
+ 
+ static unsigned long get_freq(struct stm32mp1_clk_cal *clk_cal)
+ {
+@@ -412,12 +408,6 @@ static void stm32mp_start_clock_calib(struct stm32mp1_osc_cal *calib)
+ 	}
+ }
+ 
+-static void stm32mp_alarm_calib(unsigned int ticks __maybe_unused, void *priv)
+-{
+-	stm32mp_start_clock_calib((struct stm32mp1_osc_cal *)priv);
+-}
+-DECLARE_KEEP_PAGER(stm32mp_alarm_calib);
+-
+ static void set_cal_counter(struct counter_calib *cnt_cal,
+ 			    const void *fdt, int node)
+ {
+-- 
+2.47.2
+

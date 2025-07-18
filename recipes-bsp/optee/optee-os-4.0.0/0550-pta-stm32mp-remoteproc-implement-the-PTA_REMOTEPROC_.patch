@@ -1,0 +1,135 @@
+From 9b6efc41bc553eb5d10ca716cfc30e32fb326dbc Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Fri, 16 Sep 2022 15:08:29 +0200
+Subject: [PATCH 0550/1695] pta: stm32mp: remoteproc: implement the
+ PTA_REMOTEPROC_TLV_PARAM API
+
+This new API allows the remoteproc TA to provide platform TLV
+parameters to the platform.
+
+For time being two platform TLVs are predefined, aligned with the
+scripts/sign_rproc_fw.py signature tools:
+- the boot address,
+- the boot mode: boot with the TrustZone enable or disable(default)
+
+Theses values are forwarded to the stm32_remoteproc driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7d73826c08ccfa281c9d31054ef927b404ac16b5 pta: stm32mp: remoteproc: implement the PTA_REMOTEPROC_TLV_PARAM API]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I1fa2e2193b85624d19a3fba1e1de2b4339c78f0c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/348404
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/pta/stm32mp/remoteproc_pta.c    | 47 ++++++++++++++++++++++++++++
+ lib/libutee/include/remoteproc_pta.h | 21 +++++++++++++
+ 2 files changed, 68 insertions(+)
+
+diff --git a/core/pta/stm32mp/remoteproc_pta.c b/core/pta/stm32mp/remoteproc_pta.c
+index b2eed7f25..eaf4ef059 100644
+--- a/core/pta/stm32mp/remoteproc_pta.c
++++ b/core/pta/stm32mp/remoteproc_pta.c
+@@ -293,6 +293,51 @@ static TEE_Result rproc_pta_verify_digest(uint32_t pt,
+ 					      keyinfo->algo);
+ }
+ 
++static TEE_Result rproc_pta_tlv_param(uint32_t pt,
++				      TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_NONE);
++	uint32_t type_id = 0;
++	uint32_t *paddr = 0;
++	bool sec_enable = 0;
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	type_id = params[1].value.a;
++
++	switch (type_id) {
++	case PTA_REMOTEPROC_TLV_BOOTADDR:
++		if (params[2].memref.size != PTA_REMOTEPROC_TLV_BOOTADDR_LGTH)
++			return TEE_ERROR_CORRUPT_OBJECT;
++
++		paddr = params[2].memref.buffer;
++
++		return stm32_rproc_set_boot_address(params[0].value.a, *paddr);
++
++	case PTA_REMOTEPROC_TLV_BOOT_SEC:
++		if (params[2].memref.size != PTA_REMOTEPROC_TLV_BOOT_SEC_LGTH)
++			return TEE_ERROR_CORRUPT_OBJECT;
++
++		sec_enable = !!params[2].memref.buffer;
++		if (!sec_enable)
++			return TEE_SUCCESS;
++
++		return stm32_rproc_enable_sec_boot(params[0].value.a);
++
++	default:
++		break;
++	}
++
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
+ static TEE_Result rproc_pta_invoke_command(void *session __unused,
+ 					   uint32_t cmd_id,
+ 					   uint32_t param_types,
+@@ -313,6 +358,8 @@ static TEE_Result rproc_pta_invoke_command(void *session __unused,
+ 		return rproc_pta_da_to_pa(param_types, params);
+ 	case PTA_RPROC_VERIFY_DIGEST:
+ 		return rproc_pta_verify_digest(param_types, params);
++	case PTA_REMOTEPROC_TLV_PARAM:
++		return rproc_pta_tlv_param(param_types, params);
+ 	default:
+ 		return TEE_ERROR_NOT_IMPLEMENTED;
+ 	}
+diff --git a/lib/libutee/include/remoteproc_pta.h b/lib/libutee/include/remoteproc_pta.h
+index e4be4becd..0520e8d1b 100644
+--- a/lib/libutee/include/remoteproc_pta.h
++++ b/lib/libutee/include/remoteproc_pta.h
+@@ -24,6 +24,16 @@
+ /* The platform supports load of segment with hash protection */
+ #define PTA_RPROC_HWCAP_PROT_HASH_TABLE	BIT32(0)
+ 
++/* Platform predefined TLV ID */
++/* boot address of the remoteproc firmware */
++#define PTA_REMOTEPROC_TLV_BOOTADDR		U(0x00010001)
++/* Activate secure boot */
++#define PTA_REMOTEPROC_TLV_BOOT_SEC		U(0x00010002)
++
++/* Platform predefined TLV LENGTH (byte) */
++#define PTA_REMOTEPROC_TLV_BOOTADDR_LGTH	U(4)
++#define PTA_REMOTEPROC_TLV_BOOT_SEC_LGTH	U(4)
++
+ /**
+  * struct rproc_pta_key_info - public key information
+  * @algo:	Algorithm, defined by public key algorithms TEE_ALG_*
+@@ -147,4 +157,15 @@ static inline size_t rproc_pta_keyinfo_size(struct rproc_pta_key_info *keyinf)
+  */
+ #define PTA_RPROC_VERIFY_DIGEST		8
+ 
++/*
++ * Provide platform parameter in Type-Length-Value format
++ *
++ * Return TEE_SUCCESS if the TLV is valid, else an error
++ *
++ * [in]  params[0].value.a:	Unique 32bit remote processor identifier
++ * [in]  params[1].value.a:	16bit Type identifier
++ * [in]  params[2].memref:	Value associated to the type ID
++ */
++#define PTA_REMOTEPROC_TLV_PARAM	9
++
+ #endif /* __REMOTEPROC_PTA_H */
+-- 
+2.47.2
+

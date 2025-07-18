@@ -1,0 +1,91 @@
+From 5fdbd90d6adfb1754e7546069ed943a738a5a9b2 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 11 Sep 2024 15:14:54 +0200
+Subject: [PATCH 1193/1695] core: kernel: consider thread PM context in PM
+ aware mutex
+
+Use thread flags to identify PM thread execution context.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 89466d3e07e1bc1847ca93b97cbec07fef850995 core: kernel: consider thread PM context in PM aware mutex]
+Change-Id: I67a72673f85a56446f0bb7b7327ba6cfd9bd1e94
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/403872
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/include/kernel/thread.h |  5 +++++
+ core/kernel/mutex.c          |  4 ++--
+ core/kernel/thread.c         | 17 +++++++++++++++++
+ 3 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/core/include/kernel/thread.h b/core/include/kernel/thread.h
+index e48f9b4fa..d20dd8b84 100644
+--- a/core/include/kernel/thread.h
++++ b/core/include/kernel/thread.h
+@@ -120,6 +120,11 @@ short int thread_get_id(void);
+  */
+ short int thread_get_id_may_fail(void);
+ 
++/*
++ * Returns true if the thread is for used for PM, false otherwise.
++ */
++bool thread_is_for_pm(void);
++
+ /* Returns Thread Specific Data (TSD) pointer. */
+ struct thread_specific_data *thread_get_tsd(void);
+ 
+diff --git a/core/kernel/mutex.c b/core/kernel/mutex.c
+index dfdb75912..64dc7437f 100644
+--- a/core/kernel/mutex.c
++++ b/core/kernel/mutex.c
+@@ -355,7 +355,7 @@ void mutex_pm_aware_destroy(struct mutex_pm_aware *m)
+ 
+ void mutex_pm_aware_lock(struct mutex_pm_aware *m)
+ {
+-	if (thread_get_id_may_fail() == THREAD_ID_INVALID) {
++	if (thread_is_for_pm()) {
+ 		if (!cpu_spin_trylock(&m->lock) || m->mutex.state)
+ 			panic();
+ 	} else {
+@@ -367,7 +367,7 @@ void mutex_pm_aware_lock(struct mutex_pm_aware *m)
+ 
+ void mutex_pm_aware_unlock(struct mutex_pm_aware *m)
+ {
+-	if (thread_get_id_may_fail() == THREAD_ID_INVALID) {
++	if (thread_is_for_pm()) {
+ 		assert(!m->mutex.state);
+ 		cpu_spin_unlock(&m->lock);
+ 	} else {
+diff --git a/core/kernel/thread.c b/core/kernel/thread.c
+index 2a1f22dce..c088c30dd 100644
+--- a/core/kernel/thread.c
++++ b/core/kernel/thread.c
+@@ -401,6 +401,23 @@ short int __noprof thread_get_id_may_fail(void)
+ 	return ct;
+ }
+ 
++bool __noprof thread_is_for_pm(void)
++{
++	/*
++	 * thread_get_core_local() requires foreign interrupts to be disabled
++	 */
++	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
++	struct thread_core_local *l = thread_get_core_local();
++	short int ct = l->curr_thread;
++	bool rc = false;
++
++	rc = (ct == THREAD_ID_INVALID) ||
++	     (threads[ct].flags & THREAD_FLAGS_PM_SEQUENCE);
++
++	thread_unmask_exceptions(exceptions);
++	return rc;
++}
++
+ short int __noprof thread_get_id(void)
+ {
+ 	short int ct = thread_get_id_may_fail();
+-- 
+2.47.2
+

@@ -1,0 +1,55 @@
+From 8195a152d55df10272fca12f9603d17de729539e Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 31 May 2024 11:05:20 +0200
+Subject: [PATCH 0918/1695] plat-stm32mp1: drivers: drop usage of old firewall
+ in PMIC driver
+
+Drop usage of old firewall stm32_firewall_check_access() API in the
+stm32mp1_pmic.c driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git aa3d3fe19dc5ccfca3ec3be05df1b95f3d20eb17 plat-stm32mp1: drivers: drop usage of old firewall in PMIC driver]
+Change-Id: Ief3a95985cd92cbfe2b10a4d2478d510996be5b0
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/384284
+Reviewed-by: Sebastien PASDELOUP <sebastien.pasdeloup-ext@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c | 12 +-----------
+ 1 file changed, 1 insertion(+), 11 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+index b5517b07d..faf91b10b 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+@@ -6,7 +6,6 @@
+ #include <assert.h>
+ #include <drivers/i2c.h>
+ #include <drivers/regulator.h>
+-#include <drivers/stm32_firewall.h>
+ #include <drivers/stm32_i2c.h>
+ #include <drivers/stm32mp1_pmic.h>
+ #include <drivers/stm32mp1_pwr.h>
+@@ -792,16 +791,7 @@ static void register_secure_pmic(void)
+ 
+ static void init_pmic_secure_state(void)
+ {
+-	TEE_Result res = TEE_SUCCESS;
+-	const struct stm32_firewall_cfg sec_cfg[] = {
+-		{ FWLL_SEC_RW | FWLL_MASTER(0) },
+-		{ }, /* Null terminated */
+-	};
+-
+-	res = stm32_firewall_check_access(i2c_handle->base.pa,
+-					  0, sec_cfg);
+-
+-	if (!res)
++	if (i2c_handle->i2c_secure)
+ 		pmic_status = DT_STATUS_OK_SEC;
+ 	else
+ 		pmic_status = DT_STATUS_OK_NSEC;
+-- 
+2.47.2
+

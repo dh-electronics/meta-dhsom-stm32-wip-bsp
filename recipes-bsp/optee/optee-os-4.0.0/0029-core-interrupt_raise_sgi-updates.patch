@@ -1,0 +1,197 @@
+From b3591ef254e42bf9c3a5848970fef1b7fba10882 Mon Sep 17 00:00:00 2001
+From: Jens Wiklander <jens.wiklander@linaro.org>
+Date: Mon, 23 Oct 2023 16:28:24 +0200
+Subject: [PATCH 0029/1695] core: interrupt_raise_sgi() updates
+
+Adds ITR_CPU_MASK_TO_THIS_CPU and ITR_CPU_MASK_TO_OTHER_CPUS to simplify
+targeting CPUs in some use cases. The cpu_mask parameter is changed to a
+uint32_t to make room for the two new flags.
+
+The gic driver is updated to support this new flag.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1eae9ecc96ae62b7ef9262fab8627799bd92b60f core: interrupt_raise_sgi() updates]
+Change-Id: I5d0f74632f7adb01979c9bf47760212580eb8591
+Signed-off-by: Jens Wiklander <jens.wiklander@linaro.org>
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+[etienne: cherry-picked from ec740b9fe95ef2c24769caeaf0f3cb32ec13c84c]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/gic.c              | 88 ++++++++++++++++++++++++++-------
+ core/include/kernel/interrupt.h | 13 +++--
+ 2 files changed, 80 insertions(+), 21 deletions(-)
+
+diff --git a/core/drivers/gic.c b/core/drivers/gic.c
+index 6d5b7777c..48f4b6d82 100644
+--- a/core/drivers/gic.c
++++ b/core/drivers/gic.c
+@@ -71,6 +71,18 @@
+ #define GICC_IAR_CPU_ID_MASK	0x7
+ #define GICC_IAR_CPU_ID_SHIFT	10
+ 
++#define GICC_SGI_IRM_BIT	40
++#define GICC_SGI_AFF1_SHIFT	16
++#define GICC_SGI_AFF2_SHIFT	32
++#define GICC_SGI_AFF3_SHIFT	48
++
++#define GICD_SGIR_SIGINTID_MASK			0xf
++#define GICD_SGIR_TO_OTHER_CPUS			0x1
++#define GICD_SGIR_TO_THIS_CPU			0x2
++#define GICD_SGIR_TARGET_LIST_FILTER_SHIFT	24
++#define GICD_SGIR_NSATT_SHIFT			15
++#define GICD_SGIR_CPU_TARGET_LIST_SHIFT		16
++
+ struct gic_data {
+ 	vaddr_t gicc_base;
+ 	vaddr_t gicd_base;
+@@ -86,7 +98,7 @@ static void gic_op_enable(struct itr_chip *chip, size_t it);
+ static void gic_op_disable(struct itr_chip *chip, size_t it);
+ static void gic_op_raise_pi(struct itr_chip *chip, size_t it);
+ static void gic_op_raise_sgi(struct itr_chip *chip, size_t it,
+-			uint8_t cpu_mask);
++			     uint32_t cpu_mask);
+ static void gic_op_set_affinity(struct itr_chip *chip, size_t it,
+ 			uint8_t cpu_mask);
+ 
+@@ -389,22 +401,50 @@ static void gic_it_set_pending(struct gic_data *gd, size_t it)
+ 	io_write32(gd->gicd_base + GICD_ISPENDR(idx), mask);
+ }
+ 
++static void assert_cpu_mask_is_valid(uint32_t cpu_mask)
++{
++	bool __maybe_unused to_others = cpu_mask & ITR_CPU_MASK_TO_OTHER_CPUS;
++	bool __maybe_unused to_current = cpu_mask & ITR_CPU_MASK_TO_THIS_CPU;
++	bool __maybe_unused to_list = cpu_mask & 0xff;
++
++	/* One and only one of the bit fields shall be non-zero */
++	assert(to_others + to_current + to_list == 1);
++}
++
+ static void gic_it_raise_sgi(struct gic_data *gd __maybe_unused, size_t it,
+-			     uint8_t cpu_mask, uint8_t group)
++			     uint32_t cpu_mask, uint8_t group)
+ {
+ #if defined(CFG_ARM_GICV3)
+-	/* Only support sending SGI to the cores in the same cluster now */
+ 	uint32_t mask_id = it & 0xf;
+-	uint32_t mask_cpu = cpu_mask & 0xff;
+-	uint64_t mpidr = read_mpidr();
+-	uint64_t mask_aff1 = (mpidr & MPIDR_AFF1_MASK) >> MPIDR_AFF1_SHIFT;
+-	uint64_t mask_aff2 = (mpidr & MPIDR_AFF2_MASK) >> MPIDR_AFF2_SHIFT;
+-	uint64_t mask_aff3 = (mpidr & MPIDR_AFF3_MASK) >> MPIDR_AFF3_SHIFT;
+-	uint64_t mask = (mask_cpu |
+-			SHIFT_U64(mask_aff1, 16) |
+-			SHIFT_U64(mask_id, 24)   |
+-			SHIFT_U64(mask_aff2, 32) |
+-			SHIFT_U64(mask_aff3, 48));
++	uint64_t mask = SHIFT_U64(mask_id, 24);
++
++	assert_cpu_mask_is_valid(cpu_mask);
++
++	if (cpu_mask & ITR_CPU_MASK_TO_OTHER_CPUS) {
++		mask |= BIT64(GICC_SGI_IRM_BIT);
++	} else {
++		uint64_t mpidr = read_mpidr();
++		uint64_t mask_aff1 = (mpidr & MPIDR_AFF1_MASK) >>
++				     MPIDR_AFF1_SHIFT;
++		uint64_t mask_aff2 = (mpidr & MPIDR_AFF2_MASK) >>
++				     MPIDR_AFF2_SHIFT;
++		uint64_t mask_aff3 = (mpidr & MPIDR_AFF3_MASK) >>
++				     MPIDR_AFF3_SHIFT;
++
++		mask |= SHIFT_U64(mask_aff1, GICC_SGI_AFF1_SHIFT);
++		mask |= SHIFT_U64(mask_aff2, GICC_SGI_AFF2_SHIFT);
++		mask |= SHIFT_U64(mask_aff3, GICC_SGI_AFF3_SHIFT);
++
++		if (cpu_mask & ITR_CPU_MASK_TO_THIS_CPU) {
++			mask |= BIT32(mpidr & 0xf);
++		} else {
++			/*
++			 * Only support sending SGI to the cores in the
++			 * same cluster now.
++			 */
++			mask |= cpu_mask & 0xff;
++		}
++	}
+ 
+ 	/* Raise the interrupt */
+ 	if (group)
+@@ -412,11 +452,23 @@ static void gic_it_raise_sgi(struct gic_data *gd __maybe_unused, size_t it,
+ 	else
+ 		write_icc_sgi1r(mask);
+ #else
+-	uint32_t mask_id = it & 0xf;
++	uint32_t mask_id = it & GICD_SGIR_SIGINTID_MASK;
+ 	uint32_t mask_group = group & 0x1;
+-	uint32_t mask_cpu = cpu_mask & 0xff;
+-	uint32_t mask = (mask_id | SHIFT_U32(mask_group, 15) |
+-		SHIFT_U32(mask_cpu, 16));
++	uint32_t mask = mask_id;
++
++	assert_cpu_mask_is_valid(cpu_mask);
++
++	mask |= SHIFT_U32(mask_group, GICD_SGIR_NSATT_SHIFT);
++	if (cpu_mask & ITR_CPU_MASK_TO_OTHER_CPUS) {
++		mask |= SHIFT_U32(GICD_SGIR_TO_OTHER_CPUS,
++				  GICD_SGIR_TARGET_LIST_FILTER_SHIFT);
++	} else if (cpu_mask & ITR_CPU_MASK_TO_THIS_CPU) {
++		mask |= SHIFT_U32(GICD_SGIR_TO_THIS_CPU,
++				  GICD_SGIR_TARGET_LIST_FILTER_SHIFT);
++	} else {
++		mask |= SHIFT_U32(cpu_mask & 0xff,
++				  GICD_SGIR_CPU_TARGET_LIST_SHIFT);
++	}
+ 
+ 	/* Raise the interrupt */
+ 	io_write32(gd->gicd_base + GICD_SGIR, mask);
+@@ -574,7 +626,7 @@ static void gic_op_raise_pi(struct itr_chip *chip, size_t it)
+ }
+ 
+ static void gic_op_raise_sgi(struct itr_chip *chip, size_t it,
+-			uint8_t cpu_mask)
++			     uint32_t cpu_mask)
+ {
+ 	struct gic_data *gd = container_of(chip, struct gic_data, chip);
+ 
+diff --git a/core/include/kernel/interrupt.h b/core/include/kernel/interrupt.h
+index e1942b90a..e445a1b47 100644
+--- a/core/include/kernel/interrupt.h
++++ b/core/include/kernel/interrupt.h
+@@ -15,6 +15,11 @@
+ #define ITRF_TRIGGER_LEVEL	BIT(0)
+ #define ITRF_SHARED		BIT(1)
+ 
++/* Forward the interrupt only to the current CPU */
++#define ITR_CPU_MASK_TO_THIS_CPU	BIT(31)
++/* Forward the interrupt to all CPUs except the current CPU */
++#define ITR_CPU_MASK_TO_OTHER_CPUS	BIT(30)
++
+ struct itr_handler;
+ 
+ /*
+@@ -65,7 +70,7 @@ struct itr_ops {
+ 	void (*unmask)(struct itr_chip *chip, size_t it);
+ 	void (*raise_pi)(struct itr_chip *chip, size_t it);
+ 	void (*raise_sgi)(struct itr_chip *chip, size_t it,
+-		uint8_t cpu_mask);
++			  uint32_t cpu_mask);
+ 	void (*set_affinity)(struct itr_chip *chip, size_t it,
+ 		uint8_t cpu_mask);
+ };
+@@ -266,10 +271,12 @@ static inline void interrupt_raise_pi(struct itr_chip *chip, size_t itr_num)
+  * interrupt_raise_sgi() - Raise a software generiated interrupt of a controller
+  * @chip	Interrupt controller
+  * @itr_num	Interrupt number to raise
+- * @cpu_mask	Mask of the CPUs targeted by the interrupt
++ * @cpu_mask:	A bitfield of CPUs to forward the interrupt to, unless
++ *		ITR_CPU_MASK_TO_THIS_CPU or ITR_CPU_MASK_TO_OTHER_CPUS
++ *		(mutually exclusive) are set.
+  */
+ static inline void interrupt_raise_sgi(struct itr_chip *chip, size_t itr_num,
+-				       uint8_t cpu_mask)
++				       uint32_t cpu_mask)
+ {
+ 	assert(interrupt_can_raise_sgi(chip));
+ 	chip->ops->raise_sgi(chip, itr_num, cpu_mask);
+-- 
+2.47.2
+

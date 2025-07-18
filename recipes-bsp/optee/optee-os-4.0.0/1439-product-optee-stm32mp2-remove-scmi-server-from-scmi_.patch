@@ -1,0 +1,43 @@
+From 0e94d68c9f140b2088e022ed7fc70e2e54dc45e6 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Wed, 8 Jan 2025 14:35:51 +0100
+Subject: [PATCH 1439/1695] product/optee-stm32mp2: remove scmi server from
+ scmi_data->agent_count
+
+The value of agent_count in SCMI module data is the number of agents
+without counting the SCMI server at the index 0.
+Substract 1 from scmi_data->agent_count to avoid reading unallocated
+memory.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e56561b31906bf98545427832bb7fcd4ebff6c01 product/optee-stm32mp2: remove scmi server from scmi_data->agent_count]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: Ibb2292589e84ff1b3ba4673d57197aa549f63a3b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/427554
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../SCP-firmware/product/optee-stm32mp2/fw/config_all.c     | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
+index 62cdd0669..a11e54112 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
+@@ -575,10 +575,10 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+     unsigned int channel_index = 0;
+     unsigned int __maybe_unused msg_smt_index = 0, optee_smt_index = 0;
+     size_t i, j;
+-    /* @cfg does not consider agent #0 this the reserved platform/server agent */
+-    size_t scmi_agent_count = cfg->agent_count + 1;
++    size_t scmi_agent_count = cfg->agent_count;
+ 
+-    scmi_agent_table = fwk_mm_calloc(scmi_agent_count,
++    /* @cfg does not consider agent #0 this the reserved platform/server agent */
++    scmi_agent_table = fwk_mm_calloc(scmi_agent_count + 1,
+                                      sizeof(*scmi_agent_table));
+ 
+     scmi_service_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
+-- 
+2.47.2
+

@@ -1,0 +1,128 @@
+From 05c0791b8c38285ce63d819923fc8844b32144f9 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 25 Apr 2024 15:16:01 +0200
+Subject: [PATCH 0832/1695] core: add CFG_WITH_TRNG=y|n to allow building
+ without RNG
+
+Add configuration switch CFG_WITH_TRNG to compile hw_rng driver. This
+allows to build OP-TEE without RNG at all when CFG_WITH_SOFTWARE_RNG=n
+and CFG_WITH_TRNG=n.
+
+Update plat_get_random_stack_canaries() to prevent need for a noreturn
+attribute warning/error when There is no RNG support at all.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7e5dcac6696be98c921e5f7667466ca7f1cd629b core: add CFG_WITH_TRNG=y|n to allow building without RNG]
+Change-Id: I1e1ee1a8785190b06e9b6a264c37a10d60d63eaf
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/377163
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/kernel/boot.c  |  6 +++++-
+ core/crypto.mk               | 12 ++++++++++++
+ core/crypto/sub.mk           |  7 ++-----
+ core/include/crypto/crypto.h | 21 +++++++++++++++++++++
+ 4 files changed, 40 insertions(+), 6 deletions(-)
+
+diff --git a/core/arch/arm/kernel/boot.c b/core/arch/arm/kernel/boot.c
+index 29a4bb7a2..fdab4f867 100644
+--- a/core/arch/arm/kernel/boot.c
++++ b/core/arch/arm/kernel/boot.c
+@@ -122,8 +122,12 @@ __weak void plat_get_random_stack_canaries(void *buf, size_t ncan, size_t size)
+ 	/*
+ 	 * With virtualization the RNG is not initialized in Nexus core.
+ 	 * Need to override with platform specific implementation.
++	 * Without software PRNG and a registered TRNG, fallback to a fixed
++	 * canary value.
+ 	 */
+-	if (IS_ENABLED(CFG_NS_VIRTUALIZATION)) {
++	if (IS_ENABLED(CFG_NS_VIRTUALIZATION) ||
++	    (!IS_ENABLED(CFG_WITH_SOFTWARE_PRNG) &&
++	     !IS_ENABLED(CFG_WITH_TRNG))) {
+ 		IMSG("WARNING: Using fixed value for stack canary");
+ 		memset(buf, 0xab, ncan * size);
+ 		goto out;
+diff --git a/core/crypto.mk b/core/crypto.mk
+index ac651eeb9..0dac1a8cd 100644
+--- a/core/crypto.mk
++++ b/core/crypto.mk
+@@ -79,6 +79,18 @@ endif
+ # Otherwise, you need to implement hw_get_random_bytes() for your platform
+ CFG_WITH_SOFTWARE_PRNG ?= y
+ 
++# TRNG configuration
++# CFG_WITH_TRNG is exclusively enabled towards CFG_WITH_SOFTWARE_PRNG
++ifneq ($(CFG_WITH_SOFTWARE_PRNG),y)
++CFG_WITH_TRNG ?= y
++else
++CFG_WITH_TRNG ?= n
++endif
++
++ifeq ($(call cfg-all-enabled,CFG_WITH_SOFTWARE_PRNG CFG_WITH_TRNG),y)
++$(error CFG_WITH_SOFTWARE_PRNG and CFG_WITH_TRNG are exclusive)
++endif
++
+ ifeq ($(CFG_WITH_PAGER),y)
+ ifneq ($(CFG_CRYPTO_SHA256),y)
+ $(warning Warning: Enabling CFG_CRYPTO_SHA256 [required by CFG_WITH_PAGER])
+diff --git a/core/crypto/sub.mk b/core/crypto/sub.mk
+index 223e5d6ea..0487a57ad 100644
+--- a/core/crypto/sub.mk
++++ b/core/crypto/sub.mk
+@@ -12,11 +12,8 @@ endif
+ 
+ srcs-$(CFG_WITH_USER_TA) += signed_hdr.c
+ 
+-ifeq ($(CFG_WITH_SOFTWARE_PRNG),y)
+-srcs-y += rng_fortuna.c
+-else
+-srcs-y += rng_hw.c
+-endif
++srcs-$(CFG_WITH_SOFTWARE_PRNG) += rng_fortuna.c
++srcs-$(CFG_WITH_TRNG) += rng_hw.c
+ 
+ ifneq ($(CFG_CRYPTO_CBC_MAC_FROM_CRYPTOLIB),y)
+ srcs-$(CFG_CRYPTO_CBC_MAC) += cbc-mac.c
+diff --git a/core/include/crypto/crypto.h b/core/include/crypto/crypto.h
+index d0ee5f38f..67b4def51 100644
+--- a/core/include/crypto/crypto.h
++++ b/core/include/crypto/crypto.h
+@@ -366,6 +366,7 @@ enum crypto_rng_src {
+ 	CRYPTO_RNG_SRC_NONSECURE	= (1 << 1 | 0),
+ };
+ 
++#if defined(CFG_WITH_SOFTWARE_PRNG) || defined(CFG_WITH_TRNG)
+ /*
+  * crypto_rng_init() - initialize the RNG
+  * @data:	buffer with initial seed
+@@ -398,6 +399,26 @@ void crypto_rng_add_event(enum crypto_rng_src sid, unsigned int *pnum,
+  * function call.
+  */
+ TEE_Result crypto_rng_read(void *buf, size_t len);
++#else
++static inline TEE_Result crypto_rng_init(const void *data __unused,
++					 size_t dlen __unused)
++{
++	return TEE_SUCCESS;
++}
++
++static inline void crypto_rng_add_event(enum crypto_rng_src sid __unused,
++					unsigned int *pnum __unused,
++					const void *data __unused,
++					size_t dlen __unused)
++{
++}
++
++static inline TEE_Result crypto_rng_read(void *buf __unused,
++					 size_t len __unused)
++{
++	return TEE_ERROR_NOT_SUPPORTED;
++}
++#endif
+ 
+ /*
+  * crypto_aes_expand_enc_key() - Expand an AES key
+-- 
+2.47.2
+

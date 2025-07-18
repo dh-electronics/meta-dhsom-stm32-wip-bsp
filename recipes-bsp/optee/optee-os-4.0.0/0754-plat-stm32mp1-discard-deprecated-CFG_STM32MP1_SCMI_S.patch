@@ -1,0 +1,110 @@
+From 16c7292f2da586affd404b9b7b57ce12402d6261 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 5 Apr 2024 13:50:57 +0200
+Subject: [PATCH 0754/1695] plat-stm32mp1: discard deprecated
+ CFG_STM32MP1_SCMI_SIP
+
+Fully remove support for deprecated config switch CFG_STM32MP1_SCMI_SIP.
+SCMI services exposed to non-secure world are reached through the SCMI
+PTA.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 37762c1469e08bacb5f45815302d6585a353fb1a plat-stm32mp1: discard deprecated CFG_STM32MP1_SCMI_SIP]
+Change-Id: Id8fb68e97277dd5c63a8e91ac432f5ebb9dc9fc2
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372339
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk           | 10 +---------
+ .../nsec-service/stm32mp1_svc_setup.c         | 19 ++++++-------------
+ 2 files changed, 7 insertions(+), 22 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index f78a8f136..e6fc78a2c 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -177,7 +177,6 @@ $(call force,CFG_STM32_HSE_MONITORING,y)
+ $(call force,CFG_STM32_VREFBUF,y)
+ $(call force,CFG_STM32MP_CLK_CORE,y)
+ $(call force,CFG_STM32MP1_OPTEE_IN_SYSRAM,n)
+-$(call force,CFG_STM32MP1_SCMI_SIP,n)
+ $(call force,CFG_STM32MP1_SHARED_RESOURCES,n)
+ $(call force,CFG_STM32MP1_RSTCTRL,y)
+ $(call force,CFG_STM32MP13_CLK,y)
+@@ -348,16 +347,9 @@ CFG_SCMI_MSG_DRIVERS ?= y
+ endif
+ 
+ # SiP/OEM service for non-secure world
+-# BSEC fuse access, PWR services, SCMI transport.
+ CFG_STM32_BSEC_SIP ?= n
+ CFG_STM32_LOWPOWER_SIP ?= y
+ CFG_STM32_PWR_SIP ?= y
+-CFG_STM32MP1_SCMI_SIP ?= n
+-ifeq ($(CFG_STM32MP1_SCMI_SIP),y)
+-$(call force,CFG_SCMI_MSG_DRIVERS,y,Mandated by CFG_STM32MP1_SCMI_SIP)
+-$(call force,CFG_SCMI_MSG_SMT,y,Mandated by CFG_STM32MP1_SCMI_SIP)
+-$(call force,CFG_SCMI_MSG_SMT_FASTCALL_ENTRY,y,Mandated by CFG_STM32MP1_SCMI_SIP)
+-endif
+ 
+ # Enable BSEC PTA for fuses access management
+ CFG_STM32_BSEC_PTA ?= y
+@@ -425,7 +417,7 @@ $(call force,CFG_HWRNG_QUALITY,1024)
+ endif
+ 
+ # Provision enough threads to pass xtest
+-ifneq (,$(filter y,$(CFG_SCMI_PTA) $(CFG_STM32MP1_SCMI_SIP)))
++ifeq ($(CFG_SCMI_PTA),y)
+ ifeq ($(CFG_WITH_PAGER),y)
+ CFG_NUM_THREADS ?= 3
+ else
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+index db656563c..96a2b9505 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+@@ -1,10 +1,9 @@
+ // SPDX-License-Identifier: BSD-3-Clause
+ /*
+- * Copyright (c) 2017-2020, STMicroelectronics
++ * Copyright (c) 2017-2024, STMicroelectronics
+  */
+ 
+ #include <config.h>
+-#include <drivers/scmi-msg.h>
+ #include <kernel/thread.h>
+ #include <sm/optee_smc.h>
+ #include <sm/sm.h>
+@@ -32,17 +31,6 @@ static enum sm_handler_ret sip_service(struct sm_ctx *ctx __unused,
+ 		args->a2 = STM32_SIP_SVC_UID_2;
+ 		args->a3 = STM32_SIP_SVC_UID_3;
+ 		break;
+-	case STM32_SIP_SVC_FUNC_SCMI_AGENT:
+-		if (IS_ENABLED(CFG_STM32MP1_SCMI_SIP)) {
+-			scmi_smt_fastcall_smc_entry(0);
+-			args->a0 = STM32_SIP_SVC_OK;
+-		} else {
+-			args->a0 = ARM_SMCCC_RET_NOT_SUPPORTED;
+-		}
+-		break;
+-	case STM32_SIP_SVC_FUNC_SCMI_AGENT1:
+-		args->a0 = ARM_SMCCC_RET_NOT_SUPPORTED;
+-		break;
+ 	case STM32_SIP_SVC_FUNC_BSEC:
+ 		bsec_main(args);
+ 		break;
+@@ -52,6 +40,11 @@ static enum sm_handler_ret sip_service(struct sm_ctx *ctx __unused,
+ 	case STM32_SIP_FUNC_PD_DOMAIN:
+ 		args->a0 = pm_domain_scv_handler(args->a1, args->a2);
+ 		break;
++	/* Deprecated function IDs */
++	case STM32_SIP_SVC_FUNC_SCMI_AGENT:
++	case STM32_SIP_SVC_FUNC_SCMI_AGENT1:
++		args->a0 = ARM_SMCCC_RET_NOT_SUPPORTED;
++		break;
+ 	default:
+ 		return SM_HANDLER_PENDING_SMC;
+ 	}
+-- 
+2.47.2
+

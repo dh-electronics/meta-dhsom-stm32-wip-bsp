@@ -1,0 +1,49 @@
+From 92363857a93c60ff519f2fe567ae55e6694ff36f Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 9 Aug 2024 14:05:01 +0200
+Subject: [PATCH 1044/1695] clk: stm32mp21: do not access BSEC if
+ CFG_STM32_BSEC3 isn't set
+
+BSEC is accessible either by the TDCID, or by the BootROM after a reset.
+When the CFG_STM32_BSEC3 switch isn't embedded (i.e. when M33 is TDCID),
+do not call BSEC functions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 85d07ddfd50e82dadf0440ea44c8c91bab9f3618 clk: stm32mp21: do not access BSEC if CFG_STM32_BSEC3 isn't set]
+Change-Id: I5f7c950b8626518df36f002976cabc9f38964c4c
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/397759
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/clk/clk-stm32mp21.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index 27b327c8f..2b2b35ff1 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -2882,12 +2882,16 @@ static const struct clk_ops clk_stm32_rif_gate_ops = {
+ 	.restore_context = clk_stm32_rif_gate_pm_restore,
+ };
+ 
+-static TEE_Result clk_stm32_rif_gate_dbg_enable(struct clk *clk)
++static TEE_Result clk_stm32_rif_gate_dbg_enable(struct clk *clk __maybe_unused)
+ {
++#ifdef CFG_STM32_BSEC3
+ 	if (!stm32_bsec_self_hosted_debug_is_enabled())
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
+ 	return clk_stm32_rif_gate_enable(clk);
++#else
++	return TEE_SUCCESS;
++#endif
+ }
+ 
+ static const struct clk_ops  clk_stm32_rif_gate_dbg_ops = {
+-- 
+2.47.2
+

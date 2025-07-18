@@ -1,0 +1,640 @@
+From f624958e67d5f1c5a9f3f37ba04109a1ab95641e Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 8 Jul 2024 09:56:27 +0200
+Subject: [PATCH 1191/1695] core: arm: pageable PM sequences
+
+Allow Arm PM sequence for 32bit machines to be almost fully pageable,
+relaxing the pressure on the secure internal RAM, more specifically on
+the physical pages pool of the pager. The feature is under configuration
+switches CFG_PAGED_PSCI_SYSTEM_OFF and CFG_PAGED_PSCI_SYSTEM_SUSPEND.
+
+The PSCI fastcall SMC already reach smc_std_handler() and
+tee_psci_handler() functions. These 2 are modified to pass a new
+argument that is the PSCI function to be called in a pageable context,
+and then both return a status on whether the PSCI service was executed
+(SM_EXIT_TO_NON_SECURE) or the PSCI service is to be executed in a
+thread and pageable context (SM_EXIT_TO_PM_THREAD).
+
+When a thread/pageable PSCI handler is to be called, secure monitor
+exists to secure world through new vector_thread_pm_entry() with PSCI
+handler function arguments in thread_smc_args::r0..r5 and handler
+entry address in argument thread_smc_args::r6.
+In turn vector_thread_pm_entry() calls thread_handle_pm() to allocate
+the thread. Function thread_handle_pm() may return with an error
+status if no thread context is available. Because the PM sequences are
+expected to be uninterruptible, flag THREAD_FLAGS_NATIVE_INTR_DISABLE
+is define for OP-TEE native (secure) interrupts to be masked in the
+pageable PM thread context.
+
+Generic 32bit PM helper function sm_pm_cpu_do_suspend() and
+sm_pm_cpu_do_resume() are changed to save and restore the FIQ, abort
+and undefined exception contexts and are declared unpaged.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7ab388fc23a46aa01342a6c291a21aa31a578d50 core: arm: pageable PM sequences]
+Change-Id: Ie600f65d46e74bcba89aa5b3b087d48596231960
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/392005
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../arm/include/kernel/thread_private_arch.h  | 26 +++++++++++
+ core/arch/arm/include/sm/pm.h                 | 25 ++++++++---
+ core/arch/arm/include/sm/psci.h               |  4 +-
+ core/arch/arm/include/sm/sm.h                 |  3 ++
+ core/arch/arm/include/sm/std_smc.h            |  8 +++-
+ core/arch/arm/kernel/link_dummies_paged.c     |  8 ++++
+ core/arch/arm/kernel/thread.c                 | 24 +++++++++-
+ core/arch/arm/kernel/thread_optee_smc.c       | 39 ++++++++++++++++
+ core/arch/arm/kernel/thread_optee_smc_a32.S   | 42 ++++++++++++++++++
+ core/arch/arm/sm/pm_a32.S                     | 44 ++++++++++++++++++-
+ core/arch/arm/sm/psci.c                       | 21 ++++++++-
+ core/arch/arm/sm/sm.c                         | 19 ++++++--
+ core/arch/arm/sm/std_smc.c                    | 11 ++---
+ core/include/kernel/thread.h                  |  6 +++
+ 14 files changed, 261 insertions(+), 19 deletions(-)
+
+diff --git a/core/arch/arm/include/kernel/thread_private_arch.h b/core/arch/arm/include/kernel/thread_private_arch.h
+index d5b188429..fd732ca59 100644
+--- a/core/arch/arm/include/kernel/thread_private_arch.h
++++ b/core/arch/arm/include/kernel/thread_private_arch.h
+@@ -133,6 +133,18 @@ void thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
+ uint32_t __thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
+ 				uint32_t a3, uint32_t a4, uint32_t a5);
+ 
++/*
++ * Assembly function as the first function in a PM thread sequence.
++ * Handles the PM call, a0-a3 holds the parameters, a5 hold the
++ * target PM function to be called.
++ * Hands over to __thread_pm_entry() when everything is set up and
++ * does some post processing once __thread_pm_entry() returns.
++ */
++void thread_pm_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
++		     uint32_t a4, uint32_t a5);
++uint32_t __thread_pm_entry(uint32_t a0, uint32_t a1, uint32_t a2,
++			   uint32_t a3, uint32_t a4, uint32_t a5);
++
+ void thread_sp_alloc_and_run(struct thread_smc_args *args);
+ 
+ /*
+@@ -195,6 +207,10 @@ void thread_alloc_and_run(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
+ void thread_resume_from_rpc(uint32_t thread_id, uint32_t a0, uint32_t a1,
+ 			    uint32_t a2, uint32_t a3);
+ 
++/* Allocate and enter a thread context for a PM uninterruptoble sequence */
++void thread_pm_alloc_and_run(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
++			     uint32_t a4, uint32_t pc);
++
+ /*
+  * The thread_rpc() function suspends current thread and temporarily exits
+  * to non-secure world.  This function returns later when non-secure world
+@@ -255,6 +271,16 @@ uint32_t thread_handle_std_smc(uint32_t a0, uint32_t a1, uint32_t a2,
+ 			       uint32_t a3, uint32_t a4, uint32_t a5,
+ 			       uint32_t a6, uint32_t a7);
+ 
++/*
++ * Called from assembly only, vector_thread_pm_entry(). Called for fastcall
++ * SMCs that require a thread context with foreign interrupt masked. Useful
++ * for PM sequences that need to leverage pager support.
++ * Argument @a6 is the entrypoint for the thread context.
++ */
++uint32_t thread_handle_pm(uint32_t a0, uint32_t a1, uint32_t a2,
++			  uint32_t a3, uint32_t a4, uint32_t a5,
++			  uint32_t a6, uint32_t a7);
++
+ /* Called from assembly only. Handles a SVC from user mode. */
+ void thread_scall_handler(struct thread_scall_regs *regs);
+ 
+diff --git a/core/arch/arm/include/sm/pm.h b/core/arch/arm/include/sm/pm.h
+index 966ba94ea..c5907ae37 100644
+--- a/core/arch/arm/include/sm/pm.h
++++ b/core/arch/arm/include/sm/pm.h
+@@ -31,14 +31,29 @@
+ #include <stdint.h>
+ #include <types_ext.h>
+ 
+-struct sm_pm_ctx {
+-	uint32_t sp;
+-	paddr_t cpu_resume_addr;
++#ifdef CFG_PAGED_PSCI_SYSTEM_SUSPEND
++#define SUSPEND_REGS_EXTRA_COUNT	22
++#else
++#define SUSPEND_REGS_EXTRA_COUNT	0
++#endif
++
+ #ifdef CFG_WITH_LPAE
+-	uint32_t suspend_regs[18];
++#define SUSPEND_REGS_COUNT		(18 + SUSPEND_REGS_EXTRA_COUNT)
+ #else
+-	uint32_t suspend_regs[16];
++#define  SUSPEND_REGS_COUNT		(16 + SUSPEND_REGS_EXTRA_COUNT)
+ #endif
++
++/*
++ * struct sm_pm_ctx - PM suspend/resume context
++ * @sp: Stack pointer to restore
++ * @resume_addr: Platform resume return address on exit from sm_pm_cpu_resume()
++ * @suspend_regs: CPU registers saved/restored in sm_pm_cpu_do_suspend()
++ * and sm_pm_cpu_do_resumed()
++ */
++struct sm_pm_ctx {
++	uint32_t sp;
++	paddr_t cpu_resume_addr;
++	uint32_t suspend_regs[SUSPEND_REGS_COUNT];
+ };
+ 
+ /* suspend/resume core functions */
+diff --git a/core/arch/arm/include/sm/psci.h b/core/arch/arm/include/sm/psci.h
+index 95ccdfa4c..9ee3cff64 100644
+--- a/core/arch/arm/include/sm/psci.h
++++ b/core/arch/arm/include/sm/psci.h
+@@ -83,7 +83,9 @@ int psci_system_suspend(uintptr_t entry, uint32_t context_id,
+ 			struct sm_nsec_ctx *nsec);
+ int psci_stat_residency(uint32_t cpu_id, uint32_t power_state);
+ int psci_stat_count(uint32_t cpu_id, uint32_t power_state);
+-void tee_psci_handler(struct thread_smc_args *args, struct sm_nsec_ctx *nsec);
++uint32_t tee_psci_handler(struct thread_smc_args *args,
++			  struct sm_nsec_ctx *nsec,
++			  uint32_t *thread_pm_handler);
+ 
+ void psci_armv7_cpu_off(void);
+ #endif /* __SM_PSCI_H */
+diff --git a/core/arch/arm/include/sm/sm.h b/core/arch/arm/include/sm/sm.h
+index 9e7b98791..18cf7f74a 100644
+--- a/core/arch/arm/include/sm/sm.h
++++ b/core/arch/arm/include/sm/sm.h
+@@ -133,6 +133,8 @@ void vector_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
+ 			  uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7);
+ void vector_fast_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
+ 			   uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7);
++void vector_thread_pm_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
++			    uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7);
+ void vector_fiq_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
+ 		      uint32_t a4, uint32_t a5, uint32_t a6, uint32_t a7);
+ 
+@@ -141,5 +143,6 @@ void vector_fiq_entry(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
+ /* 32 bit return value for sm_from_nsec() */
+ #define SM_EXIT_TO_NON_SECURE		0
+ #define SM_EXIT_TO_SECURE		1
++#define SM_EXIT_TO_PM_THREAD		2
+ 
+ #endif /*__SM_SM_H*/
+diff --git a/core/arch/arm/include/sm/std_smc.h b/core/arch/arm/include/sm/std_smc.h
+index 80e71a831..61c4855be 100644
+--- a/core/arch/arm/include/sm/std_smc.h
++++ b/core/arch/arm/include/sm/std_smc.h
+@@ -39,5 +39,11 @@
+ #define is_psci_fid(_fid) \
+ 	(((_fid) & PSCI_FID_MASK) == PSCI_FID_VALUE)
+ 
+-void smc_std_handler(struct thread_smc_args *args, struct sm_nsec_ctx *nsec);
++/*
++ * Return SM_EXIT_TO_NON_SECURE if request was handled.
++ * Return SM_EXIT_TO_PM_THREAD if request is to be handled in a thread.
++ */
++uint32_t smc_std_handler(struct thread_smc_args *args,
++			 struct sm_nsec_ctx *nsec,
++			 uint32_t *thread_pm_handler);
+ #endif
+diff --git a/core/arch/arm/kernel/link_dummies_paged.c b/core/arch/arm/kernel/link_dummies_paged.c
+index d6d65c648..ddfc51d6c 100644
+--- a/core/arch/arm/kernel/link_dummies_paged.c
++++ b/core/arch/arm/kernel/link_dummies_paged.c
+@@ -41,6 +41,14 @@ __thread_std_smc_entry(uint32_t a0 __unused, uint32_t a1 __unused,
+ 	return 0;
+ }
+ 
++uint32_t __section(".text.dummy.__thread_pm_entry")
++__thread_pm_entry(uint32_t a0 __unused, uint32_t a1 __unused,
++		  uint32_t a2 __unused, uint32_t a3 __unused,
++		  uint32_t a4 __unused, uint32_t a5 __unused)
++{
++	return 0;
++}
++
+ const struct mobj_ops mobj_reg_shm_ops __rodata_dummy;
+ const struct mobj_ops mobj_phys_ops __rodata_dummy;
+ const struct mobj_ops mobj_virt_ops __rodata_dummy;
+diff --git a/core/arch/arm/kernel/thread.c b/core/arch/arm/kernel/thread.c
+index 0dd9007ba..f7cb3f917 100644
+--- a/core/arch/arm/kernel/thread.c
++++ b/core/arch/arm/kernel/thread.c
+@@ -157,11 +157,18 @@ static void init_regs(struct thread_ctx *thread, uint32_t a0, uint32_t a1,
+ 
+ 	/*
+ 	 * Stdcalls starts in SVC mode with masked foreign interrupts, masked
+-	 * Asynchronous abort and unmasked native interrupts.
++	 * Asynchronous abort and masked/unmasked native interrupts upon
++	 * thread->flags.
+ 	 */
+ 	thread->regs.cpsr = read_cpsr() & ARM32_CPSR_E;
+ 	thread->regs.cpsr |= CPSR_MODE_SVC | CPSR_A |
+ 			(THREAD_EXCP_FOREIGN_INTR << ARM32_CPSR_F_SHIFT);
++
++	/* PM sequence in thread context requires native interrupt disabled */
++	if (thread->flags & THREAD_FLAGS_PM_SEQUENCE)
++		thread->regs.cpsr |= THREAD_EXCP_NATIVE_INTR <<
++				     ARM32_CPSR_F_SHIFT;
++
+ 	/* Enable thumb mode if it's a thumb instruction */
+ 	if (thread->regs.pc & 1)
+ 		thread->regs.cpsr |= CPSR_T;
+@@ -196,6 +203,10 @@ static void init_regs(struct thread_ctx *thread, uint32_t a0, uint32_t a1,
+ 	 */
+ 	thread->regs.cpsr = SPSR_64(SPSR_64_MODE_EL1, SPSR_64_MODE_SP_EL0,
+ 				THREAD_EXCP_FOREIGN_INTR | DAIFBIT_ABT);
++
++	/* Aarch64 does not implement pageable thread context */
++	assert(!(thread->flags & THREAD_FLAGS_PM_SEQUENCE));
++
+ 	/* Reinitialize stack pointer */
+ 	thread->regs.sp = thread->stack_va_end;
+ 
+@@ -271,6 +282,17 @@ void thread_alloc_and_run(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
+ 			       thread_std_smc_entry, 0);
+ }
+ 
++#ifdef ARM32
++void thread_pm_alloc_and_run(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
++			     uint32_t a4, uint32_t pc)
++{
++	thread_check_canaries();
++
++	__thread_alloc_and_run(a0, a1, a2, a3, a4, pc, 0, 0, thread_pm_entry,
++			       THREAD_FLAGS_PM_SEQUENCE);
++}
++#endif
++
+ #ifdef CFG_SECURE_PARTITION
+ void thread_sp_alloc_and_run(struct thread_smc_args *args __maybe_unused)
+ {
+diff --git a/core/arch/arm/kernel/thread_optee_smc.c b/core/arch/arm/kernel/thread_optee_smc.c
+index f90ff052f..5ccc7a9d5 100644
+--- a/core/arch/arm/kernel/thread_optee_smc.c
++++ b/core/arch/arm/kernel/thread_optee_smc.c
+@@ -80,6 +80,29 @@ uint32_t thread_handle_std_smc(uint32_t a0, uint32_t a1, uint32_t a2,
+ 	return rv;
+ }
+ 
++#ifdef ARM32
++uint32_t thread_handle_pm(uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
++			  uint32_t a4, uint32_t a5 __unused, uint32_t pc,
++			  uint32_t a7)
++{
++	thread_check_canaries();
++
++	if (IS_ENABLED(CFG_NS_VIRTUALIZATION) && virt_set_guest(a7))
++		return OPTEE_SMC_RETURN_ENOTAVAIL;
++
++	/*
++	 * thread_pm_alloc_and_run() only return on error.
++	 * Successful return is done via thread_exit().
++	 */
++	thread_pm_alloc_and_run(a0, a1, a2, a3, a4, pc);
++
++	if (IS_ENABLED(CFG_NS_VIRTUALIZATION))
++		virt_unset_guest();
++
++	return OPTEE_SMC_RETURN_ETHREAD_LIMIT;
++}
++#endif
++
+ /**
+  * Free physical memory previously allocated with thread_rpc_alloc_arg()
+  *
+@@ -302,6 +325,22 @@ uint32_t __weak __thread_std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
+ 	return std_smc_entry(a0, a1, a2, a3);
+ }
+ 
++/*
++ * Helper routine for the assembly function thread_pm_entry()
++ *
++ * Note: this function is weak just to make it possible to exclude it from
++ * the unpaged area.
++ */
++uint32_t __weak __thread_pm_entry(uint32_t a0, uint32_t a1, uint32_t a2,
++				  uint32_t a3, uint32_t a4 __unused,
++				  uint32_t a5)
++{
++	uint32_t (*function)(uint32_t a0, uint32_t a1, uint32_t a2,
++			     uint32_t a3) = (void *)(vaddr_t)a5;
++
++	return function(a0, a1, a2, a3);
++}
++
+ bool thread_disable_prealloc_rpc_cache(uint64_t *cookie)
+ {
+ 	bool rv = false;
+diff --git a/core/arch/arm/kernel/thread_optee_smc_a32.S b/core/arch/arm/kernel/thread_optee_smc_a32.S
+index 2a8c14c76..7293ec4ad 100644
+--- a/core/arch/arm/kernel/thread_optee_smc_a32.S
++++ b/core/arch/arm/kernel/thread_optee_smc_a32.S
+@@ -67,6 +67,24 @@ UNWIND(	.cantunwind)
+ 	panic_at_smc_return
+ END_FUNC vector_fast_smc_entry
+ 
++FUNC vector_thread_pm_entry , : , .identity_map
++UNWIND(	.cantunwind)
++	readjust_pc
++	push	{r4-r7}
++	bl	thread_handle_pm
++	add	sp, sp, #(4 * 4)
++	/*
++	 * Normally thread_handle_pm() should return via thread_exit()
++	 * but if thread_handle_pm() hasn't switched stack (error detected)
++	 * it will do a normal "C" return.
++	 */
++	mov	r1, r0
++	ldr	r0, =TEESMC_OPTEED_RETURN_CALL_DONE
++	smc	#0
++	/* SMC should not return */
++	panic_at_smc_return
++END_FUNC vector_thread_pm_entry
++
+ FUNC vector_fiq_entry , : , .identity_map
+ UNWIND(	.cantunwind)
+ 	readjust_pc
+@@ -193,6 +211,30 @@ UNWIND(	.cantunwind)
+ 	panic_at_smc_return
+ END_FUNC thread_std_smc_entry
+ 
++FUNC thread_pm_entry , :
++UNWIND(	.cantunwind)
++	push	{r4, r5} /* Pass these following the arm32 calling convention */
++	bl	__thread_pm_entry
++	add	sp, sp, #8 /* There's nothing return, just restore the sp */
++	mov	r4, r0	/* Save return value for later */
++
++	/* Disable interrupts before switching to temporary stack */
++	cpsid	aif
++	bl	thread_get_tmp_sp
++	mov	sp, r0
++
++	bl	thread_state_free
++
++	ldr	r0, =TEESMC_OPTEED_RETURN_CALL_DONE
++	mov	r1, r4
++	mov	r2, #0
++	mov	r3, #0
++	mov	r4, #0
++	smc	#0
++	/* SMC should not return */
++	panic_at_smc_return
++END_FUNC thread_pm_entry
++
+ /* void thread_rpc(uint32_t rv[THREAD_RPC_NUM_ARGS]) */
+ FUNC thread_rpc , :
+ 	push	{r0, lr}
+diff --git a/core/arch/arm/sm/pm_a32.S b/core/arch/arm/sm/pm_a32.S
+index 1b256d0e7..cf3b69ab9 100644
+--- a/core/arch/arm/sm/pm_a32.S
++++ b/core/arch/arm/sm/pm_a32.S
+@@ -16,6 +16,22 @@
+ 
+ .section .text
+ 
++	.macro save_regs mode
++	cps	\mode
++	mrs	r1, spsr
++	str	r1, [r0], #4
++	str	sp, [r0], #4
++	str	lr, [r0], #4
++	.endm
++
++	.macro restore_regs mode
++	cps	\mode
++	ldr	r1, [r0], #4
++	ldr	sp, [r0], #4
++	ldr	lr, [r0], #4
++	msr	spsr_fsxc, r1
++	.endm
++
+ /*
+  * int sm_pm_cpu_suspend(uint32_t arg, int (*fn)(uint32_t))
+  * @arg will be passed to fn as argument
+@@ -90,7 +106,17 @@ a5_a7_suspend:
+ 	read_vbar r8
+ 	read_nsacr r9
+ 	read_sctlr r10
+-	stmia	r0, {r4 - r10}
++	stmia	r0!, {r4 - r10}
++
++#ifdef CFG_PAGED_PSCI_SYSTEM_SUSPEND
++	add	r0, r0, #4
++	save_regs	#CPSR_MODE_IRQ
++	save_regs	#CPSR_MODE_FIQ
++	save_regs	#CPSR_MODE_ABT
++	save_regs	#CPSR_MODE_UND
++	save_regs	#CPSR_MODE_MON
++	cps	#CPSR_MODE_SVC
++#endif
+ 
+ 	pop	{r4 - r11}
+ 	bx	lr
+@@ -125,6 +151,7 @@ UNWIND(	.cantunwind)
+ 	/* Need to use r0!, because sm_pm_cpu_do_resume needs it */
+ 	ldmia	r0!, {sp, pc}
+ END_FUNC sm_pm_cpu_resume
++DECLARE_KEEP_PAGER sm_pm_cpu_resume
+ 
+ /*
+  * The following will be located in text section whose attribute is
+@@ -140,6 +167,9 @@ _suspend_sp:
+ _core_pos:
+ 	.long	__get_core_pos - .
+ 
++DECLARE_KEEP_PAGER _suspend_sp
++DECLARE_KEEP_PAGER _core_pos
++
+ /*
+  * void sm_pm_cpu_do_resume(paddr suspend_regs) __noreturn;
+  * Restore the registers stored when sm_pm_cpu_do_suspend
+@@ -196,6 +226,17 @@ a5_a7_resume:
+ 	write_vbar r8
+ 	write_nsacr r9
+ 	write_bpiall
++
++#ifdef CFG_PAGED_PSCI_SYSTEM_SUSPEND
++	add r0, r0, #4
++	restore_regs	#CPSR_MODE_IRQ
++	restore_regs	#CPSR_MODE_FIQ
++	restore_regs	#CPSR_MODE_ABT
++	restore_regs	#CPSR_MODE_UND
++	restore_regs	#CPSR_MODE_MON
++	cps	#CPSR_MODE_SVC
++#endif
++
+ 	isb
+ 	dsb
+ 	/* MMU will be enabled here */
+@@ -205,4 +246,5 @@ a5_a7_resume:
+ 	mov	r0, #0
+ 	b	suspend_return
+ END_FUNC sm_pm_cpu_do_resume
++DECLARE_KEEP_PAGER sm_pm_cpu_do_resume
+ 
+diff --git a/core/arch/arm/sm/psci.c b/core/arch/arm/sm/psci.c
+index 167ef142a..a47d22fb7 100644
+--- a/core/arch/arm/sm/psci.c
++++ b/core/arch/arm/sm/psci.c
+@@ -2,6 +2,7 @@
+ /*
+  * Copyright (C) 2016 Freescale Semiconductor, Inc.
+  * All rights reserved.
++ * Copyright (C) 2024 STMicroelectronics
+  *
+  * Peng Fan <peng.fan@nxp.com>
+  *
+@@ -28,6 +29,7 @@
+  * POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#include <config.h>
+ #include <console.h>
+ #include <kernel/boot.h>
+ #include <kernel/thread.h>
+@@ -137,7 +139,8 @@ __weak int psci_stat_count(uint32_t cpu_id __unused,
+ 	return PSCI_RET_NOT_SUPPORTED;
+ }
+ 
+-void tee_psci_handler(struct thread_smc_args *args, struct sm_nsec_ctx *nsec)
++uint32_t tee_psci_handler(struct thread_smc_args *args,
++			  struct sm_nsec_ctx *nsec, uint32_t *thread_pm_handler)
+ {
+ 	uint32_t smc_fid = args->a0;
+ 	uint32_t a1 = args->a1;
+@@ -170,6 +173,11 @@ void tee_psci_handler(struct thread_smc_args *args, struct sm_nsec_ctx *nsec)
+ 		args->a0 = psci_migrate_info_up_cpu();
+ 		break;
+ 	case PSCI_SYSTEM_OFF:
++		if (IS_ENABLED(CFG_PAGED_PSCI_SYSTEM_OFF)) {
++			*thread_pm_handler = (vaddr_t)psci_system_off;
++
++			return SM_EXIT_TO_PM_THREAD;
++		}
+ 		psci_system_off();
+ 		while (1)
+ 			;
+@@ -195,10 +203,21 @@ void tee_psci_handler(struct thread_smc_args *args, struct sm_nsec_ctx *nsec)
+ 		args->a0 = psci_node_hw_state(a1, a2);
+ 		break;
+ 	case PSCI_SYSTEM_SUSPEND:
++		if (IS_ENABLED(CFG_PAGED_PSCI_SYSTEM_SUSPEND)) {
++			args->a0 = a1;
++			args->a1 = a2;
++			args->a2 = (vaddr_t)nsec;
++			*thread_pm_handler = (vaddr_t)psci_system_suspend;
++
++			return SM_EXIT_TO_PM_THREAD;
++		}
+ 		args->a0 = psci_system_suspend(a1, a2, nsec);
++
+ 		break;
+ 	default:
+ 		args->a0 = OPTEE_SMC_RETURN_UNKNOWN_FUNCTION;
+ 		break;
+ 	}
++
++	return SM_EXIT_TO_NON_SECURE;
+ }
+diff --git a/core/arch/arm/sm/sm.c b/core/arch/arm/sm/sm.c
+index 905e0285e..9305bc588 100644
+--- a/core/arch/arm/sm/sm.c
++++ b/core/arch/arm/sm/sm.c
+@@ -58,6 +58,8 @@ uint32_t sm_from_nsec(struct sm_ctx *ctx)
+ {
+ 	uint32_t *nsec_r0 = (uint32_t *)(&ctx->nsec.r0);
+ 	struct thread_smc_args *args = (struct thread_smc_args *)nsec_r0;
++	uint32_t ret = SM_EXIT_TO_NON_SECURE;
++	uint32_t thread_pm_handler = 0;
+ 
+ 	/*
+ 	 * Check that struct sm_ctx has the different parts properly
+@@ -78,8 +80,13 @@ uint32_t sm_from_nsec(struct sm_ctx *ctx)
+ 	switch (OPTEE_SMC_OWNER_NUM(args->a0)) {
+ 	case OPTEE_SMC_OWNER_STANDARD:
+ 		if (IS_ENABLED(CFG_PSCI_ARM32)) {
+-			smc_std_handler(args, &ctx->nsec);
+-			return SM_EXIT_TO_NON_SECURE;
++			ret = smc_std_handler(args, &ctx->nsec,
++					      &thread_pm_handler);
++			if (ret == SM_EXIT_TO_NON_SECURE)
++				return ret;
++
++			assert(ret == SM_EXIT_TO_PM_THREAD &&
++			       thread_pm_handler);
+ 		}
+ 		break;
+ 	case OPTEE_SMC_OWNER_ARCH:
+@@ -99,10 +106,14 @@ uint32_t sm_from_nsec(struct sm_ctx *ctx)
+ 		ctx->sec.mon_spsr |= CPSR_F;
+ 	}
+ 
+-	if (OPTEE_SMC_IS_FAST_CALL(ctx->sec.r0))
++	if (ret == SM_EXIT_TO_PM_THREAD) {
++		ctx->sec.r6 = thread_pm_handler;
++		ctx->sec.mon_lr = (uint32_t)vector_thread_pm_entry;
++	} else if (OPTEE_SMC_IS_FAST_CALL(ctx->sec.r0)) {
+ 		ctx->sec.mon_lr = (uint32_t)vector_fast_smc_entry;
+-	else
++	} else {
+ 		ctx->sec.mon_lr = (uint32_t)vector_std_smc_entry;
++	}
+ 
+ 	return SM_EXIT_TO_SECURE;
+ }
+diff --git a/core/arch/arm/sm/std_smc.c b/core/arch/arm/sm/std_smc.c
+index 52ed91880..cc5f254b4 100644
+--- a/core/arch/arm/sm/std_smc.c
++++ b/core/arch/arm/sm/std_smc.c
+@@ -41,14 +41,13 @@ static const TEE_UUID uuid = {
+ 	{0x98, 0xd2, 0x74, 0xf4, 0x38, 0x27, 0x98, 0xbb},
+ };
+ 
+-void smc_std_handler(struct thread_smc_args *args, struct sm_nsec_ctx *nsec)
++uint32_t smc_std_handler(struct thread_smc_args *args, struct sm_nsec_ctx *nsec,
++			 uint32_t *thread_pm_handler)
+ {
+ 	uint32_t smc_fid = args->a0;
+ 
+-	if (is_psci_fid(smc_fid)) {
+-		tee_psci_handler(args, nsec);
+-		return;
+-	}
++	if (is_psci_fid(smc_fid))
++		return tee_psci_handler(args, nsec, thread_pm_handler);
+ 
+ 	switch (smc_fid) {
+ 	case ARM_STD_SVC_CALL_COUNT:
+@@ -75,4 +74,6 @@ void smc_std_handler(struct thread_smc_args *args, struct sm_nsec_ctx *nsec)
+ 		args->a0 = OPTEE_SMC_RETURN_UNKNOWN_FUNCTION;
+ 		break;
+ 	}
++
++	return SM_EXIT_TO_NON_SECURE;
+ }
+diff --git a/core/include/kernel/thread.h b/core/include/kernel/thread.h
+index 20797833a..e48f9b4fa 100644
+--- a/core/include/kernel/thread.h
++++ b/core/include/kernel/thread.h
+@@ -16,10 +16,16 @@
+ #include <util.h>
+ #include <kernel/thread_arch.h>
+ 
++/* Copy RPC returned arguments in thread context */
+ #define THREAD_FLAGS_COPY_ARGS_ON_RETURN	BIT(0)
++/* Foreign interrupt is enabled when thread issues an RPC */
+ #define THREAD_FLAGS_FOREIGN_INTR_ENABLE	BIT(1)
++/* Thread issues an RPC for a foreign interrupt */
+ #define THREAD_FLAGS_EXIT_ON_FOREIGN_INTR	BIT(2)
++/* Thread executes an FFA invocation */
+ #define THREAD_FLAGS_FFA_ONLY			BIT(3)
++/* Thread context for powermanagement (PM) sequence */
++#define THREAD_FLAGS_PM_SEQUENCE		BIT(4)
+ 
+ #define THREAD_ID_0		0
+ #define THREAD_ID_INVALID	-1
+-- 
+2.47.2
+

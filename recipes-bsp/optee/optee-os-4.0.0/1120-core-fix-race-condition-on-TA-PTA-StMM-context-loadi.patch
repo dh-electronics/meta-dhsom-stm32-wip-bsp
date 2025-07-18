@@ -1,0 +1,386 @@
+From 323e228f4bd4b543d9456e024b6a877dfa86180d Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 12 Jun 2024 11:49:52 +0200
+Subject: [PATCH 1120/1695] core: fix race condition on TA/PTA/StMM context
+ loading
+
+Fix race condition on creation of a context for single instance TAs,
+PTAs or StMM application. Such race condition could occur and lead to
+duplicated contexts if connected close enough that they are created
+after tee_ta_init_session() calls tee_ta_init_session_with_context()
+and before the context are added in the centralized context list.
+
+This is realized by keeping tee_ta_mutex held while tee_ctxes list is
+looked up for matching a context or a new context is added into that
+list with its .is_initializing field activated. For that purpose
+user TA and StMM application initialization function are split in
+2 functions, the 2nd one used to finalizes the context creation
+started in the 1st function.
+
+By the way, add inline description comments and fix indentation issues
+in uaer_ta.h and remove the inline comment in pseudo_ta.c that refers
+to TA loading whereas the function relates to PTA contexts creation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9ed2ceef7c212d9bcec859959d0345cbded0b69c core: fix race condition on TA/PTA/StMM context loading]
+Change-Id: Id25ec393bcebd5c58592d48a2ede2d41b656f59d
+Closes: https://github.com/OP-TEE/optee_os/issues/6801
+Suggested-by: Jens Wiklander <jens.wiklander@linaro.org>
+[cherry-picked from commit 956c2d50d60109a6053e14da6ff97d6243ea5d65]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/393771
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/include/kernel/stmm_sp.h   | 19 +++++++++++++
+ core/arch/arm/kernel/stmm_sp.c           | 15 ++++++++---
+ core/arch/riscv/include/kernel/stmm_sp.h |  6 +++++
+ core/include/kernel/mutex.h              |  8 +++---
+ core/include/kernel/pseudo_ta.h          |  7 +++++
+ core/include/kernel/user_ta.h            | 29 +++++++++++++++-----
+ core/kernel/pseudo_ta.c                  |  9 ++++---
+ core/kernel/tee_ta_manager.c             | 19 ++++++++++---
+ core/kernel/user_ta.c                    | 34 +++++++++++++++++-------
+ 9 files changed, 116 insertions(+), 30 deletions(-)
+
+diff --git a/core/arch/arm/include/kernel/stmm_sp.h b/core/arch/arm/include/kernel/stmm_sp.h
+index 7726c4a29..7f300c450 100644
+--- a/core/arch/arm/include/kernel/stmm_sp.h
++++ b/core/arch/arm/include/kernel/stmm_sp.h
+@@ -153,8 +153,21 @@ static inline struct stmm_ctx *to_stmm_ctx(struct ts_ctx *ctx)
+ }
+ 
+ #ifdef CFG_WITH_STMM_SP
++/*
++ * Setup session context for the StMM application
++ * @uuid: TA UUID
++ * @sess: Session for which to setup the StMM context
++ *
++ * This function must be called with tee_ta_mutex locked.
++ */
+ TEE_Result stmm_init_session(const TEE_UUID *uuid,
+ 			     struct tee_ta_session *s);
++
++/*
++ * Finalize session context initialization the StMM application
++ * @sess: Session for which to finalize StMM context
++ */
++TEE_Result stmm_complete_session(struct tee_ta_session *s);
+ #else
+ static inline TEE_Result
+ stmm_init_session(const TEE_UUID *uuid __unused,
+@@ -162,6 +175,12 @@ stmm_init_session(const TEE_UUID *uuid __unused,
+ {
+ 	return TEE_ERROR_ITEM_NOT_FOUND;
+ }
++
++static inline TEE_Result
++stmm_complete_session(struct tee_ta_session *s __unused)
++{
++	return TEE_ERROR_GENERIC;
++}
+ #endif
+ 
+ #ifdef CFG_WITH_STMM_SP
+diff --git a/core/arch/arm/kernel/stmm_sp.c b/core/arch/arm/kernel/stmm_sp.c
+index 1d6d14aa7..6aea659fb 100644
+--- a/core/arch/arm/kernel/stmm_sp.c
++++ b/core/arch/arm/kernel/stmm_sp.c
+@@ -9,6 +9,7 @@
+ #include <keep.h>
+ #include <kernel/abort.h>
+ #include <kernel/stmm_sp.h>
++#include <kernel/tee_ta_manager.h>
+ #include <kernel/thread_private.h>
+ #include <kernel/user_mode_ctx.h>
+ #include <mempool.h>
+@@ -334,7 +335,9 @@ static TEE_Result load_stmm(struct stmm_ctx *spc)
+ TEE_Result stmm_init_session(const TEE_UUID *uuid, struct tee_ta_session *sess)
+ {
+ 	struct stmm_ctx *spc = NULL;
+-	TEE_Result res = TEE_SUCCESS;
++
++	/* Caller is expected to hold tee_ta_mutex for safe changes in @sess */
++	assert(mutex_is_locked(&tee_ta_mutex));
+ 
+ 	if (memcmp(uuid, &stmm_uuid, sizeof(*uuid)))
+ 		return TEE_ERROR_ITEM_NOT_FOUND;
+@@ -345,10 +348,16 @@ TEE_Result stmm_init_session(const TEE_UUID *uuid, struct tee_ta_session *sess)
+ 
+ 	spc->ta_ctx.is_initializing = true;
+ 
+-	mutex_lock(&tee_ta_mutex);
+ 	sess->ts_sess.ctx = &spc->ta_ctx.ts_ctx;
+ 	sess->ts_sess.handle_scall = sess->ts_sess.ctx->ops->handle_scall;
+-	mutex_unlock(&tee_ta_mutex);
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stmm_complete_session(struct tee_ta_session *sess)
++{
++	struct stmm_ctx *spc = to_stmm_ctx(sess->ts_sess.ctx);
++	TEE_Result res = TEE_SUCCESS;
+ 
+ 	ts_push_current_session(&sess->ts_sess);
+ 	res = load_stmm(spc);
+diff --git a/core/arch/riscv/include/kernel/stmm_sp.h b/core/arch/riscv/include/kernel/stmm_sp.h
+index 9b5b09d01..074980002 100644
+--- a/core/arch/riscv/include/kernel/stmm_sp.h
++++ b/core/arch/riscv/include/kernel/stmm_sp.h
+@@ -35,6 +35,12 @@ stmm_init_session(const TEE_UUID *uuid __unused,
+ 	return TEE_ERROR_ITEM_NOT_FOUND;
+ }
+ 
++static inline TEE_Result
++stmm_complete_session(struct tee_ta_session *s __unused)
++{
++	return TEE_ERROR_GENERIC;
++}
++
+ static inline const TEE_UUID *stmm_get_uuid(void) { return NULL; }
+ 
+ #endif /*__KERNEL_STMM_SP_H*/
+diff --git a/core/include/kernel/mutex.h b/core/include/kernel/mutex.h
+index a102eae3f..c84b42325 100644
+--- a/core/include/kernel/mutex.h
++++ b/core/include/kernel/mutex.h
+@@ -102,13 +102,13 @@ void condvar_wait(struct condvar *cv, struct mutex *m);
+ #endif
+ 
+ /*
+- * Helper for testing that a given mutex is locked. This helper is to be used
+- * with caution since it does not enforce that the executing thread is holding
+- * the mutex.
++ * Helper for testing that a given mutex is locked for writing. This helper
++ * is to be used with caution since it does not guarantee that the executing
++ * thread is holding the mutex.
+  */
+ static inline bool mutex_is_locked(struct mutex *m)
+ {
+-	return m->state;
++	return m->state == -1; /* write locked */
+ }
+ #endif /*__KERNEL_MUTEX_H*/
+ 
+diff --git a/core/include/kernel/pseudo_ta.h b/core/include/kernel/pseudo_ta.h
+index 39813baee..156645f47 100644
+--- a/core/include/kernel/pseudo_ta.h
++++ b/core/include/kernel/pseudo_ta.h
+@@ -60,6 +60,13 @@ static inline struct pseudo_ta_ctx *to_pseudo_ta_ctx(struct ts_ctx *ctx)
+ 	return container_of(ctx, struct pseudo_ta_ctx, ctx.ts_ctx);
+ }
+ 
++/*
++ * Setup session context for a pseudo TA
++ * @uuid: Pseudo TA UUID
++ * @s: Session for which to setup a pseudo TA context
++ *
++ * This function must be called with tee_ta_mutex locked.
++ */
+ TEE_Result tee_ta_init_pseudo_ta_session(const TEE_UUID *uuid,
+ 			struct tee_ta_session *s);
+ 
+diff --git a/core/include/kernel/user_ta.h b/core/include/kernel/user_ta.h
+index 667122b5c..90f48be6e 100644
+--- a/core/include/kernel/user_ta.h
++++ b/core/include/kernel/user_ta.h
+@@ -58,16 +58,33 @@ static inline struct user_ta_ctx *to_user_ta_ctx(struct ts_ctx *ctx)
+ }
+ 
+ #ifdef CFG_WITH_USER_TA
++/*
++ * Setup session context for a user TA
++ * @uuid: TA UUID
++ * @s: Session for which to setup a user TA context
++ *
++ * This function must be called with tee_ta_mutex locked.
++ */
+ TEE_Result tee_ta_init_user_ta_session(const TEE_UUID *uuid,
+-			struct tee_ta_session *s);
++				       struct tee_ta_session *s);
++
++/*
++ * Finalize session context initialization for a user TA
++ * @sess: Session for which to finalize user TA context
++ */
++TEE_Result tee_ta_complete_user_ta_session(struct tee_ta_session *s);
+ #else
+-static inline TEE_Result tee_ta_init_user_ta_session(
+-			const TEE_UUID *uuid __unused,
+-			struct tee_ta_session *s __unused)
++static inline TEE_Result
++tee_ta_init_user_ta_session(const TEE_UUID *uuid __unused,
++			    struct tee_ta_session *s __unused)
+ {
+ 	return TEE_ERROR_ITEM_NOT_FOUND;
+ }
+-#endif
+-
+ 
++static inline TEE_Result
++tee_ta_complete_user_ta_session(struct tee_ta_session *s __unused)
++{
++	return TEE_ERROR_GENERIC;
++}
++#endif /*CFG_WITH_USER_TA*/
+ #endif /*__KERNEL_USER_TA_H*/
+diff --git a/core/kernel/pseudo_ta.c b/core/kernel/pseudo_ta.c
+index 7d974843e..c533d2463 100644
+--- a/core/kernel/pseudo_ta.c
++++ b/core/kernel/pseudo_ta.c
+@@ -294,6 +294,12 @@ TEE_Result tee_ta_init_pseudo_ta_session(const TEE_UUID *uuid,
+ 	struct tee_ta_ctx *ctx;
+ 	const struct pseudo_ta_head *ta;
+ 
++	/*
++	 * Caller is expected to hold tee_ta_mutex for safe changes
++	 * in @s and registering of the context in tee_ctxes list.
++	 */
++	assert(mutex_is_locked(&tee_ta_mutex));
++
+ 	DMSG("Lookup pseudo TA %pUl", (void *)uuid);
+ 
+ 	ta = SCATTERED_ARRAY_BEGIN(pseudo_tas, struct pseudo_ta_head);
+@@ -306,7 +312,6 @@ TEE_Result tee_ta_init_pseudo_ta_session(const TEE_UUID *uuid,
+ 		ta++;
+ 	}
+ 
+-	/* Load a new TA and create a session */
+ 	DMSG("Open %s", ta->name);
+ 	stc = calloc(1, sizeof(struct pseudo_ta_ctx));
+ 	if (!stc)
+@@ -319,10 +324,8 @@ TEE_Result tee_ta_init_pseudo_ta_session(const TEE_UUID *uuid,
+ 	ctx->ts_ctx.uuid = ta->uuid;
+ 	ctx->ts_ctx.ops = &pseudo_ta_ops;
+ 
+-	mutex_lock(&tee_ta_mutex);
+ 	s->ts_sess.ctx = &ctx->ts_ctx;
+ 	TAILQ_INSERT_TAIL(&tee_ctxes, ctx, link);
+-	mutex_unlock(&tee_ta_mutex);
+ 
+ 	DMSG("%s : %pUl", stc->pseudo_ta->name, (void *)&ctx->ts_ctx.uuid);
+ 
+diff --git a/core/kernel/tee_ta_manager.c b/core/kernel/tee_ta_manager.c
+index e9b74f7ef..85290f4dc 100644
+--- a/core/kernel/tee_ta_manager.c
++++ b/core/kernel/tee_ta_manager.c
+@@ -622,22 +622,33 @@ static TEE_Result tee_ta_init_session(TEE_ErrorOrigin *err,
+ 
+ 	/* Look for already loaded TA */
+ 	res = tee_ta_init_session_with_context(s, uuid);
+-	mutex_unlock(&tee_ta_mutex);
+-	if (res == TEE_SUCCESS || res != TEE_ERROR_ITEM_NOT_FOUND)
++	if (res == TEE_SUCCESS || res != TEE_ERROR_ITEM_NOT_FOUND) {
++		mutex_unlock(&tee_ta_mutex);
+ 		goto out;
++	}
+ 
+ 	/* Look for secure partition */
+ 	res = stmm_init_session(uuid, s);
+-	if (res == TEE_SUCCESS || res != TEE_ERROR_ITEM_NOT_FOUND)
++	if (res == TEE_SUCCESS || res != TEE_ERROR_ITEM_NOT_FOUND) {
++		mutex_unlock(&tee_ta_mutex);
++		if (res == TEE_SUCCESS)
++			res = stmm_complete_session(s);
++
+ 		goto out;
++	}
+ 
+ 	/* Look for pseudo TA */
+ 	res = tee_ta_init_pseudo_ta_session(uuid, s);
+-	if (res == TEE_SUCCESS || res != TEE_ERROR_ITEM_NOT_FOUND)
++	if (res == TEE_SUCCESS || res != TEE_ERROR_ITEM_NOT_FOUND) {
++		mutex_unlock(&tee_ta_mutex);
+ 		goto out;
++	}
+ 
+ 	/* Look for user TA */
+ 	res = tee_ta_init_user_ta_session(uuid, s);
++	mutex_unlock(&tee_ta_mutex);
++	if (res == TEE_SUCCESS)
++		res = tee_ta_complete_user_ta_session(s);
+ 
+ out:
+ 	if (!res) {
+diff --git a/core/kernel/user_ta.c b/core/kernel/user_ta.c
+index 2c1b50996..df06573eb 100644
+--- a/core/kernel/user_ta.c
++++ b/core/kernel/user_ta.c
+@@ -463,6 +463,12 @@ TEE_Result tee_ta_init_user_ta_session(const TEE_UUID *uuid,
+ 	TEE_Result res = TEE_SUCCESS;
+ 	struct user_ta_ctx *utc = NULL;
+ 
++	/*
++	 * Caller is expected to hold tee_ta_mutex for safe changes
++	 * in @s and registering of the context in tee_ctxes list.
++	 */
++	assert(mutex_is_locked(&tee_ta_mutex));
++
+ 	utc = calloc(1, sizeof(struct user_ta_ctx));
+ 	if (!utc)
+ 		return TEE_ERROR_OUT_OF_MEMORY;
+@@ -482,15 +488,20 @@ TEE_Result tee_ta_init_user_ta_session(const TEE_UUID *uuid,
+ 
+ 	utc->ta_ctx.ts_ctx.uuid = *uuid;
+ 	res = vm_info_init(&utc->uctx, &utc->ta_ctx.ts_ctx);
+-	if (res)
+-		goto out;
++	if (res) {
++		condvar_destroy(&utc->ta_ctx.busy_cv);
++		free_utc(utc);
++		return res;
++	}
++
+ 	utc->ta_ctx.is_initializing = true;
+ 
+ #ifdef CFG_TA_PAUTH
+ 	crypto_rng_read(&utc->uctx.keys, sizeof(utc->uctx.keys));
+ #endif
+ 
+-	mutex_lock(&tee_ta_mutex);
++	assert(!mutex_trylock(&tee_ta_mutex));
++
+ 	s->ts_sess.ctx = &utc->ta_ctx.ts_ctx;
+ 	s->ts_sess.handle_scall = s->ts_sess.ctx->ops->handle_scall;
+ 	/*
+@@ -499,7 +510,14 @@ TEE_Result tee_ta_init_user_ta_session(const TEE_UUID *uuid,
+ 	 * handle single instance TAs.
+ 	 */
+ 	TAILQ_INSERT_TAIL(&tee_ctxes, &utc->ta_ctx, link);
+-	mutex_unlock(&tee_ta_mutex);
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result tee_ta_complete_user_ta_session(struct tee_ta_session *s)
++{
++	struct user_ta_ctx *utc = to_user_ta_ctx(s->ts_sess.ctx);
++	TEE_Result res = TEE_SUCCESS;
+ 
+ 	/*
+ 	 * We must not hold tee_ta_mutex while allocating page tables as
+@@ -520,6 +538,8 @@ TEE_Result tee_ta_init_user_ta_session(const TEE_UUID *uuid,
+ 	} else {
+ 		s->ts_sess.ctx = NULL;
+ 		TAILQ_REMOVE(&tee_ctxes, &utc->ta_ctx, link);
++		condvar_destroy(&utc->ta_ctx.busy_cv);
++		free_utc(utc);
+ 	}
+ 
+ 	/* The state has changed for the context, notify eventual waiters. */
+@@ -527,11 +547,5 @@ TEE_Result tee_ta_init_user_ta_session(const TEE_UUID *uuid,
+ 
+ 	mutex_unlock(&tee_ta_mutex);
+ 
+-out:
+-	if (res) {
+-		condvar_destroy(&utc->ta_ctx.busy_cv);
+-		free_utc(utc);
+-	}
+-
+ 	return res;
+ }
+-- 
+2.47.2
+

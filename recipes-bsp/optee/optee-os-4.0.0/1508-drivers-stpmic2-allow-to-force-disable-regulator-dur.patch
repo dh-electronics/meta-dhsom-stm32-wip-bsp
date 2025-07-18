@@ -1,0 +1,199 @@
+From 2dcabc21e22839cc7fc2b0df10b2dae0e1228b09 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@foss.st.com>
+Date: Mon, 27 Jan 2025 13:26:18 +0100
+Subject: [PATCH 1508/1695] drivers: stpmic2: allow to force disable regulator
+ during suspend
+
+Allow to force disable a regulator during suspend.
+This is useful when the regulator is always-on or when it is
+not correctly handled by a consumer.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b298063e048393cab06e22e19cab440ee77c390b drivers: stpmic2: allow to force disable regulator during suspend]
+Change-Id: Ib36c9bc48be914aad68de5733a122bc15cf636b1
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/432353
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Tested-by: Pascal PAILLET <p.paillet@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+---
+ .../plat-stm32mp1/drivers/stm32mp1_stpmic2.c  |  2 +
+ .../plat-stm32mp2/drivers/stm32mp2_pmic2.c    | 14 +++--
+ core/drivers/stm32mp_pmic2.c                  | 54 +++++++++++++++++++
+ core/include/drivers/stpmic2.h                |  2 +
+ .../devicetree/bindings/mfd/st,stpmic2.yaml   |  4 ++
+ 5 files changed, 73 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c
+index 48c7d38ab..602ba6ec6 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c
+@@ -32,6 +32,8 @@ static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint,
+ 
+ 	if (op == PM_OP_SUSPEND)
+ 		return stm32_pmic2_apply_pm_state(regulator, pwrlvl);
++	else if (op == PM_OP_RESUME)
++		return stm32_pmic2_resume_regulator(regulator);
+ 
+ 	return TEE_SUCCESS;
+ }
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic2.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic2.c
+index afec78caf..d8ea06fd1 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic2.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic2.c
+@@ -68,9 +68,11 @@ static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint,
+ {
+ 	struct regulator *regulator = pm_handle->handle;
+ 	unsigned int pwrlvl = PM_HINT_PLATFORM_STATE(pm_hint);
+-	uint8_t mode = STM32_PM_DEFAULT;
++	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+ 	if (op == PM_OP_SUSPEND) {
++		uint8_t mode = STM32_PM_DEFAULT;
++
+ 		/* configure PMIC level according MAX PM domain OFF */
+ 		switch (pwrlvl) {
+ 		case PM_D1_LEVEL:
+@@ -87,11 +89,17 @@ static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint,
+ 			mode = STM32_PM_DEFAULT;
+ 			break;
+ 		}
++		res = stm32_pmic2_apply_pm_state(regulator, mode);
++
+ 	} else if (op == PM_OP_RESUME) {
+-		mode = STM32_PM_DEFAULT;
++		res = stm32_pmic2_resume_regulator(regulator);
++		if (res)
++			return res;
++
++		res = stm32_pmic2_apply_pm_state(regulator, STM32_PM_DEFAULT);
+ 	}
+ 
+-	return stm32_pmic2_apply_pm_state(regulator, mode);
++	return res;
+ }
+ 
+ TEE_Result plat_pmic2_supplied_init(struct regulator *regulator)
+diff --git a/core/drivers/stm32mp_pmic2.c b/core/drivers/stm32mp_pmic2.c
+index 789764038..fcd4d085f 100644
+--- a/core/drivers/stm32mp_pmic2.c
++++ b/core/drivers/stm32mp_pmic2.c
+@@ -52,6 +52,8 @@ static bool stm32_pmic2;
+  * @last_lp_mode: Last low power mode selected
+  * @levels_desc: Description of the supported voltage levels
+  * @levels: Voltage level value array related to description @levels_desc
++ * @power_control_en: PWRCTRL input line is enabled
++ * @forced_off: Regulator was forced off at suspend
+  */
+ struct pmic_regu {
+ 	struct stpmic2 *pmic;
+@@ -62,6 +64,8 @@ struct pmic_regu {
+ 	int last_lp_mode;
+ 	struct regulator_voltages_desc levels_desc;
+ 	int *levels;
++	bool power_control_en;
++	bool forced_off;
+ };
+ 
+ /*
+@@ -343,6 +347,36 @@ TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator, uint8_t mode)
+ 	FMSG("%s: suspend state:%#"PRIx8" %d uV",
+ 	     regulator_name(regulator), state, lp_level_uv);
+ 
++	/*
++	 * If the LP state is controlled by the consumer (power control line
++	 * disabled), and the suspend state was requested as OFF in device tree,
++	 * then disable the regulator and put a message.
++	 */
++	if (!regu->power_control_en && (state & STPMIC2_LP_STATE_OFF)) {
++		bool enabled;
++
++		res = stpmic2_regulator_get_state(regu->pmic, regu->id,
++						  &enabled);
++		if (res)
++			return res;
++
++		if (enabled) {
++			res = stpmic2_regulator_set_state(regu->pmic, regu->id,
++							  false);
++			if (res)
++				return res;
++
++			IMSG("regulator %s forced OFF",
++			     regulator_name(regulator));
++
++			regu->forced_off = true;
++		} else {
++			regu->forced_off = false;
++		}
++
++		return TEE_SUCCESS;
++	}
++
+ 	if (mode == regu->last_lp_mode)
+ 		return TEE_SUCCESS;
+ 
+@@ -371,6 +405,23 @@ TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator, uint8_t mode)
+ 	return TEE_SUCCESS;
+ }
+ 
++TEE_Result stm32_pmic2_resume_regulator(struct regulator *regulator)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct pmic_regu *regu = regulator->priv;
++
++	if (regu->forced_off) {
++		/* Re-enable a regulator that was forced off in suspend */
++		res = stpmic2_regulator_set_state(regu->pmic, regu->id, true);
++		if (res)
++			return res;
++
++		regu->forced_off = false;
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result pmic_init(struct regulator *regulator)
+ {
+ 	/* default configuration for STPMIC regulator */
+@@ -409,6 +460,9 @@ static TEE_Result pmic_supplied_init(struct regulator *regulator,
+ 		if (!cuint)
+ 			continue;
+ 
++		if (p->prop == STPMIC2_PWRCTRL_EN)
++			regu->power_control_en = true;
++
+ 		value = fdt32_to_cpu(*cuint);
+ 		FMSG("%s: %d, %#"PRIx32, regulator_name(regulator), p->prop,
+ 		     value);
+diff --git a/core/include/drivers/stpmic2.h b/core/include/drivers/stpmic2.h
+index f25e3222b..a10607bcd 100644
+--- a/core/include/drivers/stpmic2.h
++++ b/core/include/drivers/stpmic2.h
+@@ -380,4 +380,6 @@ TEE_Result plat_pmic2_supplied_init(struct regulator *regulator);
+ TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator,
+ 				      uint8_t mode);
+ 
++TEE_Result stm32_pmic2_resume_regulator(struct regulator *regulator);
++
+ #endif /*__DRIVERS_STPMIC2_H*/
+diff --git a/documentation/devicetree/bindings/mfd/st,stpmic2.yaml b/documentation/devicetree/bindings/mfd/st,stpmic2.yaml
+index e0cb2e842..a89dcbd54 100644
+--- a/documentation/devicetree/bindings/mfd/st,stpmic2.yaml
++++ b/documentation/devicetree/bindings/mfd/st,stpmic2.yaml
+@@ -145,6 +145,10 @@ properties:
+ 
+               regulator-off-in-suspend:
+                 description: regulator should be off in suspend state.
++                  If it is controlled by a pwrctrl line, it is turned off
++                  once the pwrctrl state changes.
++                  If st,pwrctrl-enable is false, it is turned off during
++                  suspend preparation and re-enabled during resume.
+                 type: boolean
+ 
+               regulator-suspend-microvolt:
+-- 
+2.47.2
+

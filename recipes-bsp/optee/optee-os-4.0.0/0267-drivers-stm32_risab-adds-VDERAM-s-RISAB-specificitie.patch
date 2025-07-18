@@ -1,0 +1,68 @@
+From b836205118c43f0d69f678b100cfbf3f2f61f0c4 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Tue, 11 Jul 2023 18:07:30 +0200
+Subject: [PATCH 0267/1695] drivers: stm32_risab: adds VDERAM's RISAB
+ specificities
+
+VDERAM_EN bit should be enabled if the VDERAM should be accessed by the
+system. Else it should stay cleared so that the VDERAM is accessible by
+VDEC/VENC hardware blocks.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 57fcc53a55021ab33f7e33ba885e0c9b3926a79a drivers: stm32_risab: adds VDERAM's RISAB specificities]
+Change-Id: I6d77c7064dff48041ce0c5288422ce620639ffe3
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+---
+ core/drivers/firewall/stm32_risab.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/core/drivers/firewall/stm32_risab.c b/core/drivers/firewall/stm32_risab.c
+index b3144ae13..8adfeb340 100644
+--- a/core/drivers/firewall/stm32_risab.c
++++ b/core/drivers/firewall/stm32_risab.c
+@@ -17,6 +17,7 @@
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
++#include <stm32_sysconf.h>
+ 
+ #define _RISAB_CR				U(0x0)
+ #define _RISAB_IASR				U(0x8)
+@@ -489,11 +490,26 @@ static void clean_iac_regs(struct stm32_risab_pdata *risab_d)
+ 	io_setbits32(risab_d->base + _RISAB_IACR, GENMASK_32(1, 0));
+ }
+ 
++static void set_vderam_syscfg(struct stm32_risab_pdata *risab_d)
++{
++	/*
++	 * Set the VDERAMCR_VDERAM_EN bit if the VDERAM should be accessed by
++	 * the system. Else, clear it so that VDEC/VENC can access it.
++	 */
++	if (risab_d->nb_regions_cfged)
++		stm32mp_syscfg_write(SYSCFG_VDERAMCR, VDERAMCR_VDERAM_EN,
++				     VDERAMCR_MASK);
++	else
++		stm32mp_syscfg_write(SYSCFG_VDERAMCR, 0, VDERAMCR_MASK);
++}
++
+ static TEE_Result stm32_risab_pm_resume(struct stm32_risab_pdata *risab)
+ {
+ 	size_t i = 0;
+ 
+ 	if (is_tdcid) {
++		if (virt_to_phys((void *)risab->base) == RISAB6_BASE)
++			set_vderam_syscfg(risab);
+ 		set_srswiad_conf(risab);
+ 		clean_iac_regs(risab);
+ 	}
+@@ -597,6 +613,8 @@ static TEE_Result stm32_risab_probe(const void *fdt, int node,
+ 		panic("Can't enable RISAB clock");
+ 
+ 	if (is_tdcid) {
++		if (virt_to_phys((void *)risab_d->base) == RISAB6_BASE)
++			set_vderam_syscfg(risab_d);
+ 		clean_iac_regs(risab_d);
+ 		set_srswiad_conf(risab_d);
+ 	}
+-- 
+2.47.2
+

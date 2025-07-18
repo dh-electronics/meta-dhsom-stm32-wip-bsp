@@ -1,0 +1,61 @@
+From 71e9e02320a82b0c75508f8c4280388ac1dd5f16 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 30 Oct 2024 13:33:20 +0100
+Subject: [PATCH 1458/1695] drivers: clk: stm32mp15: default disable mckprot
+ hardening
+
+Default disable RCC MCKPROT hardening configuration for STM32MP15
+platforms since remoteproc driver enables it when required.
+
+Remove disabling of RCC MCKPROT from STM32MP15 shared_resource driver
+since this is now done from the STM32MP15 clock driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c58e4dc294ad7d870f8f5d52cf74d0bb5a04ad1d drivers: clk: stm32mp15: default disable mckprot hardening]
+Change-Id: I9bdf863801f76dc807a8565b9b3d56c0e160ca18
+Link: https://github.com/OP-TEE/optee_os/commit/f0440c1f68a783b09e83e052a61e85e3a4e66b25
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/415233
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/shared_resources.c | 5 -----
+ core/drivers/clk/clk-stm32mp15.c               | 6 ++++++
+ 2 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/shared_resources.c b/core/arch/arm/plat-stm32mp1/shared_resources.c
+index 8ebb93387..f73cbac55 100644
+--- a/core/arch/arm/plat-stm32mp1/shared_resources.c
++++ b/core/arch/arm/plat-stm32mp1/shared_resources.c
+@@ -629,11 +629,6 @@ static void check_rcc_secure_configuration(void)
+ 		else
+ 			panic();
+ 	}
+-
+-	if (!need_mckprot && mckprot) {
+-		DMSG("Disable RCC MCKPROT");
+-		stm32_rcc_set_mckprot(false);
+-	}
+ }
+ 
+ static TEE_Result stm32mp1_init_final_shres(void)
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index 490466b3b..c2b167793 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -3590,6 +3590,12 @@ static TEE_Result stm32mp1_clock_provider_probe(const void *fdt, int offs,
+ 	else
+ 		enable_rcc_tzen();
+ 
++	/*
++	 * Default disable MCKPROT, it may be enabled later from
++	 * STM32 remoteproc driver.
++	 */
++	stm32_rcc_set_mckprot(false);
++
+ 	rc = fdt_stm32_clk_parse(fdt, offs, pdata);
+ 	if (rc) {
+ 		EMSG("Failed to parse clock node: %d", rc);
+-- 
+2.47.2
+

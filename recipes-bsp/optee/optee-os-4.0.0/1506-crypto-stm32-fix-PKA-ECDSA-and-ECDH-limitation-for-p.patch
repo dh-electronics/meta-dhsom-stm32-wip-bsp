@@ -1,0 +1,40 @@
+From ae5744b6776a1c1a6d7c597ececcdc8f3ac2a1d2 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 22 Jan 2025 15:14:49 +0100
+Subject: [PATCH 1506/1695] crypto: stm32: fix PKA ECDSA and ECDH limitation
+ for public key
+
+type given in parameter of .alloc_publickey ops is a _PUBLIC_KEY, not a
+_KEYPAIR. Use then the right type to limit support to ECDSA and ECDH.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6183f7a3a355e669daf4fe193d11940cbd40d465 crypto: stm32: fix PKA ECDSA and ECDH limitation for public key]
+Fixes: bce68bf91574 ("crypto: stm32: PKA limit driver support to ECDSA and ECDH.")
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: I6cd03ce6bc2fd69e8a74ffb2cb8bfe1b7479176d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/430840
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/crypto/stm32/ecc.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/crypto/stm32/ecc.c b/core/drivers/crypto/stm32/ecc.c
+index 9068adfe9..7d26fef62 100644
+--- a/core/drivers/crypto/stm32/ecc.c
++++ b/core/drivers/crypto/stm32/ecc.c
+@@ -329,8 +329,8 @@ static TEE_Result stm32_alloc_publickey(struct ecc_public_key *s, uint32_t type,
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+ 	/* This driver only supports ECDH/ECDSA */
+-	if (type != TEE_TYPE_ECDSA_KEYPAIR &&
+-	    type != TEE_TYPE_ECDH_KEYPAIR)
++	if (type != TEE_TYPE_ECDSA_PUBLIC_KEY &&
++	    type != TEE_TYPE_ECDH_PUBLIC_KEY)
+ 		return TEE_ERROR_NOT_IMPLEMENTED;
+ 
+ 	FMSG("Using PKA");
+-- 
+2.47.2
+

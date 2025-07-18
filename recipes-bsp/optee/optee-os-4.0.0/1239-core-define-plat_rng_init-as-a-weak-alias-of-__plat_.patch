@@ -1,0 +1,63 @@
+From 0f9f989ec282368f533930ec94bcf501f6528d23 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 19 Sep 2024 09:38:46 +0200
+Subject: [PATCH 1239/1695] core: define plat_rng_init() as a weak alias of
+ __plat_rng_init()
+
+Rename the function plat_rng_init() to __plat_rng_init() and define
+plat_rng_init() as a weak alias of __plat_rng_init().
+This allow to use the default RNG initialization in the platform
+plat_rng_init() function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 96319065efd0c90bac7c3c8435c1ac5ca601cdba core: define plat_rng_init() as a weak alias of __plat_rng_init()]
+Change-Id: I93aba99beba9f28677564da53b063ed3dd8535ae
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/405518
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/include/tee/tee_cryp_utl.h | 6 ++++++
+ core/tee/tee_cryp_utl.c         | 4 +++-
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/core/include/tee/tee_cryp_utl.h b/core/include/tee/tee_cryp_utl.h
+index 7259cc3d6..4851a4911 100644
+--- a/core/include/tee/tee_cryp_utl.h
++++ b/core/include/tee/tee_cryp_utl.h
+@@ -29,6 +29,12 @@ TEE_Result tee_do_cipher_update(void *ctx, uint32_t algo,
+  */
+ void plat_prng_add_jitter_entropy(enum crypto_rng_src sid, unsigned int *pnum);
+ 
++/*
++ * plat_rng_init() - Initialize RNG support.
++ * If not overridden with a platform implementation, the function defaults
++ * to __plat_rng_init() that implements a weak seeding of the RNG.
++ */
+ void plat_rng_init(void);
++void __plat_rng_init(void);
+ 
+ #endif
+diff --git a/core/tee/tee_cryp_utl.c b/core/tee/tee_cryp_utl.c
+index 3220c1677..8391058b7 100644
+--- a/core/tee/tee_cryp_utl.c
++++ b/core/tee/tee_cryp_utl.c
+@@ -172,7 +172,7 @@ __weak void plat_prng_add_jitter_entropy(enum crypto_rng_src sid,
+ 		crypto_rng_add_event(sid, pnum, &current, sizeof(current));
+ }
+ 
+-__weak void plat_rng_init(void)
++void __plat_rng_init(void)
+ {
+ 	TEE_Result res = TEE_SUCCESS;
+ 	TEE_Time t;
+@@ -201,6 +201,8 @@ __weak void plat_rng_init(void)
+ 	}
+ }
+ 
++void plat_rng_init(void) __weak __alias("__plat_rng_init");
++
+ static TEE_Result tee_cryp_init(void)
+ {
+ 	TEE_Result res = crypto_init();
+-- 
+2.47.2
+

@@ -1,0 +1,84 @@
+From 3242be87515a792c8f0645d38ebf8c6303e7e89a Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 12 Jan 2024 12:42:02 +0100
+Subject: [PATCH 0431/1695] drivers: regulator: DT property
+ regulator-ramp-delay
+
+Implement regulator DT property regulator-ramp-delay.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a8c2496d646b266350ec0d384b5e6c6d5bcc7442 drivers: regulator: DT property regulator-ramp-delay]
+Change-Id: Ib7ef752ca8a7f1ac15c49e0336877aa588af78e2
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/regulator/regulator.c    | 14 ++++++++++++++
+ core/drivers/regulator/regulator_dt.c |  8 ++++++++
+ core/include/drivers/regulator.h      |  2 ++
+ 3 files changed, 24 insertions(+)
+
+diff --git a/core/drivers/regulator/regulator.c b/core/drivers/regulator/regulator.c
+index 469191306..c6b34d66e 100644
+--- a/core/drivers/regulator/regulator.c
++++ b/core/drivers/regulator/regulator.c
+@@ -207,6 +207,20 @@ TEE_Result regulator_set_voltage(struct regulator *regulator, int level_uv)
+ 		return res;
+ 	}
+ 
++	if (regulator->ramp_delay_uv_per_us) {
++		unsigned int d = 0;
++
++		if (regulator->cur_uv > level_uv)
++			d = regulator->cur_uv - level_uv;
++		else
++			d = level_uv - regulator->cur_uv;
++
++		d /= regulator->ramp_delay_uv_per_us;
++
++		FMSG("%s %"PRIu32"uS", regulator_name(regulator), d);
++		udelay(d);
++	}
++
+ 	regulator->cur_uv = level_uv;
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/drivers/regulator/regulator_dt.c b/core/drivers/regulator/regulator_dt.c
+index 8b2c1a8da..196642216 100644
+--- a/core/drivers/regulator/regulator_dt.c
++++ b/core/drivers/regulator/regulator_dt.c
+@@ -319,6 +319,14 @@ static TEE_Result parse_dt(const void *fdt, int node,
+ 		regulator->max_uv = INT_MAX;
+ 	}
+ 
++	cuint = fdt_getprop(fdt, node, "regulator-ramp-delay", NULL);
++	if (cuint) {
++		regulator->ramp_delay_uv_per_us = fdt32_to_cpu(*cuint);
++		FMSG("%s: ramp delay = %"PRIu32" (uV/us)",
++		     regulator_name(regulator),
++		     regulator->ramp_delay_uv_per_us);
++	}
++
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/core/include/drivers/regulator.h b/core/include/drivers/regulator.h
+index 81061b8da..a991ae8b4 100644
+--- a/core/include/drivers/regulator.h
++++ b/core/include/drivers/regulator.h
+@@ -93,6 +93,7 @@ struct regulator_voltages_desc {
+  * @name: Regulator string name for debug purpose or NULL
+  * @min_uv: Min possible voltage level in microvolt (uV)
+  * @max_uv: Max possible voltage level in microvolt (uV)
++ * @ramp_delay_uv_per_us: Voltage level change delay in uV/s
+  * @cur_uv: Current voltage level in microvolt (uV)
+  * @flags: REGULATOR_* property flags
+  * @refcount: Regulator enable request reference counter
+@@ -108,6 +109,7 @@ struct regulator {
+ 	char *name;
+ 	int min_uv;
+ 	int max_uv;
++	unsigned int ramp_delay_uv_per_us;
+ 	/* Fields internal to regulator framework */
+ 	int cur_uv;
+ 	unsigned int flags;
+-- 
+2.47.2
+

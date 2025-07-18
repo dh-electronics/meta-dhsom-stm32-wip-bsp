@@ -1,0 +1,137 @@
+From 8acccc8753f1b2b04e1f7aa7b5eb3863dd28cad6 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 2 Apr 2025 11:52:12 +0200
+Subject: [PATCH 1686/1695] drivers: stm32_bsec3: add debug control registers
+ support for stm32mp21
+
+BSEC_DBGMCR and BSEC_DBGACR are used to enable debug and secure debug with
+a temporal isolation level for Cortex-A and Cortex-M.
+Debug is only possible when the HDPL level is non-zero and reaches or
+surpasses the values of AUTH_HDPL field in these registers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7b674d3c0b924ae1f9695fd84cacf0afcb79fe28 drivers: stm32_bsec3: add debug control registers support for stm32mp21]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: Ica2d104b25e0d2b6603c667869f0a00ff2b61625
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/451704
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/stm32_bsec3.c        | 46 ++++++++++++++++++++++++++++---
+ core/include/drivers/stm32_bsec.h | 10 +++++++
+ 2 files changed, 52 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/stm32_bsec3.c b/core/drivers/stm32_bsec3.c
+index 0a8244d73..a2676481e 100644
+--- a/core/drivers/stm32_bsec3.c
++++ b/core/drivers/stm32_bsec3.c
+@@ -38,9 +38,11 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
+ #define BSEC_DENR			U(0xE20)
+ #define BSEC_SR				U(0xE40)
+ #define BSEC_OTPSR			U(0xE44)
++#if defined(CFG_STM32MP21)
+ #define BSEC_DBGMCR			U(0xE8C)
+ #define BSEC_AP_UNLOCK			U(0xE90)
+ #define BSEC_DBGACR			U(0xEAC)
++#endif /* CFG_STM32MP21 */
+ #define BSEC_VERR			U(0xFF4)
+ #define BSEC_IPIDR			U(0xFF8)
+ 
+@@ -97,9 +99,9 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
+ #endif
+ 
+ #if defined(CFG_STM32MP21)
+-#define BSEC_DENR_ALL_MASK		GENMASK_32(17, 0)
++#define BSEC_DENR_ALL_MASK		GENMASK_32(17, 1)
+ #define BSEC_DENR_WRITE_CONF		U(0xDEB00000)
+-#endif
++#endif /* CFG_STM32MP21 */
+ 
+ // compute SECDED ECC as HAMMING(17,12) with parity
+ #define PARITY_4BIT(x)		((((x) >> 3) ^ ((x) >> 2) ^ ((x) >> 1) ^ (x)) \
+@@ -113,8 +115,13 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
+ 				 ((PARITY_12BIT((x) ^ 0xcb7)) << 12))
+ #define BSEC_DENR_v(x)		(BSEC_DENR_WRITE_CONF | BSEC_DENR_ECC(x) | \
+ 				 ((x) & 0xfff))
+-#define BSEC_DENR_I		BSEC_DENR_v(0x0fff)
+-#define BSEC_DENR_NI		BSEC_DENR_v(0x0fdf)
++
++#if defined(CFG_STM32MP21)
++/* BSEC_DBGMCR/BSEC_DBGACR register fields */
++#define BSEC_DBGxCR_UNLOCK		GENMASK_32(15, 8)
++#define BSEC_DBGxCR_AUTH_HDPL		GENMASK_32(23, 16)
++#define BSEC_DBGxCR_AUTH_SEC		GENMASK_32(31, 24)
++#endif /* CFG_STM32MP21 */
+ 
+ /* BSEC_SR register fields */
+ #define BSEC_SR_BUSY			BIT(0)
+@@ -639,6 +646,7 @@ bool stm32_bsec_self_hosted_debug_is_enabled(void)
+ 	return stm32_bsec_read_debug_conf() & BSEC_DENR_DBGSWEN;
+ }
+ 
++#if defined(CFG_STM32MP21)
+ /*
+  * Dummy ADAC requires setting BSEC_DBGACR and BSEC_DBGMCR.
+  */
+@@ -661,6 +669,36 @@ void stm32_bsec_mp21_ap0_unlock(void)
+ 	io_write32(bsec_base() + BSEC_AP_UNLOCK, BSEC_AP_UNLOCK_DUMMY_ADAC);
+ }
+ 
++TEE_Result stm32_bsec_write_debug_ctrl(uint32_t ca_value, uint32_t cm_value)
++{
++	TEE_Result result = TEE_ERROR_BAD_STATE;
++	uint32_t exceptions = 0U;
++	uint32_t ca_chk = 0;
++	uint32_t cm_chk = 0;
++
++	if (IS_ENABLED(CFG_STM32_CM33TDCID))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	if (is_bsec_write_locked())
++		return TEE_ERROR_ACCESS_DENIED;
++
++	exceptions = bsec_lock();
++
++	io_write32(bsec_base() + BSEC_DBGACR, ca_value);
++	io_write32(bsec_base() + BSEC_DBGMCR, cm_value);
++
++	ca_chk = io_read32(bsec_base() + BSEC_DBGACR);
++	cm_chk = io_read32(bsec_base() + BSEC_DBGMCR);
++
++	if (ca_chk == ca_value && cm_chk == cm_value)
++		result = TEE_SUCCESS;
++
++	bsec_unlock(exceptions);
++
++	return result;
++}
++#endif /* CFG_STM32MP21 */
++
+ /*
+  * bsec_get_version: return BSEC version.
+  */
+diff --git a/core/include/drivers/stm32_bsec.h b/core/include/drivers/stm32_bsec.h
+index 88e5b5191..2b1bb09cd 100644
+--- a/core/include/drivers/stm32_bsec.h
++++ b/core/include/drivers/stm32_bsec.h
+@@ -156,6 +156,16 @@ TEE_Result stm32_bsec_write_debug_conf(uint32_t value);
+ /* Return debug configuration read from BSEC */
+ uint32_t stm32_bsec_read_debug_conf(void);
+ 
++#ifdef CFG_STM32MP21
++/*
++ * Enable/disable debug with temporal isolation level for Cortex-A and Cortex-M
++ * @ca_value: Value to write in BSEC debug control register for Cortex-A
++ * @cm_value: Value to write in BSEC debug control register for Cortex-M
++ * Return a TEE_Result compliant return value
++ */
++TEE_Result stm32_bsec_write_debug_ctrl(uint32_t ca_value, uint32_t cm_value);
++#endif
++
+ /*
+  * Write shadow-read lock
+  * @otp_id: OTP number
+-- 
+2.47.2
+

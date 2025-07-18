@@ -1,0 +1,95 @@
+From c7692f76767d994e9dfbf3798fac66db9a4e8581 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 26 Feb 2024 17:09:43 +0100
+Subject: [PATCH 0692/1695] drivers: clk: clk-stm32mp15: allow PM without CPU
+ DVFS
+
+Implement stm32mp1_clk_pll1_settings_are_valid() to set PLL1 data to
+zero when CFG_STM32_CPU_OPP is disabled or when no CPU OPP is defined
+to prevent failure of the PM suspend sequence. TF-A BL2 that reads
+these data already consider such zeroed value as a hint that there is
+no specific PLL1 configuration to be restored on warm reboot.
+
+Do no export stm32mp1_clk_pll1_settings_are_valid() that is called only
+from clk-stm32mp15.c.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bb74d33d127a978b3c3adf51c8d88ec3d0e5f7be drivers: clk: clk-stm32mp15: allow PM without CPU DVFS]
+Change-Id: If43ac90b5979c840171cd2f462a93a6a6319e6a0
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/363023
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/clk/clk-stm32mp15.c         | 22 ++++++++++++++--------
+ core/include/drivers/stm32mp1_rcc_util.h |  5 +++--
+ 2 files changed, 17 insertions(+), 10 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index 1f70587ba..109076463 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -1418,6 +1418,11 @@ void stm32mp1_clk_mcuss_protect(bool enable)
+ }
+ 
+ #ifdef CFG_STM32_CPU_OPP
++static bool stm32mp1_clk_pll1_settings_are_valid(void)
++{
++	return pll1_settings.valid_id == PLL1_SETTINGS_VALID_ID;
++}
++
+ static void save_current_opp(void)
+ {
+ 	unsigned long freq_khz = UDIV_ROUND_NEAREST(_stm32_clock_get_rate(CK_MPU),
+@@ -1770,18 +1775,19 @@ int stm32mp1_clk_compute_all_pll1_settings(uint32_t buck1_voltage)
+ 
+ void stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *data, size_t size)
+ {
+-	if ((size != sizeof(pll1_settings)) ||
+-	    !stm32mp1_clk_pll1_settings_are_valid())
+-		panic();
++	assert(size == sizeof(pll1_settings));
+ 
+-	memcpy(data, &pll1_settings, size);
++	if (stm32mp1_clk_pll1_settings_are_valid())
++		memcpy(data, &pll1_settings, size);
++	else
++		memset(data, 0, size);
+ }
+-
+-bool stm32mp1_clk_pll1_settings_are_valid(void)
++#else
++void stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *data, size_t size)
+ {
+-	return pll1_settings.valid_id == PLL1_SETTINGS_VALID_ID;
++	memset(data, 0, size);
+ }
+-#endif
++#endif /* CFG_STM32_CPU_OPP */
+ 
+ /*
+  * Conversion between clk references and clock gates and clock on internals
+diff --git a/core/include/drivers/stm32mp1_rcc_util.h b/core/include/drivers/stm32mp1_rcc_util.h
+index c53d38908..8c618ce54 100644
+--- a/core/include/drivers/stm32mp1_rcc_util.h
++++ b/core/include/drivers/stm32mp1_rcc_util.h
+@@ -37,13 +37,14 @@ void stm32mp_register_clock_parents_secure(unsigned long clock_id __unused)
+ /* Protect the MCU clock subsytem */
+ void stm32mp1_clk_mcuss_protect(bool enable);
+ 
++/* Save PLL1 configuration data for low power sequence if any */
++void stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *data, size_t size);
++
+ #ifdef CFG_STM32_CPU_OPP
+ /*
+  * Util for PLL1 settings management based on DT OPP table content.
+  */
+ int stm32mp1_clk_compute_all_pll1_settings(uint32_t buck1_voltage);
+-void stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *data, size_t size);
+-bool stm32mp1_clk_pll1_settings_are_valid(void);
+ TEE_Result stm32mp1_set_opp_khz(uint32_t freq_khz);
+ int stm32mp1_round_opp_khz(uint32_t *freq_khz);
+ #endif
+-- 
+2.47.2
+

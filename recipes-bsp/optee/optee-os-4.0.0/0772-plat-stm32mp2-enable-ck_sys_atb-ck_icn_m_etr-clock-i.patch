@@ -1,0 +1,50 @@
+From f4779f651ef1e799661855cae16d7f4b248a4704 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 28 Feb 2024 15:41:31 +0100
+Subject: [PATCH 0772/1695] plat-stm32mp2: enable ck_sys_atb / ck_icn_m_etr
+ clock if debug is open
+
+The Flexgen45 clock (ck_sys_atb / ck_icn_m_etr) needs to be enabled
+if we want to read ETR registers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c14ccd3afb7ceb4cfad9bb36e9e423009fcc5d52 plat-stm32mp2: enable ck_sys_atb / ck_icn_m_etr clock if debug is open]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I130e451260cb5f819dd4d7fdd9eb1974b26f8a74
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/363754
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/374138
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index ee08e8291..b1032f68a 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -201,6 +201,7 @@ static TEE_Result init_debug(void)
+ {
+ 	TEE_Result res = TEE_SUCCESS;
+ 	struct clk *dbg_clk = stm32mp_rcc_clock_id_to_clk(CK_SYSDBG);
++	struct clk *flexgen_45_clk = stm32mp_rcc_clock_id_to_clk(CK_FLEXGEN_45);
+ 	uint32_t state = 0;
+ 
+ 	res = stm32_bsec_get_state(&state);
+@@ -221,6 +222,13 @@ static TEE_Result init_debug(void)
+ 			panic("Could not enable debug clock");
+ 	}
+ 
++	if (stm32_bsec_self_hosted_debug_is_enabled()) {
++		/* Enable flexgen 45 clock (ck_sys_atb / ck_icn_m_etr) */
++		assert(flexgen_45_clk);
++		if (clk_enable(flexgen_45_clk))
++			panic("Could not enable flexgen45 clock");
++	}
++
+ 	return res;
+ }
+ early_init_late(init_debug);
+-- 
+2.47.2
+

@@ -1,0 +1,63 @@
+From eb95120615f4fdd7614c209a109bcbd69e33a054 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 2 Oct 2024 13:51:04 +0200
+Subject: [PATCH 1266/1695] drivers: clk: stm32: assert refcount on clock gates
+
+Assert refcount value against boundaries in stm32_gate_disable()
+and stm32_gate_enable().
+
+This change synchronizes with OP-TEE upstream merged change [1]/[2].
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 818481a4b5812fb3f9e9ad2e7f120bfa90192315 drivers: clk: stm32: assert refcount on clock gates]
+Change-Id: Ia5b4a0484041e53fe2bc86696b81d534ce3fb373
+Link: https://github.com/OP-TEE/optee_os/pull/7013/commits/b44215c81787ea6525313b38b020d8fcc42096b2
+Link: https://github.com/OP-TEE/optee_os/commit/2b028a2ba197af1fea5d1c6121a9482174285164
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/408469
+Tested-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/clk/clk-stm32-core.c | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32-core.c b/core/drivers/clk/clk-stm32-core.c
+index 3a3f8fd6e..d1c634976 100644
+--- a/core/drivers/clk/clk-stm32-core.c
++++ b/core/drivers/clk/clk-stm32-core.c
+@@ -100,10 +100,10 @@ void stm32_gate_disable(uint16_t gate_id)
+ 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+ 	uint8_t *gate_cpt = priv->gate_cpt;
+ 
+-	if (--gate_cpt[gate_id] > 0)
+-		return;
+-
+-	stm32_gate_endisable(gate_id, false);
++	assert(gate_cpt[gate_id] > 0);
++	if (gate_cpt[gate_id] == 1)
++		stm32_gate_endisable(gate_id, false);
++	gate_cpt[gate_id]--;
+ }
+ 
+ void stm32_gate_enable(uint16_t gate_id)
+@@ -111,10 +111,10 @@ void stm32_gate_enable(uint16_t gate_id)
+ 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+ 	uint8_t *gate_cpt = priv->gate_cpt;
+ 
+-	if (gate_cpt[gate_id]++ > 0)
+-		return;
+-
+-	stm32_gate_endisable(gate_id, true);
++	assert(gate_cpt[gate_id] < 0xFF);
++	if (gate_cpt[gate_id] == 0)
++		stm32_gate_endisable(gate_id, true);
++	gate_cpt[gate_id]++;
+ }
+ 
+ bool stm32_gate_is_enabled(uint16_t gate_id)
+-- 
+2.47.2
+

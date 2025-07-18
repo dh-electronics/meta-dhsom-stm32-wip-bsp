@@ -1,0 +1,88 @@
+From d30c071fc155d70ccf200406e8e105181ba02f84 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Tue, 2 Nov 2021 09:42:39 +0100
+Subject: [PATCH 0281/1695] drivers: gic: API for PMR and priority
+ configuration
+
+Define GIC API function for re-configuring PMR and interrupt priority.
+These are used during low power sequences. Remove the assertion on
+interrupt being secure (group0) in gic_it_set_prio() because the
+low power transition may set a priority for a non-secure interrupt.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e7f64c49b591f907abc247ac325b467171ef02a0 drivers: gic: API for PMR and priority configuration]
+Change-Id: Ic87465bea3c2dfab7af188f58986d2aeb5f00c45
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/gic.c         | 33 +++++++++++++++++++++++++++++++--
+ core/include/drivers/gic.h |  6 ++++++
+ 2 files changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/gic.c b/core/drivers/gic.c
+index dac031b40..557558013 100644
+--- a/core/drivers/gic.c
++++ b/core/drivers/gic.c
+@@ -418,8 +418,8 @@ static void gic_it_set_prio(struct gic_data *gd, size_t it, uint8_t prio)
+ 
+ 	assert(gd == &gic_data);
+ 
+-	/* Assigned to group0 */
+-	assert(!(io_read32(gd->gicd_base + GICD_IGROUPR(idx)) & mask));
++	if (io_read32(gd->gicd_base + GICD_IGROUPR(idx)) & mask)
++		DMSG("GIC set prio to non-secure interrupt %zu", it);
+ 
+ 	/* Set prio it to selected CPUs */
+ 	DMSG("prio: writing 0x%x to 0x%" PRIxVA,
+@@ -427,6 +427,35 @@ static void gic_it_set_prio(struct gic_data *gd, size_t it, uint8_t prio)
+ 	io_write8(gd->gicd_base + GICD_IPRIORITYR(0) + it, prio);
+ }
+ 
++/*
++ * GIC exported function for platform low power sequence
++ */
++uint8_t gic_set_pmr(uint8_t mask)
++{
++	struct gic_data *gd = &gic_data;
++	uint32_t pmr = io_read32(gd->gicc_base + GICC_PMR);
++
++	/*
++	 * Order memory updates w.r.t. PMR write, and ensure they're visible
++	 * before potential out of band interrupt trigger because of PMR update.
++	 */
++	dsb_ishst();
++	io_write32(gd->gicc_base + GICC_PMR, mask);
++	dsb_ishst();
++
++	return (uint8_t)pmr;
++}
++
++uint8_t gic_set_ipriority(size_t it, uint8_t mask)
++{
++	struct gic_data *gd = &gic_data;
++	uint8_t prio = io_read8(gd->gicd_base + GICD_IPRIORITYR(0) + it);
++
++	gic_it_set_prio(gd, it, mask);
++
++	return prio;
++}
++
+ static void gic_it_enable(struct gic_data *gd, size_t it)
+ {
+ 	size_t idx = it / NUM_INTS_PER_REG;
+diff --git a/core/include/drivers/gic.h b/core/include/drivers/gic.h
+index 31f0e5f90..a03508d06 100644
+--- a/core/include/drivers/gic.h
++++ b/core/include/drivers/gic.h
+@@ -44,4 +44,10 @@ void gic_cpu_init(void);
+ 
+ /* Print GIC state to console */
+ void gic_dump_state(void);
++
++/* Set the Priority Mask Regarding and return its previous value */
++uint8_t gic_set_pmr(uint8_t mask);
++
++/* Set the targe tinterrupt priority mask and return its previous value */
++uint8_t gic_set_ipriority(size_t it, uint8_t mask);
+ #endif /*__DRIVERS_GIC_H*/
+-- 
+2.47.2
+

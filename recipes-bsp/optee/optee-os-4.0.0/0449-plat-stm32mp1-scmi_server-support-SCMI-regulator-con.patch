@@ -1,0 +1,132 @@
+From e90568188a7a7405994e192325f97c656f428e1b Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 15 Jan 2024 11:58:51 +0100
+Subject: [PATCH 0449/1695] plat-stm32mp1: scmi_server: support SCMI regulator
+ consumer
+
+Support CFG_SCMI_MSG_REGULATOR_CONSUMER with which exposed SMCI
+voltage domains are defined by the DT compatible node
+"st,scmi-regulator-consumer". When so, scmi_server.c does not
+define the voltage domains.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6f8f621daa7438fb25e13ba65a8c470938aa3394 plat-stm32mp1: scmi_server: support SCMI regulator consumer]
+Change-Id: I4d529784253c681a3fd7179ee554422a1d6c2e68
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk       |  1 +
+ core/arch/arm/plat-stm32mp1/scmi_server.c | 41 +++++++++++++++++------
+ 2 files changed, 31 insertions(+), 11 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 66ba29cc5..29418f03b 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -334,6 +334,7 @@ endif
+ CFG_SCMI_MSG_DRIVERS ?= n
+ ifeq ($(CFG_SCMI_MSG_DRIVERS),y)
+ $(call force,CFG_SCMI_MSG_CLOCK,y)
++$(call force,CFG_SCMI_MSG_REGULATOR_CONSUMER,y)
+ $(call force,CFG_SCMI_MSG_RESET_DOMAIN,y)
+ CFG_SCMI_MSG_SHM_MSG ?= y
+ CFG_SCMI_MSG_SMT ?= y
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index 21cba0eab..3f7b1ca57 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -221,6 +221,7 @@ static struct stm32_scmi_rd stm32_scmi_reset_domain[] = {
+ };
+ #endif
+ 
++#ifndef CFG_SCMI_MSG_REGULATOR_CONSUMER
+ #ifdef CFG_STM32MP13
+ struct stm32_scmi_voltd scmi_voltage_domain[] = {
+ 	VOLTD_CELL_PWR(VOLTD_SCMI_REG11, PWR_REG11, "reg11"),
+@@ -267,6 +268,7 @@ struct stm32_scmi_voltd scmi_voltage_domain[] = {
+ 	VOLTD_CELL_PMIC(VOLTD_SCMI_STPMIC1_PWR_SW2, "pwr_sw2", "vbus_sw"),
+ };
+ #endif
++#endif /*!CFG_SCMI_MSG_REGULATOR_CONSUMER*/
+ 
+ struct channel_resources {
+ 	struct scmi_msg_channel *channel;
+@@ -290,8 +292,10 @@ static const struct channel_resources scmi_channel[] = {
+ 		.clock_count = ARRAY_SIZE(stm32_scmi_clock),
+ 		.rd = stm32_scmi_reset_domain,
+ 		.rd_count = ARRAY_SIZE(stm32_scmi_reset_domain),
++#ifndef CFG_SCMI_MSG_REGULATOR_CONSUMER
+ 		.voltd = scmi_voltage_domain,
+ 		.voltd_count = ARRAY_SIZE(scmi_voltage_domain),
++#endif
+ 	},
+ };
+ 
+@@ -331,11 +335,16 @@ static size_t __maybe_unused plat_scmi_protocol_count_paranoid(void)
+ 	if (n < channel_count)
+ 		count++;
+ 
+-	for (n = 0; n < channel_count; n++)
+-		if (scmi_channel[n].voltd_count)
+-			break;
+-	if (n < channel_count)
+-		count++;
++	if (IS_ENABLED(CFG_SCMI_MSG_REGULATOR_CONSUMER)) {
++		if (plat_scmi_voltd_count(0))
++			count++;
++	} else {
++		for (n = 0; n < channel_count; n++)
++			if (scmi_channel[n].voltd_count)
++				break;
++		if (n < channel_count)
++			count++;
++	}
+ 
+ 	return count;
+ }
+@@ -687,6 +696,7 @@ int32_t plat_scmi_rd_set_state(unsigned int channel_id, unsigned int scmi_id,
+ 	return SCMI_SUCCESS;
+ }
+ 
++#ifndef CFG_SCMI_MSG_REGULATOR_CONSUMER
+ /*
+  * Platform SCMI voltage domains
+  */
+@@ -930,6 +940,12 @@ static void get_voltd_regulator(struct stm32_scmi_voltd *voltd)
+ 	if (voltd->regulator && voltd->regulator->flags & REGULATOR_BOOT_ON)
+ 		regulator_enable(voltd->regulator);
+ }
++#else
++static void __noreturn get_voltd_regulator(struct stm32_scmi_voltd *v __unused)
++{
++	panic();
++}
++#endif /*CFG_SCMI_MSG_REGULATOR_CONSUMER*/
+ 
+ /*
+  * Initialize platform SCMI resources
+@@ -985,14 +1001,17 @@ static TEE_Result stm32mp1_init_scmi_server(void)
+ 			rd->rstctrl = rstctrl;
+ 		}
+ 
+-		for (j = 0; j < res->voltd_count; j++) {
+-			struct stm32_scmi_voltd *voltd = &res->voltd[j];
+ 
+-			if (!voltd->name ||
+-			    strlen(voltd->name) >= SCMI_VOLTD_NAME_SIZE)
+-				panic("SCMI voltage domain name invalid");
++		if (!IS_ENABLED(CFG_SCMI_MSG_REGULATOR_CONSUMER)) {
++			for (j = 0; j < res->voltd_count; j++) {
++				struct stm32_scmi_voltd *voltd = &res->voltd[j];
+ 
+-			get_voltd_regulator(voltd);
++				if (!voltd->name ||
++				    strlen(voltd->name) >= SCMI_VOLTD_NAME_SIZE)
++					panic("SCMI voltage domain name invalid");
++
++				get_voltd_regulator(voltd);
++			}
+ 		}
+ 	}
+ 
+-- 
+2.47.2
+

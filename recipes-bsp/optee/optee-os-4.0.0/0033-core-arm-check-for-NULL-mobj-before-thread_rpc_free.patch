@@ -1,0 +1,84 @@
+From 2bef6ce2d34a2557267ece714db30555e0b951bf Mon Sep 17 00:00:00 2001
+From: Jens Wiklander <jens.wiklander@linaro.org>
+Date: Mon, 13 Nov 2023 17:42:53 +0100
+Subject: [PATCH 0033/1695] core: arm: check for NULL mobj before
+ thread_rpc_free()
+
+In the SMC and FF-A ABIs check that a mobj representing a shared memory
+object isn't NULL before doing an RPC to free it in the normal world
+too. For the FF-A ABI it's harmless without this check, but the SMC ABI
+may cause an NULL pointer dereference in the OP-TEE kernel driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e737fb310fb065536cc4e7af03cc35736fc126fe core: arm: check for NULL mobj before thread_rpc_free()]
+Change-Id: I4dca71f037ba5b434fae5636102bb8dad9ea272d
+Signed-off-by: Jens Wiklander <jens.wiklander@linaro.org>
+[etienne: cherry-picked from 4989730f373a199c910f992e2a22325615241b81]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/kernel/thread_optee_smc.c |  9 ++++++---
+ core/arch/arm/kernel/thread_spmc.c      | 14 +++++++++-----
+ 2 files changed, 15 insertions(+), 8 deletions(-)
+
+diff --git a/core/arch/arm/kernel/thread_optee_smc.c b/core/arch/arm/kernel/thread_optee_smc.c
+index bc69d8bea..240877417 100644
+--- a/core/arch/arm/kernel/thread_optee_smc.c
++++ b/core/arch/arm/kernel/thread_optee_smc.c
+@@ -694,13 +694,16 @@ struct mobj *thread_rpc_alloc_kernel_payload(size_t size)
+ 
+ void thread_rpc_free_kernel_payload(struct mobj *mobj)
+ {
+-	thread_rpc_free(OPTEE_RPC_SHM_TYPE_KERNEL, mobj_get_cookie(mobj), mobj);
++	if (mobj)
++		thread_rpc_free(OPTEE_RPC_SHM_TYPE_KERNEL,
++				mobj_get_cookie(mobj), mobj);
+ }
+ 
+ void thread_rpc_free_payload(struct mobj *mobj)
+ {
+-	thread_rpc_free(OPTEE_RPC_SHM_TYPE_APPL, mobj_get_cookie(mobj),
+-			mobj);
++	if (mobj)
++		thread_rpc_free(OPTEE_RPC_SHM_TYPE_APPL, mobj_get_cookie(mobj),
++				mobj);
+ }
+ 
+ struct mobj *thread_rpc_alloc_global_payload(size_t size)
+diff --git a/core/arch/arm/kernel/thread_spmc.c b/core/arch/arm/kernel/thread_spmc.c
+index 59cdb51b1..a5b2bef80 100644
+--- a/core/arch/arm/kernel/thread_spmc.c
++++ b/core/arch/arm/kernel/thread_spmc.c
+@@ -1654,13 +1654,16 @@ struct mobj *thread_rpc_alloc_kernel_payload(size_t size)
+ 
+ void thread_rpc_free_kernel_payload(struct mobj *mobj)
+ {
+-	thread_rpc_free(OPTEE_RPC_SHM_TYPE_KERNEL, mobj_get_cookie(mobj), mobj);
++	if (mobj)
++		thread_rpc_free(OPTEE_RPC_SHM_TYPE_KERNEL,
++				mobj_get_cookie(mobj), mobj);
+ }
+ 
+ void thread_rpc_free_payload(struct mobj *mobj)
+ {
+-	thread_rpc_free(OPTEE_RPC_SHM_TYPE_APPL, mobj_get_cookie(mobj),
+-			mobj);
++	if (mobj)
++		thread_rpc_free(OPTEE_RPC_SHM_TYPE_APPL, mobj_get_cookie(mobj),
++				mobj);
+ }
+ 
+ struct mobj *thread_rpc_alloc_global_payload(size_t size)
+@@ -1670,8 +1673,9 @@ struct mobj *thread_rpc_alloc_global_payload(size_t size)
+ 
+ void thread_rpc_free_global_payload(struct mobj *mobj)
+ {
+-	thread_rpc_free(OPTEE_RPC_SHM_TYPE_GLOBAL, mobj_get_cookie(mobj),
+-			mobj);
++	if (mobj)
++		thread_rpc_free(OPTEE_RPC_SHM_TYPE_GLOBAL,
++				mobj_get_cookie(mobj), mobj);
+ }
+ 
+ void thread_spmc_register_secondary_ep(vaddr_t ep)
+-- 
+2.47.2
+

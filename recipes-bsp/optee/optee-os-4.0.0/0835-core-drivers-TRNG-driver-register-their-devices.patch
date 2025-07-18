@@ -1,0 +1,229 @@
+From 2b22d233c95bdbe6b7b8cbb04d8ebc913001c9b7 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 25 Apr 2024 17:30:52 +0200
+Subject: [PATCH 0835/1695] core: drivers: TRNG driver register their devices
+
+Change TRNG device driver to register to crypto layer when TRNG
+is ready to operate.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9a89135cce21a44a099a909255a7f070e26d9dd6 core: drivers: TRNG driver register their devices]
+Change-Id: Id94068f0e3e30406a6cc3e2feb4f83947f01ada7
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/378333
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-k3/drivers/sa2ul_rng.c | 2 ++
+ core/arch/arm/plat-rcar/hw_rng.c          | 6 ++++++
+ core/arch/arm/plat-stm/rng_support.c      | 5 +++++
+ core/crypto/rng_hw.c                      | 3 +++
+ core/drivers/atmel_trng.c                 | 2 ++
+ core/drivers/crypto/caam/caam_rng.c       | 2 ++
+ core/drivers/crypto/se050/core/rng.c      | 1 +
+ core/drivers/dra7_rng.c                   | 2 ++
+ core/drivers/hi16xx_rng.c                 | 2 ++
+ core/drivers/imx_rngb.c                   | 2 ++
+ core/drivers/smccc_trng.c                 | 2 ++
+ core/drivers/stm32_rng.c                  | 8 +++++++-
+ core/drivers/xiphera_trng.c               | 2 ++
+ 13 files changed, 38 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-k3/drivers/sa2ul_rng.c b/core/arch/arm/plat-k3/drivers/sa2ul_rng.c
+index 1684bff50..37f01c53d 100644
+--- a/core/arch/arm/plat-k3/drivers/sa2ul_rng.c
++++ b/core/arch/arm/plat-k3/drivers/sa2ul_rng.c
+@@ -142,6 +142,8 @@ TEE_Result sa2ul_rng_init(void)
+ 
+ 	io_write32(rng + RNG_CONTROL, ENABLE_TRNG);
+ 
++	hw_register_get_random_bytes();
++
+ 	IMSG("SA2UL TRNG initialized");
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/arch/arm/plat-rcar/hw_rng.c b/core/arch/arm/plat-rcar/hw_rng.c
+index b8496e8ab..650432832 100644
+--- a/core/arch/arm/plat-rcar/hw_rng.c
++++ b/core/arch/arm/plat-rcar/hw_rng.c
+@@ -30,6 +30,12 @@ TEE_Result hw_get_random_bytes(void *buf, size_t len)
+ 	uint8_t *buffer = buf;
+ 	size_t buffer_pos = 0;
+ 	uint8_t ret_val = 0;
++	static bool first_call = true;
++
++	if (first_call) {
++		hw_register_get_random_bytes();
++		first_call = false;
++	}
+ 
+ 	assert(rng_cache_pos < PLAT_RND_VECTOR_SZ);
+ 
+diff --git a/core/arch/arm/plat-stm/rng_support.c b/core/arch/arm/plat-stm/rng_support.c
+index 2a81b7bde..29b926a46 100644
+--- a/core/arch/arm/plat-stm/rng_support.c
++++ b/core/arch/arm/plat-stm/rng_support.c
+@@ -88,6 +88,7 @@ TEE_Result hw_get_random_bytes(void *buf, size_t len)
+ 	static int pos;
+ 
+ 	static int nbcall;  /* debug purpose - 0 is the initial value*/
++	static bool first_call = true;
+ 
+ 	volatile uint32_t tmpval[_LOCAL_FIFO_SIZE/2];
+ 	int i;
+@@ -96,6 +97,10 @@ TEE_Result hw_get_random_bytes(void *buf, size_t len)
+ 	size_t buffer_pos = 0;
+ 
+ 	nbcall++;
++	if (first_call) {
++		hw_register_get_random_bytes();
++		first_call = false;
++	}
+ 
+ 	while (buffer_pos < len) {
+ 		/* Refill our FIFO */
+diff --git a/core/crypto/rng_hw.c b/core/crypto/rng_hw.c
+index 2637c7efa..d6a26d355 100644
+--- a/core/crypto/rng_hw.c
++++ b/core/crypto/rng_hw.c
+@@ -45,5 +45,8 @@ TEE_Result crypto_rng_read(void *buf, size_t blen)
+ 	if (!buf)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	if (!registered)
++		return TEE_ERROR_NOT_SUPPORTED;
++
+ 	return hw_get_random_bytes(buf, blen);
+ }
+diff --git a/core/drivers/atmel_trng.c b/core/drivers/atmel_trng.c
+index 0b18c301c..67c47c4d0 100644
+--- a/core/drivers/atmel_trng.c
++++ b/core/drivers/atmel_trng.c
+@@ -105,6 +105,8 @@ static TEE_Result trng_node_probe(const void *fdt, int node,
+ 
+ 	atmel_trng_reset();
+ 
++	hw_register_get_random_bytes();
++
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/core/drivers/crypto/caam/caam_rng.c b/core/drivers/crypto/caam/caam_rng.c
+index fa81c222f..f7dac4c37 100644
+--- a/core/drivers/crypto/caam/caam_rng.c
++++ b/core/drivers/crypto/caam/caam_rng.c
+@@ -551,6 +551,8 @@ enum caam_status caam_rng_init(vaddr_t ctrl_addr)
+ 
+ 	if (retstatus != CAAM_NO_ERROR)
+ 		do_free();
++	else if (IS_ENABLED(CFG_NXP_CAAM_RNG_DRV))
++		hw_register_get_random_bytes();
+ 
+ 	return retstatus;
+ }
+diff --git a/core/drivers/crypto/se050/core/rng.c b/core/drivers/crypto/se050/core/rng.c
+index bedcff893..6d2cb16e1 100644
+--- a/core/drivers/crypto/se050/core/rng.c
++++ b/core/drivers/crypto/se050/core/rng.c
+@@ -26,6 +26,7 @@ static TEE_Result do_rng_read(void *buf, size_t blen)
+ 
+ void plat_rng_init(void)
+ {
++	hw_register_get_random_bytes();
+ }
+ 
+ TEE_Result hw_get_random_bytes(void *buf, size_t blen)
+diff --git a/core/drivers/dra7_rng.c b/core/drivers/dra7_rng.c
+index c3af33594..53edfa4d9 100644
+--- a/core/drivers/dra7_rng.c
++++ b/core/drivers/dra7_rng.c
+@@ -182,6 +182,8 @@ static TEE_Result dra7_rng_init(void)
+ 	val |= ENABLE_TRNG;
+ 	io_write32(rng + RNG_CONTROL, val);
+ 
++	hw_register_get_random_bytes();
++
+ 	IMSG("DRA7x TRNG initialized");
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/drivers/hi16xx_rng.c b/core/drivers/hi16xx_rng.c
+index a3ba2cd29..da7b5e3fd 100644
+--- a/core/drivers/hi16xx_rng.c
++++ b/core/drivers/hi16xx_rng.c
+@@ -58,6 +58,8 @@ static TEE_Result hi16xx_rng_init(void)
+ 	 */
+ 	io_write32(rng + RNG_CTRL, RNG_EN | RNG_RING_EN | RNG_SEED_SEL);
+ 
++	hw_register_get_random_bytes();
++
+ 	IMSG("Hi16xx RNG initialized");
+ 	return TEE_SUCCESS;
+ }
+diff --git a/core/drivers/imx_rngb.c b/core/drivers/imx_rngb.c
+index 3b020fc66..8d3ab6643 100644
+--- a/core/drivers/imx_rngb.c
++++ b/core/drivers/imx_rngb.c
+@@ -214,6 +214,8 @@ static TEE_Result rngb_init(void)
+ 	rng_seed(&rngb);
+ 	rngb.ready = true;
+ 
++	hw_register_get_random_bytes();
++
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/core/drivers/smccc_trng.c b/core/drivers/smccc_trng.c
+index 4d28ff0af..e15994ce9 100644
+--- a/core/drivers/smccc_trng.c
++++ b/core/drivers/smccc_trng.c
+@@ -208,6 +208,8 @@ void plat_rng_init(void)
+ 
+ 		if (crypto_rng_init(seed, sizeof(seed)))
+ 			panic();
++
++		hw_register_get_random_bytes();
+ 	}
+ }
+ 
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index 2c77fea81..0736df3e3 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -475,7 +475,9 @@ void plat_rng_init(void)
+ 
+ 	DMSG("PRNG seeded with RNG");
+ }
+-#else
++#endif
++
++#ifdef CFG_WITH_TRNG
+ TEE_Result hw_get_random_bytes(void *out, size_t size)
+ {
+ 	return stm32_rng_read(out, size);
+@@ -679,6 +681,10 @@ static TEE_Result stm32_rng_probe(const void *fdt, int offs,
+ 		register_pm_core_service_cb(stm32_rng_pm, &stm32_rng,
+ 					    "rng-service");
+ 
++	if (!IS_ENABLED(CFG_WITH_SOFTWARE_PRNG) &&
++	    IS_ENABLED(CFG_WITH_TRNG))
++		hw_register_get_random_bytes();
++
+ 	return TEE_SUCCESS;
+ 
+ err:
+diff --git a/core/drivers/xiphera_trng.c b/core/drivers/xiphera_trng.c
+index 9786c19a4..5a30f48b9 100644
+--- a/core/drivers/xiphera_trng.c
++++ b/core/drivers/xiphera_trng.c
+@@ -169,6 +169,8 @@ static TEE_Result xiphera_trng_probe(const void *fdt, int node,
+ 
+ 	io_write32(xiphera_trng_base + CONTROL_REG, HOST_TO_TRNG_ACK_ZEROIZE);
+ 
++	hw_register_get_random_bytes();
++
+ 	DMSG("TRNG initialized\n");
+ 
+ 	return TEE_SUCCESS;
+-- 
+2.47.2
+

@@ -1,0 +1,303 @@
+From ba9bd440d485a4a831281d700206f292c79d7460 Mon Sep 17 00:00:00 2001
+From: Olivier Moysan <olivier.moysan@foss.st.com>
+Date: Wed, 10 Apr 2024 14:09:07 +0200
+Subject: [PATCH 0740/1695] core: adc_fw: add services to framework
+
+Add event and conversion services to ADC framework:
+- Set and clear event routines
+- Start and stop ADC conversion routines
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5b1e8cee622cecd3f5450c76a07bcb4fe5e748af core: adc_fw: add services to framework]
+Change-Id: I11931509da0890c841788d85b49c4e2aa26492c4
+Signed-off-by: Olivier Moysan <olivier.moysan@foss.st.com>
+---
+ core/drivers/adc/adc_fw.c  | 153 ++++++++++++++++++++++++++++++++++++-
+ core/include/drivers/adc.h |  65 ++++++++++++++++
+ 2 files changed, 216 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/adc/adc_fw.c b/core/drivers/adc/adc_fw.c
+index d7b1b374b..87f8c24ae 100644
+--- a/core/drivers/adc/adc_fw.c
++++ b/core/drivers/adc/adc_fw.c
+@@ -65,14 +65,14 @@ TEE_Result adc_print_info(const char *adc_name)
+ 	}
+ 
+ 	IMSG("ADC Device '%s':", adc_dev->name);
+-	IMSG("Channel mask: 0x%x", adc_dev->channel_mask);
++	IMSG("Channel mask: %#"PRIx32, adc_dev->channel_mask);
+ 	IMSG("Channels:");
+ 	for (i = 0; i < adc_dev->channels_nb; i++)
+ 		IMSG("\tChannel id=%u label='%s'",
+ 		     adc_dev->channels[i].id,
+ 		     adc_dev->channels[i].name);
+ 
+-	IMSG("Data mask: 0x%x", adc_dev->data_mask);
++	IMSG("Data mask: %#"PRIx32, adc_dev->data_mask);
+ 	IMSG("VDD: %"PRId32"uv", adc_dev->vref_uv);
+ 
+ 	return TEE_SUCCESS;
+@@ -100,6 +100,27 @@ static TEE_Result adc_conv_raw_data(struct adc_device *dev,
+ 	return TEE_SUCCESS;
+ }
+ 
++TEE_Result adc_clr_event_all(const char *adc_name, unsigned int id)
++{
++	struct adc_device *adc_dev = NULL;
++	struct adc_consumer *c = NULL;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	res = adc_get_by_name(adc_name, &adc_dev);
++	if (res)
++		return res;
++
++	SLIST_FOREACH(c, &adc_cons_list, link) {
++		if (c->evt && c->dev == adc_dev && c->evt->id == id) {
++			res = adc_consumer_clr_event(c, c->evt);
++			if (res)
++				return res;
++		}
++	}
++
++	return res;
++}
++
+ static TEE_Result adc_consumer_lookup(const char *adc_name, uint32_t channel,
+ 				      struct adc_consumer **adc_cons)
+ {
+@@ -153,6 +174,9 @@ void adc_consumer_print_list(void)
+ 	SLIST_FOREACH(cons, &adc_cons_list, link) {
+ 		IMSG("ADC %s : channel %"PRIu32,
+ 		     cons->dev->name, cons->channel);
++		if (cons->evt)
++			IMSG("Event id=%u lt=%#"PRIx32" ht=%#"PRIx32,
++			     cons->evt->id, cons->evt->lt, cons->evt->ht);
+ 	}
+ }
+ 
+@@ -259,3 +283,128 @@ TEE_Result adc_consumer_read_processed(struct adc_consumer *cons,
+ 
+ 	return res;
+ }
++
++TEE_Result adc_consumer_set_event(struct adc_consumer *cons,
++				  struct adc_evt *evt)
++{
++	struct adc_ops *ops = cons->dev->ops;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (!ops || !ops->set_event)
++		return TEE_ERROR_NOT_IMPLEMENTED;
++
++	res = adc_trylock(cons->dev);
++	if (res)
++		return res;
++
++	res = ops->set_event(cons->dev, evt, cons->channel);
++	if (res)
++		goto err;
++
++	cons->evt = calloc(1, sizeof(*cons->evt));
++	if (!cons->evt) {
++		res = TEE_ERROR_OUT_OF_MEMORY;
++		goto err;
++	}
++
++	memcpy(cons->evt, evt, sizeof(*cons->evt));
++	res = TEE_SUCCESS;
++
++err:
++	adc_unlock(cons->dev);
++
++	return res;
++}
++
++TEE_Result adc_consumer_clr_event(struct adc_consumer *cons,
++				  struct adc_evt *evt)
++{
++	struct adc_ops *ops = cons->dev->ops;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (!ops || !ops->clr_event)
++		return TEE_ERROR_NOT_IMPLEMENTED;
++
++	res = adc_trylock(cons->dev);
++	if (res)
++		return res;
++
++	if (!cons->evt) {
++		EMSG("No event found");
++		res = TEE_ERROR_NO_DATA;
++		goto err;
++	}
++
++	free(cons->evt);
++	cons->evt = NULL;
++
++	res = ops->clr_event(cons->dev, evt, cons->channel);
++
++err:
++	adc_unlock(cons->dev);
++
++	return res;
++}
++
++TEE_Result adc_consumer_start_conv(struct adc_device *adc_dev,
++				   uint32_t channel_mask)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct adc_ops *ops = NULL;
++
++	if ((channel_mask & adc_dev->channel_mask) != channel_mask ||
++	    !channel_mask) {
++		EMSG("Wrong channel mask %#"PRIx32" for ADC %s",
++		     channel_mask, adc_dev->name);
++
++		return TEE_ERROR_BAD_PARAMETERS;
++	}
++
++	res = adc_trylock(adc_dev);
++	if (res)
++		return res;
++
++	ops = adc_dev->ops;
++	if (!ops || !ops->start_conv) {
++		res = TEE_ERROR_NOT_IMPLEMENTED;
++		goto err;
++	}
++
++	res = ops->start_conv(adc_dev, channel_mask);
++	if (!res)
++		adc_dev->state = 1;
++
++err:
++	adc_unlock(adc_dev);
++
++	return res;
++}
++
++TEE_Result adc_consumer_stop_conv(struct adc_device *adc_dev)
++{
++	struct adc_ops *ops = NULL;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	mutex_lock(&adc_dev->lock);
++
++	ops = adc_dev->ops;
++	if (!ops || !ops->stop_conv)
++		return TEE_ERROR_NOT_IMPLEMENTED;
++
++	if (!adc_dev->state) {
++		res = TEE_ERROR_BAD_STATE;
++		goto err;
++	}
++
++	res = ops->stop_conv(adc_dev);
++	if (res) {
++		EMSG("Failed to stop ADC");
++		goto err;
++	}
++	adc_dev->state = 0;
++
++err:
++	mutex_unlock(&adc_dev->lock);
++
++	return res;
++}
+diff --git a/core/include/drivers/adc.h b/core/include/drivers/adc.h
+index a3d98372b..38fc58b65 100644
+--- a/core/include/drivers/adc.h
++++ b/core/include/drivers/adc.h
+@@ -11,6 +11,18 @@
+ 
+ struct adc_ops;
+ 
++/**
++ * struct adc_evt - event configuration filled by ADC user
++ * @id: ADC event identifier
++ * @lt: ADC event low threshold (raw value)
++ * @ht: ADC event high threshold (raw value)
++ */
++struct adc_evt {
++	unsigned int id;
++	uint32_t lt;
++	uint32_t ht;
++};
++
+ /**
+  * struct adc_chan - ADC channel descriptor
+  * @id: ADC channel identifier
+@@ -70,6 +82,12 @@ struct adc_consumer {
+ struct adc_ops {
+ 	TEE_Result (*read_channel)(struct adc_device *dev, uint32_t channel,
+ 				   uint32_t *data);
++	TEE_Result (*set_event)(struct adc_device *dev, struct adc_evt *evt,
++				uint32_t channel);
++	TEE_Result (*clr_event)(struct adc_device *dev, struct adc_evt *evt,
++				uint32_t channel);
++	TEE_Result (*start_conv)(struct adc_device *dev, uint32_t channel_mask);
++	TEE_Result (*stop_conv)(struct adc_device *dev);
+ };
+ 
+ static inline void *adc_get_drv_data(struct adc_device *dev)
+@@ -117,6 +135,15 @@ TEE_Result adc_trylock(struct adc_device *dev);
+  */
+ void adc_unlock(struct adc_device *dev);
+ 
++/**
++ * adc_clr_event_all() - clear an event on all consumers of an ADC device
++ *
++ * @adc_name: ADC instance name
++ * @id: event identifier
++ * @Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_clr_event_all(const char *adc_name, unsigned int id);
++
+ /**
+  * adc_consumer_get_by_name() - get consumer from ADC name and channel index
+  *
+@@ -172,4 +199,42 @@ TEE_Result adc_consumer_get_all(const void *fdt, int node, size_t *nb_cons,
+  * Return: TEE_SUCCESS on success, error code otherwise
+  */
+ TEE_Result adc_consumer_read_processed(struct adc_consumer *cons, int32_t *uv);
++
++/**
++ * adc_consumer_set_event() - configure an event for an ADC consumer
++ *
++ * @cons: ADC consumer handle
++ * @evt: Event descriptor pointer
++ * @Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_consumer_set_event(struct adc_consumer *cons,
++				  struct adc_evt *evt);
++
++/**
++ * adc_consumer_clr_event() - clear an event for an ADC consumer
++ *
++ * @cons: ADC consumer handle
++ * @evt: Event descriptor pointer
++ * @Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_consumer_clr_event(struct adc_consumer *cons,
++				  struct adc_evt *evt);
++
++/**
++ * adc_consumer_start_conv() - launch channel(s) conversions on an ADC device
++ *
++ * @dev: ADC device handle
++ * @channel_mask: ADC channel mask
++ * @Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_consumer_start_conv(struct adc_device *dev,
++				   uint32_t channel_mask);
++
++/**
++ * adc_consumer_stop_conv() - stop channel(s) conversions on an ADC device
++ *
++ * @dev: ADC device handle
++ * @Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_consumer_stop_conv(struct adc_device *dev);
+ #endif /* __DRIVERS_ADC_H */
+-- 
+2.47.2
+

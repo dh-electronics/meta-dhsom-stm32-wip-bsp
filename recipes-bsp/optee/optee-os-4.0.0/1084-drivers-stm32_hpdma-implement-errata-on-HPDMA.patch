@@ -1,0 +1,90 @@
+From 7f89c9c5a4367fdb0a131dedf8d0a21b3cbb76b5 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 23 Aug 2024 11:11:59 +0200
+Subject: [PATCH 1084/1695] drivers: stm32_hpdma: implement errata on HPDMA
+
+When "st,errata-ahbrisab" is set in the device tree, HPDMA channels cannot
+hold the CID0 value on the bus.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5af8d47cbdd2f2d5a529e6fd39f9b8b070c656a0 drivers: stm32_hpdma: implement errata on HPDMA]
+Change-Id: I3c52f4f23bb91a11b31831a959d9ba454809dd4f
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/399924
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_hpdma.c | 28 ++++++++++++++++++++++++++--
+ 1 file changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/stm32_hpdma.c b/core/drivers/stm32_hpdma.c
+index 1f7d52e74..6ea88ee55 100644
+--- a/core/drivers/stm32_hpdma.c
++++ b/core/drivers/stm32_hpdma.c
+@@ -39,7 +39,9 @@
+  * CIDCFGR register bitfields
+  */
+ #define _HPDMA_CIDCFGR_SEMWL_MASK	GENMASK_32(23, 16)
++#define _HPDMA_CIDCFGR_SEMWL_SHIFT	U(16)
+ #define _HPDMA_CIDCFGR_SCID_MASK	GENMASK_32(5, 4)
++#define _HPDMA_CIDCFGR_SCID_SHIFT	U(4)
+ #define _HPDMA_CIDCFGR_CONF_MASK	(_CIDCFGR_CFEN |	 \
+ 					 _CIDCFGR_SEMEN |	 \
+ 					 _HPDMA_CIDCFGR_SCID_MASK |\
+@@ -81,6 +83,7 @@ struct hpdma_pdata {
+ 	uint32_t syscfg_arcr[2];
+ 	unsigned int nb_channels;
+ 	vaddr_t base;
++	bool errata_ahbrisab;
+ 
+ 	SLIST_ENTRY(hpdma_pdata) link;
+ };
+@@ -167,12 +170,30 @@ static TEE_Result apply_rif_config(struct hpdma_pdata *hpdma_d, bool is_tdcid)
+ 		goto end;
+ 
+ 	for (i = 0; i < HPDMA_RIF_CHANNELS; i++) {
++		uint32_t cid_conf = hpdma_d->conf_data->cid_confs[i];
++
+ 		if (!(BIT(i) & hpdma_d->conf_data->access_mask[0]))
+ 			continue;
+ 
++		/*
++		 * Errata: When CID filtering is enabled on one of RISAB 3/4/5
++		 * instances, we forbid the use of CID0 for any initiator on the
++		 * bus to handle spurious CID0 transactions on these RAMs.
++		 */
++		if (hpdma_d->errata_ahbrisab &&
++		    (!(cid_conf & _CIDCFGR_CFEN) ||
++		     (!(cid_conf & _CIDCFGR_SEMEN) &&
++		      ((cid_conf & _HPDMA_CIDCFGR_SCID_MASK) >>
++		       _HPDMA_CIDCFGR_SCID_SHIFT) == RIF_CID0) ||
++		     (cid_conf & _CIDCFGR_SEMEN &&
++		      cid_conf & BIT(_HPDMA_CIDCFGR_SEMWL_SHIFT)))) {
++			EMSG("HPDMA channel cannot hold CID0 value");
++			if (!IS_ENABLED(CFG_INSECURE))
++				panic();
++		}
++
+ 		io_clrsetbits32(hpdma_d->base + _HPDMA_CIDCFGR(i),
+-				_HPDMA_CIDCFGR_CONF_MASK,
+-				hpdma_d->conf_data->cid_confs[i]);
++				_HPDMA_CIDCFGR_CONF_MASK, cid_conf);
+ 
+ 		cidcfgr = io_read32(hpdma_d->base + _HPDMA_CIDCFGR(i));
+ 
+@@ -253,6 +274,9 @@ static TEE_Result parse_dt(const void *fdt, int node,
+ 	if (res)
+ 		return res;
+ 
++	hpdma_d->errata_ahbrisab = fdt_getprop(fdt, node, "st,errata-ahbrisab",
++					       NULL);
++
+ 	cuint = fdt_getprop(fdt, node, "st,protreg", &lenp);
+ 	if (!cuint) {
+ 		DMSG("No RIF configuration available");
+-- 
+2.47.2
+

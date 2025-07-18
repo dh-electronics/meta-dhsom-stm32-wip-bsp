@@ -1,0 +1,49 @@
+From b14c91619d35f814738bec80078e960b3522f469 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 9 Aug 2022 16:10:02 +0200
+Subject: [PATCH 0168/1695] clk: add CLK_SET_RATE_UNGATE flag management
+
+Some clocks need to be enabled before to do a set rate.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2ce39547e3d648d8b5add4c5d346f530057da771 clk: add CLK_SET_RATE_UNGATE flag management]
+Change-Id: If14a1406c8285cf1799f89ac3f694485a5f6d510
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 7 +++++++
+ core/include/drivers/clk.h | 1 +
+ 2 files changed, 8 insertions(+)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index ac58cc704..e1d409741 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -392,7 +392,14 @@ static TEE_Result clk_set_rate_no_lock(struct clk *clk, unsigned long rate)
+ 	}
+ 
+ 	if (clk->ops->set_rate) {
++		if (clk->flags & CLK_SET_RATE_UNGATE)
++			clk_enable_no_lock(clk);
++
+ 		res = clk->ops->set_rate(clk, new_rate, parent_rate);
++
++		if (clk->flags & CLK_SET_RATE_UNGATE)
++			clk_disable_no_lock(clk);
++
+ 		if (res)
+ 			return res;
+ 	}
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 3b8a5cfe2..265d80753 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -16,6 +16,7 @@
+ #define CLK_SET_PARENT_GATE	BIT(1) /* must be gated across re-parent */
+ #define CLK_OPS_PARENT_ENABLE	BIT(2) /* parent need enable during re-parent */
+ #define CLK_SET_RATE_PARENT	BIT(3) /* propagate rate change up one level */
++#define CLK_SET_RATE_UNGATE	BIT(4) /* clock needs to run to set rate */
+ 
+ /**
+  * struct clk - Clock structure
+-- 
+2.47.2
+

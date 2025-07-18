@@ -1,0 +1,55 @@
+From 818b549e20cf9a1e967e223d646e83dee1358d06 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Tue, 5 Mar 2024 08:54:54 +0100
+Subject: [PATCH 1015/1695] drivers: stm32_remoteproc: remove memory protection
+ warning for the stm32mp25 series
+
+The feature is implemented for the stm32mp25 series.
+The warning is suppressed from the probe and moved to
+stm32_rproc_get_mems_access() function used for the stm32MP15 series.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6f290c2359884c0f948c68544a52802869751464 drivers: stm32_remoteproc: remove memory protection warning for the stm32mp25 series]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I0a49ccfec24c918fa4123d74e304bfafe0e42260
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/364520
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391547
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 9 +--------
+ 1 file changed, 1 insertion(+), 8 deletions(-)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index ff9b15802..5b5104c16 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -181,6 +181,7 @@ static TEE_Result
+ stm32_rproc_get_mems_access(struct stm32_rproc_instance *rproc __unused)
+ {
+ 	/* To implement for the stm32mp1 */
++	IMSG("Warning: the remoteproc memories are not protected by firewall");
+ 
+ 	return TEE_SUCCESS;
+ }
+@@ -701,14 +702,6 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 	stm32_rproc_a35ss_cfg(rproc);
+ #endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
+ 
+-	/*
+-	 * The memory management should be enhance with firewall
+-	 * mechanism to map the memory in secure area for the firmware
+-	 * loading and then to give exclusive access right to the
+-	 * coprocessor (except for the shared memory).
+-	 */
+-	IMSG("Warning: the remoteproc memories are not protected by firewall");
+-
+ 	if (!rproc->cdata->ns_loading)
+ 		SLIST_INSERT_HEAD(&rproc_list, rproc, link);
+ 
+-- 
+2.47.2
+

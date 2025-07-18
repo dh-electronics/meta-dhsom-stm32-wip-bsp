@@ -1,0 +1,71 @@
+From 0817c01f2fb11869e6dfc2a4f83b23ffd9b55af0 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Wed, 20 Mar 2024 17:18:57 +0100
+Subject: [PATCH 0746/1695] plat-stm32mp2: add cpu_opp support
+
+Add support for cpu_opp on STM32MP2 platforms.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 76e900589bc47677d912c4eb103e0346a619e33e plat-stm32mp2: add cpu_opp support]
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Ic58e2b0a538194c30b788783b4c0f4a675dd2d4a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/371769
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c       | 25 ++++++++++++++++++++++++
+ core/arch/arm/plat-stm32mp2/stm32_util.h |  3 +++
+ 2 files changed, 28 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 998be2184..ee08e8291 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -226,6 +226,31 @@ static TEE_Result init_debug(void)
+ early_init_late(init_debug);
+ #endif /* CFG_STM32_BSEC3 */
+ 
++#ifdef CFG_STM32_CPU_OPP
++bool stm32mp_supports_cpu_opp(uint32_t opp_id)
++{
++	static uint32_t part_number;
++	uint32_t otp = 0;
++	size_t bit_len = 0;
++	uint32_t id = 0;
++
++	if (stm32_bsec_find_otp_in_nvmem_layout("part_number_otp",
++						&otp, NULL, &bit_len))
++		return false;
++
++	if (stm32_bsec_read_otp(&part_number, otp))
++		return false;
++
++	/* The bit 31 indicate support of 1.5GHz in RPN (variant d/f) */
++	if (part_number & BIT(31))
++		id = BIT(1);
++	else
++		id = BIT(0);
++
++	return (opp_id & id) == id;
++}
++#endif /* CFG_STM32_CPU_OPP */
++
+ static bool stm32mp_supports_second_core(void)
+ {
+ 	if (CFG_TEE_CORE_NB_CORE == 1)
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+index ea4d07e21..8089d1b01 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -28,4 +28,7 @@ void __noreturn do_reset(const char *str);
+ 
+ TEE_Result stm32_activate_internal_tamper(int id);
+ 
++#ifdef CFG_STM32_CPU_OPP
++bool stm32mp_supports_cpu_opp(uint32_t opp_id);
++#endif /*CFG_STM32_CPU_OPP*/
+ #endif /*__STM32_UTIL_H__*/
+-- 
+2.47.2
+

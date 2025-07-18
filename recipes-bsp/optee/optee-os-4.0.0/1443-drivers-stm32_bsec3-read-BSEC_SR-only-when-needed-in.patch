@@ -1,0 +1,50 @@
+From 7332b38695235809b847517006a7b946e655fdef Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 9 Jan 2025 18:13:00 +0100
+Subject: [PATCH 1443/1695] drivers: stm32_bsec3: read BSEC_SR only when needed
+ in stm32_bsec_get_state
+
+If BSEC_OTPSR_INIT_DONE bit is not set, this is not needed to read
+BSEC_SR, as the function will exit before using the register value.
+Re-organize the stm32_bsec_get_state() to read BSEC_SR under the
+check of BSEC_OTPSR_INIT_DONE bit. The local variables are also defined
+under this test.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 15ebce0418a0cb957458629f63d0b0301ad1ca2f drivers: stm32_bsec3: read BSEC_SR only when needed in stm32_bsec_get_state]
+Change-Id: If6b64cc9e5541e55b10e7518573035520e75ee1c
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/427937
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/stm32_bsec3.c | 10 ++++------
+ 1 file changed, 4 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/stm32_bsec3.c b/core/drivers/stm32_bsec3.c
+index 5972caf5e..eaa254986 100644
+--- a/core/drivers/stm32_bsec3.c
++++ b/core/drivers/stm32_bsec3.c
+@@ -914,15 +914,13 @@ TEE_Result stm32_bsec_get_state(enum stm32_bsec_sec_state *state)
+ 
+ static uint32_t init_state(uint32_t status)
+ {
+-	uint32_t bsec_sr = 0U, nvstates = 0U, state = 0U;
++	uint32_t state = BSEC_STATE_INVALID;
+ 
+-	bsec_sr = io_read32(bsec_base() + BSEC_SR);
+-
+-	state = BSEC_STATE_INVALID;
+ 	if (status & BSEC_OTPSR_INIT_DONE) {
+ 		/* NVSTATES is only valid if INIT_DONE = 1 */
+-		nvstates = (bsec_sr & BSEC_SR_NVSTATES_MASK) >>
+-			   BSEC_SR_NVSTATES_SHIFT;
++		uint32_t bsec_sr = io_read32(bsec_base() + BSEC_SR);
++		uint32_t nvstates = (bsec_sr & BSEC_SR_NVSTATES_MASK) >>
++				    BSEC_SR_NVSTATES_SHIFT;
+ 
+ 		/* Only 1 supported state = CLOSED */
+ 		if (nvstates != BSEC_SR_NVSTATES_CLOSED) {
+-- 
+2.47.2
+

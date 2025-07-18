@@ -1,0 +1,59 @@
+From 4061ba77fe23e653e910c8c1c37102ca014ab3d3 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 18 Dec 2023 10:48:45 +0100
+Subject: [PATCH 0219/1695] core: plat-stm32mp1: properly encapsulate pager
+ code with CFG_WITH_PAGER
+
+Encapsulate all internal RAM management code, that is pager specific,
+with CFG_WITH_PAGER.
+
+While there, correct an #endif comment
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git edba00ea4dcbfab0d891212b8a0643e30d6cde39 core: plat-stm32mp1: properly encapsulate pager code with CFG_WITH_PAGER]
+Change-Id: I7737bb248af371fa3581d202fd0d3fd03a328e2e
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index 6c5f266a9..d99a7fb13 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -244,6 +244,7 @@ driver_init_late(set_etzpc_secure_configuration);
+ #endif /* CFG_STM32MP13 */
+ 
+ #ifdef CFG_STM32MP15
++#ifdef CFG_WITH_PAGER
+ /*
+  * This concerns OP-TEE pager for STM32MP1 to use secure internal
+  * RAMs to execute. TZSRAM refers the TZSRAM_BASE/TZSRAM_SIZE
+@@ -315,7 +316,6 @@ driver_init_late(set_etzpc_secure_configuration);
+ 
+ #define TZSRAM_IS_IN_DRAM	(CFG_TZSRAM_START >= CFG_DRAM_BASE)
+ 
+-#ifdef CFG_WITH_PAGER
+ /*
+  * At build time, we enforce that, when pager is used,
+  * either TZSRAM fully fits inside SYSRAM secure address range,
+@@ -325,7 +325,6 @@ driver_init_late(set_etzpc_secure_configuration);
+  */
+ static_assert(TZSRAM_FITS_IN_SYSRAM_SEC || TZSRAM_FITS_IN_SYSRAM_AND_SRAMS ||
+ 	      TZSRAM_FITS_IN_SRAMS || TZSRAM_IS_IN_DRAM);
+-#endif
+ 
+ #if TZSRAM_FITS_IN_SYSRAM_AND_SRAMS || TZSRAM_FITS_IN_SRAMS || \
+ 	SCMI_SHM_IS_IN_SRAMX
+@@ -377,7 +376,8 @@ static TEE_Result init_stm32mp15_secure_srams(void)
+ 
+ service_init_late(init_stm32mp15_secure_srams);
+ #endif /* TZSRAM_FITS_IN_SYSRAM_AND_SRAMS || TZSRAM_FITS_IN_SRAMS */
+-#endif /* CFG_STM32MP15 && CFG_TZSRAM_START */
++#endif /* CFG_WITH_PAGER */
++#endif /* CFG_STM32MP15 */
+ 
+ static TEE_Result init_stm32mp1_drivers(void)
+ {
+-- 
+2.47.2
+

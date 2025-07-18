@@ -1,0 +1,78 @@
+From 22739d5c8a4217c884356c13f61c9f9b242f7137 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Tue, 4 Feb 2025 14:34:05 +0100
+Subject: [PATCH 1596/1695] plat-stm32mp2: make PWR IRQ independent from EXTI
+
+The PWR IRQ is an interrupt controller that is hierarchical placed
+between EXTI and GIC.
+While still handle the current code that calls EXTI API, let the
+driver PWR IRQ to work standalone relying to the hierarchical
+calls.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ad7b90375efee694381e86a5e3dac4ec604cc6cf plat-stm32mp2: make PWR IRQ independent from EXTI]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I9fb58246345e8c3cdfd4bf997a4109a75427833f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434937
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../arm/plat-stm32mp2/drivers/stm32mp25_pwr_irq.c  | 14 ++++----------
+ 1 file changed, 4 insertions(+), 10 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_irq.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_irq.c
+index 362f80d19..3cffefc1d 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_irq.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_irq.c
+@@ -145,7 +145,7 @@ static void stm32mp25_pwr_itr_enable_nolock(size_t it)
+ 
+ 	VERBOSE_PWR("Pwr irq enable %zu", it);
+ 
+-	if (IS_ENABLED(CFG_STM32_EXTI)) {
++	if (IS_ENABLED(CFG_STM32_EXTI) && priv->exti) {
+ 		stm32_exti_unmask(priv->exti, PWR_EXTI_WKUP1 + it);
+ 		stm32_exti_enable_wake(priv->exti, PWR_EXTI_WKUP1 + it);
+ 	}
+@@ -161,7 +161,7 @@ static void stm32mp25_pwr_itr_disable_nolock(size_t it)
+ 
+ 	io_clrbits32(pwr_wkupcr_base(it), WKUPENCPU1);
+ 
+-	if (IS_ENABLED(CFG_STM32_EXTI)) {
++	if (IS_ENABLED(CFG_STM32_EXTI) && priv->exti) {
+ 		stm32_exti_mask(priv->exti, PWR_EXTI_WKUP1 + it);
+ 		stm32_exti_disable_wake(priv->exti, PWR_EXTI_WKUP1 + it);
+ 	}
+@@ -403,7 +403,7 @@ static TEE_Result stm32mp2_pwr_itr_dt_get(struct dt_pargs *args,
+ 		return res;
+ 	}
+ 
+-	if (IS_ENABLED(CFG_STM32_EXTI))
++	if (IS_ENABLED(CFG_STM32_EXTI) && priv->exti)
+ 		stm32_exti_set_tz(priv->exti, PWR_EXTI_WKUP1 + itr_num);
+ 
+ 	itr_desc_p->chip = &stm32mp2_pwr_itr_chip;
+@@ -435,7 +435,7 @@ TEE_Result stm32mp25_pwr_irq_probe(const void *fdt, int node)
+ 	if (IS_ENABLED(CFG_STM32_EXTI)) {
+ 		res = stm32_exti_get_pdata(fdt, node, &priv->exti);
+ 		if (res)
+-			goto err;
++			priv->exti = NULL;
+ 	}
+ 
+ 	res = interrupt_dt_get(fdt, node, &itr_chip, &itr_num);
+@@ -458,12 +458,6 @@ TEE_Result stm32mp25_pwr_irq_probe(const void *fdt, int node)
+ 	VERBOSE_PWR("Init pwr irq done");
+ 
+ 	return TEE_SUCCESS;
+-
+-err:
+-	free(pwr_wkup_d);
+-	pwr_wkup_d = NULL;
+-
+-	return res;
+ }
+ 
+ static enum itr_return pwr_it_user_handler(struct itr_handler *handler)
+-- 
+2.47.2
+

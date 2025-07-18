@@ -1,0 +1,164 @@
+From 3720ef13c0de6283e1ca406919cfa97cb554d602 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 13 Mar 2024 16:01:19 +0100
+Subject: [PATCH 0719/1695] core: pm: add unregister_pm_cb()
+
+Add unregister_pm_cb() API function and its helper variants to
+allow unregistering a PM callback entry. This can be needed for
+example in the GPIO framework where gpio_put() can release a GPIO
+that a driver no more consumed. In case a PM callback was previously
+registered for such a GPIO, consumer driver needs mean to unregister
+it.
+
+This change implies that the PM callbacks list is protected from
+concurrent accesses hence add a lock for that purpose.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ff51d2689aa9f6e288d417447d4a87f4f5bd8f0f core: pm: add unregister_pm_cb()]
+Change-Id: I24b0f806406b450855cfcee995580c3b62e50c36
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/366523
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/include/kernel/pm.h | 41 ++++++++++++++++++++++++++++++++++++++++
+ core/kernel/pm.c         | 29 ++++++++++++++++++++++++++++
+ 2 files changed, 70 insertions(+)
+
+diff --git a/core/include/kernel/pm.h b/core/include/kernel/pm.h
+index 8f9a01541..c833ccda5 100644
+--- a/core/include/kernel/pm.h
++++ b/core/include/kernel/pm.h
+@@ -128,6 +128,19 @@ struct pm_callback_handle {
+  */
+ void register_pm_cb(struct pm_callback_handle *pm_handle);
+ 
++/*
++ * Register a callback for suspend/resume sequence
++ * Refer to struct pm_callback_handle for description of the callbacks
++ * API and the registration directives.
++ *
++ * @pm_handle: Reference previously registered
++ *
++ * This function removes from the list of the PM called callbacks the
++ * entry that match callabck function reference and private handle or
++ * PM order (PM_CB_ORDER_*).
++ */
++void unregister_pm_cb(struct pm_callback_handle *pm_handle);
++
+ /*
+  * Register a driver callback for generic suspend/resume.
+  * Refer to struct pm_callback_handle for description of the callbacks
+@@ -145,6 +158,19 @@ static inline void register_pm_driver_cb(pm_callback callback, void *handle,
+ 						       name));
+ }
+ 
++/*
++ * Unregister a driver callback from generic suspend/resume sequence.
++ *
++ * @callback: Callback function that what registered
++ * @handle: Private handle argument that was registered for the callback
++ */
++static inline void unregister_pm_driver_cb(pm_callback callback, void *handle)
++{
++	unregister_pm_cb(&PM_CALLBACK_HANDLE_INITIALIZER(callback, handle,
++							 PM_CB_ORDER_DRIVER,
++							 NULL));
++}
++
+ /*
+  * Register a core service callback for generic suspend/resume.
+  * Refer to struct pm_callback_handle for description of the callbacks
+@@ -162,6 +188,21 @@ static inline void register_pm_core_service_cb(pm_callback callback,
+ 						name));
+ }
+ 
++/*
++ * Unregister a core service callback from generic suspend/resume sequence
++ *
++ * @callback: Callback function that what registered
++ * @handle: Private handle argument that was registered for the callback
++ */
++static inline void unregister_pm_core_service_cb(pm_callback callback,
++						 void *handle)
++{
++	enum pm_callback_order order = PM_CB_ORDER_CORE_SERVICE;
++
++	unregister_pm_cb(&PM_CALLBACK_HANDLE_INITIALIZER(callback, handle,
++							 order, NULL));
++}
++
+ /*
+  * Request call to registered PM callbacks
+  *
+diff --git a/core/kernel/pm.c b/core/kernel/pm.c
+index 4146464bd..efd553f14 100644
+--- a/core/kernel/pm.c
++++ b/core/kernel/pm.c
+@@ -6,6 +6,7 @@
+ #include <keep.h>
+ #include <kernel/panic.h>
+ #include <kernel/pm.h>
++#include <kernel/spinlock.h>
+ #include <malloc.h>
+ #include <mm/core_memprot.h>
+ #include <string.h>
+@@ -13,6 +14,7 @@
+ 
+ #define PM_FLAG_SUSPENDED	BIT(0)
+ 
++static unsigned int pm_list_lock = SPINLOCK_UNLOCK;
+ static struct pm_callback_handle *pm_cb_ref;
+ static size_t pm_cb_count;
+ 
+@@ -35,6 +37,7 @@ void register_pm_cb(struct pm_callback_handle *pm_hdl)
+ 	struct pm_callback_handle *ref = NULL;
+ 	const char *name = pm_hdl->name;
+ 	size_t count = pm_cb_count;
++	uint32_t exceptions = 0;
+ 
+ 	verify_cb_args(pm_hdl);
+ 
+@@ -47,6 +50,8 @@ void register_pm_cb(struct pm_callback_handle *pm_hdl)
+ 			panic();
+ 	}
+ 
++	exceptions = cpu_spin_lock_xsave(&pm_list_lock);
++
+ 	ref = realloc(pm_cb_ref, sizeof(*ref) * (count + 1));
+ 	if (!ref)
+ 		panic();
+@@ -57,6 +62,30 @@ void register_pm_cb(struct pm_callback_handle *pm_hdl)
+ 
+ 	pm_cb_count = count + 1;
+ 	pm_cb_ref = ref;
++
++	cpu_spin_unlock_xrestore(&pm_list_lock, exceptions);
++}
++
++void unregister_pm_cb(struct pm_callback_handle *pm_hdl)
++{
++	uint32_t exceptions = 0;
++	size_t n = 0;
++
++	exceptions = cpu_spin_lock_xsave(&pm_list_lock);
++
++	for (n = 0; n < pm_cb_count; n++)
++		if (pm_cb_ref[n].callback == pm_hdl->callback &&
++		    pm_cb_ref[n].handle == pm_hdl->handle &&
++		    pm_cb_ref[n].order == pm_hdl->order)
++			break;
++
++	if (n < pm_cb_count) {
++		pm_cb_count--;
++		memmove(pm_cb_ref + n, pm_cb_ref + n + 1,
++			(pm_cb_count - n) * sizeof(*pm_cb_ref));
++	}
++
++	cpu_spin_unlock_xrestore(&pm_list_lock, exceptions);
+ }
+ 
+ static TEE_Result do_pm_callback(enum pm_op op, uint32_t pm_hint,
+-- 
+2.47.2
+

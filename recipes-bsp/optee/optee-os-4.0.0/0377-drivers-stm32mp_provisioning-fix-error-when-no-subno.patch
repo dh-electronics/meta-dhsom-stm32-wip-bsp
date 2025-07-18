@@ -1,0 +1,49 @@
+From e32beacf6837d552881d6fddc18f0d0f57c691b9 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Tue, 5 Dec 2023 16:12:59 +0100
+Subject: [PATCH 0377/1695] drivers: stm32mp_provisioning: fix error when no
+ subnode
+
+Update the provisioning to return TEE_SUCCESS and display a warning if
+there is no subnode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8160fdb213c9e38f8b77b3004820f4c95f9f8c30 drivers: stm32mp_provisioning: fix error when no subnode]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: I8e1b030683726447e52deb19067ce896e201ea19
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/344112
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32mp_provisioning.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/core/drivers/stm32mp_provisioning.c b/core/drivers/stm32mp_provisioning.c
+index 02b181b70..9011e4fee 100644
+--- a/core/drivers/stm32mp_provisioning.c
++++ b/core/drivers/stm32mp_provisioning.c
+@@ -117,6 +117,7 @@ static TEE_Result provisioning_subnode(const void *fdt, int node)
+ static TEE_Result provisioning_init(void)
+ {
+ 	const void *fdt = get_embedded_dt();
++	const char __maybe_unused *name = NULL;
+ 	int node = -1;
+ 
+ 	if (!fdt)
+@@ -126,6 +127,12 @@ static TEE_Result provisioning_init(void)
+ 	if (node < 0)
+ 		return TEE_SUCCESS;
+ 
++	if (fdt_first_subnode(fdt, node) == -FDT_ERR_NOTFOUND) {
++		name = fdt_get_name(fdt, node, NULL);
++		DMSG("Warning : no subnode in %s\n", name);
++		return TEE_SUCCESS;
++	}
++
+ 	return provisioning_subnode(fdt, node);
+ }
+ 
+-- 
+2.47.2
+

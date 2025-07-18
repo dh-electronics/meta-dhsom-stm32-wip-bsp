@@ -1,0 +1,43 @@
+From 172b537bdc1fc266718a1678c9d1f027ecf06167 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@foss.st.com>
+Date: Tue, 25 Feb 2025 10:59:49 +0100
+Subject: [PATCH 1615/1695] drivers: scmi-msg: fix default OPP latency value
+
+Use 1 microsecond because the Linux kernel treats 0 as eternal.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d8d0ef4ae81bf24340086097d3652388c0f30f50 drivers: scmi-msg: fix default OPP latency value]
+Change-Id: Ie319086f480ec186d662c19eb40f8ea5a5a1e8e9
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/439760
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Pascal PAILLET <p.paillet@st.com>
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/scmi-msg/perf_domain.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/scmi-msg/perf_domain.c b/core/drivers/scmi-msg/perf_domain.c
+index ba6068e81..4dfb3b7f6 100644
+--- a/core/drivers/scmi-msg/perf_domain.c
++++ b/core/drivers/scmi-msg/perf_domain.c
+@@ -50,9 +50,12 @@ int32_t __weak plat_scmi_perf_levels_array(unsigned int channel_id __unused,
+ int32_t __weak plat_scmi_perf_level_latency_us(unsigned int channel_id __unused,
+ 					       unsigned int domain_id __unused,
+ 					       unsigned int level __unused,
+-					       unsigned int *latency __unused)
++					       unsigned int *latency)
+ {
+-	return SCMI_NOT_SUPPORTED;
++	/* Use 1 microsecond because the Linux kernel treats 0 as eternal */
++	*latency = 1;
++
++	return SCMI_SUCCESS;
+ }
+ 
+ int32_t __weak plat_scmi_perf_level_power_cost(unsigned int channel_id __unused,
+-- 
+2.47.2
+

@@ -1,0 +1,55 @@
+From ca634ff164fec5d268529c4e3fe19607e4afb321 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Fri, 19 Nov 2021 13:32:18 +0100
+Subject: [PATCH 0135/1695] drivers: clk: clk-stm32mp15: add function to manage
+ MCU subsystem
+
+Add a dedicated function to control the MCU clock subsystem
+secure hardening that could be enabled or disabled depending
+the firewall management. Change the shared resources to call
+this new API.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8e07b49e27ae1d83dacf93f506a932c5f8105ba6 drivers: clk: clk-stm32mp15: add function to manage MCU subsystem]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Ib7026b9a1c9434fce68a14bd0619d4089b8cea12
+---
+ core/drivers/clk/clk-stm32mp15.c         | 10 ++++++++++
+ core/include/drivers/stm32mp1_rcc_util.h |  3 +++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index 5b8c85191..3b09c846c 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -1302,6 +1302,16 @@ static TEE_Result stm32mp1_clk_fdt_init(const void *fdt, int node)
+ 	return TEE_SUCCESS;
+ }
+ 
++void stm32mp1_clk_mcuss_protect(bool enable)
++{
++	uintptr_t rcc_base = stm32_rcc_base();
++
++	if (enable)
++		io_setbits32(rcc_base + RCC_TZCR, RCC_TZCR_MCKPROT);
++	else
++		io_clrbits32(rcc_base + RCC_TZCR, RCC_TZCR_MCKPROT);
++}
++
+ /*
+  * Conversion between clk references and clock gates and clock on internals
+  *
+diff --git a/core/include/drivers/stm32mp1_rcc_util.h b/core/include/drivers/stm32mp1_rcc_util.h
+index 52a21b951..29500c72d 100644
+--- a/core/include/drivers/stm32mp1_rcc_util.h
++++ b/core/include/drivers/stm32mp1_rcc_util.h
+@@ -33,4 +33,7 @@ void stm32mp_register_clock_parents_secure(unsigned long clock_id __unused)
+ }
+ #endif
+ 
++/* Protect the MCU clock subsytem */
++void stm32mp1_clk_mcuss_protect(bool enable);
++
+ #endif /*__DRIVERS_STM32MP1_RCC_UTIL_H__*/
+-- 
+2.47.2
+

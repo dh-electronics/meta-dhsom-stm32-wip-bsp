@@ -1,0 +1,56 @@
+From 67d465bed4d4ccab457e3205aca2dc3bfd269946 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 24 Nov 2023 08:54:57 +0100
+Subject: [PATCH 0069/1695] drivers: regulator: fix getting GPIO for level
+ control
+
+Swap the 2 calls to find gpio property in "regulator-gpio" compatible
+node. The call that expects to get a TEE_ERROR_ITEM_NOT_FOUND return
+value (as described in the inline comment) for an unsupported 2nd level
+control GPIO can fail with TEE_ERROR_DEFER_DRIVER_INIT return value
+when the 1st GPIO phandle listed in the 'gpios' DT node property relates
+to a GPIO driver that is not yet probed. Fix that by first getting the
+required GPIO control level and then testing presence of other GPIO
+phandle in the 'gpios' DT property.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 49d79180416f9a07e4dab6a54761c001cd2201ef drivers: regulator: fix getting GPIO for level control]
+Change-Id: I5107460e4bc5656bc2bbbe7ae23a1b63634a3388
+Fixes: f164f0f83420 ("drivers: regulator: GPIO controlled regulator")
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 950549e402556186ed1fc2632afeb6c1c63b2839]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/regulator/regulator_gpio.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/core/drivers/regulator/regulator_gpio.c b/core/drivers/regulator/regulator_gpio.c
+index c6fed63fb..a5fa4c28e 100644
+--- a/core/drivers/regulator/regulator_gpio.c
++++ b/core/drivers/regulator/regulator_gpio.c
+@@ -148,6 +148,11 @@ static TEE_Result get_voltage_level_gpio(const void *fdt, int node,
+ 	void *gpio_ref = &gpio;
+ 	int len = 0;
+ 
++	res = dt_driver_device_from_node_idx_prop("gpios", fdt, node, 0,
++						  DT_DRIVER_GPIO, gpio_ref);
++	if (res)
++		return res;
++
+ 	/*
+ 	 * DT bindings allows more than 1 GPIO to control more than
+ 	 * 2 voltage levels. As it's not used so far in known platforms
+@@ -161,11 +166,6 @@ static TEE_Result get_voltage_level_gpio(const void *fdt, int node,
+ 		return TEE_ERROR_GENERIC;
+ 	}
+ 
+-	res = dt_driver_device_from_node_idx_prop("gpios", fdt, node, 0,
+-						  DT_DRIVER_GPIO, gpio_ref);
+-	if (res)
+-		return res;
+-
+ 	cuint = fdt_getprop(fdt, node, "states", &len);
+ 	if (!cuint || len != 4 * sizeof(fdt32_t)) {
+ 		EMSG("Node %s expects 2 levels from property \"states\"",
+-- 
+2.47.2
+

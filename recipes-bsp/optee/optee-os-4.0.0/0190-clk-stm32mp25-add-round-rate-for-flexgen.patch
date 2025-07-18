@@ -1,0 +1,46 @@
+From 61f2c214f250c5db3ed4236c22549a16b548f983 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 12 Oct 2023 08:40:25 +0200
+Subject: [PATCH 0190/1695] clk: stm32mp25: add round rate for flexgen
+
+Use round_rate ops for Flexgen clocks (need for lcd IP for e.g)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6871bc085e55baeaa7d3225345de461c6c3e342c clk: stm32mp25: add round rate for flexgen]
+Change-Id: I1afb638abefae50ddb7b9dc953d6658020ef998f
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index f48ef9649..5bcca15e6 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -2187,6 +2187,16 @@ static bool clk_stm32_flexgen_is_enabled(struct clk *clk)
+ 		RCC_FINDIVxCFGR_FINDIVxEN);
+ }
+ 
++static unsigned long clk_stm32_flexgen_round_rate(struct clk *clk __unused,
++						  unsigned long rate,
++						  unsigned long prate)
++{
++	unsigned int prediv = 0;
++	unsigned int findiv = 0;
++
++	return clk_stm32_flexgen_get_round_rate(rate, prate, &prediv, &findiv);
++}
++
+ static const struct clk_ops clk_stm32_flexgen_ops = {
+ 	.get_rate	= clk_stm32_flexgen_get_rate,
+ 	.set_rate	= clk_stm32_flexgen_set_rate,
+@@ -2195,6 +2205,7 @@ static const struct clk_ops clk_stm32_flexgen_ops = {
+ 	.enable		= clk_stm32_flexgen_enable,
+ 	.disable	= clk_stm32_flexgen_disable,
+ 	.is_enabled	= clk_stm32_flexgen_is_enabled,
++	.round_rate	= clk_stm32_flexgen_round_rate,
+ };
+ 
+ #define MUX_A35_OFFSET		A35_SS_CHGCLKREQ
+-- 
+2.47.2
+

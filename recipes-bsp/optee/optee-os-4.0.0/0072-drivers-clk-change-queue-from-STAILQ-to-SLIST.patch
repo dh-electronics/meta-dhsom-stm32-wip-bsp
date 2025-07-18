@@ -1,0 +1,65 @@
+From 4ccf16410dda99962d4d64693f50503958e9d61a Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 24 Nov 2023 15:23:38 +0100
+Subject: [PATCH 0072/1695] drivers: clk: change queue from STAILQ to SLIST
+
+Replace registered clock list from a STAILQ queue to a SLIST queue
+that is enough for our purpose.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git de5acbabfcfcf48e86aba9e708c39d6f6e6ba2ab drivers: clk: change queue from STAILQ to SLIST]
+Change-Id: Ib01408e251ed807a923fb3e2fb0e1f1518d49865
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 2b13eca66b390e5fcec67384dbe20c7c5a319a69]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 6 +++---
+ core/include/drivers/clk.h | 2 +-
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index 0d605ad3b..6855b3d6e 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -18,7 +18,7 @@
+ static unsigned int clk_lock = SPINLOCK_UNLOCK;
+ 
+ #ifdef CFG_DRIVERS_CLK_PRINT_TREE
+-static STAILQ_HEAD(, clk) clock_list = STAILQ_HEAD_INITIALIZER(clock_list);
++static SLIST_HEAD(, clk) clock_list = SLIST_HEAD_INITIALIZER(clock_list);
+ #endif
+ 
+ struct clk *clk_alloc(const char *name, const struct clk_ops *ops,
+@@ -109,7 +109,7 @@ TEE_Result clk_register(struct clk *clk)
+ 	clk_compute_rate_no_lock(clk);
+ 
+ #ifdef CFG_DRIVERS_CLK_PRINT_TREE
+-	STAILQ_INSERT_TAIL(&clock_list, clk, link);
++	SLIST_INSERT_HEAD(&clock_list, clk, link);
+ #endif
+ 
+ 	DMSG("Registered clock %s, freq %lu", clk->name, clk_get_rate(clk));
+@@ -392,7 +392,7 @@ static void print_clock_subtree(struct clk *clk_root __maybe_unused,
+ #ifdef CFG_DRIVERS_CLK_PRINT_TREE
+ 	struct clk *clk = NULL;
+ 
+-	STAILQ_FOREACH(clk, &clock_list, link) {
++	SLIST_FOREACH(clk, &clock_list, link) {
+ 		if (clk_get_parent(clk) == clk_root) {
+ 			print_clock(clk, indent + 1);
+ 			print_clock_subtree(clk, indent + 1);
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index ddfa46677..0c77353c4 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -38,7 +38,7 @@ struct clk {
+ 	unsigned int flags;
+ 	struct refcount enabled_count;
+ #ifdef CFG_DRIVERS_CLK_PRINT_TREE
+-	STAILQ_ENTRY(clk) link;
++	SLIST_ENTRY(clk) link;
+ #endif
+ 	size_t num_parents;
+ 	struct clk *parents[];
+-- 
+2.47.2
+

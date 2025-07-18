@@ -1,0 +1,111 @@
+From 763f2d880afe4f4a05faea26c6af0633d5583e9b Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Wed, 24 Jan 2024 14:40:26 +0100
+Subject: [PATCH 0566/1695] drivers: stm32_bsec3: parse nvmem layout after
+ loading shadow
+
+The NVMEM layout includes the flag "st,non-secure-otp-provisioning"
+allowing OTPs to be programmed from the non secure world.
+This information is stored in the status of the shadow.
+The function "stm32_bsec_shadow_init" cleans the memory before
+saving the shadow.
+Hence, we move the parsing of the NVMEM layout after the shadow
+initialization.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 68d02cd571171c2a3f073107ff05b0245db62b0f drivers: stm32_bsec3: parse nvmem layout after loading shadow]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: Idd2515bc63ba1993a6855689c6441c7e5aa9ba30
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/353961
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/stm32_bsec3.c | 26 ++++++++++++--------------
+ 1 file changed, 12 insertions(+), 14 deletions(-)
+
+diff --git a/core/drivers/stm32_bsec3.c b/core/drivers/stm32_bsec3.c
+index a235083f8..3fd6e40ef 100644
+--- a/core/drivers/stm32_bsec3.c
++++ b/core/drivers/stm32_bsec3.c
+@@ -138,10 +138,8 @@ struct bsec_dev {
+ 	unsigned int max_id;
+ 	unsigned int lock;
+ 	struct bsec_shadow *shadow;
+-#ifdef CFG_DT
+ 	struct nvmem_cell *cells;
+ 	size_t cell_count;
+-#endif
+ };
+ 
+ /* Magic use to indicated valid SHADOW = 'B' 'S' 'E' 'C' */
+@@ -1010,7 +1008,7 @@ TEE_Result stm32_bsec_find_otp_by_phandle(const uint32_t phandle,
+ 	return TEE_ERROR_ITEM_NOT_FOUND;
+ }
+ 
+-static void save_dt_nvmem_layout(void *fdt, int bsec_node)
++static void initialize_nvmem_layout_from_dt(void *fdt, int bsec_node)
+ {
+ 	int cell_max = 0;
+ 	int cell_cnt = 0;
+@@ -1101,24 +1099,15 @@ static void save_dt_nvmem_layout(void *fdt, int bsec_node)
+ 	bsec_dev.cell_count = cell_cnt;
+ }
+ 
+-static void initialize_bsec_from_dt(void)
++static void initialize_bsec_from_dt(void *fdt, int node)
+ {
+-	void *fdt = NULL;
+-	int node = 0;
+ 	struct dt_node_info bsec_info = { };
+ 
+-	fdt = get_embedded_dt();
+-	node = fdt_node_offset_by_compatible(fdt, 0, "st,stm32mp25-bsec");
+-	if (node < 0)
+-		panic();
+-
+ 	fdt_fill_device_info(fdt, &bsec_info, node);
+ 
+ 	if (bsec_info.reg != bsec_dev.base.pa ||
+ 	    !(bsec_info.status & DT_STATUS_OK_SEC))
+ 		panic();
+-
+-	save_dt_nvmem_layout(fdt, node);
+ }
+ 
+ static TEE_Result
+@@ -1142,7 +1131,9 @@ stm32_bsec_pm(enum pm_op op, unsigned int pm_hint,
+ static TEE_Result initialize_bsec(void)
+ {
+ 	struct stm32_bsec_static_cfg cfg = { };
++	void *fdt = NULL;
+ 	vaddr_t va = 0;
++	int node = 0;
+ 
+ 	plat_bsec_get_static_cfg(&cfg);
+ 
+@@ -1155,7 +1146,12 @@ static TEE_Result initialize_bsec(void)
+ 	bsec_dev.upper_base = cfg.upper_start;
+ 	bsec_dev.max_id = cfg.max_id;
+ 
+-	initialize_bsec_from_dt();
++	fdt = get_embedded_dt();
++	node = fdt_node_offset_by_compatible(fdt, 0, "st,stm32mp25-bsec");
++	if (node < 0)
++		panic();
++
++	initialize_bsec_from_dt(fdt, node);
+ 
+ 	if ((bsec_get_version() != BSEC_IP_VERSION_1_0) ||
+ 	    (bsec_get_id() != BSEC_IP_ID_3))
+@@ -1166,6 +1162,8 @@ static TEE_Result initialize_bsec(void)
+ 	/* initialize the shadow */
+ 	stm32_bsec_shadow_init(true);
+ 
++	initialize_nvmem_layout_from_dt(fdt, node);
++
+ 	register_pm_core_service_cb(stm32_bsec_pm, NULL, "stm32-bsec");
+ 
+ 	return TEE_SUCCESS;
+-- 
+2.47.2
+

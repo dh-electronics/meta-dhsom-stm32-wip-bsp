@@ -1,0 +1,154 @@
+From 84144901327d7fb5b2553dd1b0e6ad8360ff906e Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Fri, 3 Jun 2022 15:00:01 +0200
+Subject: [PATCH 0240/1695] drivers: stm32_firewall: add new APIs for IOM
+
+IOM will have to set a firewall configuration.
+This patch adds:
+ - stm32_firewall_get_data_config API: get a configuration from
+the device tree.
+ - stm32_firewall_set_data_config API: set a configuration.
+ - stm32_firewall_put_data_config API: release the resources.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 60fa17a19f9f7236899cf39ae55b6db27a7706aa drivers: stm32_firewall: add new APIs for IOM]
+Change-Id: I07184b8c718619d610f314d91e41ae0872a51fec
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ core/drivers/firewall/stm32_firewall.c | 55 ++++++++++++++++++++++++++
+ core/include/drivers/stm32_firewall.h  | 47 ++++++++++++++++++++++
+ 2 files changed, 102 insertions(+)
+
+diff --git a/core/drivers/firewall/stm32_firewall.c b/core/drivers/firewall/stm32_firewall.c
+index 7f645fd93..630c3a59d 100644
+--- a/core/drivers/firewall/stm32_firewall.c
++++ b/core/drivers/firewall/stm32_firewall.c
+@@ -96,6 +96,61 @@ TEE_Result stm32_firewall_set_config(paddr_t base, size_t size,
+ 	return res;
+ }
+ 
++TEE_Result stm32_firewall_get_data_config(paddr_t base, size_t size,
++					  const void *fdt, int node,
++					  int *ndata, void **data_cfg)
++{
++	TEE_Result res = TEE_ERROR_ITEM_NOT_FOUND;
++	struct stm32_firewall_device *fdev = NULL;
++	uint32_t exceptions = 0;
++	unsigned int index = 0;
++
++	exceptions = cpu_spin_lock_xsave(&list_lock);
++	fdev = find_device(base, size, &index);
++	cpu_spin_unlock_xrestore(&list_lock, exceptions);
++
++	if (fdev && fdev->ops->get_data_config)
++		res = fdev->ops->get_data_config(fdt, node, ndata, data_cfg);
++
++	return res;
++}
++
++TEE_Result stm32_firewall_set_data_config(paddr_t base, size_t size,
++					  int ndata, void *data_cfg)
++{
++	TEE_Result res = TEE_ERROR_ITEM_NOT_FOUND;
++	struct stm32_firewall_device *fdev = NULL;
++	uint32_t exceptions = 0;
++	unsigned int index = 0;
++
++	exceptions = cpu_spin_lock_xsave(&list_lock);
++	fdev = find_device(base, size, &index);
++	cpu_spin_unlock_xrestore(&list_lock, exceptions);
++
++	if (fdev && fdev->ops->set_data_config)
++		res = fdev->ops->set_data_config(ndata, data_cfg);
++
++	return res;
++}
++
++TEE_Result stm32_firewall_put_data_config(paddr_t base, size_t size,
++					  int ndata, void *data_cfg)
++{
++	TEE_Result res = TEE_ERROR_ITEM_NOT_FOUND;
++	struct stm32_firewall_device *fdev = NULL;
++	uint32_t exceptions = 0;
++	unsigned int index = 0;
++
++	exceptions = cpu_spin_lock_xsave(&list_lock);
++	fdev = find_device(base, size, &index);
++	cpu_spin_unlock_xrestore(&list_lock, exceptions);
++
++	if (fdev && fdev->ops->put_data_config)
++		res = fdev->ops->put_data_config(ndata, data_cfg);
++
++	return res;
++}
++
+ struct stm32_firewall_device *stm32_firewall_dev_alloc(void)
+ {
+ 	return calloc(1, sizeof(struct stm32_firewall_device));
+diff --git a/core/include/drivers/stm32_firewall.h b/core/include/drivers/stm32_firewall.h
+index c6019d91d..f6f35e16c 100644
+--- a/core/include/drivers/stm32_firewall.h
++++ b/core/include/drivers/stm32_firewall.h
+@@ -130,6 +130,10 @@ struct stm32_firewall_ops {
+ 				     unsigned int id,
+ 				     paddr_t addr, size_t sz,
+ 				     const struct stm32_firewall_cfg *cfg);
++	TEE_Result (*get_data_config)(const void *fdt, int node,
++				      int *ndata, void **data_cfg);
++	TEE_Result (*set_data_config)(int ndata, void *data_cfg);
++	TEE_Result (*put_data_config)(int ndata, void *data_cfg);
+ };
+ 
+ /**
+@@ -190,6 +194,49 @@ TEE_Result stm32_firewall_check_access(paddr_t base, size_t size,
+ TEE_Result stm32_firewall_set_config(paddr_t base, size_t size,
+ 				     const struct stm32_firewall_cfg *cfg);
+ 
++/**
++ * @brief stm32_firewall_get_data_config - Get the configuration access
++ * from the device tree.
++ *
++ * @base: Physical address.
++ * @size: Size to be checked.
++ * @fdt: Device tree address.
++ * @node: Bus node.
++ * @ndata: Number of data configuration.
++ * @data_cfg: Data configuration.
++ *
++ * Returns a TEE_Result compliant value.
++ */
++TEE_Result stm32_firewall_get_data_config(paddr_t base, size_t size,
++					  const void *fdt, int node,
++					  int *ndata, void **data_cfg);
++
++/**
++ * @brief stm32_firewall_set_data_config - Set the configuration access.
++ *
++ * @base: Physical address.
++ * @size: Size to be checked.
++ * @ndata: Number of data configuration.
++ * @data_cfg: Data configuration.
++ *
++ * Returns a TEE_Result compliant value.
++ */
++TEE_Result stm32_firewall_set_data_config(paddr_t base, size_t size,
++					  int ndata, void *data_cfg);
++
++/**
++ * @brief stm32_firewall_put_data_config - Put the configuration access.
++ *
++ * @base: Physical address.
++ * @size: Size to be checked.
++ * @ndata: Number of data configuration.
++ * @data_cfg: Data configuration.
++ *
++ * Returns a TEE_Result compliant value.
++ */
++TEE_Result stm32_firewall_put_data_config(paddr_t base, size_t size,
++					  int ndata, void *data_cfg);
++
+ /**
+  * @brief stm32_firewall_dev_alloc - Allocate a new firewall device.
+  *
+-- 
+2.47.2
+

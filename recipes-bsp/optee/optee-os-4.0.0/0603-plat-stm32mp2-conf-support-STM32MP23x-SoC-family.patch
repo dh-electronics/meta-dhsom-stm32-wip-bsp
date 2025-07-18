@@ -1,0 +1,66 @@
+From f4f115b98e9bb496b803afd74a7dcf01318de3d8 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 16 Feb 2024 15:55:27 +0100
+Subject: [PATCH 0603/1695] plat-stm32mp2: conf: support STM32MP23x SoC family
+
+Add support for the STM32MP23 SoC family and the stm32mp235f-dk
+board
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c7ffbcd9b43a36e9770bc631fc2b741227bd2efc plat-stm32mp2: conf: support STM32MP23x SoC family]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I76e167995df41a98e18aa25bad51f3528942990a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/360735
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/conf.mk | 18 +++++++++++++++---
+ 1 file changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index c1ce4fbc0..88182b072 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -1,11 +1,14 @@
++flavor_dts_file-235F_DK = stm32mp235f-dk.dts
+ flavor_dts_file-257F_DK = stm32mp257f-dk.dts
+ flavor_dts_file-257F_EV1 = stm32mp257f-ev1.dts
+ 
+ flavorlist-MP25 = $(flavor_dts_file-257F_DK) \
+ 		  $(flavor_dts_file-257F_EV1)
+ 
++flavorlist-MP23 = $(flavor_dts_file-235F_DK)
++
+ # List of all DTS for this PLATFORM
+-ALL_DTS = $(flavorlist-MP25)
++ALL_DTS = $(flavorlist-MP25) $(flavorlist-MP23)
+ 
+ # Check if device-tree exist in OP-TEE source code, else search it in external
+ # device tree repository
+@@ -31,9 +34,18 @@ CFG_EMBED_DTB_SOURCE_FILE ?= stm32mp257f-ev1.dts
+ ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-MP25)),)
+ $(call force,CFG_STM32MP25,y)
+ endif
++ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-MP23)),)
++$(call force,CFG_STM32MP23,y)
++endif
+ 
+-ifneq ($(CFG_STM32MP25),y)
+-$(error STM32 Platform must be defined)
++# CFG_STM32MP2x switches are exclusive.
++# - CFG_STM32MP25 is enabled for STM32MP25x-* targets (default)
++# - CFG_STM32MP23 is enabled for STM32MP23x-* targets
++ifeq ($(CFG_STM32MP23),y)
++$(call force,CFG_STM32MP25,n)
++else
++$(call force,CFG_STM32MP25,y)
++$(call force,CFG_STM32MP23,n)
+ endif
+ 
+ include core/arch/arm/cpu/cortex-armv8-0.mk
+-- 
+2.47.2
+

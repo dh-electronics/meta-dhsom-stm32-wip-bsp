@@ -1,0 +1,36 @@
+From 6ac655240b70cf3550a2775f58c20d6d5543803b Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 5 Dec 2023 14:16:30 +0100
+Subject: [PATCH 0192/1695] clk: stm32mp25: PLL3 parent clock was not updated
+
+We can't program the PLL3 source at init of the clock tree because
+the power domain of the PLL3 is off.
+Then we have to use clk_reparent API to update the parent of PLL3 during
+a clock_enable(), when the its power domain is ON.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9b82ee680d96a9636de05aba59defddf01bf34e0 clk: stm32mp25: PLL3 parent clock was not updated]
+Change-Id: I49d2adbf56ba8aa5938c22de3b881e064053f4ce
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 5bcca15e6..f0e916d43 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -1984,7 +1984,10 @@ static TEE_Result clk_stm32_pll3_enable(struct clk *clk)
+ 	/* Update parent */
+ 	pidx = clk_stm32_pll_get_parent(clk);
+ 	parent = clk_get_parent_by_index(clk, pidx);
+-	clk->parent = parent;
++
++	res = clk_reparent(clk, parent);
++	if (res)
++		EMSG("fail to reparent PLL3");
+ 
+ 	return res;
+ }
+-- 
+2.47.2
+

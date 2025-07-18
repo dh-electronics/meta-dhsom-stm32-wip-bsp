@@ -1,0 +1,117 @@
+From 9ce35ea10ab91b2aecc0eeca172fb4e745931f63 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 16 Feb 2024 15:58:09 +0100
+Subject: [PATCH 0605/1695] drivers: stm32_remoteproc: support STM32MP23x SoC
+ family
+
+Add support for STM32MP23 SoC family.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d2f4b8dba59b2a1579283cb021b056032a104b0b drivers: stm32_remoteproc: support STM32MP23x SoC family]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I3fdb3f788d980e04c4232ee0b75c99923e8d2ff1
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/360737
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 24 +++++++++++-----------
+ 1 file changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index 9c0764219..26279f83b 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -15,9 +15,9 @@
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <mm/core_mmu.h>
+-#ifdef CFG_STM32MP25
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
+ #include <stm32_sysconf.h>
+-#endif /* CFG_STM32MP25 */
++#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
+ 
+ #define TIMEOUT_US_1MS	U(1000)
+ 
+@@ -110,7 +110,7 @@ static TEE_Result stm32mp2_rproc_start(struct stm32_rproc_instance *rproc)
+ 					   mems[i].size))
+ 			continue;
+ 
+-#ifdef CFG_STM32MP25
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
+ 		if ((!rproc->tzen && mems[i].type == MEM_AREA_RAM_SEC) ||
+ 		    (rproc->tzen && mems[i].type == MEM_AREA_RAM_NSEC))
+ 			return	TEE_ERROR_GENERIC;
+@@ -128,7 +128,7 @@ static TEE_Result stm32mp2_rproc_start(struct stm32_rproc_instance *rproc)
+ 		}
+ 		boot_addr_valid = true;
+ 		break;
+-#endif /* CFG_STM32MP25 */
++#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
+ 	}
+ 
+ 	if (!boot_addr_valid) {
+@@ -180,11 +180,11 @@ static TEE_Result rproc_stop(struct stm32_rproc_instance *rproc)
+ 	if (res)
+ 		return res;
+ 
+-#ifdef CFG_STM32MP25
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
+ 	/* Disable the TrustZone */
+ 	stm32mp_syscfg_write(A35SSC_M33_TZEN_CR, 0,
+ 			     A35SSC_M33_TZEN_CR_CFG_SECEXT);
+-#endif /* CFG_STM32MP25 */
++#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
+ 
+ 	rproc->boot_addr = 0;
+ 	rproc->tzen = false;
+@@ -513,11 +513,11 @@ static void stm32_rproc_cleanup(struct stm32_rproc_instance *rproc)
+ 
+ static void stm32_rproc_a35ss_cfg(struct stm32_rproc_instance *rproc __unused)
+ {
+-#ifdef CFG_STM32MP25
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
+ 	stm32mp_syscfg_write(A35SSC_M33CFG_ACCESS_CR, rproc->m33_cr_right,
+ 			     A35SSC_M33_TZEN_CR_M33CFG_SEC |
+ 			     A35SSC_M33_TZEN_CR_M33CFG_PRIV);
+-#endif /* CFG_STM32MP25 */
++#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
+ }
+ 
+ static TEE_Result stm32mp25_rproc_pm(enum pm_op op, unsigned int pm_hint,
+@@ -542,10 +542,10 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 	if (!rproc)
+ 		return TEE_ERROR_OUT_OF_MEMORY;
+ 
+-#ifdef CFG_STM32MP25
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
+ 	rproc->m33_cr_right = A35SSC_M33_TZEN_CR_M33CFG_SEC |
+ 			      A35SSC_M33_TZEN_CR_M33CFG_PRIV;
+-#endif /* CFG_STM32MP25 */
++#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
+ 
+ 	rproc->cdata = comp_data;
+ 
+@@ -568,7 +568,7 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 	if (res)
+ 		goto err;
+ 
+-#ifdef CFG_STM32MP25
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
+ 	if (rproc->cdata->ns_loading) {
+ 		/*
+ 		 * The remote firmware will be loaded by the non secure
+@@ -578,7 +578,7 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 		rproc->m33_cr_right = A35SSC_M33_TZEN_CR_M33CFG_PRIV;
+ 	}
+ 	stm32_rproc_a35ss_cfg(rproc);
+-#endif /* CFG_STM32MP25 */
++#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
+ 
+ 	/*
+ 	 * The memory management should be enhance with firewall
+-- 
+2.47.2
+

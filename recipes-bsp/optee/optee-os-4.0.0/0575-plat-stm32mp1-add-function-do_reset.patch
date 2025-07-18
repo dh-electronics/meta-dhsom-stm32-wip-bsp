@@ -1,0 +1,95 @@
+From 37ed7866140f54410a9ef8ba70bf39f0b0ed06eb Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 4 Jan 2024 17:45:11 +0100
+Subject: [PATCH 0575/1695] plat-stm32mp1: add function do_reset()
+
+Add a new helper function do_reset() to handle the system reset
+without dependency with PSCI function.
+
+This patch is a preliminary step for STM32MP25 introduction.
+
+The function do_reset() stops the secondary core and flush the
+console before to execute the RCC function stm32_reset_system()
+to execute the system reset.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a114efca12801407e394be94ab68608ddbdbaad9 plat-stm32mp1: add function do_reset()]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Change-Id: I8897749591a45a3139414945df85bb13591922a6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/349361
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c       | 35 ++++++++++++++++++++++++
+ core/arch/arm/plat-stm32mp1/stm32_util.h |  3 ++
+ 2 files changed, 38 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index 05394f844..a4de4bd4a 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -17,6 +17,7 @@
+ #include <drivers/stm32mp_dt_bindings.h>
+ #include <io.h>
+ #include <kernel/boot.h>
++#include <kernel/delay.h>
+ #include <kernel/dt.h>
+ #include <kernel/misc.h>
+ #include <kernel/panic.h>
+@@ -618,3 +619,37 @@ bool stm32mp_supports_second_core(void)
+ 		return true;
+ 	}
+ }
++
++#define ARM_CNTXCTL_IMASK	BIT(1)
++
++static void stm32mp_mask_timer(void)
++{
++	/* Mask timer interrupts */
++	write_cntp_ctl(read_cntp_ctl() | ARM_CNTXCTL_IMASK);
++	write_cntv_ctl(read_cntv_ctl() | ARM_CNTXCTL_IMASK);
++}
++
++void __noreturn do_reset(const char *str __maybe_unused)
++{
++	stm32mp_mask_timer();
++
++	if (stm32mp_supports_second_core()) {
++		uint32_t target_mask = 0;
++
++		if (get_core_pos() == 0)
++			target_mask = TARGET_CPU1_GIC_MASK;
++		else
++			target_mask = TARGET_CPU0_GIC_MASK;
++
++		interrupt_raise_sgi(interrupt_get_main_chip(),
++				    CFG_HALT_CORES_ON_PANIC_SGI,
++				    target_mask);
++		/* wait than other core is halted */
++		mdelay(1);
++	}
++	IMSG("Forced system reset %s", str);
++	console_flush();
++	stm32_reset_system();
++	udelay(100);
++	panic();
++}
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index 4488fcec3..b39c4f277 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -315,4 +315,7 @@ static inline void stm32mp_register_gpioz_pin_count(size_t count __unused)
+ {
+ }
+ #endif /* CFG_STM32MP1_SHARED_RESOURCES */
++
++void __noreturn do_reset(const char *str);
++
+ #endif /*__STM32_UTIL_H__*/
+-- 
+2.47.2
+

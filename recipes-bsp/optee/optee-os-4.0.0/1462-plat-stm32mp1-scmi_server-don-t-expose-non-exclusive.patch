@@ -1,0 +1,68 @@
+From cfc16a46c47bd148c9b6d16eaa46a1df2f970aea Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 5 Feb 2025 16:34:57 +0100
+Subject: [PATCH 1462/1695] plat-stm32mp1: scmi_server: don't expose
+ non-exclusive reset controller
+
+Do not expose SCMI reset controllers when the SCMI server has not
+exclusive access to that controller.
+
+This change syncs with updstream change [1].
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 57b3be74b9a0a5f91faab1e71f5bfce180399a02 plat-stm32mp1: scmi_server: don't expose non-exclusive reset controller]
+Change-Id: I0acaefcdeeeba2eb49d8a5990a939cb5ffac2b8f
+Link: https://github.com/OP-TEE/optee_os/commit/6685948b4fa0afc697a2547817f2c9d1cb715d5e [1]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434761
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/scmi_server.c | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index 05fdb9bb6..f7d910327 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -660,9 +660,8 @@ int32_t plat_scmi_rd_autonomous(unsigned int channel_id, unsigned int scmi_id,
+ 	if (!rd)
+ 		return SCMI_NOT_FOUND;
+ 
+-	if (!nsec_can_access_resource(rd->etzpc_id))
++	if (!rd->rstctrl || !nsec_can_access_resource(rd->etzpc_id))
+ 		return SCMI_DENIED;
+-	assert(rd->rstctrl);
+ 
+ #ifdef CFG_STM32MP15
+ 	/* Reset cycle on MCU hold boot is not supported */
+@@ -699,7 +698,7 @@ int32_t plat_scmi_rd_set_state(unsigned int channel_id, unsigned int scmi_id,
+ 	if (!rd)
+ 		return SCMI_NOT_FOUND;
+ 
+-	if (!nsec_can_access_resource(rd->etzpc_id))
++	if (!rd->rstctrl || !nsec_can_access_resource(rd->etzpc_id))
+ 		return SCMI_DENIED;
+ 
+ #ifdef CFG_STM32MP15
+@@ -709,8 +708,6 @@ int32_t plat_scmi_rd_set_state(unsigned int channel_id, unsigned int scmi_id,
+ 		return SCMI_DENIED;
+ #endif
+ 
+-	assert(rd->rstctrl);
+-
+ 	if (assert_not_deassert) {
+ 		FMSG("SCMI reset %u set", scmi_id);
+ 		res = rstctrl_assert(rd->rstctrl);
+@@ -915,6 +912,8 @@ static TEE_Result stm32mp1_init_scmi_server(void)
+ 
+ 			rstctrl = stm32mp_rcc_reset_id_to_rstctrl(rd->reset_id);
+ 			assert(rstctrl);
++			if (rstctrl_get_exclusive(rstctrl))
++				continue;
+ 
+ 			rd->rstctrl = rstctrl;
+ 		}
+-- 
+2.47.2
+

@@ -1,0 +1,66 @@
+From aa068cc90338b517a4d1c160144ce15ba638b069 Mon Sep 17 00:00:00 2001
+From: Jerome Forissier <jerome.forissier@linaro.org>
+Date: Fri, 7 Mar 2025 10:49:12 +0100
+Subject: [PATCH 1681/1695] libmbedtls: fix compilation warning with GCC14
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+GCC 14.2 outputs the following compilation warning:
+
+  CC out/arm-plat-imx/ta_arm64-lib/libmbedtls/mbedtls/library/ecp.o
+  In file included from lib/libmbedtls/mbedtls/library/ctr_drbg.c:13:
+  In function ‘mbedtls_xor’,
+  inlined from ‘ctr_drbg_update_internal’ at lib/libmbedtls/mbedtls/library/ctr_drbg.c:372:5:
+  lib/libmbedtls/mbedtls/library/common.h:245:17: warning: array subscript 48 is outside array bounds of ‘unsigned char[48]’ [-Warray-bounds=]
+  245 | r[i] = a[i] ^ b[i];
+  | ~^~~
+  lib/libmbedtls/mbedtls/library/ctr_drbg.c: In function ‘ctr_drbg_update_internal’:
+  lib/libmbedtls/mbedtls/library/ctr_drbg.c:335:19: note: at offset 48 into object ‘tmp’ of size 48
+  335 | unsigned char tmp[MBEDTLS_CTR_DRBG_SEEDLEN];
+  | ^~~
+
+Fix it by returning early in mbedtls_xor() if the compiler is GCC.
+This fix is not in MBed TLS upstream yet but the issue and the fix have
+been reported [1].
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e09078b080f5c5e3d701bc74b5cf5295a38aaf6b libmbedtls: fix compilation warning with GCC14]
+Link: https://github.com/Mbed-TLS/mbedtls/issues/9003#issuecomment-2108239255 [1]
+Reported-by: Sahil Malhotra <sahil.malhotra@nxp.com>
+Closes: https://github.com/OP-TEE/optee_os/issues/7295
+Change-Id: I5d2b242e81f7340255cb9de2a204b6ee700bec2d
+Signed-off-by: Jerome Forissier <jerome.forissier@linaro.org>
+Acked-by: Jens Wiklander <jens.wiklander@linaro.org>
+Acked-by: Sahil Malhotra <sahil.malhotra@nxp.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/453137
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ lib/libmbedtls/mbedtls/library/common.h | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/lib/libmbedtls/mbedtls/library/common.h b/lib/libmbedtls/mbedtls/library/common.h
+index 17a4dc970..8df9d8ace 100644
+--- a/lib/libmbedtls/mbedtls/library/common.h
++++ b/lib/libmbedtls/mbedtls/library/common.h
+@@ -209,11 +209,13 @@ static inline void mbedtls_xor(unsigned char *r,
+         uint8x16_t x = veorq_u8(v1, v2);
+         vst1q_u8(r + i, x);
+     }
+-#if defined(__IAR_SYSTEMS_ICC__)
++#if defined(__IAR_SYSTEMS_ICC__) || defined(MBEDTLS_COMPILER_IS_GCC)
+     /* This if statement helps some compilers (e.g., IAR) optimise out the byte-by-byte tail case
+      * where n is a constant multiple of 16.
+      * For other compilers (e.g. recent gcc and clang) it makes no difference if n is a compile-time
+-     * constant, and is a very small perf regression if n is not a compile-time constant. */
++     * constant, and is a very small perf regression if n is not a compile-time constant.
++     * GCC 14.2 outputs a warning "array subscript 48 is outside array bounds" if we don't return
++     * early. */
+     if (n % 16 == 0) {
+         return;
+     }
+-- 
+2.47.2
+

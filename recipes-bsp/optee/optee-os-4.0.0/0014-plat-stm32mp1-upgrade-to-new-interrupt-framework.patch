@@ -1,0 +1,69 @@
+From 5dbee2df23a11882c840d15cf2e450e90963f83c Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Sun, 7 May 2023 23:24:47 +0200
+Subject: [PATCH 0014/1695] plat-stm32mp1: upgrade to new interrupt framework
+
+Moves plat-stm32mp1 to the new interrupt framework API functions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8f5cb78212fb251e188f6037c71254d07e06122d plat-stm32mp1: upgrade to new interrupt framework]
+Change-Id: Icb1a56efc2a6e4b0deceddaf6d09fe43908401eb
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from f406e0d7745f4a18eecaed7958cbd705d97ab8df]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/plat_tzc400.c | 9 +++++++--
+ core/arch/arm/plat-stm32mp1/pm/psci.c     | 4 +++-
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/plat_tzc400.c b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+index 55f6d41d5..b65f68378 100644
+--- a/core/arch/arm/plat-stm32mp1/plat_tzc400.c
++++ b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+@@ -71,6 +71,7 @@ static bool tzc_region_is_secure(unsigned int i, vaddr_t base, size_t size)
+ 
+ static TEE_Result init_stm32mp1_tzc(void)
+ {
++	TEE_Result res = TEE_ERROR_GENERIC;
+ 	void *base = phys_to_virt(TZC_BASE, MEM_AREA_IO_SEC, 1);
+ 	unsigned int region_index = 1;
+ 	const uint64_t dram_start = DDR_BASE;
+@@ -108,8 +109,12 @@ static TEE_Result init_stm32mp1_tzc(void)
+ 			panic("Unexpected TZC area on non-secure region");
+ 	}
+ 
+-	itr_add(&tzc_itr_handler);
+-	itr_enable(tzc_itr_handler.it);
++	res = interrupt_add_handler_with_chip(interrupt_get_main_chip(),
++					      &tzc_itr_handler);
++	if (res)
++		panic();
++
++	interrupt_enable(tzc_itr_handler.chip, tzc_itr_handler.it);
+ 	tzc_set_action(TZC_ACTION_INT);
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/arch/arm/plat-stm32mp1/pm/psci.c b/core/arch/arm/plat-stm32mp1/pm/psci.c
+index f39c032b2..bb206808d 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/psci.c
++++ b/core/arch/arm/plat-stm32mp1/pm/psci.c
+@@ -132,6 +132,8 @@ static void raise_sgi0_as_secure(void)
+ 
+ static void release_secondary_early_hpen(size_t __unused pos)
+ {
++	struct itr_chip *itr_chip = interrupt_get_main_chip();
++
+ 	/* Need to send SIG#0 over Group0 after individual core 1 reset */
+ 	raise_sgi0_as_secure();
+ 	udelay(20);
+@@ -142,7 +144,7 @@ static void release_secondary_early_hpen(size_t __unused pos)
+ 		   BOOT_API_A7_CORE1_MAGIC_NUMBER);
+ 
+ 	dsb_ishst();
+-	itr_raise_sgi(GIC_SEC_SGI_0, TARGET_CPU1_GIC_MASK);
++	interrupt_raise_sgi(itr_chip, GIC_SEC_SGI_0, TARGET_CPU1_GIC_MASK);
+ }
+ 
+ /* Override default psci_cpu_on() with platform specific sequence */
+-- 
+2.47.2
+

@@ -1,0 +1,70 @@
+From d54fafb9a628e6f919ad39c4e3d2420e4278d00b Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 21 May 2024 12:04:47 +0200
+Subject: [PATCH 0899/1695] drivers: stm32_rng: register secure state base on
+ firewall config
+
+Register STM32 RNG subsystem secure state based on the STM32MP firewall
+configuration rather than on OP-TEE configuration switches. This change
+allows to support STM32MP system_services profile on STM32MP15 platforms
+which OP-TEE DT assigns STM32 RNG to the secure world.
+
+Note that such software registering is required only on STM32MP15 based
+platforms.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9f3aceb46ba1815f16fd757e702d90aa8cf75449 drivers: stm32_rng: register secure state base on firewall config]
+Change-Id: I56164a4359221a486a8c84f16c8a98f6ca6c3eab
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/381266
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/385463
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/stm32_rng.c | 21 +++++++++++++++++----
+ 1 file changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index 0736df3e3..3241c8571 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -7,6 +7,7 @@
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+ #include <drivers/rstctrl.h>
++#include <drivers/stm32_firewall.h>
+ #include <drivers/stm32_rng.h>
+ #include <io.h>
+ #include <kernel/delay.h>
+@@ -668,10 +669,22 @@ static TEE_Result stm32_rng_probe(const void *fdt, int offs,
+ 	if (res)
+ 		goto err;
+ 
+-	if (IS_ENABLED(CFG_WITH_SOFTWARE_PRNG))
+-		stm32mp_register_non_secure_periph_iomem(stm32_rng->base.pa);
+-	else
+-		stm32mp_register_secure_periph_iomem(stm32_rng->base.pa);
++	if (IS_ENABLED(CFG_STM32MP15)) {
++		/*
++		 * Only STM32MP15 requires a software registering of RNG
++		 * secure state
++		 */
++		const struct stm32_firewall_cfg nsec_cfg[] = {
++			{ FWLL_NSEC_RW | FWLL_MASTER(0) },
++			{ }, /* Null terminated */
++		};
++		paddr_t pa = stm32_rng->base.pa;
++
++		if (stm32_firewall_check_access(pa, 0, nsec_cfg) == TEE_SUCCESS)
++			stm32mp_register_non_secure_periph_iomem(pa);
++		else
++			stm32mp_register_secure_periph_iomem(pa);
++	}
+ 
+ 	/* Power management implementation expects both or none are set */
+ 	assert(stm32_rng->ddata->has_power_optim ==
+-- 
+2.47.2
+

@@ -1,0 +1,114 @@
+From 48ad8e75a6e155ed4b4b407f6a6ae2952e08432f Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 21 Jun 2024 16:39:11 +0200
+Subject: [PATCH 0938/1695] drivers: stm32_etzpc: update DECPROT macro
+
+Put the ETZPC id first in the DECPROT macro.
+While there, move DT macros into DT bindings files.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0b40e53acf6134a31f026c62863fbd569cf17126 drivers: stm32_etzpc: update DECPROT macro]
+Change-Id: If6954ae03b749834dac8d0a98f7a596811e77705
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/389475
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/firewall/stm32_etzpc.c           | 19 ++++++-------------
+ .../include/dt-bindings/soc/stm32mp13-etzpc.h |  9 ++++++++-
+ .../include/dt-bindings/soc/stm32mp15-etzpc.h |  9 ++++++++-
+ 3 files changed, 22 insertions(+), 15 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_etzpc.c b/core/drivers/firewall/stm32_etzpc.c
+index 7f235ab9d..e697c055d 100644
+--- a/core/drivers/firewall/stm32_etzpc.c
++++ b/core/drivers/firewall/stm32_etzpc.c
+@@ -30,13 +30,6 @@
+ #include <stm32_util.h>
+ #include <util.h>
+ 
+-/* Devicetree compatibility */
+-#define ETZPC_LOCK_MASK			BIT(0)
+-#define ETZPC_MODE_SHIFT		8
+-#define ETZPC_MODE_MASK			GENMASK_32(1, 0)
+-#define ETZPC_ID_SHIFT			16
+-#define ETZPC_ID_MASK			GENMASK_32(7, 0)
+-
+ /* ID Registers */
+ #define ETZPC_TZMA0_SIZE		U(0x000)
+ #define ETZPC_DECPROT0			U(0x010)
+@@ -371,8 +364,8 @@ static TEE_Result stm32_etzpc_check_access(struct firewall_query *firewall)
+ 	 *		      from
+ 	 */
+ 	id = firewall->args[0];
+-	attr_req = etzpc_binding2decprot((firewall->args[1] >>
+-					  ETZPC_MODE_SHIFT) & ETZPC_MODE_MASK);
++	attr_req = etzpc_binding2decprot((firewall->args[1] &
++					  ETZPC_MODE_MASK) >> ETZPC_MODE_SHIFT);
+ 
+ 	if (id < etzpc_dev->ddata->num_per_sec) {
+ 		attr = etzpc_do_get_decprot(etzpc_dev, id);
+@@ -484,8 +477,8 @@ static TEE_Result stm32_etzpc_configure(struct firewall_query *firewall)
+ 		 * firewall->args[1]: Firewall configuration to apply
+ 		 */
+ 
+-		mode = (firewall->args[1] >> ETZPC_MODE_SHIFT) &
+-		       ETZPC_MODE_MASK;
++		mode = (firewall->args[1] & ETZPC_MODE_MASK) >>
++		       ETZPC_MODE_SHIFT;
+ 		attr = etzpc_binding2decprot(mode);
+ 
+ 		if (decprot_is_locked(etzpc_dev, id)) {
+@@ -602,8 +595,8 @@ static void fdt_etzpc_conf_decprot(struct etzpc_device *dev,
+ 
+ 	for (i = 0; i < len / sizeof(uint32_t); i++) {
+ 		uint32_t value = fdt32_to_cpu(cuint[i]);
+-		uint32_t id = (value >> ETZPC_ID_SHIFT) & ETZPC_ID_MASK;
+-		uint32_t mode = (value >> ETZPC_MODE_SHIFT) & ETZPC_MODE_MASK;
++		uint32_t id = value & ETZPC_ID_MASK;
++		uint32_t mode = (value & ETZPC_MODE_MASK) >> ETZPC_MODE_SHIFT;
+ 		bool lock = value & ETZPC_LOCK_MASK;
+ 		enum etzpc_decprot_attributes attr = ETZPC_DECPROT_MAX;
+ 
+diff --git a/core/include/dt-bindings/soc/stm32mp13-etzpc.h b/core/include/dt-bindings/soc/stm32mp13-etzpc.h
+index 0afd71c72..2b891a0f0 100644
+--- a/core/include/dt-bindings/soc/stm32mp13-etzpc.h
++++ b/core/include/dt-bindings/soc/stm32mp13-etzpc.h
+@@ -73,6 +73,13 @@
+ 
+ #define STM32MP1_ETZPC_MAX_ID		64
+ 
+-#define DECPROT(id, mode, lock)		(((id) << 16) | ((mode) << 8) | (lock))
++#define DECPROT(id, mode, lock)		((id) | ((mode) << ETZPC_MODE_SHIFT) | \
++					 ((lock) << ETZPC_LOCK_SHIFT))
++
++#define ETZPC_ID_MASK			GENMASK_32(7, 0)
++#define ETZPC_LOCK_MASK			BIT(8)
++#define ETZPC_LOCK_SHIFT		8
++#define ETZPC_MODE_SHIFT		9
++#define ETZPC_MODE_MASK			GENMASK_32(31, 9)
+ 
+ #endif /* _DT_BINDINGS_SOC_STM32MP13_ETZPC_H */
+diff --git a/core/include/dt-bindings/soc/stm32mp15-etzpc.h b/core/include/dt-bindings/soc/stm32mp15-etzpc.h
+index ee6e9c917..f5afe9a26 100644
+--- a/core/include/dt-bindings/soc/stm32mp15-etzpc.h
++++ b/core/include/dt-bindings/soc/stm32mp15-etzpc.h
+@@ -112,6 +112,13 @@
+ 
+ #define STM32MP1_ETZPC_MAX_ID		96
+ 
+-#define DECPROT(id, mode, lock)		(((id) << 16) | ((mode) << 8) | (lock))
++#define DECPROT(id, mode, lock)		((id) | ((mode) << ETZPC_MODE_SHIFT) | \
++					 ((lock) << ETZPC_LOCK_SHIFT))
++
++#define ETZPC_ID_MASK			GENMASK_32(7, 0)
++#define ETZPC_LOCK_MASK			BIT(8)
++#define ETZPC_LOCK_SHIFT		8
++#define ETZPC_MODE_SHIFT		9
++#define ETZPC_MODE_MASK			GENMASK_32(31, 9)
+ 
+ #endif /* _DT_BINDINGS_SOC_STM32MP15_ETZPC_H */
+-- 
+2.47.2
+

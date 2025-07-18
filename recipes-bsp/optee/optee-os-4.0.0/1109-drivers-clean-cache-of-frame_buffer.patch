@@ -1,0 +1,51 @@
+From 4e7b1e322c04b95912fdd352ff6fd4b012f545f8 Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Wed, 10 Jul 2024 11:34:08 +0200
+Subject: [PATCH 1109/1695] drivers: clean cache of frame_buffer
+
+Flush the cache to avoid graphic artifact.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0c660e1254f7d35e9615633ffef3cf3a622ee9e1 drivers: clean cache of frame_buffer]
+Change-Id: I159959506de39c624339ceafa73989ba6aa94e6c
+Signed-off-by: Yannick Fertre <yannick.fertre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/392610
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/frame_buffer.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/core/drivers/frame_buffer.c b/core/drivers/frame_buffer.c
+index 1ef82cf58..d25740648 100644
+--- a/core/drivers/frame_buffer.c
++++ b/core/drivers/frame_buffer.c
+@@ -6,6 +6,7 @@
+ #include <assert.h>
+ #include <compiler.h>
+ #include <drivers/frame_buffer.h>
++#include <kernel/cache_helpers.h>
+ #include <util.h>
+ 
+ size_t frame_buffer_get_image_size(struct frame_buffer *fb __unused,
+@@ -25,6 +26,9 @@ void frame_buffer_clear(struct frame_buffer *fb, uint32_t color)
+ 
+ 	for (n = 0; n < fb->width * fb->height; n++)
+ 		base[n] = color;
++
++	/* Flush the cache to avoid graphic artifact */
++	dcache_clean_range(base, fb->width * fb->height * sizeof(uint32_t));
+ }
+ 
+ void frame_buffer_set_image(struct frame_buffer *fb, size_t xpos, size_t ypos,
+@@ -44,4 +48,7 @@ void frame_buffer_set_image(struct frame_buffer *fb, size_t xpos, size_t ypos,
+ 		for (x = 0; x < width && (x + xpos) < fb->width; x++)
+ 			base[x + xpos + (y + ypos) * fb->width] =
+ 				img[x + y * width];
++
++	/* Flush the cache to avoid graphic artifact */
++	dcache_clean_range(base, fb->width * fb->height * sizeof(uint32_t));
+ }
+-- 
+2.47.2
+

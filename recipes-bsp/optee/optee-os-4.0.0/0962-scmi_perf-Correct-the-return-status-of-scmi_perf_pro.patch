@@ -1,0 +1,54 @@
+From 1c324af9e1e03e73897bd8e14f10ee3c0e6e78c0 Mon Sep 17 00:00:00 2001
+From: Chandni Cherukuri <chandni.cherukuri@arm.com>
+Date: Thu, 7 Dec 2023 11:05:35 +0530
+Subject: [PATCH 0962/1695] scmi_perf: Correct the return status of
+ scmi_perf_process_event
+
+Currently, when perf_prot_ops_process_events function returns
+successfully the scmi_perf_process_event function returns an
+error condition. Correct this behaviour so that the function does
+not return an error condition during successful case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 044de2c6884901a9d4daab1b57bb6163ef981c35 scmi_perf: Correct the return status of scmi_perf_process_event]
+Signed-off-by: Chandni Cherukuri <chandni.cherukuri@arm.com>
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+[Gatien: cherry-picked from f3a2f99bb6a56d450e7f7e45957b17d3de4065a3]
+Change-Id: Id393df5de59aeb365d28e4fe4b9f6b22d2583c79
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/390560
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+---
+ .../SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c     | 8 +-------
+ 1 file changed, 1 insertion(+), 7 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c b/core/lib/scmi-server/SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c
+index 2fa9cf869..48e477c58 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c
+@@ -592,18 +592,12 @@ static int scmi_perf_process_event(
+     struct fwk_event *resp_event)
+ {
+ #ifdef BUILD_HAS_SCMI_PERF_PROTOCOL_OPS
+-    int status;
+-
+     if ((fwk_id_get_module_idx(event->source_id) ==
+          fwk_id_get_module_idx(fwk_module_id_scmi)) ||
+         (fwk_id_get_module_idx(event->source_id) ==
+          fwk_id_get_module_idx(fwk_module_id_dvfs))) {
+         /* Handle requests from SCMi and responses from DVFS */
+-        status = perf_prot_ops_process_events(event, resp_event);
+-
+-        if (status != FWK_SUCCESS) {
+-            return status;
+-        }
++        return perf_prot_ops_process_events(event, resp_event);
+     }
+ #endif
+ 
+-- 
+2.47.2
+

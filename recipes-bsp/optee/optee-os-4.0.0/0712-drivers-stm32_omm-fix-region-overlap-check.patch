@@ -1,0 +1,72 @@
+From c6dbc457f16156e1e48d30b8c559eccd3bf9d5d4 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 26 Mar 2024 14:10:16 +0100
+Subject: [PATCH 0712/1695] drivers: stm32_omm: fix region overlap check
+
+End of region is not properly calculated. This issue could lead to a
+wrong overlap check.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4727d0c3db093a2e78dbee2931c6f6a637681883 drivers: stm32_omm: fix region overlap check]
+Change-Id: Iac116ccfca5058d44f89c3c76427c4871a5b82b9
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/369544
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/stm32_omm.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/core/drivers/stm32_omm.c b/core/drivers/stm32_omm.c
+index 5da6d505c..2afebc5b5 100644
+--- a/core/drivers/stm32_omm.c
++++ b/core/drivers/stm32_omm.c
+@@ -111,6 +111,8 @@ static TEE_Result stm32_omm_parse_fdt(const void *fdt, int node)
+ 
+ 	omm_d->region.start = base;
+ 	omm_d->region.end = base + size;
++	if (size)
++		omm_d->region.end--;
+ 
+ 	res = clk_dt_get_by_index(fdt, node, 0, &omm_d->clock);
+ 	if (res)
+@@ -176,6 +178,8 @@ static TEE_Result stm32_omm_parse_fdt(const void *fdt, int node)
+ 				panic();
+ 
+ 			region->end = region->start + size;
++			if (size)
++				region->end--;
+ 		}
+ 	}
+ 
+@@ -228,7 +232,7 @@ static void stm32_omm_set_mm(void)
+ {
+ 	unsigned int ospi_i = 0;
+ 	struct stm32_mm_region *region[OSPI_NB] = {};
+-	size_t mm_size[OSPI_NB] = {};
++	size_t mm_size[OSPI_NB] = {0};
+ 	unsigned int valid_regions = 0;
+ 
+ 	for (ospi_i = 0; ospi_i < OSPI_NB; ospi_i++) {
+@@ -240,12 +244,13 @@ static void stm32_omm_set_mm(void)
+ 		if (!stm32_omm_region_contains(&omm_d->region, region[ospi_i]))
+ 			panic();
+ 
+-		mm_size[ospi_i] = region[ospi_i]->end - region[ospi_i]->start;
++		mm_size[ospi_i] = region[ospi_i]->end - region[ospi_i]->start
++				  + 1;
+ 		valid_regions++;
+ 	}
+ 
+ 	if (valid_regions == OSPI_NB &&
+-	    !stm32_omm_region_overlaps(region[0], region[1]))
++	    stm32_omm_region_overlaps(region[0], region[1]))
+ 		panic();
+ 
+ 	if (valid_regions)
+-- 
+2.47.2
+

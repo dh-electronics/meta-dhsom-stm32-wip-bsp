@@ -1,0 +1,142 @@
+From d806a138d87944d76ed5aa68d9545c48fff00a27 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Tue, 7 May 2024 18:32:51 +0200
+Subject: [PATCH 0880/1695] plat-stm32mp2: scmi: add scmi_scpfw_attach_notif()
+ helper
+
+This function can attach a mailbox to an scmi channel.
+When a request come from mailbox framework, "process" function is called
+with "process_arg" parameter.
+
+This function also set shared memory information's mapped by caller, that
+will be passed to SCP firmware.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 126b9724e276bf4a616378d6f5e55f836b74e9bd plat-stm32mp2: scmi: add scmi_scpfw_attach_notif() helper]
+Co-developed-by: Raphael Gallais-Pou <raphael.gallais-pou@foss.st.com>
+Signed-off-by: Raphael Gallais-Pou <raphael.gallais-pou@foss.st.com>
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I836705ced203ada8b181a9d02035f0fd59766c94
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/380384
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     | 36 +++++++++++++++++++
+ .../include/scmi_agent_configuration.h        | 17 +++++++++
+ 2 files changed, 53 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index f51bff62e..975bb9928 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -23,6 +23,7 @@
+ #include <platform_config.h>
+ #include <scmi_agent_configuration.h>
+ #include <scmi_regulator_consumer.h>
++#include <scmi/scmi_server.h>
+ #include <stdint.h>
+ #include <speculation_barrier.h>
+ #include <stm32_util.h>
+@@ -662,9 +663,38 @@ struct scpfw_config *scmi_scpfw_get_configuration(void)
+ 	return &scpfw_cfg;
+ }
+ 
++TEE_Result scmi_scpfw_attach_notif(unsigned int agent_id,
++				   unsigned int channel_id,
++				   struct shared_mem *shm,
++				   TEE_Result (**process)(unsigned int chan_id),
++				   unsigned int *process_arg)
++{
++	if (agent_id < scpfw_cfg.agent_count) {
++		struct scpfw_agent_config *agent_cfg =
++			scpfw_cfg.agent_config + agent_id;
++
++		if (channel_id < agent_cfg->channel_count) {
++			struct scpfw_channel_config *channel_cfg =
++				agent_cfg->channel_config + channel_id;
++
++			*process = &scmi_server_smt_process_thread;
++			*process_arg = channel_cfg->mailbox_idx;
++
++			channel_cfg->shm = *shm;
++
++			return TEE_SUCCESS;
++		}
++	}
++
++	return TEE_ERROR_BAD_PARAMETERS;
++}
++
+ static TEE_Result scmi_scpfw_cfg_early_init(void)
+ {
++	unsigned int mailbox_idx = 0;
+ 	unsigned int index = 0;
++	unsigned int i = 0;
++	unsigned int j = 0;
+ 
+ 	scpfw_cfg.agent_count = 1;
+ 	scpfw_cfg.agent_config = calloc(scpfw_cfg.agent_count,
+@@ -680,6 +710,12 @@ static TEE_Result scmi_scpfw_cfg_early_init(void)
+ 
+ 	assert(scpfw_cfg.agent_count == index);
+ 
++	for (i = 0; i < scpfw_cfg.agent_count; i++)
++		for (j = 0; j < scpfw_cfg.agent_config[i].channel_count; j++)
++			scpfw_cfg.agent_config[i]
++				 .channel_config[j]
++				 .mailbox_idx = mailbox_idx++;
++
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/core/lib/scmi-server/include/scmi_agent_configuration.h b/core/lib/scmi-server/include/scmi_agent_configuration.h
+index b9dc94efe..d0027820f 100644
+--- a/core/lib/scmi-server/include/scmi_agent_configuration.h
++++ b/core/lib/scmi-server/include/scmi_agent_configuration.h
+@@ -71,6 +71,12 @@ struct scmi_perfd {
+ 	struct regulator *regulator;
+ };
+ 
++struct shared_mem {
++	paddr_t pa;
++	vaddr_t va;
++	size_t size;
++};
++
+ /*
+  * struct scmi_pd - Description of a power domain resource
+  * @name: Domain name
+@@ -87,6 +93,8 @@ struct scmi_pd {
+  * struct scpfw_channel_config - SCMI channel resources
+  * @name: Channel name
+  * @channel_id: ID for the channel in OP-TEE SCMI bindings
++ * @mailbox_idx: Unique ID for the channel related to mailbox index.
++ * @shm: Shared memory required by mailbox
+  * @clock: Description of the clocks exposed on the channel
+  * @clock_count: Number of cells of @clock
+  * @reset: Description of the reset conntrollers exposed on the channel
+@@ -101,6 +109,8 @@ struct scmi_pd {
+ struct scpfw_channel_config {
+ 	const char *name;
+ 	unsigned int channel_id;
++	unsigned int mailbox_idx;
++	struct shared_mem shm;
+ 	struct scmi_clock *clock;
+ 	size_t clock_count;
+ 	struct scmi_reset *reset;
+@@ -141,6 +151,13 @@ struct scpfw_config {
+ 	size_t agent_count;
+ };
+ 
++/* Link a mailbox notification to an existing scmi channel */
++TEE_Result scmi_scpfw_attach_notif(unsigned int agent_id,
++				   unsigned int channel_id,
++				   struct shared_mem *shm,
++				   TEE_Result (**process)(unsigned int chan_id),
++				   unsigned int *process_arg);
++
+ /* Get the platform configuration data for the SCP firmware */
+ struct scpfw_config *scmi_scpfw_get_configuration(void);
+ 
+-- 
+2.47.2
+

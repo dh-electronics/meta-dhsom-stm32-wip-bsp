@@ -1,0 +1,113 @@
+From c674507f41c3ba2d70ed01050dc312b64f12743e Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Mon, 15 Jan 2024 14:44:25 +0100
+Subject: [PATCH 0572/1695] drivers: stm32mp2_pmic: handle alternate input
+ source on LDO1
+
+Handle setting LDO1 to VOUT4 input source.
+The goal is to improve power consumption.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git eb2448f58f0313f62324683ec36d15fb613069ac drivers: stm32mp2_pmic: handle alternate input source on LDO1]
+Change-Id: I0ed88f3b30dab871d63f2c019c2e45ed59057a7c
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/351332
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../arm/plat-stm32mp2/drivers/stm32mp2_pmic.c |  4 ++++
+ core/drivers/stpmic2.c                        |  6 +++++
+ core/include/drivers/stpmic2.h                |  1 +
+ .../devicetree/bindings/mfd/st,stpmic2.yaml   | 24 ++++++++++++++++++-
+ 4 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
+index 38d4ebfc7..29befb6ec 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
+@@ -112,6 +112,10 @@ static const struct regu_dt_property prop_table[] = {
+ 		.name = "st,pwrctrl_sel",
+ 		.prop = STPMIC2_PWRCTRL_SEL,
+ 	},
++	{
++		.name = "st,alternate-input-source",
++		.prop = STPMIC2_ALTERNATE_INPUT_SOURCE,
++	},
+ };
+ 
+ /*
+diff --git a/core/drivers/stpmic2.c b/core/drivers/stpmic2.c
+index dba559416..913e07df4 100644
+--- a/core/drivers/stpmic2.c
++++ b/core/drivers/stpmic2.c
+@@ -513,6 +513,12 @@ TEE_Result stpmic2_regulator_set_prop(struct stpmic2 *pmic, uint8_t id,
+ 		return stpmic2_register_update(pmic, regul->alt_en_cr,
+ 					       arg << PREG_MODE_SHIFT,
+ 					       PREG_MODE_MASK);
++	case STPMIC2_ALTERNATE_INPUT_SOURCE:
++		if (id != STPMIC2_LDO1)
++			return TEE_ERROR_BAD_PARAMETERS;
++
++		return stpmic2_update_en_crs(pmic, id,
++					     LDO1_INPUT_SRC, LDO1_INPUT_SRC);
+ 	default:
+ 		EMSG("Invalid prop %d", prop);
+ 		panic();
+diff --git a/core/include/drivers/stpmic2.h b/core/include/drivers/stpmic2.h
+index 78aa254c8..07fbdd8e6 100644
+--- a/core/include/drivers/stpmic2.h
++++ b/core/include/drivers/stpmic2.h
+@@ -267,6 +267,7 @@ enum stpmic2_prop_id {
+ 	STPMIC2_PWRCTRL_SEL,	/* takes arg = pwrctrl line number */
+ 	STPMIC2_MAIN_PREG_MODE,	/* takes arg = preg mode HP=1, CCM=2 */
+ 	STPMIC2_ALT_PREG_MODE,	/* takes arg = preg mode HP=1, CCM=2 */
++	STPMIC2_ALTERNATE_INPUT_SOURCE,
+ };
+ 
+ #define PROP_BYPASS_RESET	U(0)
+diff --git a/documentation/devicetree/bindings/mfd/st,stpmic2.yaml b/documentation/devicetree/bindings/mfd/st,stpmic2.yaml
+index 8711605ff..6951bbc97 100644
+--- a/documentation/devicetree/bindings/mfd/st,stpmic2.yaml
++++ b/documentation/devicetree/bindings/mfd/st,stpmic2.yaml
+@@ -44,6 +44,28 @@ properties:
+       compatible:
+         const: st,stpmic2-regulators
+ 
++      ldo1:
++        type: object
++
++        properties:
++          st,alternate-input-source:
++            description: select VOUT4 as input source for this regulator.
++            $ref: /schemas/types.yaml#/definitions/flag
++
++          st,mask-reset:
++            description: mask reset for this regulator, the regulator configuration
++              is maintained during pmic reset.
++            $ref: /schemas/types.yaml#/definitions/flag
++
++          regulator-name: true
++          regulator-boot-on: true
++          regulator-always-on: true
++          regulator-min-microvolt: true
++          regulator-max-microvolt: true
++          regulator-over-current-protection: true
++
++        additionalProperties: false
++
+       ldo3:
+         type: object
+ 
+@@ -100,7 +122,7 @@ properties:
+       "^(buck[1-7]|ldo[1-8]|refddr)$":
+         $ref: ../regulator/regulator.yaml
+ 
+-      "^ldo[1-2,5-8]$":
++      "^ldo[2,5-8]$":
+         type: object
+ 
+         properties:
+-- 
+2.47.2
+

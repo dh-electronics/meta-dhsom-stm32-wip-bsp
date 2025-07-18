@@ -1,0 +1,46 @@
+From 6ee8b4ff0025b4068ee250f79cfc00e257137657 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 10 Jul 2024 18:07:10 +0200
+Subject: [PATCH 1187/1695] core: mm: ensure all pager VA space is mapped with
+ small pages
+
+Fix can_map_at_level() to ensure all memory areas related the pager
+pageable virtual memory are mapped with small pages. This change
+fixes an issue found when the pager physical RAM ends on a
+section (pgdir) boundarie making the pageable virtual memory
+above to be mapped with pgdir or wider MMU tables.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3980ecf51e34abd373be880910d6818d2bedd43d core: mm: ensure all pager VA space is mapped with small pages]
+Change-Id: I3889d16a1bfdb88fe0889c95b165b764a929e255
+[etienne: cherry-picked from bfb714a2f8411f071aac45ecfcfb52c8c2859c2b]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/392685
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/mm/core_mmu.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/core/mm/core_mmu.c b/core/mm/core_mmu.c
+index 5cf547716..967e5816d 100644
+--- a/core/mm/core_mmu.c
++++ b/core/mm/core_mmu.c
+@@ -1796,10 +1796,11 @@ static bool can_map_at_level(paddr_t paddr, vaddr_t vaddr,
+ 
+ #ifdef CFG_WITH_PAGER
+ 	/*
+-	 * If pager is enabled, we need to map tee ram
++	 * If pager is enabled, we need to map TEE RAM and the whole pager
+ 	 * regions with small pages only
+ 	 */
+-	if (map_is_tee_ram(mm) && block_size != SMALL_PAGE_SIZE)
++	if ((map_is_tee_ram(mm) || mm->type == MEM_AREA_PAGER_VASPACE) &&
++	    block_size != SMALL_PAGE_SIZE)
+ 		return false;
+ #endif
+ 
+-- 
+2.47.2
+

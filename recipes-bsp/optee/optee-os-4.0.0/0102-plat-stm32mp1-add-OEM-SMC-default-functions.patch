@@ -1,0 +1,120 @@
+From d2aec0597a1a6145e802cfca998192a2bce470ee Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Wed, 8 Dec 2021 14:28:48 +0100
+Subject: [PATCH 0102/1695] plat-stm32mp1: add OEM SMC default functions
+
+Add the default OEM SMC function to properly return
+OEM UID on request.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9225ef4003950d1b5ee8a4f624492c65202f2900 plat-stm32mp1: add OEM SMC default functions]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Ia748e22ba631eb9ff49d0e134edbee14e4847d03
+---
+ .../plat-stm32mp1/nsec-service/stm32mp1_smc.h | 48 +++++++++++++++++++
+ .../nsec-service/stm32mp1_svc_setup.c         | 26 ++++++++++
+ 2 files changed, 74 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
+index 2fbcac3cf..0dce13816 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
+@@ -103,4 +103,52 @@
+ #define STM32_SIP_SVC_FUNC_SCMI_AGENT0		0x2000
+ #define STM32_SIP_SVC_FUNC_SCMI_AGENT1		0x2001
+ 
++/*
++ * OEM Functions
++ */
++#define STM32_OEM_SVC_VERSION_MAJOR		0x0
++#define STM32_OEM_SVC_VERSION_MINOR		0x1
++
++#define STM32_OEM_SVC_FUNCTION_COUNT	1
++
++/* Use the same UID as for SiP service */
++#define STM32_OEM_SVC_UID_0			STM32_SIP_SVC_UID_0
++#define STM32_OEM_SVC_UID_1			STM32_SIP_SVC_UID_1
++#define STM32_OEM_SVC_UID_2			STM32_SIP_SVC_UID_2
++#define STM32_OEM_SVC_UID_3			STM32_SIP_SVC_UID_3
++
++/* OEM service generic return codes */
++#define STM32_OEM_SVC_OK			0x0
++#define STM32_OEM_SVC_NOT_SUPPORTED		0xffffffffU
++#define STM32_OEM_SVC_FAILED			0xfffffffeU
++#define STM32_OEM_SVC_INVALID_PARAMS		0xfffffffdU
++
++/*
++ * OEM function STM32_OEM_FUNC_CALL_COUNT
++ *
++ * Argument a0: (input) SMCC ID
++ *		(output) Count of defined function IDs
++ */
++#define STM32_OEM_SVC_FUNC_CALL_COUNT		0xff00
++
++/*
++ * OEM function STM32_OEM_SVC_FUNC_UID
++ *
++ * Argument a0: (input) SMCC ID
++ *		(output) Lowest 32bit of the stm32mp1 OEM service UUID
++ * Argument a1: (output) Next 32bit of the stm32mp1 OEM service UUID
++ * Argument a2: (output) Next 32bit of the stm32mp1 OEM service UUID
++ * Argument a3: (output) Last 32bit of the stm32mp1 OEM service UUID
++ */
++#define STM32_OEM_SVC_FUNC_UID			0xff01
++
++/*
++ * OEM function STM32_OEM_FUNC_VERSION
++ *
++ * Argument a0: (input) SMCC ID
++ *		(output) STM32 OEM service major
++ * Argument a1: (output) STM32 OEM service minor
++ */
++#define STM32_OEM_SVC_FUNC_VERSION		0xff03
++
+ #endif /* __STM32MP1_SMC_H__*/
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+index 70d66674c..1b2e78f01 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+@@ -56,6 +56,30 @@ static enum sm_handler_ret sip_service(struct sm_ctx *ctx __unused,
+ 	return SM_HANDLER_SMC_HANDLED;
+ }
+ 
++static enum sm_handler_ret oem_service(struct sm_ctx *ctx __unused,
++				       struct thread_smc_args *args)
++{
++	switch (OPTEE_SMC_FUNC_NUM(args->a0)) {
++	case STM32_OEM_SVC_FUNC_CALL_COUNT:
++		args->a0 = STM32_OEM_SVC_FUNCTION_COUNT;
++		break;
++	case STM32_OEM_SVC_FUNC_VERSION:
++		args->a0 = STM32_OEM_SVC_VERSION_MAJOR;
++		args->a1 = STM32_OEM_SVC_VERSION_MINOR;
++		break;
++	case STM32_OEM_SVC_FUNC_UID:
++		args->a0 = STM32_OEM_SVC_UID_0;
++		args->a1 = STM32_OEM_SVC_UID_1;
++		args->a2 = STM32_OEM_SVC_UID_2;
++		args->a3 = STM32_OEM_SVC_UID_3;
++		break;
++	default:
++		return SM_HANDLER_PENDING_SMC;
++	}
++
++	return SM_HANDLER_SMC_HANDLED;
++}
++
+ enum sm_handler_ret sm_platform_handler(struct sm_ctx *ctx)
+ {
+ 	struct thread_smc_args *args = (void *)&ctx->nsec.r0;
+@@ -66,6 +90,8 @@ enum sm_handler_ret sm_platform_handler(struct sm_ctx *ctx)
+ 	switch (OPTEE_SMC_OWNER_NUM(args->a0)) {
+ 	case OPTEE_SMC_OWNER_SIP:
+ 		return sip_service(ctx, args);
++	case OPTEE_SMC_OWNER_OEM:
++		return oem_service(ctx, args);
+ 	default:
+ 		return SM_HANDLER_PENDING_SMC;
+ 	}
+-- 
+2.47.2
+

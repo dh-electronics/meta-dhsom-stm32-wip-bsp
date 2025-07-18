@@ -1,0 +1,55 @@
+From 45ca2d098231bd3a9d5f74a9baaac154d47f71a8 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 15 Feb 2023 12:38:00 +0100
+Subject: [PATCH 0238/1695] drivers: stm32_rif: support lock of the RIF
+ configuration
+
+Use bit 10 in the RIF configuration field to determine if the RIF
+configuration should be locked for a given resource.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1d162c63092f26c4b2f20cc9c955ad99b8535109 drivers: stm32_rif: support lock of the RIF configuration]
+Change-Id: I3eef37d5505800565ca3742d5d812e429b4cbe8e
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+---
+ core/drivers/firewall/stm32_rif.c | 4 ++++
+ core/include/drivers/stm32_rif.h  | 2 ++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/core/drivers/firewall/stm32_rif.c b/core/drivers/firewall/stm32_rif.c
+index 8a3e0947d..e8bf250d3 100644
+--- a/core/drivers/firewall/stm32_rif.c
++++ b/core/drivers/firewall/stm32_rif.c
+@@ -77,6 +77,10 @@ void stm32_rif_parse_cfg(uint32_t rif_conf,
+ 	if (rif_conf & RIFPROT_SEC)
+ 		conf_data->sec_conf[conf_index] |= BIT(channel_id);
+ 
++	/* RIF configuration lock */
++	if (rif_conf & RIFPROT_LOCK && conf_data->lock_conf)
++		conf_data->lock_conf[conf_index] |= BIT(channel_id);
++
+ 	/* CID configuration */
+ 	conf_data->cid_confs[channel_id] = rif_conf & cidcfdg_conf_mask;
+ 
+diff --git a/core/include/drivers/stm32_rif.h b/core/include/drivers/stm32_rif.h
+index 31ac6dd43..0bcdad465 100644
+--- a/core/include/drivers/stm32_rif.h
++++ b/core/include/drivers/stm32_rif.h
+@@ -40,6 +40,7 @@
+ 
+ #define RIFPROT_SEC			BIT(8)
+ #define RIFPROT_PRIV			BIT(9)
++#define RIFPROT_LOCK			BIT(10)
+ 
+ #define SCID_OK(cidcfgr, scid_m, cid)	(((cidcfgr) & (scid_m)) ==	\
+ 					 ((cid) << (SCID_SHIFT)) &&	\
+@@ -72,6 +73,7 @@ struct rif_conf_data {
+ 	uint32_t *sec_conf;
+ 	uint32_t *priv_conf;
+ 	uint32_t *cid_confs;
++	uint32_t *lock_conf;
+ };
+ 
+ /*
+-- 
+2.47.2
+

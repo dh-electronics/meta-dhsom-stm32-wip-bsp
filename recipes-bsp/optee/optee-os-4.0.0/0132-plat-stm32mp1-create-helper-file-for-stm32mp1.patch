@@ -1,0 +1,174 @@
+From b14da25d7906d65ac2bf9b834010fbd7685c9341 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 12 Oct 2022 17:17:22 +0200
+Subject: [PATCH 0132/1695] plat-stm32mp1: create helper file for stm32mp1
+
+Move all rcc helper functions into stm32mp1_rcc_util.h file
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 22567e0f271213a0f69150077c34be9894fe861f plat-stm32mp1: create helper file for stm32mp1]
+Change-Id: I9c7c6b65230c29f866cdee788c8d34d1cb12e4b2
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/stm32_util.h | 20 +-------------
+ core/drivers/clk/clk-stm32mp13.c         |  1 +
+ core/drivers/clk/clk-stm32mp15.c         |  2 ++
+ core/include/drivers/stm32mp13_rcc.h     |  2 --
+ core/include/drivers/stm32mp1_rcc_util.h | 35 ++++++++++++++++++++++++
+ 5 files changed, 39 insertions(+), 21 deletions(-)
+ create mode 100644 core/include/drivers/stm32mp1_rcc_util.h
+
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index 627933e4a..1a5ba6451 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -10,6 +10,7 @@
+ #include <drivers/clk.h>
+ #include <drivers/pinctrl.h>
+ #include <drivers/stm32_bsec.h>
++#include <drivers/stm32mp1_rcc_util.h>
+ #include <kernel/panic.h>
+ #include <stdint.h>
+ #include <tee_api_types.h>
+@@ -18,9 +19,6 @@
+ /* Backup registers and RAM utils */
+ vaddr_t stm32mp_bkpreg(unsigned int idx);
+ 
+-/* Platform util for the RCC drivers */
+-vaddr_t stm32_rcc_base(void);
+-
+ /* Platform util for the GIC */
+ vaddr_t get_gicd_base(void);
+ 
+@@ -43,9 +41,6 @@ static inline void stm32mp_register_online_cpu(void)
+ uint32_t may_spin_lock(unsigned int *lock);
+ void may_spin_unlock(unsigned int *lock, uint32_t exceptions);
+ 
+-/* Helper from platform RCC clock driver */
+-struct clk *stm32mp_rcc_clock_id_to_clk(unsigned long clock_id);
+-
+ #ifdef CFG_STM32MP1_SHARED_RESOURCES
+ /* Return true if @clock_id is shared by secure and non-secure worlds */
+ bool stm32mp_nsec_can_access_clock(unsigned long clock_id);
+@@ -57,8 +52,6 @@ static inline bool stm32mp_nsec_can_access_clock(unsigned long clock_id
+ }
+ #endif /* CFG_STM32MP1_SHARED_RESOURCES */
+ 
+-extern const struct clk_ops stm32mp1_clk_ops;
+-
+ #if defined(CFG_STPMIC1)
+ /* Return true if non-secure world can manipulate regulator @pmic_regu_name */
+ bool stm32mp_nsec_can_access_pmic_regu(const char *pmic_regu_name);
+@@ -79,9 +72,6 @@ static inline bool stm32mp_nsec_can_access_reset(unsigned int reset_id __unused)
+ }
+ #endif /* CFG_STM32MP1_SHARED_RESOURCES */
+ 
+-/* Return rstctrl instance related to RCC reset controller DT binding ID */
+-struct rstctrl *stm32mp_rcc_reset_id_to_rstctrl(unsigned int binding_id);
+-
+ /*
+  * Structure and API function for BSEC driver to get some platform data.
+  *
+@@ -258,9 +248,6 @@ bool stm32mp_gpio_bank_is_secure(unsigned int bank);
+ /* Return true if and only if GPIO bank @bank is registered as non-secure */
+ bool stm32mp_gpio_bank_is_non_secure(unsigned int bank);
+ 
+-/* Register parent clocks of @clock (ID used in clock DT bindings) as secure */
+-void stm32mp_register_clock_parents_secure(unsigned long clock_id);
+-
+ /* Register number of pins in the GPIOZ bank */
+ void stm32mp_register_gpioz_pin_count(size_t count);
+ 
+@@ -320,11 +307,6 @@ static inline bool stm32mp_gpio_bank_is_non_secure(unsigned int bank __unused)
+ 	return false;
+ }
+ 
+-static inline void stm32mp_register_clock_parents_secure(unsigned long clock_id
+-							 __unused)
+-{
+-}
+-
+ static inline void stm32mp_register_gpioz_pin_count(size_t count __unused)
+ {
+ }
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 0a3d6c7f1..6ddcf7d46 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -8,6 +8,7 @@
+ #include <drivers/clk_dt.h>
+ #include <drivers/stm32mp_dt_bindings.h>
+ #include <drivers/stm32mp13_rcc.h>
++#include <drivers/stm32mp1_rcc_util.h>
+ #include <io.h>
+ #include <kernel/boot.h>
+ #include <libfdt.h>
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index a5b7270b9..bf8ae0525 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -8,8 +8,10 @@
+ #include <drivers/stm32mp1_rcc.h>
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
++#include <drivers/stm32_gpio.h>
+ #include <drivers/stm32_shared_io.h>
+ #include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stm32mp1_rcc_util.h>
+ #include <initcall.h>
+ #include <io.h>
+ #include <keep.h>
+diff --git a/core/include/drivers/stm32mp13_rcc.h b/core/include/drivers/stm32mp13_rcc.h
+index 3f76ef717..bfbd3e9af 100644
+--- a/core/include/drivers/stm32mp13_rcc.h
++++ b/core/include/drivers/stm32mp13_rcc.h
+@@ -1874,6 +1874,4 @@
+ #define RCC_MP_CIFR_MASK			U(0x110F1F)
+ #define RCC_OFFSET_MASK				GENMASK_32(11, 0)
+ 
+-vaddr_t stm32_rcc_base(void);
+-
+ #endif /*__DRIVERS_STM32MP13_RCC_H__*/
+diff --git a/core/include/drivers/stm32mp1_rcc_util.h b/core/include/drivers/stm32mp1_rcc_util.h
+new file mode 100644
+index 000000000..dcfd2c247
+--- /dev/null
++++ b/core/include/drivers/stm32mp1_rcc_util.h
+@@ -0,0 +1,35 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (C) STMicroelectronics 2022 - All Rights Reserved
++ */
++
++#ifndef __DRIVERS_STM32MP1_RCC_UTIL_H__
++#define __DRIVERS_STM32MP1_RCC_UTIL_H__
++
++/* Platform util for the RCC drivers */
++vaddr_t stm32_rcc_base(void);
++
++/* Helper from platform RCC clock driver */
++struct clk *stm32mp_rcc_clock_id_to_clk(unsigned long clock_id);
++
++#ifdef CFG_STM32MP15_CLK
++/* Export stm32mp1_clk_ops to make it pager resisdent for STM32MP15 */
++extern const struct clk_ops stm32mp1_clk_ops;
++#endif
++
++#ifdef CFG_DRIVERS_RSTCTRL
++/* Helper from platform RCC reset driver */
++struct rstctrl *stm32mp_rcc_reset_id_to_rstctrl(unsigned int binding_id);
++#endif
++
++#ifdef CFG_STM32MP1_SHARED_RESOURCES
++/* Register parent clocks of @clock (ID used in clock DT bindings) as secure */
++void stm32mp_register_clock_parents_secure(unsigned long clock_id);
++#else
++static inline
++void stm32mp_register_clock_parents_secure(unsigned long clock_id __unused)
++{
++}
++#endif
++
++#endif /*__DRIVERS_STM32MP1_RCC_UTIL_H__*/
+-- 
+2.47.2
+

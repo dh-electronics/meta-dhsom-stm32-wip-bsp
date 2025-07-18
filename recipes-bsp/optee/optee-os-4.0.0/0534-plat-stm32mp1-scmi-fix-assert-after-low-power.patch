@@ -1,0 +1,46 @@
+From 36fa42873b7c4707937bcbd2fdd1bb1193d8c34a Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Mon, 5 Feb 2024 15:25:42 +0100
+Subject: [PATCH 0534/1695] plat-stm32mp1: scmi: fix assert after low power
+
+Realign code with v3.19 to avoid the error below during
+resume from low power:
+E/TC:0   assertion 'chan && chan->shm_addr.va'
+failed at core/arch/arm/plat-stm32mp1/scmi_server.c:962 <stm32_scmi_pm>
+E/TC:0   Panic at core/kernel/assert.c:28 <_assert_break>
+E/TC:0   TEE load address @ 0xde000000
+E/TC:0   Call stack:
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git af72f15915486d6589538bc3ad2d452c6580855e plat-stm32mp1: scmi: fix assert after low power]
+Change-Id: Ia44b7a5fad357cf584496137581f6b05d8809ca7
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/358677
+Tested-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/scmi_server.c | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index 3e8931481..ec2b55809 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -958,10 +958,9 @@ static TEE_Result stm32_scmi_pm(enum pm_op op, unsigned int pm_hint __unused,
+ 	if (op == PM_OP_RESUME) {
+ 		for (i = 0; i < ARRAY_SIZE(scmi_channel); i++) {
+ 			chan = plat_scmi_get_channel(i);
+-
+-			assert(chan && chan->shm_addr.va);
+-
+-			scmi_smt_init_agent_channel(chan);
++			assert(chan);
++			if (chan->shm_addr.va)
++				scmi_smt_init_agent_channel(chan);
+ 		}
+ 	}
+ 
+-- 
+2.47.2
+

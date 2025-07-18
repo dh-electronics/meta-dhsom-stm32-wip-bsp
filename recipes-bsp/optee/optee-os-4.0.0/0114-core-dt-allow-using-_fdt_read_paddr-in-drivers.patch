@@ -1,0 +1,61 @@
+From bbbb0cf82c79efa190171dc3227828181481c9f8 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 12 Jul 2022 15:20:21 +0200
+Subject: [PATCH 0114/1695] core: dt: allow using _fdt_read_paddr in drivers
+
+This patch allows the use of _fdt_read_paddr API outside dt.c
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c5d659f15475ad052bd91002508964d99f93d17e core: dt: allow using _fdt_read_paddr in drivers]
+Change-Id: I07a5494f878845a576e6534afb6b7dc97a330bfa
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ core/include/kernel/dt.h | 12 ++++++++++++
+ core/kernel/dt.c         |  2 +-
+ 2 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/core/include/kernel/dt.h b/core/include/kernel/dt.h
+index ddabfd17e..f163a379e 100644
+--- a/core/include/kernel/dt.h
++++ b/core/include/kernel/dt.h
+@@ -162,6 +162,11 @@ int dt_enable_secure_status(void *fdt, int node);
+  * FDT manipulation functions, not provided by <libfdt.h>
+  */
+ 
++/*
++ * Return the base address from a cell or (paddr_t)-1 in case of error
++ */
++paddr_t fdt_read_paddr(const uint32_t *cell, int n);
++
+ /*
+  * Return the base address for the "reg" property of the specified node or
+  * (paddr_t)-1 in case of error
+@@ -317,6 +322,13 @@ static inline int dt_map_dev(const void *fdt __unused, int offs __unused,
+ 	return -1;
+ }
+ 
++static inline paddr_t fdt_read_paddr(const uint32_t *cell __unused,
++				     int n __unused)
++{
++	return -1;
++}
++
++
+ static inline paddr_t fdt_reg_base_address(const void *fdt __unused,
+ 					   int offs __unused)
+ {
+diff --git a/core/kernel/dt.c b/core/kernel/dt.c
+index 299aba110..8d7344f59 100644
+--- a/core/kernel/dt.c
++++ b/core/kernel/dt.c
+@@ -146,7 +146,7 @@ int dt_map_dev(const void *fdt, int offs, vaddr_t *base, size_t *size,
+ }
+ 
+ /* Read a physical address (n=1 or 2 cells) */
+-static paddr_t fdt_read_paddr(const uint32_t *cell, int n)
++paddr_t fdt_read_paddr(const uint32_t *cell, int n)
+ {
+ 	paddr_t addr;
+ 
+-- 
+2.47.2
+

@@ -1,0 +1,71 @@
+From 1d518e07db3565884790ffa46ed21143da269df6 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 5 Dec 2023 17:16:49 +0100
+Subject: [PATCH 0170/1695] clk: add round rate ops
+
+Returns the round the given rate for a clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git def8d1d7e989ee923e3f7fc25079e92156a84a20 clk: add round rate ops]
+Change-Id: I7080e4f6a954baf60b3477649e7c0b21e9a2cc04
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 13 +++++++++++++
+ core/include/drivers/clk.h | 11 +++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index 1ddf0fd9c..6fab9f519 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -444,6 +444,19 @@ TEE_Result clk_get_duty_cycle(struct clk *clk, struct clk_duty *duty)
+ 	return TEE_SUCCESS;
+ }
+ 
++unsigned long clk_round_rate(struct clk *clk, unsigned long rate)
++{
++	struct clk *parent = clk->parent;
++
++	if (clk->ops->round_rate)
++		return clk->ops->round_rate(clk, rate, clk->parent->rate);
++
++	if (parent && (clk->flags & CLK_SET_RATE_PARENT))
++		return clk_round_rate(parent, rate);
++
++	return clk->rate;
++}
++
+ /* Return updated message buffer position of NULL on failure */
+ static __printf(3, 4) char *add_msg(char *cur, char *end, const char *fmt, ...)
+ {
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 3531623cc..2ab9a0144 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -111,6 +111,9 @@ struct clk_ops {
+ 				     struct clk_rate_request *req);
+ 	TEE_Result (*get_duty_cycle)(struct clk *clk,
+ 				     struct clk_duty *duty);
++	unsigned long (*round_rate)(struct clk *clk,
++				    unsigned long rate,
++				    unsigned long parent_rate);
+ };
+ 
+ /**
+@@ -265,6 +268,14 @@ TEE_Result clk_get_rates_steps(struct clk *clk, unsigned long *min,
+  */
+ TEE_Result clk_get_duty_cycle(struct clk *clk, struct clk_duty *duty);
+ 
++/**
++ * clk_round_rate - Round the given rate for a clock
++ * @clk: Clock for which the round rate is need
++ * @rate: The rate which is to be rounded
++ * Returns the closest rate actually supported by the clock.
++ */
++unsigned long clk_round_rate(struct clk *clk, unsigned long rate);
++
+ /* Print current clock tree summary to output console with debug trace level */
+ #ifdef CFG_DRIVERS_CLK
+ void clk_print_tree(void);
+-- 
+2.47.2
+

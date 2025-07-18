@@ -1,0 +1,51 @@
+From 0dc769f8994afccfe5c63bb72507fd5719cd4c02 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 3 Sep 2024 17:02:43 +0200
+Subject: [PATCH 1173/1695] drivers: st32_fmc: consider pinctrl_apply_state()
+ return code
+
+Fix STM32 FMC driver to test pinctrl_apply_state() return code.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3e8009a8e73bedcec50f2e69f13927231e74b05d drivers: st32_fmc: consider pinctrl_apply_state() return code]
+Change-Id: Ib268c529244d07b5e84056ed3e82a8da3534daa8
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/401844
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_fmc.c | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/stm32_fmc.c b/core/drivers/stm32_fmc.c
+index 305723887..79d40796e 100644
+--- a/core/drivers/stm32_fmc.c
++++ b/core/drivers/stm32_fmc.c
+@@ -371,8 +371,9 @@ static void configure_fmc(void)
+ 					FMC_NB_MAX_CID_SUPPORTED))
+ 		panic("Couldn't acquire controller 0 semaphore");
+ 
+-	if (fmc_d->pinctrl_d)
+-		pinctrl_apply_state(fmc_d->pinctrl_d);
++	if (fmc_d->pinctrl_d &&
++	    pinctrl_apply_state(fmc_d->pinctrl_d))
++		panic();
+ 
+ 	if (fmc_d->cclken) {
+ 		unsigned long hclk = clk_get_rate(fmc_d->fmc_clock);
+@@ -421,8 +422,9 @@ static void fmc_suspend(void)
+ 	if (clk_enable(fmc_d->fmc_clock))
+ 		panic("Cannot access FMC clock");
+ 
+-	if (is_fmc_controller_secure(0) && fmc_d->pinctrl_s)
+-		pinctrl_apply_state(fmc_d->pinctrl_s);
++	if (is_fmc_controller_secure(0) && fmc_d->pinctrl_s &&
++	    pinctrl_apply_state(fmc_d->pinctrl_s))
++		panic();
+ 
+ 	for (i = 0; i < FMC_RIF_CONTROLLERS; i++)
+ 		fmc_d->conf_data->cid_confs[i] =
+-- 
+2.47.2
+

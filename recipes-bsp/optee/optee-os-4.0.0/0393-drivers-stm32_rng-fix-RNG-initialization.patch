@@ -1,0 +1,75 @@
+From 822086691a1ddd8724d7a2644c5a2ba764d2f254 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 11 May 2023 11:55:24 +0200
+Subject: [PATCH 0393/1695] drivers: stm32_rng: fix RNG initialization
+
+Fix configuration application in RNG_CR as these bit fields updates are
+taken into account only if CONDRST bit is set to 1 in the same access.
+
+Rename RNG_NIST_CONFIG_MASK to RNG_CONFIG_MASK to better represent what
+is the difference between developer-custom RNG NIST bit fields
+(RNG_CR_NIST_CONF_MASK) and RNG configuration (RNG_CONFIG_MASK)
+
+Keep the RNG configuration as is if no configuration was specified
+in the device tree.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 93e6dcc5a7ccb71d38639ff303e9bdc3d9fc6043 drivers: stm32_rng: fix RNG initialization]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I3cf039819018568b9ba72ca357b1b0fedec89de6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/305796
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_rng.c | 25 +++++++++++++++++++------
+ 1 file changed, 19 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index c53c2359d..68c6f116e 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -60,7 +60,8 @@
+ #define RNG_FIFO_BYTE_DEPTH	U(16)
+ #define RNG_CONF_LEN		U(3)
+ 
+-#define RNG_NIST_CONFIG_MASK	GENMASK_32(25, 8)
++#define RNG_CONFIG_MASK		(RNG_CR_ENTROPY_SRC_MASK | RNG_CR_CED | \
++				 RNG_CR_CLKDIV)
+ 
+ #define RNG_MAX_NOISE_CLK_FREQ	U(3000000)
+ 
+@@ -288,12 +289,24 @@ static TEE_Result init_rng(void)
+ 	if (stm32_rng->ddata->has_cond_reset) {
+ 		uint32_t clock_div = stm32_rng_clock_freq_restrain();
+ 
+-		/* Update configuration fields */
+-		io_clrsetbits32(rng_base + RNG_CR, RNG_NIST_CONFIG_MASK,
++		/*
++		 * Keep default RNG configuration if none was specified.
++		 * 0 is an invalid value as it disables all entropy sources.
++		 */
++		if (!stm32_rng->rng_config)
++			stm32_rng->rng_config = io_read32(rng_base + RNG_CR) &
++						RNG_CR_ENTROPY_SRC_MASK;
++
++		/*
++		 * Configuration must be set in the same access that sets
++		 * RNG_CR_CONDRST bit. Otherwise, the configuration setting is
++		 * not taken into account. CONFIGLOCK bit is always cleared at
++		 * this stage.
++		 */
++		io_clrsetbits32(rng_base + RNG_CR, RNG_CONFIG_MASK,
+ 				stm32_rng->rng_config | RNG_CR_CONDRST |
+-				cr_ced_mask);
+-		io_clrsetbits32(rng_base + RNG_CR, RNG_CR_CLKDIV,
+-				clock_div << RNG_CR_CLKDIV_SHIFT);
++				cr_ced_mask |
++				(clock_div << RNG_CR_CLKDIV_SHIFT));
+ 
+ 		/*
+ 		 * Write health test and noise source control configuration
+-- 
+2.47.2
+

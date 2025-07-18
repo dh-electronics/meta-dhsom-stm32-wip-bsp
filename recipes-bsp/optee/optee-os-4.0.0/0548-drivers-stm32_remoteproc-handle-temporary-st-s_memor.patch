@@ -1,0 +1,106 @@
+From f14a9f86089da75f9a6724be7a672c01929d98b4 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Mon, 22 Aug 2022 11:54:48 +0200
+Subject: [PATCH 0548/1695] drivers: stm32_remoteproc: handle temporary
+ st,s_memory-region property
+
+This temporary property allows to determine if the memory regions
+have to be mapped in the secure or non-secure context.
+In term this should be managed by the firewall API.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 41fc9482d50ed793915a611566f336c9ee5ecb50 drivers: stm32_remoteproc: handle temporary st,s_memory-region property]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I1c3b059d76c432a5d62fb9843634637dc869b6a5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/348402
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 27 +++++++++++++++++-----
+ 1 file changed, 21 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index 65099832b..c7c8b9afb 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -23,11 +23,13 @@
+  * @da:		device address corresponding to the physical base address
+  *		from remote processor space perspective
+  * @size:	size of the region
++ * @type:	specify if the memory is secure or not secure
+  */
+ struct stm32_rproc_mem {
+ 	paddr_t addr;
+ 	paddr_t da;
+ 	size_t size;
++	enum teecore_memtypes type;
+ };
+ 
+ /**
+@@ -162,12 +164,15 @@ TEE_Result stm32_rproc_map(uint32_t rproc_id, paddr_t pa, size_t size,
+ 		if (!core_is_buffer_inside(pa, size, mems[i].addr,
+ 					   mems[i].size))
+ 			continue;
+-		*va = core_mmu_add_mapping(MEM_AREA_RAM_NSEC, pa, size);
++		/*
++		 * TODO: get memory access right from Firewall to determine the
++		 * type. For now, The type is forced to MEM_AREA_RAM_NSEC
++		 */
++		*va = core_mmu_add_mapping(mems[i].type, pa, size);
+ 		if (!*va) {
+ 			EMSG("Can't map region %#"PRIxPA" size %zu", pa, size);
+ 			return TEE_ERROR_GENERIC;
+ 		}
+-
+ 		return TEE_SUCCESS;
+ 	}
+ 
+@@ -194,9 +199,8 @@ TEE_Result stm32_rproc_unmap(uint32_t rproc_id, void *va, size_t size)
+ 		/* Flush the cache before unmapping the memory */
+ 		dcache_clean_range(va, size);
+ 
+-		if (core_mmu_remove_mapping(MEM_AREA_RAM_NSEC, va, size)) {
+-			EMSG("Can't unmap region %#"PRIxPA" size %zu",
+-			     pa, size);
++		if (core_mmu_remove_mapping(mems[i].type, va, size)) {
++			EMSG("Can't map region %#"PRIxPA" size %zu", pa, size);
+ 			return TEE_ERROR_GENERIC;
+ 		}
+ 
+@@ -276,6 +280,7 @@ static TEE_Result stm32_rproc_parse_mems(struct stm32_rproc_instance *rproc,
+ 
+ 	for (i = 0; i < n_regions; i++) {
+ 		int pnode = 0;
++		uint32_t sec_mem = 0;
+ 
+ 		pnode = fdt_node_offset_by_phandle(fdt, fdt32_to_cpu(list[i]));
+ 		if (pnode < 0) {
+@@ -295,12 +300,22 @@ static TEE_Result stm32_rproc_parse_mems(struct stm32_rproc_instance *rproc,
+ 		if (res)
+ 			goto err;
+ 
++		/* TODO remove temporary property and use firewall */
++		res = fdt_read_uint32_index(fdt, node, "st,s-memory-region",
++					    i, &sec_mem);
++		if (res)
++			sec_mem = 0;
++
+ 		if (!regions[i].addr || !regions[i].size) {
+ 			res = TEE_ERROR_BAD_PARAMETERS;
+ 			goto err;
+ 		}
+ 
+-		DMSG("register region %#"PRIxPA" size %#zx",
++		regions[i].type = sec_mem ?
++				  MEM_AREA_RAM_SEC : MEM_AREA_RAM_NSEC;
++
++		DMSG("register %s region %#"PRIxPA" size %#zx",
++		     sec_mem ? "sec" : " nsec",
+ 		     regions[i].addr, regions[i].size);
+ 	}
+ 
+-- 
+2.47.2
+

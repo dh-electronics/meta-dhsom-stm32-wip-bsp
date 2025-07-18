@@ -1,0 +1,45 @@
+From 6d001c631a5767e2f0418d485b759e65c247dce3 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Tue, 2 Jul 2024 17:26:07 +0200
+Subject: [PATCH 0993/1695] core: firewall: fix warning when compiling with no
+ trace.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When compiling with LOG_LEVEL=0 this warning is raised by GCC :
+core/drivers/firewall/firewall.c: In function ‘firewall_dt_probe_bus’:
+core/drivers/firewall/firewall.c:297:62: error: unused parameter ‘ctrl’ [-Werror=unused-parameter]
+  297 |                                  struct firewall_controller *ctrl)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0bd40c071e81cb8030bc30a9f8ba779b157139a6 core: firewall: fix warning when compiling with no trace.]
+Change-Id: I13d1aa9656dcf0e95051de30a6146ae43e892d4d
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/390972
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/firewall/firewall.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/firewall/firewall.c b/core/drivers/firewall/firewall.c
+index 565f1a40a..a2e7d07af 100644
+--- a/core/drivers/firewall/firewall.c
++++ b/core/drivers/firewall/firewall.c
+@@ -293,8 +293,9 @@ TEE_Result firewall_dt_controller_register(const void *fdt, int node,
+ 					   ctrl, DT_DRIVER_FIREWALL);
+ }
+ 
+-TEE_Result firewall_dt_probe_bus(const void *fdt, int node,
+-				 struct firewall_controller *ctrl)
++TEE_Result
++firewall_dt_probe_bus(const void *fdt, int node,
++		      struct firewall_controller *ctrl __maybe_unused)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	struct firewall_query *fw = NULL;
+-- 
+2.47.2
+

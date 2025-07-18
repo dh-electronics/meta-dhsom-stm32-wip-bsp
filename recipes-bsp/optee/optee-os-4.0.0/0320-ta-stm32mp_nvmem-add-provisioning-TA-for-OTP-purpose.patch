@@ -1,0 +1,474 @@
+From fea1861ea73cc2c4e530a4bff0b1486d33a60e36 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Tue, 14 Sep 2021 15:08:52 +0200
+Subject: [PATCH 0320/1695] ta: stm32mp_nvmem: add provisioning TA for OTP
+ purpose
+
+Add a TA that manage the complete support for provisioning
+OTP on stm32mp platform.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e58f245203d41c528023b5799c1dd8a2e0d6750c ta: stm32mp_nvmem: add provisioning TA for OTP purpose]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I0cb583e87730406f1e486069b0516ebbd51545d6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/220132
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/257679
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/261584
+---
+ core/pta/stm32mp/bsec_pta.c                 |  38 ++-
+ ta/stm32mp_nvmem/Makefile                   |  18 ++
+ ta/stm32mp_nvmem/include/ta_stm32mp_nvmem.h |  37 +++
+ ta/stm32mp_nvmem/sub.mk                     |   3 +
+ ta/stm32mp_nvmem/ta_stm32mp_nvmem.c         | 262 ++++++++++++++++++++
+ ta/stm32mp_nvmem/user_ta.mk                 |   1 +
+ ta/stm32mp_nvmem/user_ta_header_defines.h   |  19 ++
+ 7 files changed, 376 insertions(+), 2 deletions(-)
+ create mode 100644 ta/stm32mp_nvmem/Makefile
+ create mode 100644 ta/stm32mp_nvmem/include/ta_stm32mp_nvmem.h
+ create mode 100644 ta/stm32mp_nvmem/sub.mk
+ create mode 100644 ta/stm32mp_nvmem/ta_stm32mp_nvmem.c
+ create mode 100644 ta/stm32mp_nvmem/user_ta.mk
+ create mode 100644 ta/stm32mp_nvmem/user_ta_header_defines.h
+
+diff --git a/core/pta/stm32mp/bsec_pta.c b/core/pta/stm32mp/bsec_pta.c
+index 107a9352e..1dc92a729 100644
+--- a/core/pta/stm32mp/bsec_pta.c
++++ b/core/pta/stm32mp/bsec_pta.c
+@@ -14,15 +14,30 @@
+ #include <string.h>
+ #include <util.h>
+ 
+-static_assert(IS_ENABLED(CFG_STM32_BSEC));
++static_assert(IS_ENABLED(CFG_STM32_BSEC) || IS_ENABLED(CFG_STM32_BSEC3));
++
++#define TA_STM32MP_NVMEM_UUID { 0x1a8342cc, 0x81a5, 0x4512, \
++		{ 0x99, 0xfe, 0x9e, 0x2b, 0x3e, 0x37, 0xd6, 0x26 } }
+ 
+ #define PTA_NAME "bsec.pta"
+ 
+ static TEE_Result bsec_check_access(uint32_t otp_id)
+ {
+-	if (!stm32_bsec_nsec_can_access_otp(otp_id))
++	struct ts_session *ts = ts_get_current_session();
++	struct tee_ta_session *ta_session = to_ta_session(ts);
++
++	/* REE kernel is allowed to access non secure OTP */
++	if (ta_session->clnt_id.login == TEE_LOGIN_REE_KERNEL) {
++		if (!stm32_bsec_nsec_can_access_otp(otp_id))
++			return TEE_ERROR_ACCESS_DENIED;
++
++		return TEE_SUCCESS;
++	}
++
++	if (!stm32_bsec_can_access_otp(otp_id))
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
++	/* All TA have access to fuses */
+ 	return TEE_SUCCESS;
+ }
+ 
+@@ -287,6 +302,25 @@ static TEE_Result pta_bsec_open_session(uint32_t ptypes __unused,
+ 					void **session __unused)
+ {
+ 	uint32_t login = to_ta_session(ts_get_current_session())->clnt_id.login;
++	struct ts_session *caller_ts = ts_get_calling_session();
++	static const TEE_UUID ta_uuid = TA_STM32MP_NVMEM_UUID;
++	uint32_t state = BSEC_STATE_INVALID;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (!IS_ENABLED(CFG_STM32_BSEC) && !IS_ENABLED(CFG_STM32_BSEC3))
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	if (login == TEE_LOGIN_TRUSTED_APP &&
++	    !memcmp((char *)&caller_ts->ctx->uuid, (char *)&ta_uuid,
++		    sizeof(TEE_UUID))) {
++		assert(is_user_ta_ctx(caller_ts->ctx));
++
++		res = stm32_bsec_get_state(&state);
++		if (res || state != BSEC_STATE_SEC_OPEN)
++			return TEE_ERROR_ACCESS_DENIED;
++
++		return TEE_SUCCESS;
++	}
+ 
+ 	if (login == TEE_LOGIN_REE_KERNEL)
+ 		return TEE_SUCCESS;
+diff --git a/ta/stm32mp_nvmem/Makefile b/ta/stm32mp_nvmem/Makefile
+new file mode 100644
+index 000000000..e84fa58b4
+--- /dev/null
++++ b/ta/stm32mp_nvmem/Makefile
+@@ -0,0 +1,18 @@
++# The UUID for the Trusted Application
++BINARY=1a8342cc-81a5-4512-99fe-9e2b3e37d626
++
++ifdef TA_CROSS_COMPILE
++CROSS_COMPILE ?= $(TA_CROSS_COMPILE)
++endif
++export CROSS_COMPILE
++
++CFG_TEE_TA_LOG_LEVEL ?= 2
++CPPFLAGS += -DCFG_TEE_TA_LOG_LEVEL=$(CFG_TEE_TA_LOG_LEVEL)
++
++-include $(TA_DEV_KIT_DIR)/mk/ta_dev_kit.mk
++
++ifeq ($(wildcard $(TA_DEV_KIT_DIR)/mk/ta_dev_kit.mk), )
++clean:
++	@echo 'Note: $$(TA_DEV_KIT_DIR)/mk/ta_dev_kit.mk not found, cannot clean TA'
++	@echo 'Note: TA_DEV_KIT_DIR=$(TA_DEV_KIT_DIR)'
++endif
+diff --git a/ta/stm32mp_nvmem/include/ta_stm32mp_nvmem.h b/ta/stm32mp_nvmem/include/ta_stm32mp_nvmem.h
+new file mode 100644
+index 000000000..9a8d7698a
+--- /dev/null
++++ b/ta/stm32mp_nvmem/include/ta_stm32mp_nvmem.h
+@@ -0,0 +1,37 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2021, STMicroelectronics
++ */
++
++#ifndef TA_STM32MP_NVMEM_H
++#define TA_STM32MP_NVMEM_H
++
++#define TA_STM32MP_NVMEM_UUID { 0x1a8342cc, 0x81a5, 0x4512, \
++		{ 0x99, 0xfe, 0x9e, 0x2b, 0x3e, 0x37, 0xd6, 0x26 } }
++
++/* TA_STM32MP_NVMEM type = value[in].a */
++#define STM32MP_NVMEM_OTP	0
++
++/*
++ * Read NVMEM memory for STM32CubeProgrammer
++ *
++ * [in]		value[0].a:		Type (0 for OTP access)
++ * [out]	memref[1].buffer	Output buffer to return all read values
++ * [out]	memref[1].size		Size of buffer to be read
++ */
++#define TA_STM32MP_NVMEM_READ		0x0
++
++/*
++ * Write NVMEM memory for STM32CubeProgrammer
++ *
++ * [in]	     value[0].a		Type (0 for OTP access)
++ * [in]      memref[1].buffer	Input buffer to read values
++ * [in]      memref[1].size	Size of buffer to be written
++ *
++ * Return codes:
++ * TEE_SUCCESS - Invoke command success
++ * TEE_ERROR_BAD_PARAMETERS - Incorrect input param
++ */
++#define TA_STM32MP_NVMEM_WRITE		0x1
++
++#endif /* TA_STM32MP_NVMEM_H */
+diff --git a/ta/stm32mp_nvmem/sub.mk b/ta/stm32mp_nvmem/sub.mk
+new file mode 100644
+index 000000000..bbf1a82e3
+--- /dev/null
++++ b/ta/stm32mp_nvmem/sub.mk
+@@ -0,0 +1,3 @@
++global-incdirs-y += include
++global-incdirs-y += .
++srcs-y += ta_stm32mp_nvmem.c
+diff --git a/ta/stm32mp_nvmem/ta_stm32mp_nvmem.c b/ta/stm32mp_nvmem/ta_stm32mp_nvmem.c
+new file mode 100644
+index 000000000..93d3ef65e
+--- /dev/null
++++ b/ta/stm32mp_nvmem/ta_stm32mp_nvmem.c
+@@ -0,0 +1,262 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2021, STMicroelectronics
++ */
++
++#include <assert.h>
++#include <pta_stm32mp_bsec.h>
++#include <pta_system.h>
++#include <stdlib.h>
++#include <string.h>
++#include <string_ext.h>
++#include <ta_stm32mp_nvmem.h>
++#include <tee_internal_api.h>
++#include <tee_internal_api_extensions.h>
++#include <util.h>
++
++#define TA_STM32MP_NVMEM_VERSION	0x02
++#define OTP_UPDATE_REQ			BIT(31)
++#define OTP_ERROR_DETECTED		BIT(0)
++
++/* OTP Structure
++ * uint32_t version
++ * uint32_t bsec_state
++ * struct OTP [OTP_MAX_SIZE]
++ *	uint32_t otp_value
++ *	uint32_t otp_lock
++ */
++#define OTP_EXCHANGE_MIN_SIZE	(sizeof(uint32_t) * 4)
++#define OTP_EXCHANGE_ALIGN	(sizeof(uint32_t) * 2)
++#define OTP_NB(size)		((((size) / sizeof(uint32_t)) - 2) / 2)
++
++static size_t session_refcount;
++static TEE_TASessionHandle pta_session = TEE_HANDLE_NULL;
++
++static TEE_Result nvmem_get_state(uint32_t *state)
++{
++	TEE_Result res = TEE_SUCCESS;
++	TEE_Param params[TEE_NUM_PARAMS] = { };
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_OUTPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++
++	assert(state);
++
++	res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
++				  PTA_BSEC_CMD_GET_STATE,
++				  exp_pt, params, NULL);
++	if (!res)
++		*state = params[0].value.a;
++
++	return res;
++}
++
++static TEE_Result nvmem_read(uint32_t pt, TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_OUTPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++	uint32_t *out = (uint32_t *)params[1].memref.buffer;
++	size_t out_size = params[1].memref.size;
++	uint32_t otp_id = 0;
++	uint32_t otp_nb = 0;
++	TEE_Result res = TEE_SUCCESS;
++
++	if (pt != exp_pt || !out || !out_size)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (params[0].value.a != STM32MP_NVMEM_OTP ||
++	    out_size < OTP_EXCHANGE_MIN_SIZE ||
++	    !IS_ALIGNED(out_size, OTP_EXCHANGE_ALIGN) ||
++	    !IS_ALIGNED_WITH_TYPE(params[1].memref.buffer, uint32_t))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	/* Version */
++	*out++ = TA_STM32MP_NVMEM_VERSION;
++
++	/* Global status */
++	res = nvmem_get_state(out++);
++	if (res)
++		return res;
++
++	otp_nb = OTP_NB(out_size);
++	for (otp_id = 0; otp_id < otp_nb; otp_id++, out++) {
++		TEE_Param params_pta[TEE_NUM_PARAMS] = { };
++
++		/* Read OTP */
++		params_pta[0].value.a = otp_id * sizeof(uint32_t);
++		params_pta[0].value.b = PTA_BSEC_FUSE_ACCESS;
++		params_pta[1].memref.buffer = out;
++		params_pta[1].memref.size = sizeof(uint32_t);
++
++		res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
++					  PTA_BSEC_CMD_READ_OTP,
++					  pt, params_pta, NULL);
++		if (res) {
++			*out++ = 0x0;
++			*out = OTP_ERROR_DETECTED;
++			continue;
++		}
++
++		out++;
++
++		/* Read OTP state */
++		params_pta[0].value.a = otp_id * sizeof(uint32_t);
++		params_pta[0].value.b = PTA_BSEC_LOCKS_ACCESS;
++		params_pta[1].memref.buffer = out;
++		params_pta[1].memref.size = sizeof(uint32_t);
++		res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
++					  PTA_BSEC_CMD_READ_OTP, pt, params_pta,
++					  NULL);
++		if (res)
++			*out = OTP_ERROR_DETECTED;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result nvmem_write(uint32_t pt, TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++	uint32_t *in = (uint32_t *)params[1].memref.buffer;
++	size_t in_size = params[1].memref.size;
++	uint32_t otp_id = 0;
++	uint32_t otp_nb = 0;
++
++	if (pt != exp_pt || !in || !in_size)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (params[0].value.a != STM32MP_NVMEM_OTP ||
++	    in_size < OTP_EXCHANGE_MIN_SIZE ||
++	    !IS_ALIGNED(in_size, OTP_EXCHANGE_ALIGN) ||
++	    !IS_ALIGNED_WITH_TYPE(params[1].memref.buffer, uint32_t))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	/* Check version */
++	if (*in++ != TA_STM32MP_NVMEM_VERSION)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	/* Skip global status */
++	in++;
++
++	otp_nb = OTP_NB(in_size);
++	for (otp_id = 0; otp_id < otp_nb; otp_id++) {
++		TEE_Param params_pta[TEE_NUM_PARAMS] = { };
++		uint32_t value = *in++;
++		uint32_t status = *in++;
++		TEE_Result res = TEE_SUCCESS;
++
++		if (!(status & OTP_UPDATE_REQ))
++			continue;
++
++		/* Write OTP if value not NULL*/
++		if (value) {
++			params_pta[0].value.a = otp_id * sizeof(uint32_t);
++			params_pta[0].value.b = PTA_BSEC_FUSE_ACCESS;
++			params_pta[1].memref.buffer = &value;
++			params_pta[1].memref.size = sizeof(uint32_t);
++			res = TEE_InvokeTACommand(pta_session,
++						  TEE_TIMEOUT_INFINITE,
++						  PTA_BSEC_CMD_WRITE_OTP,
++						  pt, params_pta, NULL);
++			if (res)
++				return res;
++		}
++
++		/* Only set the permanent lock, other are not relevant here */
++		if (status & PTA_BSEC_LOCK_PERM) {
++			uint32_t lock = PTA_BSEC_LOCK_PERM;
++
++			DMSG("Perm lock detected %i", otp_id);
++			params_pta[0].value.a = otp_id * sizeof(uint32_t);
++			params_pta[0].value.b = PTA_BSEC_LOCKS_ACCESS;
++			params_pta[1].memref.buffer = &lock;
++			params_pta[1].memref.size = sizeof(uint32_t);
++			res = TEE_InvokeTACommand(pta_session,
++						  TEE_TIMEOUT_INFINITE,
++						  PTA_BSEC_CMD_WRITE_OTP,
++						  pt, params_pta, NULL);
++			if (res)
++				return res;
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result TA_CreateEntryPoint(void)
++{
++	return TEE_SUCCESS;
++}
++
++void TA_DestroyEntryPoint(void)
++{
++}
++
++TEE_Result TA_OpenSessionEntryPoint(uint32_t pt __unused,
++				    TEE_Param params[TEE_NUM_PARAMS] __unused,
++				    void **session __unused)
++{
++	static const TEE_UUID uuid = PTA_BSEC_UUID;
++	TEE_Result res = TEE_ERROR_GENERIC;
++	TEE_PropSetHandle h = TEE_HANDLE_NULL;
++	TEE_Identity id = { };
++
++	res = TEE_AllocatePropertyEnumerator(&h);
++	if (res)
++		goto out;
++
++	TEE_StartPropertyEnumerator(h, TEE_PROPSET_CURRENT_CLIENT);
++
++	res = TEE_GetPropertyAsIdentity(h, NULL, &id);
++	if (res)
++		goto out;
++
++	if (id.login == TEE_LOGIN_REE_KERNEL) {
++		res = TEE_ERROR_ACCESS_DENIED;
++		goto out;
++	}
++
++	if (!session_refcount) {
++		res = TEE_OpenTASession(&uuid, TEE_TIMEOUT_INFINITE, 0, NULL,
++					&pta_session, NULL);
++		if (res)
++			goto out;
++	}
++
++	session_refcount++;
++
++out:
++	if (h != TEE_HANDLE_NULL)
++		TEE_FreePropertyEnumerator(h);
++
++	return res;
++}
++
++void TA_CloseSessionEntryPoint(void *sess __unused)
++{
++	session_refcount--;
++
++	if (!session_refcount)
++		TEE_CloseTASession(pta_session);
++}
++
++TEE_Result TA_InvokeCommandEntryPoint(void *sess __unused, uint32_t cmd,
++				      uint32_t pt,
++				      TEE_Param params[TEE_NUM_PARAMS])
++{
++	switch (cmd) {
++	case TA_STM32MP_NVMEM_READ:
++		return nvmem_read(pt, params);
++	case TA_STM32MP_NVMEM_WRITE:
++		return nvmem_write(pt, params);
++	default:
++		EMSG("Command ID %#"PRIx32" is not supported", cmd);
++		return TEE_ERROR_NOT_SUPPORTED;
++	}
++}
+diff --git a/ta/stm32mp_nvmem/user_ta.mk b/ta/stm32mp_nvmem/user_ta.mk
+new file mode 100644
+index 000000000..a7896723f
+--- /dev/null
++++ b/ta/stm32mp_nvmem/user_ta.mk
+@@ -0,0 +1 @@
++user-ta-uuid := 1a8342cc-81a5-4512-99fe-9e2b3e37d626
+diff --git a/ta/stm32mp_nvmem/user_ta_header_defines.h b/ta/stm32mp_nvmem/user_ta_header_defines.h
+new file mode 100644
+index 000000000..1cdbb2f1e
+--- /dev/null
++++ b/ta/stm32mp_nvmem/user_ta_header_defines.h
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2021, STMicroelectronics
++ */
++
++#ifndef USER_TA_HEADER_DEFINES_H
++#define USER_TA_HEADER_DEFINES_H
++
++#include <ta_stm32mp_nvmem.h>
++
++#define TA_UUID				TA_STM32MP_NVMEM_UUID
++
++#define TA_FLAGS			(TA_FLAG_SINGLE_INSTANCE | \
++					 TA_FLAG_MULTI_SESSION)
++
++#define TA_STACK_SIZE			(4 * 1024)
++#define TA_DATA_SIZE			(16 * 1024)
++
++#endif /* USER_TA_HEADER_DEFINES_H */
+-- 
+2.47.2
+

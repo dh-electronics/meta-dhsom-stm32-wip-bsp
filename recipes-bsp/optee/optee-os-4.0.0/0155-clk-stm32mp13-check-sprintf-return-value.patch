@@ -1,0 +1,40 @@
+From 5cd6527e0c9e76f1c7c088272a4ede73006f96be Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@linaro.org>
+Date: Wed, 5 Apr 2023 14:44:05 +0200
+Subject: [PATCH 0155/1695] clk: stm32mp13: check sprintf() return value
+
+Adds missing tests on sprintf() return value in PLL clock management.
+The issue was reported by Coverity.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 225218672a8359b8dc2ee7002c694c223179b9bb clk: stm32mp13: check sprintf() return value]
+Change-Id: I5b235df99d4e131556336be139c14c32b31defec
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/299159
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp13.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index ef28c1afe..2812d0b4a 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -1581,7 +1581,9 @@ static int stm32_clk_parse_fdt_all_pll(const void *fdt, int node,
+ 		int subnode = 0;
+ 		int err = 0;
+ 
+-		snprintf(name, sizeof(name), "st,pll@%d", i);
++		err = snprintf(name, sizeof(name), "st,pll@%d", i);
++		if (err < 0 || (size_t)err >= sizeof(name))
++			panic();
+ 
+ 		subnode = fdt_subnode_offset(fdt, node, name);
+ 		if (subnode < 0)
+-- 
+2.47.2
+

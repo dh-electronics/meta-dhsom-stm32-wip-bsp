@@ -1,0 +1,254 @@
+From be1840c3dfcd0427d277db0b7327e8cffea8c66e Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 28 Feb 2024 16:30:24 +0100
+Subject: [PATCH 0773/1695] clk: stm32mp25: add clock dependency from BSEC DENR
+
+The CoreSight devices can be accesses only when BSEC_DENR:DBGSWEN
+is set, otherwise a bus-error occurs.
+To prevent Linux from accessing unavailable CoreSight devices,
+make the exported SCMI clock of the CoreSight bus clock depending
+from BSEC_DENR:DBGSWEN.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0d0a826f2adddb8bd135c01c5069bdf7a67cf14b clk: stm32mp25: add clock dependency from BSEC DENR]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Ie8f0b7b842277f4b8a19833ca5ed7644c1a5bff4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/353583
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/374140
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     |  6 +-
+ core/drivers/clk/clk-stm32mp25.c              | 60 +++++++++++++++----
+ core/include/drivers/stm32mp25_rcc.h          |  8 +--
+ .../dt-bindings/clock/stm32mp25-clks.h        | 12 ++--
+ 4 files changed, 66 insertions(+), 20 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index 6e48637a3..d1fe1be90 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -376,7 +376,7 @@ static struct stm32_scmi_clk stm32_scmi_clock[] = {
+ 
+ 	CLOCK_CELL(CK_SCMI_BKPSRAM, CK_BUS_BKPSRAM, "ck_bus_bkpsram", true),
+ 	CLOCK_CELL(CK_SCMI_BSEC, CK_BUS_BSEC, "ck_bus_bsec", true),
+-	CLOCK_CELL(CK_SCMI_ETR, CK_BUS_ETR, "ck_bus_etr", true),
++	CLOCK_CELL(CK_SCMI_BUS_ETR, CK_BUS_ETR, "ck_icn_p_etr", true),
+ 	CLOCK_CELL(CK_SCMI_FMC, CK_KER_FMC, "ck_ker_fmc", true),
+ 	CLOCK_CELL(CK_SCMI_GPIOA, CK_BUS_GPIOA, "ck_bus_gpioa", true),
+ 	CLOCK_CELL(CK_SCMI_GPIOB, CK_BUS_GPIOB, "ck_bus_gpiob", true),
+@@ -417,7 +417,9 @@ static struct stm32_scmi_clk stm32_scmi_clock[] = {
+ 	CLOCK_CELL(CK_SCMI_SYSDBG, CK_SYSDBG, "ck_sys_dbg", true),
+ 	CLOCK_CELL(CK_SCMI_SYSATB, CK_BUS_SYSATB, "ck_sys_atb", true),
+ 	CLOCK_CELL(CK_SCMI_TSDBG, CK_KER_TSDBG, "ck_ker_tsdbg", true),
+-	CLOCK_CELL(CK_SCMI_STM500, CK_BUS_STM500, "ck_icn_s_stm500", true),
++	CLOCK_CELL(CK_SCMI_KER_ETR, CK_KER_ETR, "ck_icn_m_etr", true),
++	CLOCK_CELL(CK_SCMI_BUS_STM, CK_BUS_STM, "ck_icn_p_stm", true),
++	CLOCK_CELL(CK_SCMI_KER_STM, CK_BUS_STM, "ck_icn_s_stm", true),
+ };
+ #endif
+ 
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 09531cbdb..676828c82 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -8,6 +8,7 @@
+ #include <libfdt.h>
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
++#include <drivers/stm32_bsec.h>
+ #include <drivers/stm32_rif.h>
+ #include <drivers/stm32mp25_rcc.h>
+ #include <dt-bindings/clock/stm32mp25-clks.h>
+@@ -296,7 +297,7 @@ enum enum_gate_cfg {
+ 	GATE_FMC,
+ 	GATE_DBG,
+ 	GATE_TRACE,
+-	GATE_STM500,
++	GATE_STM,
+ 	GATE_ETR,
+ 	GATE_GPIOA,
+ 	GATE_GPIOB,
+@@ -522,7 +523,7 @@ static const struct gate_cfg gates_mp25[GATE_NB] = {
+ 	GATE_CFG(GATE_FMC,		RCC_FMCCFGR,		1,	0),
+ 	GATE_CFG(GATE_DBG,		RCC_DBGCFGR,		8,	0),
+ 	GATE_CFG(GATE_TRACE,		RCC_DBGCFGR,		9,	0),
+-	GATE_CFG(GATE_STM500,		RCC_STM500CFGR,		1,	0),
++	GATE_CFG(GATE_STM,		RCC_STMCFGR,		1,	0),
+ 	GATE_CFG(GATE_ETR,		RCC_ETRCFGR,		1,	0),
+ 	GATE_CFG(GATE_GPIOA,		RCC_GPIOACFGR,		1,	0),
+ 	GATE_CFG(GATE_GPIOB,		RCC_GPIOBCFGR,		1,	0),
+@@ -3072,6 +3073,21 @@ static const struct clk_ops clk_stm32_rif_gate_ops = {
+ 	.restore_context = clk_stm32_rif_gate_pm_restore,
+ };
+ 
++static TEE_Result clk_stm32_rif_gate_dbg_enable(struct clk *clk)
++{
++	if (!stm32_bsec_self_hosted_debug_is_enabled())
++		return TEE_ERROR_ACCESS_DENIED;
++
++	return clk_stm32_rif_gate_enable(clk);
++}
++
++static const struct clk_ops  clk_stm32_rif_gate_dbg_ops = {
++	.enable		= clk_stm32_rif_gate_dbg_enable,
++	.disable	= clk_stm32_rif_gate_disable,
++	.is_enabled	= clk_stm32_rif_gate_is_enabled,
++	.restore_context = clk_stm32_rif_gate_pm_restore,
++};
++
+ struct clk_stm32_rif_composite_cfg {
+ 	int sec_id;
+ 	int gate_id;
+@@ -3310,6 +3326,19 @@ static const struct clk_ops ck_timer_ops = {
+ 		.parents = { (_parent) },\
+ 	}
+ 
++#define RIF_GATE_DBG(_name, _parent, _flags, _gate_id, _sec_id)\
++	struct clk _name = {\
++		.ops = &clk_stm32_rif_gate_dbg_ops,\
++		.priv = &(struct clk_stm32_rif_gate_cfg) {\
++			.sec_id	= (_sec_id),\
++			.gate_id = (_gate_id),\
++		},\
++		.name = #_name,\
++		.flags = (_flags),\
++		.num_parents = 1,\
++		.parents = { (_parent) },\
++	}
++
+ #define RIF_COMPOSITE(_name, _nb_parents, _parents, _flags,\
+ 			_gate_id, _div_id, _mux_id, _sec_id)\
+ 	struct clk _name = {\
+@@ -3450,7 +3479,8 @@ static STM32_DIVIDER(ck_icn_apb1, &ck_icn_ls_mcu, 0, DIV_APB1);
+ static STM32_DIVIDER(ck_icn_apb2, &ck_icn_ls_mcu, 0, DIV_APB2);
+ static STM32_DIVIDER(ck_icn_apb3, &ck_icn_ls_mcu, 0, DIV_APB3);
+ static STM32_DIVIDER(ck_icn_apb4, &ck_icn_ls_mcu, 0, DIV_APB4);
+-static STM32_DIVIDER(ck_icn_apbdbg, &ck_icn_ls_mcu, 0, DIV_APBDBG);
++static RIF_COMPOSITE(ck_icn_apbdbg, 1, { &ck_icn_ls_mcu }, 0,
++		     GATE_DBG, DIV_APBDBG, NO_MUX, RCC_RIF_DEBUG_TRACE);
+ 
+ #define STM32_TIMER(_name, _parent, _flags, _apbdiv, _timpre)\
+ 	struct clk _name = {\
+@@ -3470,14 +3500,22 @@ static STM32_TIMER(ck_timg1, &ck_icn_apb1, 0, RCC_APB1DIVR, RCC_TIMG1PRER);
+ static STM32_TIMER(ck_timg2, &ck_icn_apb2, 0, RCC_APB2DIVR, RCC_TIMG2PRER);
+ 
+ /* Clocks under RCC RIF protection */
+-static RIF_GATE(ck_sys_dbg, &ck_icn_apbdbg, 0, GATE_DBG, RCC_RIF_DEBUG_TRACE);
+-static RIF_GATE(ck_icn_s_stm500, &ck_icn_ls_mcu, 0, GATE_STM500,
+-		RCC_RIF_DEBUG_TRACE);
++static RIF_GATE_DBG(ck_sys_dbg, &ck_icn_apbdbg, 0, GATE_DBG,
++		    RCC_RIF_DEBUG_TRACE);
++static RIF_GATE_DBG(ck_icn_p_stm, &ck_icn_apbdbg, 0, GATE_STM,
++		    RCC_RIF_DEBUG_TRACE);
++static RIF_GATE_DBG(ck_icn_s_stm, &ck_icn_ls_mcu, 0, GATE_STM,
++		    RCC_RIF_DEBUG_TRACE);
+ static RIF_GATE(ck_ker_tsdbg, &ck_flexgen_43, 0, GATE_DBG, RCC_RIF_DEBUG_TRACE);
+ static RIF_GATE(ck_ker_tpiu, &ck_flexgen_44, 0, GATE_TRACE,
+ 		RCC_RIF_DEBUG_TRACE);
+-static RIF_GATE(ck_icn_m_etr, &ck_flexgen_45, 0, GATE_ETR, RCC_RIF_DEBUG_TRACE);
+-static RIF_GATE(ck_sys_atb, &ck_flexgen_45, 0, GATE_DBG, RCC_RIF_DEBUG_TRACE);
++static RIF_GATE_DBG(ck_icn_p_etr, &ck_icn_apbdbg, 0, GATE_ETR,
++		    RCC_RIF_DEBUG_TRACE);
++static RIF_GATE_DBG(ck_icn_m_etr, &ck_flexgen_45, 0, GATE_ETR,
++		    RCC_RIF_DEBUG_TRACE);
++static RIF_GATE_DBG(ck_sys_atb, &ck_flexgen_45, 0, GATE_DBG,
++		    RCC_RIF_DEBUG_TRACE);
++
+ static RIF_GATE(ck_icn_s_sysram, &ck_icn_hs_mcu, 0, GATE_SYSRAM,
+ 		RCC_RIF_SYSRAM);
+ static RIF_GATE(ck_icn_s_vderam, &ck_icn_hs_mcu, 0, GATE_VDERAM,
+@@ -3927,7 +3965,8 @@ static struct clk *stm32mp25_clk_provided[STM32MP25_ALL_CLK_NB] = {
+ 	[CK_BUS_RTC]		= &ck_icn_p_rtc,
+ 	[CK_BUS_IWDG5]		= &ck_icn_p_iwdg5,
+ 	[CK_BUS_WWDG2]		= &ck_icn_p_wwdg2,
+-	[CK_BUS_STM500]		= &ck_icn_s_stm500,
++	[CK_BUS_STM]		= &ck_icn_p_stm,
++	[CK_KER_STM]		= &ck_icn_s_stm,
+ 	[CK_BUS_FMC]		= &ck_icn_p_fmc,
+ 	[CK_BUS_ETH1]		= &ck_icn_p_eth1,
+ 	[CK_BUS_ETHSW]		= &ck_icn_p_ethsw,
+@@ -4094,7 +4133,8 @@ static struct clk *stm32mp25_clk_provided[STM32MP25_ALL_CLK_NB] = {
+ 	[CK_KER_ADF1]		= &ck_ker_adf1,
+ 	[CK_KER_TSDBG]		= &ck_ker_tsdbg,
+ 	[CK_KER_TPIU]		= &ck_ker_tpiu,
+-	[CK_BUS_ETR]		= &ck_icn_m_etr,
++	[CK_BUS_ETR]		= &ck_icn_p_etr,
++	[CK_KER_ETR]		= &ck_icn_m_etr,
+ 	[CK_BUS_SYSATB]		= &ck_sys_atb,
+ 	[CK_KER_OSPI1]		= &ck_ker_ospi1,
+ 	[CK_KER_OSPI2]		= &ck_ker_ospi2,
+diff --git a/core/include/drivers/stm32mp25_rcc.h b/core/include/drivers/stm32mp25_rcc.h
+index 2a9e7d346..526af8f0e 100644
+--- a/core/include/drivers/stm32mp25_rcc.h
++++ b/core/include/drivers/stm32mp25_rcc.h
+@@ -318,7 +318,7 @@
+ #define RCC_OSPI2CFGR				U(0x518)
+ #define RCC_FMCCFGR				U(0x51C)
+ #define RCC_DBGCFGR				U(0x520)
+-#define RCC_STM500CFGR				U(0x524)
++#define RCC_STMCFGR				U(0x524)
+ #define RCC_ETRCFGR				U(0x528)
+ #define RCC_GPIOACFGR				U(0x52C)
+ #define RCC_GPIOBCFGR				U(0x530)
+@@ -1287,9 +1287,9 @@
+ #define RCC_DBGCFGR_TRACEEN			BIT(9)
+ #define RCC_DBGCFGR_DBGRST			BIT(12)
+ 
+-/* RCC_STM500CFGR register fields */
+-#define RCC_STM500CFGR_STM500EN			BIT(1)
+-#define RCC_STM500CFGR_STM500LPEN		BIT(2)
++/* RCC_STMCFGR register fields */
++#define RCC_STMCFGR_STMEN			BIT(1)
++#define RCC_STMCFGR_STMLPEN			BIT(2)
+ 
+ /* RCC_ETRCFGR register fields */
+ #define RCC_ETRCFGR_ETREN			BIT(1)
+diff --git a/core/include/dt-bindings/clock/stm32mp25-clks.h b/core/include/dt-bindings/clock/stm32mp25-clks.h
+index 9876ee0dd..a8d28b325 100644
+--- a/core/include/dt-bindings/clock/stm32mp25-clks.h
++++ b/core/include/dt-bindings/clock/stm32mp25-clks.h
+@@ -109,7 +109,7 @@
+ /* LOW SPEED MCU CLOCK */
+ #define CK_ICN_LS_MCU		88
+ 
+-#define CK_BUS_STM500		89
++#define CK_BUS_STM		89
+ #define CK_BUS_FMC		90
+ #define CK_BUS_GPU		91
+ #define CK_BUS_ETH1		92
+@@ -363,8 +363,10 @@
+ #define CK_BUS_ETHSWACMCFG	341
+ #define CK_BUS_ETHSWACMMSG	342
+ #define HSE_DIV2_CK		343
++#define CK_KER_ETR		344
++#define CK_KER_STM		345
+ 
+-#define STM32MP25_LAST_CLK	344
++#define STM32MP25_LAST_CLK	346
+ 
+ #define CK_SCMI_ICN_HS_MCU	0
+ #define CK_SCMI_ICN_SDMMC	1
+@@ -452,7 +454,7 @@
+ #define CK_SCMI_TIMG2		83
+ #define CK_SCMI_BKPSRAM		84
+ #define CK_SCMI_BSEC		85
+-#define CK_SCMI_ETR		87
++#define CK_SCMI_BUS_ETR		87
+ #define CK_SCMI_FMC		88
+ #define CK_SCMI_GPIOA		89
+ #define CK_SCMI_GPIOB		90
+@@ -487,6 +489,8 @@
+ #define CK_SCMI_SYSDBG		119
+ #define CK_SCMI_SYSATB		120
+ #define CK_SCMI_TSDBG		121
+-#define CK_SCMI_STM500		122
++#define CK_SCMI_BUS_STM		122
++#define CK_SCMI_KER_STM		123
++#define CK_SCMI_KER_ETR		124
+ 
+ #endif /* _DT_BINDINGS_STM32MP25_CLKS_H_ */
+-- 
+2.47.2
+

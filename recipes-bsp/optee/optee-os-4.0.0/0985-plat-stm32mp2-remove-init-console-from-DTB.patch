@@ -1,0 +1,75 @@
+From 0a78bbcd09b632183540d5b8a62b701d42193f12 Mon Sep 17 00:00:00 2001
+From: Cheick TRAORE <cheick.traore-ext@st.com>
+Date: Thu, 20 Jun 2024 10:51:56 +0200
+Subject: [PATCH 0985/1695] plat-stm32mp2: remove init console from DTB
+
+The console is now initialized during the UART driver probe hence
+remove stm32mp2 platform console init function that is now useless.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c6bee86f52d3c203989a673ee16236af25d79275 plat-stm32mp2: remove init console from DTB]
+Change-Id: I4b9bb26573bd6a6ddfc1042ccf472c0a78a4c748
+Signed-off-by: Cheick TRAORE <cheick.traore-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/380031
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c | 40 ------------------------------
+ 1 file changed, 40 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index b77de50a8..2831aa3a1 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -123,46 +123,6 @@ void console_init(void)
+ #endif
+ }
+ 
+-#ifdef CFG_STM32_UART
+-static TEE_Result init_console_from_dt(void)
+-{
+-	struct stm32_uart_pdata *pd = NULL;
+-	void *fdt = NULL;
+-	int node = 0;
+-	TEE_Result res = TEE_ERROR_GENERIC;
+-
+-	fdt = get_embedded_dt();
+-	res = get_console_node_from_dt(fdt, &node, NULL, NULL);
+-	if (res == TEE_ERROR_ITEM_NOT_FOUND) {
+-		fdt = get_external_dt();
+-		res = get_console_node_from_dt(fdt, &node, NULL, NULL);
+-		if (res == TEE_ERROR_ITEM_NOT_FOUND)
+-			return TEE_SUCCESS;
+-		if (res != TEE_SUCCESS)
+-			return res;
+-	}
+-
+-	pd = stm32_uart_init_from_dt_node(fdt, node);
+-	if (!pd) {
+-		IMSG("DTB disables console");
+-		register_serial_console(NULL);
+-		return TEE_SUCCESS;
+-	}
+-
+-	/* Replace early console with the new one */
+-	console_flush();
+-	console_data = *pd;
+-	register_serial_console(&console_data.chip);
+-	IMSG("DTB enables console (%ssecure)", pd->secure ? "" : "non-");
+-	free(pd);
+-
+-	return TEE_SUCCESS;
+-}
+-
+-/* Probe console from DT once clock inits (service init level) are completed */
+-service_init_late(init_console_from_dt);
+-#endif /*STM32_UART*/
+-
+ vaddr_t stm32_rcc_base(void)
+ {
+ 	static struct io_pa_va base = { .pa = RCC_BASE };
+-- 
+2.47.2
+

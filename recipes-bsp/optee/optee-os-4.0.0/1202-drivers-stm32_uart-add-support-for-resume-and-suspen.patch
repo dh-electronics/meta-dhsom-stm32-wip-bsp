@@ -1,0 +1,111 @@
+From 9265a40a6c9e12cf84aa67ea99f68206d924c933 Mon Sep 17 00:00:00 2001
+From: Cheick Traore <cheick.traore-ext@st.com>
+Date: Fri, 13 Sep 2024 14:46:34 +0200
+Subject: [PATCH 1202/1695] drivers: stm32_uart: add support for resume and
+ suspend on UART
+
+Add a callback function to retrieve and save the values of the main
+UART registers during suspend and update the UART registers with these
+saved values during resume.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4d7c0b60d2d7094cb29cefe65b9557f58b0e060f drivers: stm32_uart: add support for resume and suspend on UART]
+Change-Id: I1dac6dfe264042cbaeae7524707d31d9ae1e3e0b
+Signed-off-by: Cheick Traore <cheick.traore-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391967
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Alain VOLMAT <alain.volmat@st.com>
+---
+ core/drivers/stm32_uart.c         | 43 +++++++++++++++++++++++++++++++
+ core/include/drivers/stm32_uart.h |  5 ++++
+ 2 files changed, 48 insertions(+)
+
+diff --git a/core/drivers/stm32_uart.c b/core/drivers/stm32_uart.c
+index 5905bc7da..81d5da29c 100644
+--- a/core/drivers/stm32_uart.c
++++ b/core/drivers/stm32_uart.c
+@@ -15,6 +15,7 @@
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+ #include <kernel/panic.h>
++#include <kernel/pm.h>
+ #include <libfdt.h>
+ #include <stm32_util.h>
+ #include <util.h>
+@@ -249,6 +250,46 @@ static bool uart_is_for_console(void *fdt, int node, char **params)
+ 	return uart_console_node == node;
+ }
+ 
++static TEE_Result stm32_uart_pm(enum pm_op op, uint32_t pm_hint,
++				const struct pm_callback_handle *pm_handle)
++{
++	struct stm32_uart_pdata *pd = pm_handle->handle;
++	vaddr_t uart_base = io_pa_or_va(&pd->base, 1);
++	TEE_Result res = TEE_ERROR_BAD_PARAMETERS;
++
++	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
++		return TEE_SUCCESS;
++
++	switch (op) {
++	case PM_OP_SUSPEND:
++		pd->brr = io_read32(uart_base + UART_REG_BRR);
++		pd->presc = io_read32(uart_base + UART_REG_PRESC);
++		pd->cr1 = io_read32(uart_base + UART_REG_CR1);
++		pd->cr2 = io_read32(uart_base + UART_REG_CR2);
++		pd->cr3 = io_read32(uart_base + UART_REG_CR3);
++		res = TEE_SUCCESS;
++		break;
++	case PM_OP_RESUME:
++		/* Disable UART to set CR2, CR3, BRR and PRESC saved values. */
++		io_write32(uart_base + UART_REG_CR1, 0);
++		io_write32(uart_base + UART_REG_CR2, pd->cr2);
++		io_write32(uart_base + UART_REG_CR3, pd->cr3);
++		io_write32(uart_base + UART_REG_BRR, pd->brr);
++		io_write32(uart_base + UART_REG_PRESC, pd->presc);
++		/*
++		 * Set CR1 saved value.
++		 * It also enables UART, if UART was enabled before suspend.
++		 */
++		io_write32(uart_base + UART_REG_CR1, pd->cr1);
++		res = TEE_SUCCESS;
++		break;
++	default:
++		break;
++	}
++
++	return res;
++}
++
+ static TEE_Result stm32_uart_probe(const void *fdt, int node,
+ 				   const void *compt_data __unused)
+ {
+@@ -272,6 +313,8 @@ static TEE_Result stm32_uart_probe(const void *fdt, int node,
+ 		IMSG("UART console (%ssecure)", pd->secure ? "" : "non-");
+ 	}
+ 
++	register_pm_core_service_cb(stm32_uart_pm, pd, "stm32-uart");
++
+ out:
+ 	if (res)
+ 		free(pd);
+diff --git a/core/include/drivers/stm32_uart.h b/core/include/drivers/stm32_uart.h
+index a4104b815..de3b0a454 100644
+--- a/core/include/drivers/stm32_uart.h
++++ b/core/include/drivers/stm32_uart.h
+@@ -19,6 +19,11 @@ struct stm32_uart_pdata {
+ 	bool secure;
+ 	struct clk *clock;
+ 	struct pinctrl_state *pinctrl;
++	uint32_t brr;
++	uint32_t presc;
++	uint32_t cr1;
++	uint32_t cr2;
++	uint32_t cr3;
+ };
+ 
+ /*
+-- 
+2.47.2
+

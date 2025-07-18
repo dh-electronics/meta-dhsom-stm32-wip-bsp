@@ -1,0 +1,233 @@
+From d63529ba9ecf55d58f150f37aa4a10d149d8e53c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 23 Feb 2024 14:17:10 +0100
+Subject: [PATCH 0732/1695] drivers: stm32_tamp: enable monitoring in PWR for
+ associated TAMPER
+
+Add a link in TAMPER driver to activate the platform resources
+for each internal TAMPER with the new function
+stm32_activate_internal_tamper(), defined for stm32mp1 and stm32mp2
+platform.
+
+Today the only few internal tamper INT_TAMP1 and INT_TAMP2
+are handled for SoC STM32MP13x, STM32MP15x and STM32MP25x:
+request PWR driver to enable the voltage and temperature monitoring
+with stm32mp_pwr_monitoring_enable() when the associated internal
+TAMPER are activated or check RCC CSS activation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 42893b88d63cd77fbd78342af68df33705460037 drivers: stm32_tamp: enable monitoring in PWR for associated TAMPER]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I2485d3bdc8d3b4dc94fbddde35b49c44d6f761e6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/362678
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/363058
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/370834
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/370838
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372745
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c       | 58 ++++++++++++++++++++++++
+ core/arch/arm/plat-stm32mp1/stm32_util.h |  2 +
+ core/arch/arm/plat-stm32mp2/main.c       | 55 ++++++++++++++++++++++
+ core/arch/arm/plat-stm32mp2/stm32_util.h |  2 +
+ core/drivers/stm32_tamp.c                |  8 ++++
+ 5 files changed, 125 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index f70c70fa7..07c007e59 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -14,8 +14,16 @@
+ #include <drivers/stm32_etzpc.h>
+ #include <drivers/stm32_firewall.h>
+ #include <drivers/stm32_gpio.h>
++#include <drivers/stm32_tamp.h>
+ #include <drivers/stm32_uart.h>
+ #include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stm32mp1_pwr.h>
++#ifdef CFG_STM32MP15
++#include <drivers/stm32mp1_rcc.h>
++#endif
++#ifdef CFG_STM32MP13
++#include <drivers/stm32mp13_rcc.h>
++#endif
+ #include <io.h>
+ #include <kernel/boot.h>
+ #include <kernel/delay.h>
+@@ -753,3 +761,53 @@ static TEE_Result stm32_hse_monitoring(void)
+ 
+ driver_init_late(stm32_hse_monitoring);
+ #endif /* CFG_STM32_HSE_MONITORING */
++
++/* Activate the SoC resources required by internal TAMPER */
++TEE_Result stm32_activate_internal_tamper(int id)
++{
++	TEE_Result res = TEE_ERROR_NOT_SUPPORTED;
++
++	switch (id) {
++	case INT_TAMP1: /* RTC/backup power domain voltage monitoring */
++	case INT_TAMP2: /* Temperature monitoring */
++		stm32mp_pwr_monitoring_enable();
++		res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP3: /* LSE monitoring (LSECSS) */
++		if (io_read32(stm32_rcc_base() + RCC_BDCR) & RCC_BDCR_LSECSSON)
++			res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP4: /* HSE monitoring (HSECSS) */
++		if (io_read32(stm32_rcc_base() + RCC_OCENSETR) &
++		    RCC_OCENR_HSECSSON)
++			res = TEE_SUCCESS;
++		break;
++
++#ifdef CFG_STM32MP13
++	case INT_TAMP5:
++	case INT_TAMP6:
++	case INT_TAMP7:
++	case INT_TAMP8:
++	case INT_TAMP9:
++	case INT_TAMP10:
++	case INT_TAMP11:
++	case INT_TAMP12:
++	case INT_TAMP13:
++		res = TEE_SUCCESS;
++		break;
++#endif
++#ifdef CFG_STM32MP15
++	case INT_TAMP5:
++	case INT_TAMP8:
++		res = TEE_SUCCESS;
++		break;
++#endif
++
++	default:
++		break;
++	}
++
++	return res;
++};
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index 4140874a6..faa1fd63c 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -321,4 +321,6 @@ static inline void stm32mp_register_gpioz_pin_count(size_t count __unused)
+ 
+ void __noreturn do_reset(const char *str);
+ 
++TEE_Result stm32_activate_internal_tamper(int id);
++
+ #endif /*__STM32_UTIL_H__*/
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 7df2efe74..fa28b86d8 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -14,8 +14,11 @@
+ #include <drivers/stm32_risab.h>
+ #include <drivers/stm32_risaf.h>
+ #include <drivers/stm32_serc.h>
++#include <drivers/stm32_tamp.h>
+ #include <drivers/stm32_uart.h>
+ #include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stm32mp25_pwr.h>
++#include <drivers/stm32mp25_rcc.h>
+ #include <initcall.h>
+ #include <kernel/abort.h>
+ #include <kernel/boot.h>
+@@ -259,6 +262,58 @@ void __noreturn do_reset(const char *str __maybe_unused)
+ 	panic();
+ }
+ 
++/* Activate the SoC resources required by internal TAMPER */
++TEE_Result stm32_activate_internal_tamper(int id)
++{
++	TEE_Result res = TEE_ERROR_NOT_SUPPORTED;
++
++	switch (id) {
++	case INT_TAMP1: /* Backup domain (V08CAP) voltage monitoring */
++	case INT_TAMP2: /* Temperature monitoring */
++		stm32mp_pwr_monitoring_enable(PWR_MON_V08CAP_TEMP);
++		res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP3: /* LSE monitoring (LSECSS) */
++		if (io_read32(stm32_rcc_base() + RCC_BDCR) & RCC_BDCR_LSECSSON)
++			res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP4: /* HSE monitoring (CSS + over frequency detection) */
++		if (io_read32(stm32_rcc_base() + RCC_OCENSETR) &
++		    RCC_OCENSETR_HSECSSON)
++			res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP7: /* VDDCORE monitoring under/over voltage */
++		stm32mp_pwr_monitoring_enable(PWR_MON_VCORE);
++		res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP12: /* VDDCPU (Cortex A35) monitoring under/over voltage */
++		stm32mp_pwr_monitoring_enable(PWR_MON_VCPU);
++		res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP5:
++	case INT_TAMP6:
++	case INT_TAMP8:
++	case INT_TAMP9:
++	case INT_TAMP10:
++	case INT_TAMP11:
++	case INT_TAMP13:
++	case INT_TAMP14:
++	case INT_TAMP15:
++		res = TEE_SUCCESS;
++		break;
++
++	default:
++		break;
++	}
++
++	return res;
++}
++
+ #ifdef CFG_STM32_HSE_MONITORING
+ /* pourcent rate of hse alarm */
+ #define HSE_ALARM_PERCENT	110
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+index 54a89f75e..ea4d07e21 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -26,4 +26,6 @@ static inline void stm32mp_register_gpioz_pin_count(size_t count __unused) { }
+ 
+ void __noreturn do_reset(const char *str);
+ 
++TEE_Result stm32_activate_internal_tamper(int id);
++
+ #endif /*__STM32_UTIL_H__*/
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index 63a0a12e2..aebf7131e 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -1262,9 +1262,17 @@ static TEE_Result stm32_tamp_configure_int(struct stm32_tamp_conf *tamp_int,
+ 					   uint32_t mode,
+ 					   uint32_t (*cb)(int id))
+ {
++	TEE_Result res = TEE_ERROR_GENERIC;
++
+ 	if (mode & TAMP_EVT_MASK)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	res = stm32_activate_internal_tamper(tamp_int->id);
++	if (res) {
++		EMSG("Could not activate internal tamper:%u", tamp_int->id + 1);
++		return res;
++	}
++
+ 	tamp_int->mode |= (mode & TAMP_MODE_MASK);
+ 	tamp_int->func = cb;
+ 
+-- 
+2.47.2
+

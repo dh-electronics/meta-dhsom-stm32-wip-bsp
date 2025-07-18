@@ -1,0 +1,177 @@
+From c1ff626df0cd8c02d667447787684404daff31d5 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Thu, 20 Jun 2024 18:36:52 +0200
+Subject: [PATCH 1206/1695] product/tfm-stm32mp2: fix regu module
+
+Fix initialisation issue, and remove millivolt conversion not required for tfm platform
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bef807609db811c96b33a58e572204a3e6aa9171 product/tfm-stm32mp2: fix regu module]
+Change-Id: Ida8de3517df8396ff41672de22795e8527dd37e6
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/391977
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Domain-Review: Etienne CARRIERE <etienne.carriere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../product/tfm-stm32mp2/fw/config_all.c      | 17 +++---
+ .../src/mod_tfm_regu_consumer.c               | 61 +++++++++++++++----
+ 2 files changed, 56 insertions(+), 22 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
+index 3ff0ca2a0..726ad44c4 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
+@@ -71,7 +71,7 @@ static struct mod_reset_domain_dev_config *reset_data;
+ /* SCMI voltage domains and tfm regulators */
+ static struct mod_scmi_voltd_agent *scmi_voltd_agent_tbl;
+ static struct fwk_element *tfm_regu_elt;
+-static struct mod_tfm_regu_consumer_dev_config *tfm_regu_data;
++static struct mod_tfm_regu_consumer_dev_config *tfm_regu_cfg;
+ static struct fwk_element *voltd_elt;
+ static struct mod_voltd_dev_config *voltd_data;
+ #endif
+@@ -318,8 +318,8 @@ static void allocate_global_resources(struct scpfw_config *cfg)
+     scmi_voltd_config->agent_table = scmi_voltd_agent_tbl;
+     scmi_voltd_config->agent_count = scmi_agent_count;
+ 
+-    tfm_regu_data = fwk_mm_calloc(scpfw_resource_counter.regu_count,
+-                                    sizeof(*tfm_regu_data));
++    tfm_regu_cfg = fwk_mm_calloc(scpfw_resource_counter.regu_count,
++                                    sizeof(*tfm_regu_cfg));
+     tfm_regu_elt = fwk_mm_calloc(scpfw_resource_counter.regu_count + 1,
+                                     sizeof(*tfm_regu_elt));
+ 
+@@ -547,14 +547,13 @@ static void set_resources(struct scpfw_config *cfg)
+                     } else {
+                         name = reserved;
+                     }
+-
+-                    dev[regu_index].element_id =
+-                       (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_VOLTAGE_DOMAIN, k);
++                    dev[k].element_id =
++                       (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_VOLTAGE_DOMAIN, regu_index);
+ 
+                     tfm_regu_elt[regu_index].name = name;
+-                    tfm_regu_elt[regu_index].data = (void *)(tfm_regu_data + regu_index);
+-                    tfm_regu_data[regu_index].dev = voltd_cfg->dev;
+-                    tfm_regu_data[regu_index].default_enabled = voltd_cfg->enabled;
++                    tfm_regu_elt[regu_index].data = (void *)(tfm_regu_cfg + regu_index);
++                    tfm_regu_cfg[regu_index].dev = voltd_cfg->dev;
++                    tfm_regu_cfg[regu_index].default_enabled = voltd_cfg->enabled;
+ 
+                     voltd_data[regu_index].driver_id =
+                         (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_REGU_CONSUMER,
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_regu_consumer/src/mod_tfm_regu_consumer.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_regu_consumer/src/mod_tfm_regu_consumer.c
+index 3e3bed72c..85fa7b5a8 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_regu_consumer/src/mod_tfm_regu_consumer.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_regu_consumer/src/mod_tfm_regu_consumer.c
+@@ -130,18 +130,15 @@ static int tfm_regu_consumer_set_config(fwk_id_t dev_id, uint8_t mode_type,
+ static int tfm_regu_consumer_get_level(fwk_id_t dev_id, int32_t *level_uv)
+ {
+     struct tfm_regu_consumer_dev_ctx *ctx;
+-    int32_t level_mv;
+     int ret;
+ 
+     ret = find_ctx(dev_id, &ctx);
+     if (ret)
+         return ret;
+ 
+-    if (regulator_get_voltage(ctx->dev, &level_mv))
++    if (regulator_get_voltage(ctx->dev, level_uv))
+         return FWK_E_PANIC;
+ 
+-    *level_uv = (int)level_mv * 1000;
+-
+     FWK_LOG_INFO("SCMI voltd %u: get level PMIC %s = %ld",
+               fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), *level_uv);
+ 
+@@ -153,16 +150,11 @@ static int tfm_regu_consumer_set_level(fwk_id_t dev_id, int32_t level_uv)
+     struct tfm_regu_consumer_dev_ctx *ctx = NULL;
+     int ret = FWK_E_PANIC;
+ 
+-    if (level_uv / 1000 > UINT16_MAX) {
+-        FWK_LOG_ERR("Volatge level too high (mV shall fit in 16 bits)");
+-        return FWK_E_PARAM;
+-    }
+-
+     ret = find_ctx(dev_id, &ctx);
+     if (ret)
+         return ret;
+ 
+-    if (regulator_set_voltage(ctx->dev, level_uv / 1000, level_uv/1000))
++    if (regulator_set_voltage(ctx->dev, level_uv, level_uv))
+         return FWK_E_DEVICE;
+ 
+     FWK_LOG_INFO("SCMI voltd %u: set level PMIC %s to %ld",
+@@ -214,8 +206,8 @@ static int tfm_regu_consumer_get_info(fwk_id_t dev_id,
+     info->name = regu_name(ctx->dev);
+     info->level_range.level_type = MOD_VOLTD_VOLTAGE_LEVEL_DISCRETE;
+     info->level_range.level_count = full_count;
+-    info->level_range.min_uv = volt_uv[0]*1000;
+-    info->level_range.max_uv = volt_uv[1]*1000;
++    info->level_range.min_uv = volt_uv[0];
++    info->level_range.max_uv = volt_uv[1];
+ 
+     FWK_LOG_INFO("SCMI voltd %u: get_info PMIC %s, range [%ld %ld]",
+               fwk_id_get_element_idx(dev_id), regu_name(ctx->dev),
+@@ -224,13 +216,56 @@ static int tfm_regu_consumer_get_info(fwk_id_t dev_id,
+     return FWK_SUCCESS;
+ }
+ 
++static int tfm_voltd_regulator_level_from_index(fwk_id_t dev_id,
++                                                  unsigned int index,
++                                                  int32_t *level_uv)
++{
++    struct tfm_regu_consumer_dev_ctx *ctx;
++    int full_count;
++    int32_t volt_uv;
++    int ret = find_ctx(dev_id, &ctx);
++
++    if (ret) {
++        return ret;
++    }
++    if (ctx == NULL) {
++        return FWK_E_PARAM;
++    }
++
++    if (ctx->dev == NULL) {
++        /* Treat unexposed voltage domain a stubbed 0V fixed level regulator */
++        if (index > 0) {
++            return FWK_E_RANGE;
++        }
++        *level_uv = 0;
++
++        return FWK_SUCCESS;
++    }
++
++    full_count = regulator_count_voltages(ctx->dev);
++    if (index >= full_count)
++        return FWK_E_PARAM;
++
++    if (regulator_list_voltage(ctx->dev, index, &volt_uv)) {
++        return FWK_E_SUPPORT;
++    }
++    *level_uv = volt_uv;
++
++    FWK_LOG_DEBUG(
++                  MOD_PREFIX "Get level from index for %u/%s: index %u, level %"PRId32"uV",
++                  fwk_id_get_element_idx(dev_id), regulator_name(ctx->dev),
++                  index, *level_uv);
++
++    return FWK_SUCCESS;
++}
++
+ static const struct mod_voltd_drv_api api_tfm_regu = {
+     .get_level = tfm_regu_consumer_get_level,
+     .set_level = tfm_regu_consumer_set_level,
+     .set_config = tfm_regu_consumer_set_config,
+     .get_config = tfm_regu_consumer_get_config,
+     .get_info = tfm_regu_consumer_get_info,
+-    .get_level_from_index = NULL,
++    .get_level_from_index = tfm_voltd_regulator_level_from_index,
+ };
+ 
+ /*
+-- 
+2.47.2
+

@@ -1,0 +1,111 @@
+From 4532d6f4551e229cffacb87978ff785935fb4ba3 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 18 Jan 2024 16:59:21 +0100
+Subject: [PATCH 0947/1695] core: dt_driver: add dt_driver_count_devices()
+
+Add dt_driver_count_devices() to count the number of elements
+referring to a provider in a property.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7f81da74251613faa03529a3a7b2c1a4a293c385 core: dt_driver: add dt_driver_count_devices()]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I5e0a55fad28f2260bdcafe72d7d125b9b84d852a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/389858
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/include/kernel/dt_driver.h | 21 +++++++++++++++++
+ core/kernel/dt_driver.c         | 42 +++++++++++++++++++++++++++++++++
+ 2 files changed, 63 insertions(+)
+
+diff --git a/core/include/kernel/dt_driver.h b/core/include/kernel/dt_driver.h
+index 113282998..d622c1ac9 100644
+--- a/core/include/kernel/dt_driver.h
++++ b/core/include/kernel/dt_driver.h
+@@ -198,6 +198,27 @@ TEE_Result dt_driver_device_from_node_idx_prop_phandle(const char *prop_name,
+ 						       uint32_t phandle,
+ 						       void *device_ref);
+ 
++/*
++ * dt_driver_count_devices() - Get the number of elements of a given type
++ * referring to a provider in a property.
++ *
++ * @prop_name: DT property name, e.g. "clocks" for clock resources
++ * @fdt: FDT base address
++ * @nodeoffs: Node offset in the FDT
++ * @type: Driver type
++ * @nb_element: Output number of elements referenced by the property
++
++ * Return code:
++ * TEE_SUCCESS in case of success.
++ * TEE_ERROR_ITEM_NOT_FOUND if @prop_name does not match a property name
++ * TEE_ERROR_DEFER_DRIVER_INIT if at least one of the firewall provider driver
++ * referenced in the property is not yet initialized.
++ * Any TEE_Result compliant code in case of error.
++ */
++TEE_Result dt_driver_count_devices(const char *prop_name, const void *fdt,
++				   int nodeoffs, enum dt_driver_type type,
++				   size_t *nb_element);
++
+ /*
+  * dt_driver_get_crypto() - Request crypto support for driver initialization
+  *
+diff --git a/core/kernel/dt_driver.c b/core/kernel/dt_driver.c
+index 0418a8526..e5ef2438e 100644
+--- a/core/kernel/dt_driver.c
++++ b/core/kernel/dt_driver.c
+@@ -443,6 +443,48 @@ TEE_Result dt_driver_device_from_node_idx_prop(const char *prop_name,
+ 	return TEE_ERROR_ITEM_NOT_FOUND;
+ }
+ 
++TEE_Result dt_driver_count_devices(const char *prop_name, const void *fdt,
++				   int nodeoffs, enum dt_driver_type type,
++				   size_t *nb_element)
++{
++	int len = 0;
++	int idx = 0;
++	int idx32 = 0;
++	int prv_cells = 0;
++	uint32_t phandle = 0;
++	const uint32_t *prop = NULL;
++	struct dt_driver_provider *prv = NULL;
++
++	assert(nb_element);
++
++	*nb_element = 0;
++
++	prop = fdt_getprop(fdt, nodeoffs, prop_name, &len);
++	if (!prop) {
++		DMSG("Property %s missing in node %s", prop_name,
++		     fdt_get_name(fdt, nodeoffs, NULL));
++		return TEE_ERROR_ITEM_NOT_FOUND;
++	}
++
++	while (idx < len) {
++		idx32 = idx / sizeof(uint32_t);
++		phandle = fdt32_to_cpu(prop[idx32]);
++		if (!phandle)
++			return TEE_ERROR_BAD_PARAMETERS;
++
++		prv = dt_driver_get_provider_by_phandle(phandle, type);
++		if (!prv)
++			return TEE_ERROR_DEFER_DRIVER_INIT;
++
++		prv_cells = dt_driver_provider_cells(prv);
++		*nb_element += 1;
++		idx += sizeof(phandle) + prv_cells * sizeof(uint32_t);
++	}
++	assert(idx == len);
++
++	return TEE_SUCCESS;
++}
++
+ static void __maybe_unused print_probe_list(const void *fdt __maybe_unused)
+ {
+ 	struct dt_driver_probe *elt = NULL;
+-- 
+2.47.2
+

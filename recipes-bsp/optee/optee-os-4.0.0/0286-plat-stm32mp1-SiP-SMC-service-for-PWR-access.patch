@@ -1,0 +1,292 @@
+From 55872c89ea07992fbd2ab2e72abdce5711679c2c Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 19 Dec 2023 09:27:32 +0100
+Subject: [PATCH 0286/1695] plat-stm32mp1: SiP SMC service for PWR access
+
+Implement a SiP SMC based interface fir the non-secure world to
+access PWR registers and non-secure regulators. The service is
+embedded upon CFG_STM32_PWR_SIP=y.
+
+PWR registers and their bit fields that non-secure is allowed to access
+using SiP SMC service may depend on the resources registered at build
+time or initialization time in OP-TEE core.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4c2d4136f11f4431f0b684f00c93289e9c89ec1f plat-stm32mp1: SiP SMC service for PWR access]
+Change-Id: Icc180bdaab00536a4996e1329d92e16b2d543f2f
+Signed-off-by: Etienne Carriere <etienne.carriere@st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk           |  2 +
+ .../arm/plat-stm32mp1/drivers/stm32mp1_pwr.h  | 36 +++++++-
+ .../arm/plat-stm32mp1/nsec-service/pwr_svc.c  | 90 +++++++++++++++++++
+ .../arm/plat-stm32mp1/nsec-service/pwr_svc.h  | 22 +++++
+ .../plat-stm32mp1/nsec-service/stm32mp1_smc.h | 20 ++++-
+ .../nsec-service/stm32mp1_svc_setup.c         |  4 +
+ .../arm/plat-stm32mp1/nsec-service/sub.mk     |  1 +
+ 7 files changed, 173 insertions(+), 2 deletions(-)
+ create mode 100644 core/arch/arm/plat-stm32mp1/nsec-service/pwr_svc.c
+ create mode 100644 core/arch/arm/plat-stm32mp1/nsec-service/pwr_svc.h
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 0c20b351f..71d6435fa 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -295,7 +295,9 @@ CFG_SCMI_MSG_DRIVERS ?= y
+ endif
+ 
+ # SiP/OEM service for non-secure world
++# BSEC fuse access, PWR services, SCMI transport.
+ CFG_STM32_BSEC_SIP ?= n
++CFG_STM32_PWR_SIP ?= $(CFG_STM32MP15)
+ CFG_STM32MP1_SCMI_SIP ?= n
+ ifeq ($(CFG_STM32MP1_SCMI_SIP),y)
+ $(call force,CFG_SCMI_MSG_DRIVERS,y,Mandated by CFG_STM32MP1_SCMI_SIP)
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
+index d6dc5de21..9eec69b35 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
+@@ -14,6 +14,7 @@
+ #define PWR_CR2_OFF		0x08
+ #define PWR_CR3_OFF		0x0c
+ #define PWR_MPUCR_OFF		0x10
++#define PWR_MCUCR_OFF		0x14
+ #define PWR_WKUPCR_OFF		0x20
+ #define PWR_MPUWKUPENR_OFF	0x28
+ 
+@@ -25,7 +26,40 @@
+ #define PWR_CR3_VDDSD1VALID	BIT(22)
+ #define PWR_CR3_VDDSD2VALID	BIT(23)
+ 
+-#define PWR_OFFSET_MASK		0x3fUL
++#define PWR_OFFSET_MASK		GENMASK_32(5, 0)
++
++#define PWR_CR1_LPDS		BIT(0)
++#define PWR_CR1_LPCFG		BIT(1)
++#define PWR_CR1_LVDS		BIT(2)
++#define PWR_CR1_STOP2		BIT(3)
++#define PWR_CR1_DBP		BIT(8)
++#define PWR_CR1_MPU_RAM_LOW_SPEED	BIT(9)
++
++#define PWR_CR2_BREN		BIT(0)
++#define PWR_CR2_RREN		BIT(1)
++
++#define PWR_CR3_VBE		BIT(8)
++#define PWR_CR3_VBRS		BIT(9)
++#define PWR_CR3_DDRSREN		BIT(10)
++#define PWR_CR3_DDRSRDIS	BIT(11)
++#define PWR_CR3_DDRRETEN	BIT(12)
++#define PWR_CR3_USB33DEN	BIT(24)
++#define PWR_CR3_REG18EN		BIT(28)
++#define PWR_CR3_REG11EN		BIT(30)
++
++#define PWR_CR3_POPL_SHIFT	17
++#define PWR_CR3_POPL_MASK	GENMASK_32(21, 17)
++
++#define PWR_MPUCR_PDDS		BIT(0)
++#define PWR_MPUCR_CSTDBYDIS	BIT(3)
++#define PWR_MPUCR_CSSF		BIT(9)
++
++#define PWR_MCUCR_PDDS		BIT(0)
++
++#define PWR_WKUPCR_MASK		(GENMASK_32(27, 16) | \
++				 GENMASK_32(13, 8) | GENMASK_32(5, 0))
++
++#define PWR_MPUWKUPENR_MASK	GENMASK_32(5, 0)
+ 
+ enum pwr_regulator {
+ 	PWR_REG11 = 0,
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/pwr_svc.c b/core/arch/arm/plat-stm32mp1/nsec-service/pwr_svc.c
+new file mode 100644
+index 000000000..1c3fd7c9f
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/pwr_svc.c
+@@ -0,0 +1,90 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2017-2018, STMicroelectronics
++ */
++
++#include <inttypes.h>
++#include <drivers/stm32_shared_io.h>
++#include <drivers/stm32mp1_pwr.h>
++#include <kernel/panic.h>
++#include <io.h>
++#include <mm/core_memprot.h>
++#include <mm/core_mmu.h>
++#include <platform_config.h>
++#include <stm32_util.h>
++#include <trace.h>
++
++#include "pwr_svc.h"
++#include "stm32mp1_smc.h"
++
++struct pwr_reg_prop {
++	uint32_t offset;
++	uint32_t mask;
++};
++
++#define PWR_ALLOWED_MASK(_off, _mask)	{ .offset = (_off), .mask = (_mask), }
++
++static const struct pwr_reg_prop allowed_regs[] = {
++	PWR_ALLOWED_MASK(PWR_CR3_OFF, PWR_CR3_VBE | PWR_CR3_VBRS |
++				      PWR_CR3_USB33DEN |
++				      PWR_CR3_REG18EN | PWR_CR3_REG11EN),
++	PWR_ALLOWED_MASK(PWR_WKUPCR_OFF, PWR_WKUPCR_MASK),
++	PWR_ALLOWED_MASK(PWR_MPUWKUPENR_OFF, PWR_MPUWKUPENR_MASK),
++};
++
++uint32_t pwr_scv_handler(uint32_t x1, uint32_t x2, uint32_t x3)
++{
++	uint32_t req = x1;
++	uint32_t offset = x2;
++	uint32_t value = x3;
++	vaddr_t va = 0;
++	uint32_t allowed = 0;
++	unsigned int i = 0;
++
++	/*
++	 * Argument x2 can be either the register physical address of the
++	 * register offset toward PWR_BASE.
++	 */
++	if ((offset & ~PWR_OFFSET_MASK) != 0) {
++		if ((offset & ~PWR_OFFSET_MASK) != PWR_BASE)
++			return STM32_SIP_SVC_INVALID_PARAMS;
++
++		offset &= PWR_OFFSET_MASK;
++	}
++
++	DMSG("PWR service: %s 0x%" PRIx32 " at offset 0x%" PRIx32,
++	     req == STM32_SIP_SVC_REG_WRITE ? "write" :
++	     req == STM32_SIP_SVC_REG_SET ? "set" : "clear",
++	     value, offset);
++
++	for (i = 0; i < ARRAY_SIZE(allowed_regs); i++) {
++		if (offset != allowed_regs[i].offset)
++			continue;
++
++		va = stm32_pwr_base() + offset;
++		allowed = allowed_regs[i].mask;
++		value &= allowed;
++
++		switch (req) {
++		case STM32_SIP_SVC_REG_WRITE:
++			io_mask32_stm32shregs(va, value, allowed);
++			FMSG("wrt off %" PRIx32 "=%" PRIx32 " => %" PRIx32,
++			     offset, value, io_read32(va));
++			return STM32_SIP_SVC_OK;
++		case STM32_SIP_SVC_REG_SET:
++			io_setbits32_stm32shregs(va, value);
++			FMSG("set off %" PRIx32 "=%" PRIx32 " => %" PRIx32,
++			     offset, value, io_read32(va));
++			return STM32_SIP_SVC_OK;
++		case STM32_SIP_SVC_REG_CLEAR:
++			io_clrbits32_stm32shregs(va, value);
++			FMSG("clr off %" PRIx32 "=%" PRIx32 " => %" PRIx32,
++			     offset, value, io_read32(va));
++			return STM32_SIP_SVC_OK;
++		default:
++			return STM32_SIP_SVC_INVALID_PARAMS;
++		}
++	}
++
++	return STM32_SIP_SVC_INVALID_PARAMS;
++}
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/pwr_svc.h b/core/arch/arm/plat-stm32mp1/nsec-service/pwr_svc.h
+new file mode 100644
+index 000000000..429d62071
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/pwr_svc.h
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2017-2018, STMicroelectronics
++ */
++
++#ifndef __PWR_SVC_H__
++#define __PWR_SVC_H__
++
++#include <stm32mp1_smc.h>
++
++#ifdef CFG_STM32_PWR_SIP
++uint32_t pwr_scv_handler(uint32_t x1, uint32_t x2, uint32_t x3);
++#else
++static inline uint32_t pwr_scv_handler(uint32_t x1 __unused,
++				       uint32_t x2 __unused,
++				       uint32_t x3 __unused)
++{
++	return STM32_SIP_SVC_FAILED;
++}
++#endif
++
++#endif /* __PWR_SVC_H__*/
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
+index 55fffd317..8a0a6cb90 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
+@@ -14,7 +14,7 @@
+ #define STM32_SIP_SVC_VERSION_MAJOR	0x0
+ #define STM32_SIP_SVC_VERSION_MINOR	0x1
+ 
+-#define STM32_SIP_SVC_FUNCTION_COUNT	0x3
++#define STM32_SIP_SVC_FUNCTION_COUNT	0x4
+ 
+ /* STM32 SIP service generic return codes */
+ #define STM32_SIP_SVC_OK		0x0
+@@ -71,6 +71,24 @@
+  */
+ #define STM32_SIP_SVC_FUNC_VERSION		0xff03
+ 
++/*
++ * SIP function STM32_SIP_SVC_FUNC_PWR
++ *
++ * Argument a0: (input) SMCC ID
++ *		(output) status return code
++ * Argument a1: (input) Service ID (STM32_SIP_REG_xxx)
++ * Argument a2: (input) register offset or physical address
++ *		(output) register read value, if applicable
++ * Argument a3: (input) register target value if applicable
++ */
++#define STM32_SIP_SVC_FUNC_PWR			0x1001
++
++/* Service ID for STM32_SIP_SVC_FUNC_RCC/_PWR */
++#define STM32_SIP_SVC_REG_READ			0x0
++#define STM32_SIP_SVC_REG_WRITE			0x1
++#define STM32_SIP_SVC_REG_SET			0x2
++#define STM32_SIP_SVC_REG_CLEAR			0x3
++
+ /*
+  * SIP functions STM32_SIP_SVC_FUNC_BSEC - Deprecated
+  *
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+index 4377c6291..27c0a74bb 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+@@ -11,6 +11,7 @@
+ #include <sm/std_smc.h>
+ 
+ #include "bsec_svc.h"
++#include "pwr_svc.h"
+ #include "stm32mp1_smc.h"
+ 
+ static enum sm_handler_ret sip_service(struct sm_ctx *ctx __unused,
+@@ -44,6 +45,9 @@ static enum sm_handler_ret sip_service(struct sm_ctx *ctx __unused,
+ 	case STM32_SIP_SVC_FUNC_BSEC:
+ 		bsec_main(args);
+ 		break;
++	case STM32_SIP_SVC_FUNC_PWR:
++		args->a0 = pwr_scv_handler(args->a1, args->a2, args->a3);
++		break;
+ 	default:
+ 		return SM_HANDLER_PENDING_SMC;
+ 	}
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/sub.mk b/core/arch/arm/plat-stm32mp1/nsec-service/sub.mk
+index 6e1abcb4a..25dd50251 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/sub.mk
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/sub.mk
+@@ -2,3 +2,4 @@ global-incdirs-y += .
+ 
+ srcs-y += stm32mp1_svc_setup.c
+ srcs-$(CFG_STM32_BSEC_SIP) += bsec_svc.c
++srcs-$(CFG_STM32_PWR_SIP) += pwr_svc.c
+-- 
+2.47.2
+

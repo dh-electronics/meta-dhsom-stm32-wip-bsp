@@ -1,0 +1,507 @@
+From dec8f705f9f274b0bd0142187377249b93b1fa10 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 13 Dec 2023 12:55:04 +0100
+Subject: [PATCH 0184/1695] drivers: stm32_rstctrl: move stm32mp1x controller
+ in stm32mp1_rstcrl.c
+
+This patch introduces the STM32MP25 reset controller.
+The binding for the STM32MP25 is different from that of the
+STM32MP1x, so we need to create a stm32mp25_rstcrl.c file.
+We will keep a generic API stm32_rstcrl.c file for probing and
+passing platform data.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1478457e6742ac56bb2cfd895d77d21b7d725b96 drivers: stm32_rstctrl: move stm32mp1x controller in stm32mp1_rstcrl.c]
+Change-Id: Ie5c72e1ceb55d3e597c938c502fce434f4007b16
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk     |   2 +
+ core/drivers/rstctrl/stm32_rstctrl.c    | 182 ++++--------------------
+ core/drivers/rstctrl/stm32_rstctrl.h    |  22 +++
+ core/drivers/rstctrl/stm32mp1_rstctrl.c | 165 +++++++++++++++++++++
+ core/drivers/rstctrl/sub.mk             |   1 +
+ 5 files changed, 215 insertions(+), 157 deletions(-)
+ create mode 100644 core/drivers/rstctrl/stm32_rstctrl.h
+ create mode 100644 core/drivers/rstctrl/stm32mp1_rstctrl.c
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index bac06c67a..a7a48d5bf 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -132,6 +132,7 @@ $(call force,CFG_STM32_VREFBUF,y)
+ $(call force,CFG_STM32MP_CLK_CORE,y)
+ $(call force,CFG_STM32MP1_OPTEE_IN_SYSRAM,n)
+ $(call force,CFG_STM32MP1_SHARED_RESOURCES,n)
++$(call force,CFG_STM32MP1_RSTCTRL,y)
+ $(call force,CFG_STM32MP13_CLK,y)
+ $(call force,CFG_STM32MP13_REGULATOR_IOD,y)
+ $(call force,CFG_TEE_CORE_NB_CORE,1)
+@@ -147,6 +148,7 @@ $(call force,CFG_HALT_CORES_ON_PANIC_SGI,15)
+ $(call force,CFG_SECONDARY_INIT_CNTFRQ,y)
+ $(call force,CFG_STM32MP1_SHARED_RESOURCES,y)
+ $(call force,CFG_STM32_SAES,n)
++$(call force,CFG_STM32MP1_RSTCTRL,y)
+ $(call force,CFG_STM32MP15_CLK,y)
+ $(call force,CFG_STM32MP_CLK_CORE,y)
+ CFG_CORE_RESERVED_SHM ?= n
+diff --git a/core/drivers/rstctrl/stm32_rstctrl.c b/core/drivers/rstctrl/stm32_rstctrl.c
+index 50ff4ec88..81a582f92 100644
+--- a/core/drivers/rstctrl/stm32_rstctrl.c
++++ b/core/drivers/rstctrl/stm32_rstctrl.c
+@@ -5,148 +5,16 @@
+  */
+ 
+ #include <drivers/rstctrl.h>
+-#include <drivers/stm32mp_dt_bindings.h>
+-#include <drivers/stm32mp1_rcc.h>
+-#include <io.h>
+-#include <kernel/delay.h>
+-#include <kernel/dt.h>
+-#include <kernel/dt_driver.h>
+-#include <kernel/panic.h>
+ #include <mm/core_memprot.h>
+ #include <stm32_util.h>
+ 
+-#define RESET_ID_MASK		GENMASK_32(31, 5)
+-#define RESET_ID_SHIFT		5
+-#define RESET_BIT_POS_MASK	GENMASK_32(4, 0)
+-#define RESET_OFFSET_MAX	1024
++#include "stm32_rstctrl.h"
+ 
+-/* Exposed rstctrl instance */
+-struct stm32_rstline {
+-	unsigned int id;
+-	struct rstctrl rstctrl;
+-	SLIST_ENTRY(stm32_rstline) link;
+-};
++static struct stm32_reset_data *stm32_reset_pdata;
+ 
+ static SLIST_HEAD(, stm32_rstline) stm32_rst_list =
+ 	SLIST_HEAD_INITIALIZER(stm32_rst_list);
+ 
+-static size_t reset_id2reg_offset(unsigned int id)
+-{
+-	size_t offset = (id & RESET_ID_MASK) >> RESET_ID_SHIFT;
+-
+-	assert(offset < RESET_OFFSET_MAX);
+-	return offset * sizeof(uint32_t);
+-}
+-
+-static uint8_t reset_id2reg_bit_pos(unsigned int reset_id)
+-{
+-	uint8_t pos = reset_id & RESET_BIT_POS_MASK;
+-
+-	assert(pos < 32);
+-	return pos;
+-}
+-
+-static struct stm32_rstline *to_rstline(struct rstctrl *rstctrl)
+-{
+-	assert(rstctrl);
+-
+-	return container_of(rstctrl, struct stm32_rstline, rstctrl);
+-}
+-
+-static TEE_Result reset_assert(struct rstctrl *rstctrl, unsigned int to_us)
+-{
+-	unsigned int id = to_rstline(rstctrl)->id;
+-	vaddr_t rcc_base = stm32_rcc_base();
+-	uint32_t bit_mask = 0;
+-	size_t offset = 0;
+-
+-#ifdef CFG_STM32MP15
+-	switch (id) {
+-	case MCU_HOLD_BOOT_R:
+-		/*
+-		 * The RCC_MP_GCR is a read/write register.
+-		 * Assert the MCU HOLD_BOOT means clear the BOOT_MCU bit
+-		 */
+-		io_clrbits32(rcc_base + RCC_MP_GCR, RCC_MP_GCR_BOOT_MCU);
+-
+-		return TEE_SUCCESS;
+-	case MCU_R:
+-		/* MCU reset can only be written */
+-		to_us = 0;
+-		break;
+-	default:
+-		break;
+-	}
+-#endif
+-
+-	offset = reset_id2reg_offset(id);
+-	bit_mask = BIT(reset_id2reg_bit_pos(id));
+-
+-	io_write32(rcc_base + offset, bit_mask);
+-
+-	if (to_us) {
+-		uint64_t timeout_ref = timeout_init_us(to_us);
+-
+-		while (!(io_read32(rcc_base + offset) & bit_mask))
+-			if (timeout_elapsed(timeout_ref))
+-				break;
+-
+-		if (!(io_read32(rcc_base + offset) & bit_mask))
+-			return TEE_ERROR_SECURITY;
+-	}
+-
+-	return TEE_SUCCESS;
+-}
+-
+-static TEE_Result reset_deassert(struct rstctrl *rstctrl, unsigned int to_us)
+-{
+-	unsigned int id = to_rstline(rstctrl)->id;
+-	vaddr_t rcc_base = stm32_rcc_base();
+-	uint32_t bit_mask = 0;
+-	size_t offset = 0;
+-
+-#ifdef CFG_STM32MP15
+-	switch (id) {
+-	case MCU_HOLD_BOOT_R:
+-		/*
+-		 * The RCC_MP_GCR is a read/write register.
+-		 * Deassert the MCU HOLD_BOOT means set the BOOT_MCU the bit
+-		 */
+-		io_setbits32(rcc_base + RCC_MP_GCR, RCC_MP_GCR_BOOT_MCU);
+-
+-		return TEE_SUCCESS;
+-	case MCU_R:
+-		/* MCU reset deasserts by its own */
+-		return TEE_SUCCESS;
+-	default:
+-		break;
+-	}
+-#endif
+-
+-	offset = reset_id2reg_offset(id) + RCC_MP_RSTCLRR_OFFSET;
+-	bit_mask = BIT(reset_id2reg_bit_pos(id));
+-
+-	io_write32(rcc_base + offset, bit_mask);
+-
+-	if (to_us) {
+-		uint64_t timeout_ref = timeout_init_us(to_us);
+-
+-		while ((io_read32(rcc_base + offset) & bit_mask))
+-			if (timeout_elapsed(timeout_ref))
+-				break;
+-
+-		if (io_read32(rcc_base + offset) & bit_mask)
+-			return TEE_ERROR_SECURITY;
+-	}
+-
+-	return TEE_SUCCESS;
+-}
+-
+-static struct rstctrl_ops stm32_rstctrl_ops = {
+-	.assert_level = reset_assert,
+-	.deassert_level = reset_deassert,
+-};
+-
+ static struct stm32_rstline *find_rstctrl_device(unsigned int control_id)
+ {
+ 	struct stm32_rstline *stm32_rstline = NULL;
+@@ -158,7 +26,9 @@ static struct stm32_rstline *find_rstctrl_device(unsigned int control_id)
+ 	return stm32_rstline;
+ }
+ 
+-static struct stm32_rstline *find_or_allocate_rstline(unsigned int binding_id)
++static struct
++stm32_rstline *find_or_allocate_rstline(unsigned int binding_id,
++					const struct stm32_reset_data *pdata)
+ {
+ 	struct stm32_rstline *stm32_rstline = find_rstctrl_device(binding_id);
+ 
+@@ -167,24 +37,36 @@ static struct stm32_rstline *find_or_allocate_rstline(unsigned int binding_id)
+ 
+ 	stm32_rstline = calloc(1, sizeof(*stm32_rstline));
+ 	if (stm32_rstline) {
+-		stm32_rstline->rstctrl.ops = &stm32_rstctrl_ops;
++		assert(pdata->get_rstctrl_ops);
++
+ 		stm32_rstline->id = binding_id;
++		stm32_rstline->rstctrl.ops = pdata->get_rstctrl_ops(binding_id);
++
+ 		SLIST_INSERT_HEAD(&stm32_rst_list, stm32_rstline, link);
+ 	}
+ 
+ 	return stm32_rstline;
+ }
+ 
++struct stm32_rstline *to_rstline(struct rstctrl *rstctrl)
++{
++	assert(rstctrl);
++
++	return container_of(rstctrl, struct stm32_rstline, rstctrl);
++}
++
+ struct rstctrl *stm32mp_rcc_reset_id_to_rstctrl(unsigned int binding_id)
+ {
+-	struct stm32_rstline *rstline = find_or_allocate_rstline(binding_id);
++	struct stm32_rstline *rstline = NULL;
++
++	rstline = find_or_allocate_rstline(binding_id, stm32_reset_pdata);
+ 
+ 	assert(rstline);
+ 	return &rstline->rstctrl;
+ }
+ 
+ static TEE_Result stm32_rstctrl_get_dev(struct dt_pargs *arg,
+-					void *priv_data __unused,
++					void *priv_data,
+ 					struct rstctrl **out_device)
+ {
+ 	struct stm32_rstline *stm32_rstline = NULL;
+@@ -195,7 +77,7 @@ static TEE_Result stm32_rstctrl_get_dev(struct dt_pargs *arg,
+ 
+ 	control_id = arg->args[0];
+ 
+-	stm32_rstline = find_or_allocate_rstline(control_id);
++	stm32_rstline = find_or_allocate_rstline(control_id, priv_data);
+ 	if (!stm32_rstline)
+ 		return TEE_ERROR_OUT_OF_MEMORY;
+ 
+@@ -204,12 +86,12 @@ static TEE_Result stm32_rstctrl_get_dev(struct dt_pargs *arg,
+ 	return TEE_SUCCESS;
+ }
+ 
+-static TEE_Result stm32_rstctrl_provider_probe(const void *fdt, int offs,
+-					       const void *compat_data __unused)
++TEE_Result stm32_rstctrl_provider_probe(const void *fdt, int offs,
++					const void *compat_data)
+ {
+ 	struct dt_node_info info = { };
+ 
+-	assert(rstctrl_ops_is_valid(&stm32_rstctrl_ops));
++	stm32_reset_pdata = (struct stm32_reset_data *)compat_data;
+ 
+ 	fdt_fill_device_info(fdt, &info, offs);
+ 
+@@ -217,19 +99,5 @@ static TEE_Result stm32_rstctrl_provider_probe(const void *fdt, int offs,
+ 	       info.reg_size != DT_INFO_INVALID_REG_SIZE);
+ 
+ 	return rstctrl_register_provider(fdt, offs, stm32_rstctrl_get_dev,
+-					 NULL);
++					 stm32_reset_pdata);
+ }
+-
+-static const struct dt_device_match stm32_rstctrl_match_table[] = {
+-	{ .compatible = "st,stm32mp1-rcc" },
+-	{ .compatible = "st,stm32mp1-rcc-secure" },
+-	{ .compatible = "st,stm32mp13-rcc" },
+-	{ }
+-};
+-
+-DEFINE_DT_DRIVER(stm32_rstctrl_dt_driver) = {
+-	.name = "stm32_rstctrl",
+-	.type = DT_DRIVER_RSTCTRL,
+-	.match_table = stm32_rstctrl_match_table,
+-	.probe = stm32_rstctrl_provider_probe,
+-};
+diff --git a/core/drivers/rstctrl/stm32_rstctrl.h b/core/drivers/rstctrl/stm32_rstctrl.h
+new file mode 100644
+index 000000000..d66518fd4
+--- /dev/null
++++ b/core/drivers/rstctrl/stm32_rstctrl.h
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2018-2023, STMicroelectronics
++ */
++
++#include <drivers/rstctrl.h>
++
++/* Exposed rstctrl instance */
++struct stm32_rstline {
++	unsigned int id;
++	struct rstctrl rstctrl;
++	SLIST_ENTRY(stm32_rstline)link;
++};
++
++struct stm32_rstline *to_rstline(struct rstctrl *rstctrl);
++
++struct stm32_reset_data {
++	struct rstctrl_ops * (*get_rstctrl_ops)(unsigned int id);
++};
++
++TEE_Result stm32_rstctrl_provider_probe(const void *fdt, int offs,
++					const void *compat_data);
+diff --git a/core/drivers/rstctrl/stm32mp1_rstctrl.c b/core/drivers/rstctrl/stm32mp1_rstctrl.c
+new file mode 100644
+index 000000000..42841a6ff
+--- /dev/null
++++ b/core/drivers/rstctrl/stm32mp1_rstctrl.c
+@@ -0,0 +1,165 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2021-2022, Linaro Limited
++ * Copyright (c) 2018-2022, STMicroelectronics
++ */
++
++#include <drivers/rstctrl.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stm32mp1_rcc.h>
++#include <io.h>
++#include <kernel/delay.h>
++#include <kernel/dt.h>
++#include <kernel/dt_driver.h>
++#include <kernel/panic.h>
++#include <mm/core_memprot.h>
++#include <stm32_util.h>
++
++#include "stm32_rstctrl.h"
++
++#define RESET_ID_MASK		GENMASK_32(31, 5)
++#define RESET_ID_SHIFT		U(5)
++#define RESET_BIT_POS_MASK	GENMASK_32(4, 0)
++#define RESET_OFFSET_MAX	U(1024)
++
++static size_t reset_id2reg_offset(unsigned int id)
++{
++	size_t offset = (id & RESET_ID_MASK) >> RESET_ID_SHIFT;
++
++	assert(offset < RESET_OFFSET_MAX);
++	return offset * sizeof(uint32_t);
++}
++
++static uint8_t reset_id2reg_bit_pos(unsigned int reset_id)
++{
++	uint8_t pos = reset_id & RESET_BIT_POS_MASK;
++
++	assert(pos < 32);
++	return pos;
++}
++
++static TEE_Result reset_assert(struct rstctrl *rstctrl, unsigned int to_us)
++{
++	unsigned int id = to_rstline(rstctrl)->id;
++	vaddr_t rcc_base = stm32_rcc_base();
++	uint32_t bit_mask = 0;
++	size_t offset = 0;
++
++#ifdef CFG_STM32MP15
++	switch (id) {
++	case MCU_HOLD_BOOT_R:
++		/*
++		 * The RCC_MP_GCR is a read/write register.
++		 * Assert the MCU HOLD_BOOT means clear the BOOT_MCU bit
++		 */
++		io_clrbits32(rcc_base + RCC_MP_GCR, RCC_MP_GCR_BOOT_MCU);
++
++		return TEE_SUCCESS;
++	case MCU_R:
++		/* MCU reset can only be written */
++		to_us = 0;
++		break;
++	default:
++		break;
++	}
++#endif
++
++	offset = reset_id2reg_offset(id);
++	bit_mask = BIT(reset_id2reg_bit_pos(id));
++
++	io_write32(rcc_base + offset, bit_mask);
++
++	if (to_us) {
++		uint64_t timeout_ref = timeout_init_us(to_us);
++
++		while (!(io_read32(rcc_base + offset) & bit_mask))
++			if (timeout_elapsed(timeout_ref))
++				break;
++
++		if (!(io_read32(rcc_base + offset) & bit_mask))
++			return TEE_ERROR_SECURITY;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result reset_deassert(struct rstctrl *rstctrl, unsigned int to_us)
++{
++	unsigned int id = to_rstline(rstctrl)->id;
++	vaddr_t rcc_base = stm32_rcc_base();
++	uint32_t bit_mask = 0;
++	size_t offset = 0;
++
++#ifdef CFG_STM32MP15
++	switch (id) {
++	case MCU_HOLD_BOOT_R:
++		/*
++		 * The RCC_MP_GCR is a read/write register.
++		 * Deassert the MCU HOLD_BOOT means set the BOOT_MCU the bit
++		 */
++		io_setbits32(rcc_base + RCC_MP_GCR, RCC_MP_GCR_BOOT_MCU);
++
++		return TEE_SUCCESS;
++	case MCU_R:
++		/* MCU reset deasserts by its own */
++		return TEE_SUCCESS;
++	default:
++		break;
++	}
++#endif
++
++	offset = reset_id2reg_offset(id) + RCC_MP_RSTCLRR_OFFSET;
++	bit_mask = BIT(reset_id2reg_bit_pos(id));
++
++	io_write32(rcc_base + offset, bit_mask);
++
++	if (to_us) {
++		uint64_t timeout_ref = timeout_init_us(to_us);
++
++		while ((io_read32(rcc_base + offset) & bit_mask))
++			if (timeout_elapsed(timeout_ref))
++				break;
++
++		if (io_read32(rcc_base + offset) & bit_mask)
++			return TEE_ERROR_SECURITY;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static struct rstctrl_ops stm32_rstctrl_ops = {
++	.assert_level = reset_assert,
++	.deassert_level = reset_deassert,
++};
++
++static struct rstctrl_ops *stm32_reset_get_ops(unsigned int id __unused)
++{
++	return &stm32_rstctrl_ops;
++}
++
++static const struct stm32_reset_data stm32mp1_reset_data = {
++	.get_rstctrl_ops = stm32_reset_get_ops
++};
++
++static const struct dt_device_match stm32_rstctrl_match_table[] = {
++	{
++		.compatible = "st,stm32mp1-rcc",
++		.compat_data = &stm32mp1_reset_data,
++	},
++	{
++		.compatible = "st,stm32mp1-rcc-secure",
++		.compat_data = &stm32mp1_reset_data,
++		},
++	{
++		.compatible = "st,stm32mp13-rcc",
++		.compat_data = &stm32mp1_reset_data,
++	},
++	{ }
++};
++
++DEFINE_DT_DRIVER(stm32_rstctrl_dt_driver) = {
++	.name = "stm32_rstctrl",
++	.type = DT_DRIVER_RSTCTRL,
++	.match_table = stm32_rstctrl_match_table,
++	.probe = stm32_rstctrl_provider_probe,
++};
+diff --git a/core/drivers/rstctrl/sub.mk b/core/drivers/rstctrl/sub.mk
+index 0466b621f..acebd651f 100644
+--- a/core/drivers/rstctrl/sub.mk
++++ b/core/drivers/rstctrl/sub.mk
+@@ -1,2 +1,3 @@
+ srcs-y += rstctrl.c
+ srcs-$(CFG_STM32_RSTCTRL) += stm32_rstctrl.c
++srcs-$(CFG_STM32MP1_RSTCTRL) += stm32mp1_rstctrl.c
+-- 
+2.47.2
+

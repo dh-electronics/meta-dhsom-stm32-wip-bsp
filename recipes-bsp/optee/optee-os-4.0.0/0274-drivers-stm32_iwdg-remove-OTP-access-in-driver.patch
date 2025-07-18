@@ -1,0 +1,204 @@
+From 7026641c135c627c8ac4a12a0266c2c5eedcf306 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 18 Dec 2023 10:35:40 +0100
+Subject: [PATCH 0274/1695] drivers: stm32_iwdg: remove OTP access in driver
+
+Now we know if the watchdog is running by reading the hardware,
+there is no need to read the OTP fuses related to the watchdog.
+This make removes platform function stm32_get_iwdg_otp_config()
+and consequently stm32_iwdg.h header file.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 25c5c72a8a0b874225151b49e2b50cc546832b11 drivers: stm32_iwdg: remove OTP access in driver]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c | 41 ------------------------------
+ core/drivers/stm32_iwdg.c          | 40 -----------------------------
+ core/include/drivers/stm32_iwdg.h  | 29 ---------------------
+ 3 files changed, 110 deletions(-)
+ delete mode 100644 core/include/drivers/stm32_iwdg.h
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index 5fa81e101..dbbd48027 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -12,7 +12,6 @@
+ #include <drivers/stm32_etzpc.h>
+ #include <drivers/stm32_firewall.h>
+ #include <drivers/stm32_gpio.h>
+-#include <drivers/stm32_iwdg.h>
+ #include <drivers/stm32_tamp.h>
+ #include <drivers/stm32_uart.h>
+ #include <drivers/stm32mp_dt_bindings.h>
+@@ -433,46 +432,6 @@ static bool __maybe_unused bank_is_valid(unsigned int bank)
+ 	panic();
+ }
+ 
+-#ifdef CFG_STM32_IWDG
+-TEE_Result stm32_get_iwdg_otp_config(paddr_t pbase,
+-				     struct stm32_iwdg_otp_data *otp_data)
+-{
+-	unsigned int idx = 0;
+-	uint32_t otp_id = 0;
+-	size_t bit_len = 0;
+-	uint8_t bit_offset = 0;
+-	uint32_t otp_value = 0;
+-
+-	switch (pbase) {
+-	case IWDG1_BASE:
+-		idx = 0;
+-		break;
+-	case IWDG2_BASE:
+-		idx = 1;
+-		break;
+-	default:
+-		panic();
+-	}
+-
+-	if (stm32_bsec_find_otp_in_nvmem_layout("hw2_otp", &otp_id, &bit_offset,
+-						&bit_len) ||
+-	    bit_len != 32 || bit_offset != 0)
+-		panic();
+-
+-	if (stm32_bsec_read_otp(&otp_value, otp_id))
+-		panic();
+-
+-	otp_data->hw_enabled = otp_value &
+-			       BIT(idx + HW2_OTP_IWDG_HW_ENABLE_SHIFT);
+-	otp_data->disable_on_stop = otp_value &
+-				    BIT(idx + HW2_OTP_IWDG_FZ_STOP_SHIFT);
+-	otp_data->disable_on_standby = otp_value &
+-				       BIT(idx + HW2_OTP_IWDG_FZ_STANDBY_SHIFT);
+-
+-	return TEE_SUCCESS;
+-}
+-#endif /*CFG_STM32_IWDG*/
+-
+ #ifdef CFG_STM32_DEBUG_ACCESS
+ static TEE_Result init_debug(void)
+ {
+diff --git a/core/drivers/stm32_iwdg.c b/core/drivers/stm32_iwdg.c
+index 60c827e6d..60925bd58 100644
+--- a/core/drivers/stm32_iwdg.c
++++ b/core/drivers/stm32_iwdg.c
+@@ -6,7 +6,6 @@
+ #include <assert.h>
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+-#include <drivers/stm32_iwdg.h>
+ #include <drivers/wdt.h>
+ #include <io.h>
+ #include <keep.h>
+@@ -64,15 +63,9 @@
+ 
+ /*
+  * Values for struct stm32_iwdg_device::flags
+- * IWDG_FLAGS_HW_ENABLED                Watchdog is enabled by BootROM
+- * IWDG_FLAGS_DISABLE_ON_STOP           Watchdog is freezed in SoC STOP mode
+- * IWDG_FLAGS_DISABLE_ON_STANDBY        Watchdog is freezed in SoC STANDBY mode
+  * IWDG_FLAGS_NON_SECURE                Instance is assigned to non-secure world
+  * IWDG_FLAGS_ENABLED			Watchdog has been enabled
+  */
+-#define IWDG_FLAGS_HW_ENABLED			BIT(0)
+-#define IWDG_FLAGS_DISABLE_ON_STOP		BIT(1)
+-#define IWDG_FLAGS_DISABLE_ON_STANDBY		BIT(2)
+ #define IWDG_FLAGS_NON_SECURE			BIT(3)
+ #define IWDG_FLAGS_ENABLED			BIT(4)
+ 
+@@ -303,24 +296,6 @@ static TEE_Result stm32_iwdg_parse_fdt(struct stm32_iwdg_device *iwdg,
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 	}
+ 
+-	/* DT can specify low power cases */
+-	if (!fdt_getprop(fdt, node, "stm32,enable-on-stop", NULL))
+-		iwdg->flags |= IWDG_FLAGS_DISABLE_ON_STOP;
+-
+-	if (!fdt_getprop(fdt, node, "stm32,enable-on-standby", NULL))
+-		iwdg->flags |= IWDG_FLAGS_DISABLE_ON_STANDBY;
+-
+-	return TEE_SUCCESS;
+-}
+-
+-/* Platform should override this function to provide IWDG fuses configuration */
+-TEE_Result __weak stm32_get_iwdg_otp_config(paddr_t pbase __unused,
+-					    struct stm32_iwdg_otp_data *otp_d)
+-{
+-	otp_d->hw_enabled = false;
+-	otp_d->disable_on_stop = false;
+-	otp_d->disable_on_standby = false;
+-
+ 	return TEE_SUCCESS;
+ }
+ 
+@@ -360,33 +335,18 @@ static void iwdg_wdt_get_version_and_status(struct stm32_iwdg_device *iwdg)
+ static TEE_Result stm32_iwdg_setup(struct stm32_iwdg_device *iwdg,
+ 				   const void *fdt, int node)
+ {
+-	struct stm32_iwdg_otp_data otp_data = { };
+ 	TEE_Result res = TEE_SUCCESS;
+ 
+ 	res = stm32_iwdg_parse_fdt(iwdg, fdt, node);
+ 	if (res)
+ 		return res;
+ 
+-	res = stm32_get_iwdg_otp_config(iwdg->base.pa, &otp_data);
+-	if (res)
+-		return res;
+-
+-	if (otp_data.hw_enabled)
+-		iwdg->flags |= IWDG_FLAGS_HW_ENABLED;
+-	if (otp_data.disable_on_stop)
+-		iwdg->flags |= IWDG_FLAGS_DISABLE_ON_STOP;
+-	if (otp_data.disable_on_standby)
+-		iwdg->flags |= IWDG_FLAGS_DISABLE_ON_STANDBY;
+-
+ 	/* Enable watchdog source and bus clocks once for all */
+ 	clk_enable(iwdg->clk_lsi);
+ 	clk_enable(iwdg->clk_pclk);
+ 
+ 	iwdg_wdt_get_version_and_status(iwdg);
+ 
+-	if (otp_data.hw_enabled)
+-		iwdg_wdt_set_enabled(iwdg);
+-
+ 	if (iwdg_wdt_is_enabled(iwdg)) {
+ 		/* Configure timeout if watchdog is already enabled */
+ 		res = configure_timeout(iwdg);
+diff --git a/core/include/drivers/stm32_iwdg.h b/core/include/drivers/stm32_iwdg.h
+deleted file mode 100644
+index a575a199d..000000000
+--- a/core/include/drivers/stm32_iwdg.h
++++ /dev/null
+@@ -1,29 +0,0 @@
+-/* SPDX-License-Identifier: BSD-3-Clause */
+-/*
+- * Copyright (c) 2018-2022, STMicroelectronics - All Rights Reserved
+- */
+-
+-#ifndef __DRIVERS_STM32_IWDG_H
+-#define __DRIVERS_STM32_IWDG_H
+-
+-#include <stdbool.h>
+-
+-/*
+- * struct stm32_iwdg_otp_data - Fuses configuration related to an IWDG
+- * @hw_enabled - IWDDG instance is enabled by early hardware boot stage
+- * @disable_on_stop - IWDG instance freezes when SoC is in STOP mode
+- * @disable_on_standby - IWDG instance freezes when SoC is in STANDBY mode
+- */
+-struct stm32_iwdg_otp_data {
+-	bool hw_enabled;
+-	bool disable_on_stop;
+-	bool disable_on_standby;
+-};
+-
+-/*
+- * Platform shall implement this function for IWDG instance to retrieve its
+- * OTP/fuse configuration.
+- */
+-TEE_Result stm32_get_iwdg_otp_config(paddr_t pbase,
+-				     struct stm32_iwdg_otp_data *otp_data);
+-#endif /*__DRIVERS_STM32_IWDG_H*/
+-- 
+2.47.2
+

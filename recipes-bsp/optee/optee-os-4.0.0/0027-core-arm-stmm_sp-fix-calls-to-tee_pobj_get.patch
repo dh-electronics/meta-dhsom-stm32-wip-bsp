@@ -1,0 +1,51 @@
+From d88d516c8535669bd988f508d73870f640aa15c1 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 8 Nov 2023 15:47:47 +0100
+Subject: [PATCH 0027/1695] core: arm: stmm_sp: fix calls to tee_pobj_get()
+
+Fixes calls to tee_pobj_get() that use boolean value false as argument
+where an enum tee_pobj_usage argument is expected.
+
+Between OP-TEE release tags 2.4.0 and 3.11.0, tee_pobj_get() used to
+take a boolean @temporary argument. The function prototype changed in
+commit 6885abf2f7ef ("core: tee_pobj_get() takes an enum tee_pobj_usage")
+and was merged in release tag 3.11.0 but initial implementation of StMM
+support [1] and its related source file renaming [2] sadly used the
+old prototype, using false (0) instead of TEE_POBJ_USAGE_OPEN (0).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b88dbc551248c51a1fd43fb7423c61dcca24c9c6 core: arm: stmm_sp: fix calls to tee_pobj_get()]
+Change-Id: Icba9ea9861c28d29d97ffc88ad0cd5668a61edad
+Fixes: 42471ecf25b7 ("core: load stmm via secure partition") [1]
+Fixes: f9cd31c5310d ("core: rename secure_partition to stmm_sp") [2]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from d0989b48ae25bc1aff98f49261736a7b289dfb60]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/kernel/stmm_sp.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/kernel/stmm_sp.c b/core/arch/arm/kernel/stmm_sp.c
+index 691bae845..6d991a306 100644
+--- a/core/arch/arm/kernel/stmm_sp.c
++++ b/core/arch/arm/kernel/stmm_sp.c
+@@ -663,7 +663,7 @@ static TEE_Result sec_storage_obj_read(unsigned long storage_id, char *obj_id,
+ 	sess = ts_get_current_session();
+ 
+ 	res = tee_pobj_get(&sess->ctx->uuid, obj_id, obj_id_len, flags,
+-			   false, fops, &po);
++			   TEE_POBJ_USAGE_OPEN, fops, &po);
+ 	if (res != TEE_SUCCESS)
+ 		return res;
+ 
+@@ -714,7 +714,7 @@ static TEE_Result sec_storage_obj_write(unsigned long storage_id, char *obj_id,
+ 	sess = ts_get_current_session();
+ 
+ 	res = tee_pobj_get(&sess->ctx->uuid, obj_id, obj_id_len, flags,
+-			   false, fops, &po);
++			   TEE_POBJ_USAGE_OPEN, fops, &po);
+ 	if (res != TEE_SUCCESS)
+ 		return res;
+ 
+-- 
+2.47.2
+

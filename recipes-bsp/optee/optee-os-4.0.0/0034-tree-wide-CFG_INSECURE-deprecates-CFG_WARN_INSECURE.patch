@@ -1,0 +1,141 @@
+From ad068208e839c0f82b3bdb39ecc6f90756dec9d6 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 14 Nov 2023 14:03:31 +0100
+Subject: [PATCH 0034/1695] tree wide: CFG_INSECURE deprecates
+ CFG_WARN_INSECURE
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Replaces configuration switch CFG_WARN_INSECURE with CFG_INSECURE
+The new name is better because the switch not only warns but also
+change the OP-TEE core behavior as, for example, allowing absence
+of secure storage rollback protection.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f2b0f6537e34fb4027180fe6fa439a3b135210e5 tree wide: CFG_INSECURE deprecates CFG_WARN_INSECURE]
+Change-Id: Ia97b67da3f0f400604e04636f0dff55cbcc2bb99
+Suggested-by: Jérôme Forissier <jerome@forissier.org>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 9ea709a7f073faa0a8b2a75a68c275c20e0b4e6f]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/kernel/boot.c        |  2 +-
+ core/arch/arm/plat-stm32mp1/main.c |  2 +-
+ core/arch/riscv/kernel/boot.c      |  2 +-
+ core/arch/riscv/plat-spike/conf.mk |  2 +-
+ core/tee/tee_ree_fs.c              |  4 ++--
+ mk/config.mk                       | 19 +++++++++++++++----
+ 6 files changed, 21 insertions(+), 10 deletions(-)
+
+diff --git a/core/arch/arm/kernel/boot.c b/core/arch/arm/kernel/boot.c
+index 9a132240e..7dc1b3a76 100644
+--- a/core/arch/arm/kernel/boot.c
++++ b/core/arch/arm/kernel/boot.c
+@@ -1191,7 +1191,7 @@ void __weak boot_init_primary_late(unsigned long fdt,
+ 	configure_console_from_dt();
+ 
+ 	IMSG("OP-TEE version: %s", core_v_str);
+-	if (IS_ENABLED(CFG_WARN_INSECURE)) {
++	if (IS_ENABLED(CFG_INSECURE)) {
+ 		IMSG("WARNING: This OP-TEE configuration might be insecure!");
+ 		IMSG("WARNING: Please check https://optee.readthedocs.io/en/latest/architecture/porting_guidelines.html");
+ 	}
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index cb9c431df..6c5f266a9 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -553,7 +553,7 @@ static TEE_Result init_debug(void)
+ 		return res;
+ 
+ 	if (state != BSEC_STATE_SEC_CLOSED && conf) {
+-		if (IS_ENABLED(CFG_WARN_INSECURE))
++		if (IS_ENABLED(CFG_INSECURE))
+ 			IMSG("WARNING: All debug accesses are allowed");
+ 
+ 		res = stm32_bsec_write_debug_conf(conf | BSEC_DEBUG_ALL);
+diff --git a/core/arch/riscv/kernel/boot.c b/core/arch/riscv/kernel/boot.c
+index 16c424cef..7af826d47 100644
+--- a/core/arch/riscv/kernel/boot.c
++++ b/core/arch/riscv/kernel/boot.c
+@@ -139,7 +139,7 @@ void boot_init_primary_late(unsigned long fdt,
+ 	update_external_dt();
+ 
+ 	IMSG("OP-TEE version: %s", core_v_str);
+-	if (IS_ENABLED(CFG_WARN_INSECURE)) {
++	if (IS_ENABLED(CFG_INSECURE)) {
+ 		IMSG("WARNING: This OP-TEE configuration might be insecure!");
+ 		IMSG("WARNING: Please check https://optee.readthedocs.io/en/latest/architecture/porting_guidelines.html");
+ 	}
+diff --git a/core/arch/riscv/plat-spike/conf.mk b/core/arch/riscv/plat-spike/conf.mk
+index 27108ac69..2047341db 100644
+--- a/core/arch/riscv/plat-spike/conf.mk
++++ b/core/arch/riscv/plat-spike/conf.mk
+@@ -67,7 +67,7 @@ $(call force,CFG_SECSTOR_TA,n)
+ $(call force,CFG_SHOW_CONF_ON_BOOT,n)
+ $(call force,CFG_SYSCALL_WRAPPERS_MCOUNT,n)
+ $(call force,CFG_BOOT_SYNC_CPU,y)
+-$(call force,CFG_WARN_INSECURE,y)
++$(call force,CFG_INSECURE,y)
+ $(call force,CFG_RISCV_TIME_SOURCE_RDTIME,y)
+ CFG_RISCV_MTIME_RATE ?= 10000000
+ CFG_TDDRAM_START ?= 0xbdb00000
+diff --git a/core/tee/tee_ree_fs.c b/core/tee/tee_ree_fs.c
+index 71d5dcdaa..2e44ec48d 100644
+--- a/core/tee/tee_ree_fs.c
++++ b/core/tee/tee_ree_fs.c
+@@ -598,7 +598,7 @@ static TEE_Result open_dirh(struct tee_fs_dirfile_dirh **dirh)
+ 		static bool once;
+ 
+ 		if (res != TEE_ERROR_NOT_IMPLEMENTED ||
+-		    !IS_ENABLED(CFG_WARN_INSECURE))
++		    !IS_ENABLED(CFG_INSECURE))
+ 			return res;
+ 
+ 		if (!once) {
+@@ -633,7 +633,7 @@ static TEE_Result commit_dirh_writes(struct tee_fs_dirfile_dirh *dirh)
+ 	if (res)
+ 		return res;
+ 	res = nv_counter_incr_ree_fs_to(counter);
+-	if (res == TEE_ERROR_NOT_IMPLEMENTED && IS_ENABLED(CFG_WARN_INSECURE)) {
++	if (res == TEE_ERROR_NOT_IMPLEMENTED && IS_ENABLED(CFG_INSECURE)) {
+ 		static bool once;
+ 
+ 		if (!once) {
+diff --git a/mk/config.mk b/mk/config.mk
+index 3adbab34c..820d06ea2 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -895,15 +895,26 @@ CFG_REGULATOR_FIXED ?= n
+ $(eval $(call cfg-enable-all-depends,CFG_REGULATOR_FIXED, \
+ 	 CFG_DRIVERS_REGULATOR CFG_DT))
+ 
+-# The purpose of this flag is to show a print when booting up the device that
+-# indicates whether the board runs a standard developer configuration or not.
+-# A developer configuration doesn't necessarily has to be secure. The intention
++# When enabled, CFG_INSECURE permits insecure configuration of OP-TEE core
++# and shows a print (info level) when booting up the device that
++# indicates that the board runs a standard developer configuration.
++#
++# A developer configuration doesn't necessarily have to be secure. The intention
+ # is that the one making products based on OP-TEE should override this flag in
+ # plat-xxx/conf.mk for the platform they're basing their products on after
+ # they've finalized implementing stubbed functionality (see OP-TEE
+ # documentation/Porting guidelines) as well as vendor specific security
+ # configuration.
+-CFG_WARN_INSECURE ?= y
++#
++# CFG_WARN_INSECURE served the same purpose as CFG_INSECURE but is deprecated.
++ifneq (undefined,$(flavor CFG_WARN_INSECURE))
++$(info WARNING: CFG_WARN_INSECURE is deprecated, use CFG_INSECURE instead)
++CFG_INSECURE ?= $(CFG_WARN_INSECURE)
++ifneq ($(CFG_INSECURE),$(CFG_WARN_INSECURE))
++$(error Inconsistent CFG_INSECURE=$(CFG_INSECURE) and CFG_WARN_INSECURE=$(CFG_WARN_INSECURE))
++endif
++endif # CFG_WARN_INSECURE defined
++CFG_INSECURE ?= y
+ 
+ # Enables warnings for declarations mixed with statements
+ CFG_WARN_DECL_AFTER_STATEMENT ?= y
+-- 
+2.47.2
+

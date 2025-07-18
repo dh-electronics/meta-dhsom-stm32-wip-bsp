@@ -1,0 +1,43 @@
+From 27fc7e55aa3b45556d2c498488ee37b7a14eba93 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 3 Nov 2023 17:25:27 +0100
+Subject: [PATCH 0058/1695] plat-stm32mp1: syscfg: compute base address once
+
+Compute SYSCFG virtual address only once.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ae4e394c5a76365a04e096eb065aa1f95c2ce792 plat-stm32mp1: syscfg: compute base address once]
+Change-Id: I110dbc12ec43c974f943caf69ce8939c6d47ef7d
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 649c864cc2cf4db3c7c9fc2135c2cbc3db26daf0]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c
+index 34bd68c10..208c1e835 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c
+@@ -18,6 +18,7 @@
+  */
+ #define SYSCFG_CMPCR				U(0x20)
+ #define SYSCFG_CMPENSETR			U(0x24)
++#define SYSCFG_IOSIZE				U(0x400)
+ 
+ /*
+  * SYSCFG_CMPCR Register
+@@ -38,9 +39,9 @@
+ 
+ static vaddr_t get_syscfg_base(void)
+ {
+-	struct io_pa_va base = { .pa = SYSCFG_BASE };
++	static struct io_pa_va base = { .pa = SYSCFG_BASE };
+ 
+-	return io_pa_or_va(&base, 1);
++	return io_pa_or_va(&base, SYSCFG_IOSIZE);
+ }
+ 
+ void stm32mp_syscfg_enable_io_compensation(void)
+-- 
+2.47.2
+

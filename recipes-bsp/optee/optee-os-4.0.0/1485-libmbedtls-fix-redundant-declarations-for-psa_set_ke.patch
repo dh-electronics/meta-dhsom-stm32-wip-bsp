@@ -1,0 +1,64 @@
+From 87b2283073a31c820e163bdb39f7e1c5aa6f1bad Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 29 Jan 2025 14:02:37 +0100
+Subject: [PATCH 1485/1695] libmbedtls: fix redundant declarations for
+ psa_set_key_domain_parameters
+
+In latest version of Mbed-TLS, domain parameters are removed. Pending a new
+version of libmbedtls, and to avoid causing compilation error with
+[-Werror=redundant-decls] due to the two declarations for
+psa_set_key_domain_parameters, backport the fix from Mbed-TLS:development.
+
+URL: https://github.com/Mbed-TLS/mbedtls/pull/8517/commits/5a39c4ecf2a065d454f01bd00656fdea9d782f73
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e4ee7a868cfc9b463c7020d7f48f2420621625ad libmbedtls: fix redundant declarations for psa_set_key_domain_parameters]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: I0c0659a608b2ed664007e3e142ec8bbd621dfeb8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/433585
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ lib/libmbedtls/mbedtls/include/psa/crypto_extra.h  | 3 +++
+ lib/libmbedtls/mbedtls/include/psa/crypto_struct.h | 3 +++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/lib/libmbedtls/mbedtls/include/psa/crypto_extra.h b/lib/libmbedtls/mbedtls/include/psa/crypto_extra.h
+index 4920508d7..0ea0dfccb 100644
+--- a/lib/libmbedtls/mbedtls/include/psa/crypto_extra.h
++++ b/lib/libmbedtls/mbedtls/include/psa/crypto_extra.h
+@@ -500,10 +500,13 @@ psa_status_t mbedtls_psa_inject_entropy(const uint8_t *seed,
+  * \retval #PSA_ERROR_NOT_SUPPORTED \emptydescription
+  * \retval #PSA_ERROR_INSUFFICIENT_MEMORY \emptydescription
+  */
++#if !defined(PSA_SET_KEY_DOMAIN_PARAMETERS)
++#define PSA_SET_KEY_DOMAIN_PARAMETERS
+ psa_status_t psa_set_key_domain_parameters(psa_key_attributes_t *attributes,
+                                            psa_key_type_t type,
+                                            const uint8_t *data,
+                                            size_t data_length);
++#endif /* PSA_SET_KEY_DOMAIN_PARAMETERS */
+ 
+ /**
+  * \brief Get domain parameters for a key.
+diff --git a/lib/libmbedtls/mbedtls/include/psa/crypto_struct.h b/lib/libmbedtls/mbedtls/include/psa/crypto_struct.h
+index 934bc176e..50d1defed 100644
+--- a/lib/libmbedtls/mbedtls/include/psa/crypto_struct.h
++++ b/lib/libmbedtls/mbedtls/include/psa/crypto_struct.h
+@@ -449,10 +449,13 @@ static inline psa_algorithm_t psa_get_key_algorithm(
+ 
+ /* This function is declared in crypto_extra.h, which comes after this
+  * header file, but we need the function here, so repeat the declaration. */
++#if !defined(PSA_SET_KEY_DOMAIN_PARAMETERS)
++#define PSA_SET_KEY_DOMAIN_PARAMETERS
+ psa_status_t psa_set_key_domain_parameters(psa_key_attributes_t *attributes,
+                                            psa_key_type_t type,
+                                            const uint8_t *data,
+                                            size_t data_length);
++#endif /* PSA_SET_KEY_DOMAIN_PARAMETERS */
+ 
+ static inline void psa_set_key_type(psa_key_attributes_t *attributes,
+                                     psa_key_type_t type)
+-- 
+2.47.2
+

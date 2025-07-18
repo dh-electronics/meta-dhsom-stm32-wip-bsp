@@ -1,0 +1,61 @@
+From c194165fdf0a84620d4de1b054eb47fdbc66341d Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 15 Apr 2024 10:49:26 +0200
+Subject: [PATCH 0458/1695] scpfw: module: optee: clock: get rates in continous
+ description
+
+Support describing clock rates using the continuous format (min/max/step
+triplet).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9fdd2d9cc56e744049395d958c950855cb89de67 scpfw: module: optee: clock: get rates in continous description]
+Change-Id: I265fd10f6886303e356e0739aa5d4399b79724c3
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ .../module/optee/clock/src/mod_optee_clock.c  | 23 +++++++++++++++----
+ 1 file changed, 18 insertions(+), 5 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c b/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c
+index 0ccaade7b..29254d489 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c
+@@ -179,9 +179,8 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
+         return FWK_E_PARAM;
+     }
+ 
+-    range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
+-
+     if (!is_exposed(ctx)) {
++        range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
+         range->min = 0;
+         range->max = 0;
+         range->rate_count = 1;
+@@ -191,9 +190,23 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
+ 
+     res = clk_get_rates_array(ctx->clk, 0, NULL, &rate_count);
+     if (res == TEE_ERROR_NOT_SUPPORTED) {
+-        range->min = clk_get_rate(ctx->clk);
+-        range->max = range->min;
+-        range->rate_count = 1;
++        unsigned long max = 0;
++	unsigned long min = 0;
++	unsigned long step = 0;
++
++        res = clk_get_rates_steps(ctx->clk, &min, &max, &step);
++
++        if (res == TEE_ERROR_NOT_SUPPORTED) {
++            range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
++            range->min = clk_get_rate(ctx->clk);
++            range->max = range->min;
++            range->rate_count = 1;
++        }
++
++        range->rate_type = MOD_CLOCK_RATE_TYPE_CONTINUOUS;
++	range->min = min;
++	range->max = max;
++	range->step = step;
+ 
+         return FWK_SUCCESS;
+     }
+-- 
+2.47.2
+

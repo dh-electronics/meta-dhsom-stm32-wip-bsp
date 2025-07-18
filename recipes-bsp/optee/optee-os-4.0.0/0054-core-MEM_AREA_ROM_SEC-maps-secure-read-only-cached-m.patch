@@ -1,0 +1,63 @@
+From 9c217fcae7d7b055c59e221022a19bc118cd9b35 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 20 Nov 2023 11:43:57 +0100
+Subject: [PATCH 0054/1695] core: MEM_AREA_ROM_SEC maps secure read only cached
+ memory
+
+Define memory area mapping identifier MEM_AREA_ROM_SEC to map read-only
+secure cached memory.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 77b7d5230376ab0c0e892d6a3806ba68ed26bef2 core: MEM_AREA_ROM_SEC maps secure read only cached memory]
+Change-Id: I5f49447f2cb81ed8cfd001ad714481a42e20c2aa
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from fc7e0cc38b99e84caf4cccdafac439e30f1a0a9a]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/include/mm/core_mmu.h | 3 +++
+ core/mm/core_mmu.c         | 2 ++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/core/include/mm/core_mmu.h b/core/include/mm/core_mmu.h
+index be992bf35..77c134961 100644
+--- a/core/include/mm/core_mmu.h
++++ b/core/include/mm/core_mmu.h
+@@ -73,6 +73,7 @@
+  * MEM_AREA_NEX_NSEC_SHM: nexus non-secure shared RAM between NSec and TEE.
+  * MEM_AREA_RAM_NSEC: NonSecure RAM storing data
+  * MEM_AREA_RAM_SEC:  Secure RAM storing some secrets
++ * MEM_AREA_ROM_SEC:  Secure read only memory storing some secrets
+  * MEM_AREA_IO_NSEC:  NonSecure HW mapped registers
+  * MEM_AREA_IO_SEC:   Secure HW mapped registers
+  * MEM_AREA_EXT_DT:   Memory loads external device tree
+@@ -102,6 +103,7 @@ enum teecore_memtypes {
+ 	MEM_AREA_NEX_NSEC_SHM,
+ 	MEM_AREA_RAM_NSEC,
+ 	MEM_AREA_RAM_SEC,
++	MEM_AREA_ROM_SEC,
+ 	MEM_AREA_IO_NSEC,
+ 	MEM_AREA_IO_SEC,
+ 	MEM_AREA_EXT_DT,
+@@ -136,6 +138,7 @@ static inline const char *teecore_memtype_name(enum teecore_memtypes type)
+ 		[MEM_AREA_NEX_NSEC_SHM] = "NEX_NSEC_SHM",
+ 		[MEM_AREA_RAM_NSEC] = "RAM_NSEC",
+ 		[MEM_AREA_RAM_SEC] = "RAM_SEC",
++		[MEM_AREA_ROM_SEC] = "ROM_SEC",
+ 		[MEM_AREA_IO_NSEC] = "IO_NSEC",
+ 		[MEM_AREA_IO_SEC] = "IO_SEC",
+ 		[MEM_AREA_EXT_DT] = "EXT_DT",
+diff --git a/core/mm/core_mmu.c b/core/mm/core_mmu.c
+index 584ff78e0..799cd8039 100644
+--- a/core/mm/core_mmu.c
++++ b/core/mm/core_mmu.c
+@@ -778,6 +778,8 @@ uint32_t core_mmu_type_to_attr(enum teecore_memtypes t)
+ 	case MEM_AREA_RAM_SEC:
+ 	case MEM_AREA_SEC_RAM_OVERALL:
+ 		return attr | TEE_MATTR_SECURE | TEE_MATTR_PRW | cached;
++	case MEM_AREA_ROM_SEC:
++		return attr | TEE_MATTR_SECURE | TEE_MATTR_PR | cached;
+ 	case MEM_AREA_RES_VASPACE:
+ 	case MEM_AREA_SHM_VASPACE:
+ 		return 0;
+-- 
+2.47.2
+

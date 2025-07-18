@@ -1,0 +1,129 @@
+From b470a59e2ab5533c054bab6f60bb7461db6ae815 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 30 Oct 2023 14:26:35 +0100
+Subject: [PATCH 0018/1695] drivers: stm32_gpio: remove unused APIs
+
+Remove unused stm32_get_gpio_bank_offset() and stm32_get_gpio_count()
+APIs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2567c78aed13690a7b12ff1a79bd1fc6b14c281d drivers: stm32_gpio: remove unused APIs]
+Change-Id: I422617a7df4f3bc1d64a07460194bc630f934e8b
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+[etienne: cherry-picked from 8370badb7bac1b7849a5f938634e7d9cad8a63be]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c       | 10 ---------
+ core/arch/arm/plat-stm32mp1/stm32_util.h | 15 -------------
+ core/drivers/stm32_gpio.c                | 27 ------------------------
+ core/include/drivers/stm32_gpio.h        | 10 ---------
+ 4 files changed, 62 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index eebf0bd5e..cb9c431df 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -500,16 +500,6 @@ static bool __maybe_unused bank_is_valid(unsigned int bank)
+ 	panic();
+ }
+ 
+-unsigned int stm32_get_gpio_bank_offset(unsigned int bank)
+-{
+-	assert(bank_is_valid(bank));
+-
+-	if (bank == GPIO_BANK_Z)
+-		return 0;
+-
+-	return bank * GPIO_BANK_OFFSET;
+-}
+-
+ #ifdef CFG_STM32_IWDG
+ TEE_Result stm32_get_iwdg_otp_config(paddr_t pbase,
+ 				     struct stm32_iwdg_otp_data *otp_data)
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index 4ec59339a..c2ade22a2 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -31,21 +31,6 @@ vaddr_t stm32_rcc_base(void);
+ /* Platform util for the GIC */
+ vaddr_t get_gicd_base(void);
+ 
+-/*
+- * Platform util functions for the GPIO driver
+- * @bank: Target GPIO bank ID as per DT bindings
+- *
+- * Platform shall implement these functions to provide to stm32_gpio
+- * driver the resource reference for a target GPIO bank. That are
+- * memory mapped interface base address, interface offset (see below)
+- * and clock identifier.
+- *
+- * stm32_get_gpio_bank_offset() returns a bank offset that is used to
+- * check DT configuration matches platform implementation of the banks
+- * description.
+- */
+-unsigned int stm32_get_gpio_bank_offset(unsigned int bank);
+-
+ /* Platform util for PMIC support */
+ bool stm32mp_with_pmic(void);
+ 
+diff --git a/core/drivers/stm32_gpio.c b/core/drivers/stm32_gpio.c
+index 6450c6fc0..7aaf29a90 100644
+--- a/core/drivers/stm32_gpio.c
++++ b/core/drivers/stm32_gpio.c
+@@ -736,33 +736,6 @@ static TEE_Result dt_stm32_gpio_pinctrl(const void *fdt, int node,
+ 	return TEE_SUCCESS;
+ }
+ 
+-
+-int stm32_get_gpio_count(void *fdt, int pinctrl_node, unsigned int bank)
+-{
+-	int node = 0;
+-	const fdt32_t *cuint = NULL;
+-
+-	fdt_for_each_subnode(node, fdt, pinctrl_node) {
+-		if (!fdt_getprop(fdt, node, "gpio-controller", NULL))
+-			continue;
+-
+-		cuint = fdt_getprop(fdt, node, "reg", NULL);
+-		if (!cuint)
+-			continue;
+-
+-		if (fdt32_to_cpu(*cuint) != stm32_get_gpio_bank_offset(bank))
+-			continue;
+-
+-		cuint = fdt_getprop(fdt, node, "ngpios", NULL);
+-		if (!cuint)
+-			panic();
+-
+-		return (int)fdt32_to_cpu(*cuint);
+-	}
+-
+-	return -1;
+-}
+-
+ void stm32_gpio_set_secure_cfg(unsigned int bank_id, unsigned int pin,
+ 			       bool secure)
+ {
+diff --git a/core/include/drivers/stm32_gpio.h b/core/include/drivers/stm32_gpio.h
+index 706fb1bf4..883888171 100644
+--- a/core/include/drivers/stm32_gpio.h
++++ b/core/include/drivers/stm32_gpio.h
+@@ -26,16 +26,6 @@ struct stm32_pinctrl;
+ void stm32_gpio_set_secure_cfg(unsigned int bank, unsigned int pin,
+ 			       bool secure);
+ 
+-/*
+- * Get the number of GPIO pins supported by a target GPIO bank
+- *
+- * @fdt: device tree reference
+- * @pinctrl_node: pinctrl node which GPIO bank node belongs to
+- * @bank: target GPIO bank ID
+- * Return number of GPIO pins (>= 0) or a negative value on error
+- */
+-int stm32_get_gpio_count(void *fdt, int pinctrl_node, unsigned int bank);
+-
+ /*
+  * Configure pin muxing access permission: can be secure or not
+  *
+-- 
+2.47.2
+

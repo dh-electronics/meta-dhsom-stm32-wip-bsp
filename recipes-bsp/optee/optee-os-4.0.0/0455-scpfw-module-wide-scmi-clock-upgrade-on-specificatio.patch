@@ -1,0 +1,246 @@
+From 81089db481f1a4bef393487c65b2ef4d4bb17527 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 15 Apr 2024 10:48:24 +0200
+Subject: [PATCH 0455/1695] scpfw: module wide: scmi clock upgrade on
+ specification v3.2
+
+Defines SCMI specification v3.2 message IDs for extended clock name
+and notification request on rate change or rate request change.
+Extended name provides the clock name returned over 64 character bytes.
+Notification requests are currently not supported.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 10da4226ad0e7fe759d1869715b473bb86141a6d scpfw: module wide: scmi clock upgrade on specification v3.2]
+Change-Id: I00b8b90cf832530a59bc3fafc12e012eba2f2a2e
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ .../include/mod_resource_perms.h              |   6 +
+ .../module/scmi/include/mod_scmi_std.h        |   5 +-
+ .../scmi_clock/include/internal/scmi_clock.h  |  42 +++++++
+ .../module/scmi_clock/src/mod_scmi_clock.c    | 106 ++++++++++++++++++
+ 4 files changed, 158 insertions(+), 1 deletion(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/resource_perms/include/mod_resource_perms.h b/core/lib/scmi-server/SCP-firmware/module/resource_perms/include/mod_resource_perms.h
+index 99d2f3d01..68b0e4db5 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/resource_perms/include/mod_resource_perms.h
++++ b/core/lib/scmi-server/SCP-firmware/module/resource_perms/include/mod_resource_perms.h
+@@ -187,6 +187,12 @@ enum mod_res_clock_permissions_idx {
+         MOD_SCMI_CLOCK_RATE_GET - MOD_RES_PERMS_CLOCK_PERMS_OFFSET,
+     MOD_RES_PERMS_SCMI_CLOCK_CONFIG_SET_IDX =
+         MOD_SCMI_CLOCK_CONFIG_SET - MOD_RES_PERMS_CLOCK_PERMS_OFFSET,
++    MOD_RES_PERMS_SCMI_CLOCK_NAME_GET_IDX =
++        MOD_SCMI_CLOCK_NAME_GET - MOD_RES_PERMS_CLOCK_PERMS_OFFSET,
++    MOD_RES_PERMS_SCMI_CLOCK_RATE_NOTIFY_IDX =
++        MOD_SCMI_CLOCK_RATE_NOTIFY - MOD_RES_PERMS_CLOCK_PERMS_OFFSET,
++    MOD_RES_PERMS_SCMI_CLOCK_CHANGE_REQUESTED_NOTIFY_IDX =
++        MOD_SCMI_CLOCK_RATE_CHANGE_REQUESTED_NOTIFY - MOD_RES_PERMS_CLOCK_PERMS_OFFSET,
+ };
+ 
+ /*!
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi/include/mod_scmi_std.h b/core/lib/scmi-server/SCP-firmware/module/scmi/include/mod_scmi_std.h
+index d212c6877..e40734449 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi/include/mod_scmi_std.h
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi/include/mod_scmi_std.h
+@@ -161,7 +161,10 @@ enum scmi_clock_command_id {
+     MOD_SCMI_CLOCK_RATE_SET = 0x005,
+     MOD_SCMI_CLOCK_RATE_GET = 0x006,
+     MOD_SCMI_CLOCK_CONFIG_SET = 0x007,
+-    MOD_SCMI_CLOCK_COMMAND_COUNT,
++    MOD_SCMI_CLOCK_NAME_GET = 0x008,
++    MOD_SCMI_CLOCK_RATE_NOTIFY = 0x009,
++    MOD_SCMI_CLOCK_RATE_CHANGE_REQUESTED_NOTIFY = 0x00A,
++    MOD_SCMI_CLOCK_COMMAND_COUNT
+ };
+ 
+ /*!
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/include/internal/scmi_clock.h b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/include/internal/scmi_clock.h
+index f3b51e5b4..3bf65bf6c 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/include/internal/scmi_clock.h
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/include/internal/scmi_clock.h
+@@ -244,4 +244,46 @@ struct scmi_clock_describe_rates_p2a {
+     struct scmi_clock_rate rates[];
+ };
+ 
++/*
++ * Clock get name (extended 64byte name)
++ */
++
++struct scmi_clock_name_get_a2p {
++    uint32_t clock_id;
++};
++
++#define SCMI_CLOCK_EXTTENDED_NAME_LENGTH_MAX 64
++
++struct scmi_clock_name_get_p2a {
++    int32_t status;
++    uint32_t flags;
++    char clock_name[SCMI_CLOCK_EXTTENDED_NAME_LENGTH_MAX];
++};
++
++/*
++ * Clock notify on clock rate change
++ */
++
++struct scmi_clock_rate_notify_a2p {
++    uint32_t clock_id;
++    uint32_t notify_enable;
++};
++
++struct scmi_clock_rate_notify_p2a {
++    int32_t status;
++};
++
++/*
++ * Clock notify on clock rate change requests
++ */
++
++struct scmi_clock_rate_change_request_notify_a2p {
++    uint32_t clock_id;
++    uint32_t notify_enable;
++};
++
++struct scmi_clock_rate_change_request_notify_p2a {
++    int32_t status;
++};
++
+ #endif /* INTERNAL_SCMI_CLOCK_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c
+index bb6faca53..f54361a7a 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c
+@@ -128,6 +128,12 @@ static int scmi_clock_config_set_handler(fwk_id_t service_id,
+     const uint32_t *payload);
+ static int scmi_clock_describe_rates_handler(fwk_id_t service_id,
+     const uint32_t *payload);
++static int scmi_clock_name_get_handler(fwk_id_t service_id,
++    const uint32_t *payload);
++static int scmi_clock_rate_notify_handler(fwk_id_t service_id,
++    const uint32_t *payload);
++static int scmi_clock_rate_change_request_notify_handler(fwk_id_t service_id,
++    const uint32_t *payload);
+ 
+ /*
+  * Internal variables.
+@@ -146,6 +152,9 @@ static int (*const handler_table[MOD_SCMI_CLOCK_COMMAND_COUNT])(
+     [MOD_SCMI_CLOCK_RATE_SET] = scmi_clock_rate_set_handler,
+     [MOD_SCMI_CLOCK_CONFIG_SET] = scmi_clock_config_set_handler,
+     [MOD_SCMI_CLOCK_DESCRIBE_RATES] = scmi_clock_describe_rates_handler,
++    [MOD_SCMI_CLOCK_NAME_GET] = scmi_clock_name_get_handler,
++    [MOD_SCMI_CLOCK_RATE_NOTIFY] = scmi_clock_rate_notify_handler,
++    [MOD_SCMI_CLOCK_RATE_CHANGE_REQUESTED_NOTIFY] = scmi_clock_rate_change_request_notify_handler,
+ };
+ 
+ static const unsigned int payload_size_table[MOD_SCMI_CLOCK_COMMAND_COUNT] = {
+@@ -163,6 +172,12 @@ static const unsigned int payload_size_table[MOD_SCMI_CLOCK_COMMAND_COUNT] = {
+         (unsigned int)sizeof(struct scmi_clock_config_set_a2p),
+     [MOD_SCMI_CLOCK_DESCRIBE_RATES] =
+         (unsigned int)sizeof(struct scmi_clock_describe_rates_a2p),
++    [MOD_SCMI_CLOCK_NAME_GET] =
++        (unsigned int)sizeof(struct scmi_clock_describe_rates_a2p),
++    [MOD_SCMI_CLOCK_RATE_NOTIFY] =
++        (unsigned int)sizeof(struct scmi_clock_rate_notify_a2p),
++    [MOD_SCMI_CLOCK_RATE_CHANGE_REQUESTED_NOTIFY] =
++        (unsigned int)sizeof(struct scmi_clock_rate_change_request_notify_a2p),
+ };
+ 
+ /*
+@@ -1368,6 +1383,97 @@ exit:
+     return status;
+ }
+ 
++static int scmi_clock_name_get_handler(fwk_id_t service_id,
++    const uint32_t *payload)
++{
++    int status, respond_status;
++    const struct mod_scmi_clock_device *clock_device;
++    size_t response_size;
++    const struct scmi_clock_name_get_a2p *parameters;
++    struct scmi_clock_name_get_p2a return_values = {
++        .status = (int32_t)SCMI_GENERIC_ERROR
++    };
++
++    parameters = (const struct scmi_clock_name_get_a2p*)payload;
++
++    status = scmi_clock_get_clock_device_entry(
++        service_id, parameters->clock_id, &clock_device);
++    if (status != FWK_SUCCESS) {
++        return_values.status = (int32_t)SCMI_NOT_FOUND;
++        goto exit;
++    }
++
++#ifdef BUILD_HAS_MOD_RESOURCE_PERMS
++    status = scmi_clock_permissions_handler(
++        parameters->clock_id,
++        service_id,
++        (unsigned int)MOD_SCMI_CLOCK_NAME_GET);
++    if (status != FWK_SUCCESS) {
++        return_values.status = (int32_t)SCMI_DENIED;
++        goto exit;
++    }
++#endif
++
++    fwk_str_strncpy(
++        return_values.clock_name,
++        fwk_module_get_element_name(clock_device->element_id),
++        sizeof(return_values.clock_name) - 1);
++
++    return_values.status = (int32_t)SCMI_SUCCESS;
++    response_size = sizeof(return_values);
++    return FWK_SUCCESS;
++
++exit:
++    response_size = sizeof(return_values.status);
++    respond_status = scmi_clock_ctx.scmi_api->respond(
++        service_id, &return_values, response_size);
++    if (respond_status != FWK_SUCCESS) {
++        FWK_LOG_DEBUG("[SCMI-CLK] %s @%d", __func__, __LINE__);
++    }
++
++    return status;
++}
++
++static int scmi_clock_rate_notify_handler(fwk_id_t service_id,
++    const uint32_t *payload)
++{
++    struct scmi_clock_rate_notify_p2a return_values = {
++        .status = (int32_t)SCMI_NOT_SUPPORTED,
++    };
++    int respond_status;
++
++    respond_status = scmi_clock_ctx.scmi_api->respond(
++        service_id,
++        &return_values,
++        sizeof(return_values.status));
++
++    if (respond_status != FWK_SUCCESS) {
++        FWK_LOG_DEBUG("[SCMI-CLK] %s @%d", __func__, __LINE__);
++    }
++
++    return FWK_SUCCESS;
++}
++
++static int scmi_clock_rate_change_request_notify_handler(fwk_id_t service_id,
++    const uint32_t *payload)
++{
++    struct scmi_clock_rate_change_request_notify_p2a return_values = {
++        .status = (int32_t)SCMI_NOT_SUPPORTED,
++    };
++    int respond_status;
++
++    respond_status = scmi_clock_ctx.scmi_api->respond(
++        service_id,
++        &return_values,
++        sizeof(return_values.status));
++
++    if (respond_status != FWK_SUCCESS) {
++        FWK_LOG_DEBUG("[SCMI-CLK] %s @%d", __func__, __LINE__);
++    }
++
++    return FWK_SUCCESS;
++}
++
+ /*
+  * SCMI module -> SCMI clock module interface
+  */
+-- 
+2.47.2
+

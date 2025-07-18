@@ -1,0 +1,50 @@
+From a915b007ad8abca70c491ef8360c977f9a9bd91f Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 24 Nov 2023 14:24:46 +0100
+Subject: [PATCH 0068/1695] plat-stm32mp1: fix warning trace on TZC
+ configuration check
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fix build warning reported by recent toolchains when TZDRAM
+memory ends at the UINT32_MAX. This happends for example when
+building for the stm32mp1-157C_EV1 platform. In such case was GCC
+to emit the following warning trace:
+
+core/arch/arm/plat-stm32mp1/plat_tzc400.c: In function ‘init_stm32mp1_tzc’:
+core/arch/arm/plat-stm32mp1/plat_tzc400.c:107:61: warning: conversion from ‘uint64_t’ {aka ‘long long unsigned int’} to ‘vaddr_t’ {aka ‘long unsigned int’} changes value from ‘4294967296’ to ‘0’ [-Woverflow]
+  107 |                 if (!tzc_region_is_non_secure(region_index, tzdram_end,
+      |                                                             ^~~~~~~~~~
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0657b610a924708836264acd59d87081988cf8b9 plat-stm32mp1: fix warning trace on TZC configuration check]
+Change-Id: I95e945aaef4d54431e5a1ef191c61afbf5470eaa
+Fixes: 59c253f92c6c ("plat-stm32mp1: check TZC400 configuration")
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 2495ef3b3d93ae862378d9f0d666d409071e6e7f]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/plat_tzc400.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/plat_tzc400.c b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+index b65f68378..25c75b93c 100644
+--- a/core/arch/arm/plat-stm32mp1/plat_tzc400.c
++++ b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+@@ -40,11 +40,12 @@ static struct itr_handler tzc_itr_handler = {
+ };
+ DECLARE_KEEP_PAGER(tzc_itr_handler);
+ 
+-static bool tzc_region_is_non_secure(unsigned int i, vaddr_t base, size_t size)
++static bool tzc_region_is_non_secure(unsigned int i, uint64_t pa, size_t size)
+ {
+ 	struct tzc_region_config region_cfg = { };
+ 	uint32_t ns_cpu_mask = TZC_REGION_ACCESS_RDWR(STM32MP1_TZC_A7_ID);
+ 	uint32_t filters_mask = TZC_FILTERS_MASK;
++	vaddr_t base = pa;
+ 
+ 	if (tzc_get_region_config(i, &region_cfg))
+ 		panic();
+-- 
+2.47.2
+

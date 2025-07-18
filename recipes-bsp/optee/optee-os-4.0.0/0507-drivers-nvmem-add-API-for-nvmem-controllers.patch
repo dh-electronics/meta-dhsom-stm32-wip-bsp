@@ -1,0 +1,355 @@
+From efcecef965b9ce9cc6d129e9b4b9929428b3cd90 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cl=C3=A9ment=20L=C3=A9ger?= <clement.leger@bootlin.com>
+Date: Wed, 22 Mar 2023 11:48:23 +0100
+Subject: [PATCH 0507/1695] drivers: nvmem: add API for nvmem controllers
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add a nvmem API to access nvmem cells using device-tree description. This
+API allows to register nvmeme provider and obtain nvmem cells for consumer.
+Much like other subsystem, this one relies on the generic dt_driver
+mechanism.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a0dfe69db5a3511f1e00a8017383d3749991c72b drivers: nvmem: add API for nvmem controllers]
+Signed-off-by: Clément Léger <clement.leger@bootlin.com>
+Signed-off-by: Thomas Perrot <thomas.perrot@bootlin.com>
+Reviewed-by: Etienne Carriere <etienne.carriere@foss.st.com>
+(cherry picked from commit 515c1ba9a5d652ebaeae43754635b5386a328721)
+Change-Id: I2bf08ba32c389fd346f3cb56d1ec087fca514794
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/354450
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Simeon MARIJON <simeon.marijon@st.com>
+Reviewed-by: Simeon MARIJON <simeon.marijon@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/nvmem/nvmem.c   |  77 ++++++++++++++
+ core/drivers/nvmem/sub.mk    |   1 +
+ core/drivers/sub.mk          |   1 +
+ core/include/drivers/nvmem.h | 193 +++++++++++++++++++++++++++++++++++
+ mk/config.mk                 |   4 +
+ 5 files changed, 276 insertions(+)
+ create mode 100644 core/drivers/nvmem/nvmem.c
+ create mode 100644 core/drivers/nvmem/sub.mk
+ create mode 100644 core/include/drivers/nvmem.h
+
+diff --git a/core/drivers/nvmem/nvmem.c b/core/drivers/nvmem/nvmem.c
+new file mode 100644
+index 000000000..7d30c2c16
+--- /dev/null
++++ b/core/drivers/nvmem/nvmem.c
+@@ -0,0 +1,77 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2023, Microchip
++ */
++
++#include <drivers/nvmem.h>
++#include <kernel/dt.h>
++#include <libfdt.h>
++
++TEE_Result nvmem_cell_parse_dt(const void *fdt, int nodeoffset,
++			       struct nvmem_cell *cell)
++{
++	size_t buf_len = 0;
++	paddr_t offset = 0;
++
++	buf_len = fdt_reg_size(fdt, nodeoffset);
++	if (buf_len == DT_INFO_INVALID_REG_SIZE)
++		return TEE_ERROR_GENERIC;
++
++	offset = fdt_reg_base_address(fdt, nodeoffset);
++	if (offset == DT_INFO_INVALID_REG)
++		return TEE_ERROR_GENERIC;
++
++	cell->len = buf_len;
++	cell->offset = offset;
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result nvmem_get_cell_by_name(const void *fdt, int nodeoffset,
++				  const char *name, struct nvmem_cell **cell)
++{
++	int index = 0;
++
++	index = fdt_stringlist_search(fdt, nodeoffset, "nvmem-cell-names",
++				      name);
++	if (index < 0)
++		return TEE_ERROR_ITEM_NOT_FOUND;
++
++	return nvmem_get_cell_by_index(fdt, nodeoffset, index, cell);
++}
++
++TEE_Result nvmem_get_cell_by_index(const void *fdt,
++				   int nodeoffset,
++				   unsigned int index,
++				   struct nvmem_cell **out_cell)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	void *cell = NULL;
++
++	res = dt_driver_device_from_node_idx_prop("nvmem-cells", fdt,
++						  nodeoffset, index,
++						  DT_DRIVER_NVMEM, &cell);
++	if (!res)
++		*out_cell = cell;
++
++	return res;
++}
++
++TEE_Result nvmem_cell_malloc_and_read(struct nvmem_cell *cell,
++				      uint8_t **out_data)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (!cell->ops->read_cell)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	*out_data = malloc(cell->len);
++	if (!out_data)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	res = cell->ops->read_cell(cell, *out_data);
++	if (res)
++		free(*out_data);
++
++	return res;
++}
+diff --git a/core/drivers/nvmem/sub.mk b/core/drivers/nvmem/sub.mk
+new file mode 100644
+index 000000000..7ce92f8ab
+--- /dev/null
++++ b/core/drivers/nvmem/sub.mk
+@@ -0,0 +1 @@
++srcs-y += nvmem.c
+diff --git a/core/drivers/sub.mk b/core/drivers/sub.mk
+index 4c373346c..c8fce5e82 100644
+--- a/core/drivers/sub.mk
++++ b/core/drivers/sub.mk
+@@ -92,6 +92,7 @@ subdirs-$(CFG_BNXT_FW) += bnxt
+ subdirs-$(CFG_DRIVERS_CLK) += clk
+ subdirs-$(CFG_DRIVERS_GPIO) += gpio
+ subdirs-$(CFG_DRIVERS_I2C) += i2c
++subdirs-$(CFG_DRIVERS_NVMEM) += nvmem
+ subdirs-$(CFG_DRIVERS_PINCTRL) += pinctrl
+ subdirs-$(CFG_DRIVERS_REGULATOR) += regulator
+ subdirs-$(CFG_DRIVERS_RSTCTRL) += rstctrl
+diff --git a/core/include/drivers/nvmem.h b/core/include/drivers/nvmem.h
+new file mode 100644
+index 000000000..5db573d1f
+--- /dev/null
++++ b/core/include/drivers/nvmem.h
+@@ -0,0 +1,193 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2023, Microchip
++ */
++
++#ifndef __DRIVERS_NVMEM_H
++#define __DRIVERS_NVMEM_H
++
++#include <kernel/dt_driver.h>
++#include <tee_api_defines.h>
++#include <tee_api_types.h>
++#include <types_ext.h>
++
++struct nvmem_cell;
++
++/*
++ * struct nvmem_ops - NVMEM device driver operations
++ * @read_cell: Allocate @data in the heap and load @len bytes to from an
++ * NVMEM cell
++ * @put_cell: Release resources allocated from nvmem_dt_get_func callback
++ * function
++ */
++struct nvmem_ops {
++	/*
++	 * Read data from an NVMEM cell.
++	 * @cell: Cell to read data from
++	 * @data: Output buffer of size greater or equal to @cell->size
++	 */
++	TEE_Result (*read_cell)(struct nvmem_cell *cell, uint8_t *data);
++	void (*put_cell)(struct nvmem_cell *cell);
++};
++
++/*
++ * struct nvmem_cell - Description of an NVMEM cell
++ * @offset: Cell byte offset in the NVMEM device
++ * @len: Cell byte size
++ * @ops: NVMEM device driver operation handlers
++ * @drv_data: NVMEM device driver private data
++ */
++struct nvmem_cell {
++	paddr_t offset;
++	size_t len;
++	const struct nvmem_ops *ops;
++	void *drv_data;
++};
++
++/*
++ * nvmem_dt_get_func - Typedef of handlers to get an NVMEM cell from a npode
++ * @args: Reference to phandle arguments
++ * @data: Pointer to data given at nvmem_dt_get_func() call
++ * @cell: Output reference to cell instance upon success
++ *
++ * Return TEE_SUCCESS in case of success.
++ * Return TEE_ERROR_DEFER_DRIVER_INIT if NVMEM driver is not initialized
++ * Return another TEE_Result compliant code otherwise.
++ */
++typedef TEE_Result (*nvmem_dt_get_func)(struct dt_pargs *args,
++					void *data, struct nvmem_cell **cell);
++
++#ifdef CFG_DRIVERS_NVMEM
++/**
++ * nvmem_register_provider() - Register a NVMEM controller
++ *
++ * @fdt: Device tree to work on
++ * @nodeoffset: Node offset of NVMEM cell consumer
++ * @get_dt_nvmem: Callback to match the devicetree NVMEM reference with
++ * nvmem_cell
++ * @data: Data which will be passed to the get_dt_nvmem callback
++ * Return a TEE_Result compliant value
++ */
++static inline TEE_Result nvmem_register_provider(const void *fdt,
++						 int nodeoffset,
++						 nvmem_dt_get_func get_dt_nvmem,
++						 void *data)
++{
++	return dt_driver_register_provider(fdt, nodeoffset,
++					   (get_of_device_func)get_dt_nvmem,
++					   data, DT_DRIVER_NVMEM);
++}
++
++/**
++ * nvmem_get_cell_by_name() - Obtain a NVMEM cell from its name in the DT node
++ *
++ * @fdt: Device tree to work on
++ * @nodeoffset: Node offset of NVMEM cell consumer
++ * @name: name of the NVMEM cell defined by property nvmem-cell-names to obtain
++ * from the device tree
++ * @cell: Pointer filled with the retrieved cell, must be freed after use
++   using nvmem_put_cell()
++ * Return a TEE_Result compliant value
++ */
++TEE_Result nvmem_get_cell_by_name(const void *fdt, int nodeoffset,
++				  const char *name, struct nvmem_cell **cell);
++
++/**
++ * nvmem_get_cell_by_index() - Obtain a NVMEM cell from property nvmem-cells
++ *
++ * @fdt: Device tree to work on
++ * @nodeoffset: Node offset of NVMEM cell consumer
++ * @index: Index of the NVMEM cell to obtain from device-tree
++ * @out_cell: Pointer filled with the retrieved cell, must be freed after use
++ * using nvmem_put_cell()
++ * Return a TEE_Result compliant value
++ */
++TEE_Result nvmem_get_cell_by_index(const void *fdt,
++				   int nodeoffset,
++				   unsigned int index,
++				   struct nvmem_cell **out_cell);
++
++/**
++ * nvmem_cell_parse_dt() - Parse device-tree information to fill a NVMEM cell
++ *
++ * @fdt: Device tree to work on
++ * @nodeoffset: Node offset of the NVMEM cell controller
++ * @cell: Pointer to cell that will be filled
++ */
++TEE_Result nvmem_cell_parse_dt(const void *fdt, int nodeoffset,
++			       struct nvmem_cell *cell);
++
++/**
++ * nvmem_put_cell() - Free resource allocated from nvmem_get_cell_by_*()
++ *
++ * @cell: Cell to be freed
++ */
++static inline void nvmem_put_cell(struct nvmem_cell *cell)
++{
++	if (cell->ops->put_cell)
++		cell->ops->put_cell(cell);
++}
++
++/*
++ * nvmem_cell_read() - Read data from a NVMEM cell
++ * @cell: Cell to read from NVMEM
++ * @data: Output data read from the cell upon success, byte size >= @cell->size
++ */
++static inline TEE_Result nvmem_cell_read(struct nvmem_cell *cell,
++					 uint8_t *data)
++{
++	if (!cell->ops->read_cell)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return cell->ops->read_cell(cell, data);
++}
++
++/*
++ * nvmem_cell_malloc_and_read() - Allocate and read data from a NVMEM cell
++ * @cell: Cell to read from NVMEM
++ * @data: Output allocated buffer where NVMEM cell data are stored upon success
++ *
++ * Upon success, the output buffer is allocated with malloc(). Caller is
++ * responsible for freeing the buffer with free() if needed.
++ */
++TEE_Result nvmem_cell_malloc_and_read(struct nvmem_cell *cell,
++				      uint8_t **out_data);
++
++#else /* CFG_DRIVERS_NVMEM */
++static inline TEE_Result nvmem_register_provider(const void *fdt __unused,
++						 int nodeoffset __unused,
++						 nvmem_dt_get_func fn __unused,
++						 void *data __unused)
++{
++	return TEE_ERROR_NOT_SUPPORTED;
++}
++
++static inline TEE_Result nvmem_get_cell_by_name(const void *fdt __unused,
++						int nodeoffset __unused,
++						const char *name __unused,
++						struct nvmem_cell **c __unused)
++{
++	return TEE_ERROR_NOT_SUPPORTED;
++}
++
++static inline
++TEE_Result nvmem_get_cell_by_index(const void *fdt __unused,
++				   int nodeoffset __unused,
++				   unsigned int index __unused,
++				   struct nvmem_cell **cell __unused)
++{
++	return TEE_ERROR_NOT_SUPPORTED;
++}
++
++static inline TEE_Result nvmem_cell_parse_dt(const void *fdt __unused,
++					     int nodeoffset __unused,
++					     struct nvmem_cell *cell __unused)
++{
++	return TEE_ERROR_NOT_SUPPORTED;
++}
++
++static inline void nvmem_put_cell(struct nvmem_cell *cell __unused)
++{
++}
++#endif /* CFG_DRIVERS_NVMEM */
++#endif /* __DRIVERS_NVMEM_H */
+diff --git a/mk/config.mk b/mk/config.mk
+index a197ba7fb..ffd7d1a5d 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -896,6 +896,10 @@ CFG_DRIVERS_GPIO ?= n
+ # When enabled, CFG_DRIVERS_I2C provides I2C controller and devices support.
+ CFG_DRIVERS_I2C ?= n
+ 
++# When enabled, CFG_DRIVERS_NVMEM provides a framework to register nvmem
++# providers and allow consumer drivers to get NVMEM cells using the Device Tree.
++CFG_DRIVERS_NVMEM ?= n
++
+ # When enabled, CFG_DRIVERS_PINCTRL embeds a pin muxing controller framework in
+ # OP-TEE core to provide drivers a way to apply pin muxing configurations based
+ # on device-tree.
+-- 
+2.47.2
+

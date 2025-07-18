@@ -1,0 +1,175 @@
+From 5fa13972c92fe81b837a19dba128b45ed820d29a Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 22 Oct 2024 18:15:20 +0200
+Subject: [PATCH 1454/1695] drivers: stm32_uart: remove registering to
+ shared_resource driver
+
+Remove registering of STM32 UART driver to shared_resource driver. The
+latter is deprecated since integration of the firewall framework
+and will soon be removed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6e22b5359aba0a9da735ec6267c41526ee7c97b6 drivers: stm32_uart: remove registering to shared_resource driver]
+Change-Id: Ief4c080e82675594163480e0d3b790e9b80de7d6
+Link: https://github.com/OP-TEE/optee_os/commit/7a1f654070cf4e6038c9143357fb9a3d50f4251b
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/413518
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c | 18 ++++++++----------
+ core/arch/arm/plat-stm32mp2/main.c | 20 +++++++++-----------
+ core/drivers/stm32_uart.c          | 22 ++--------------------
+ core/include/drivers/stm32_uart.h  |  1 -
+ 4 files changed, 19 insertions(+), 42 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index f10256547..ef0eabc68 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -108,17 +108,16 @@ void __weak console_init(void)
+ 	/* Early console initialization before MMU setup */
+ 	struct uart {
+ 		paddr_t pa;
+-		bool secure;
+ 	} uarts[] = {
+ 		[0] = { .pa = 0 },
+-		[1] = { .pa = USART1_BASE, .secure = true, },
+-		[2] = { .pa = USART2_BASE, .secure = false, },
+-		[3] = { .pa = USART3_BASE, .secure = false, },
+-		[4] = { .pa = UART4_BASE, .secure = false, },
+-		[5] = { .pa = UART5_BASE, .secure = false, },
+-		[6] = { .pa = USART6_BASE, .secure = false, },
+-		[7] = { .pa = UART7_BASE, .secure = false, },
+-		[8] = { .pa = UART8_BASE, .secure = false, },
++		[1] = { .pa = USART1_BASE },
++		[2] = { .pa = USART2_BASE },
++		[3] = { .pa = USART3_BASE },
++		[4] = { .pa = UART4_BASE },
++		[5] = { .pa = UART5_BASE },
++		[6] = { .pa = USART6_BASE },
++		[7] = { .pa = UART7_BASE },
++		[8] = { .pa = UART8_BASE },
+ 	};
+ 
+ 	COMPILE_TIME_ASSERT(ARRAY_SIZE(uarts) > CFG_STM32_EARLY_CONSOLE_UART);
+@@ -129,7 +128,6 @@ void __weak console_init(void)
+ 	/* No clock yet bound to the UART console */
+ 	console_data.clock = NULL;
+ 
+-	console_data.secure = uarts[CFG_STM32_EARLY_CONSOLE_UART].secure;
+ 	stm32_uart_init(&console_data, uarts[CFG_STM32_EARLY_CONSOLE_UART].pa);
+ 
+ 	register_serial_console(&console_data.chip);
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index ae7460bfe..ee4d10183 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -101,18 +101,17 @@ void console_init(void)
+ 	/* Early console initialization before MMU setup */
+ 	struct uart {
+ 		paddr_t pa;
+-		bool secure;
+ 	} uarts[] = {
+ 		[0] = { .pa = 0 },
+-		[1] = { .pa = USART1_BASE, .secure = true, },
+-		[2] = { .pa = USART2_BASE, .secure = false, },
+-		[3] = { .pa = USART3_BASE, .secure = false, },
+-		[4] = { .pa = UART4_BASE, .secure = false, },
+-		[5] = { .pa = UART5_BASE, .secure = false, },
+-		[6] = { .pa = USART6_BASE, .secure = false, },
+-		[7] = { .pa = UART7_BASE, .secure = false, },
+-		[8] = { .pa = UART8_BASE, .secure = false, },
+-		[9] = { .pa = UART9_BASE, .secure = false, },
++		[1] = { .pa = USART1_BASE },
++		[2] = { .pa = USART2_BASE },
++		[3] = { .pa = USART3_BASE },
++		[4] = { .pa = UART4_BASE },
++		[5] = { .pa = UART5_BASE },
++		[6] = { .pa = USART6_BASE },
++		[7] = { .pa = UART7_BASE },
++		[8] = { .pa = UART8_BASE },
++		[9] = { .pa = UART9_BASE },
+ 	};
+ 
+ 	static_assert(ARRAY_SIZE(uarts) > CFG_STM32_EARLY_CONSOLE_UART);
+@@ -122,7 +121,6 @@ void console_init(void)
+ 
+ 	/* No clock yet bound to the UART console */
+ 	console_data.clock = NULL;
+-	console_data.secure = uarts[CFG_STM32_EARLY_CONSOLE_UART].secure;
+ 	stm32_uart_init(&console_data, uarts[CFG_STM32_EARLY_CONSOLE_UART].pa);
+ 	register_serial_console(&console_data.chip);
+ 
+diff --git a/core/drivers/stm32_uart.c b/core/drivers/stm32_uart.c
+index a7bfc3627..a7ad14735 100644
+--- a/core/drivers/stm32_uart.c
++++ b/core/drivers/stm32_uart.c
+@@ -148,16 +148,6 @@ void stm32_uart_init(struct stm32_uart_pdata *pd, vaddr_t base)
+ 	pd->chip.ops = &stm32_uart_serial_ops;
+ }
+ 
+-static void register_secure_uart(struct stm32_uart_pdata *pd)
+-{
+-	stm32mp_register_secure_periph_iomem(pd->base.pa);
+-}
+-
+-static void register_non_secure_uart(struct stm32_uart_pdata *pd)
+-{
+-	stm32mp_register_non_secure_periph_iomem(pd->base.pa);
+-}
+-
+ static TEE_Result stm32_uart_update_baudrate(struct stm32_uart_pdata *pd,
+ 					     char *params)
+ {
+@@ -226,12 +216,10 @@ static TEE_Result parse_dt(void *fdt, int node, struct stm32_uart_pdata *pd)
+ 
+ 	pd->chip.ops = &stm32_uart_serial_ops;
+ 	pd->base.pa = info.reg;
+-	pd->secure = (info.status == DT_STATUS_OK_SEC);
+ 
+ 	assert(cpu_mmu_enabled());
+-	pd->base.va = (vaddr_t)phys_to_virt(pd->base.pa,
+-					pd->secure ? MEM_AREA_IO_SEC :
+-					MEM_AREA_IO_NSEC, info.reg_size);
++	pd->base.va = (vaddr_t)phys_to_virt(pd->base.pa, MEM_AREA_IO_SEC,
++					    info.reg_size);
+ 
+ 	return TEE_SUCCESS;
+ }
+@@ -243,11 +231,6 @@ static void setup_resources(struct stm32_uart_pdata *pd)
+ 
+ 	if (pinctrl_apply_state(pd->pinctrl))
+ 		panic();
+-
+-	if (pd->secure)
+-		register_secure_uart(pd);
+-	else
+-		register_non_secure_uart(pd);
+ }
+ 
+ static bool uart_is_for_console(void *fdt, int node, char **params)
+@@ -340,7 +323,6 @@ static TEE_Result stm32_uart_probe(const void *fdt, int node,
+ 		vaddr_t uart_base = io_pa_or_va(&pd->base, 1);
+ 
+ 		register_serial_console(&pd->chip);
+-		IMSG("UART console (%ssecure)", pd->secure ? "" : "non-");
+ 
+ 		pd->is_console = true;
+ 		pd->brr = io_read32(uart_base + UART_REG_BRR);
+diff --git a/core/include/drivers/stm32_uart.h b/core/include/drivers/stm32_uart.h
+index 7088975fe..0c0ae373a 100644
+--- a/core/include/drivers/stm32_uart.h
++++ b/core/include/drivers/stm32_uart.h
+@@ -16,7 +16,6 @@
+ struct stm32_uart_pdata {
+ 	struct io_pa_va base;
+ 	struct serial_chip chip;
+-	bool secure;
+ 	bool is_console;
+ 	struct clk *clock;
+ 	struct pinctrl_state *pinctrl;
+-- 
+2.47.2
+

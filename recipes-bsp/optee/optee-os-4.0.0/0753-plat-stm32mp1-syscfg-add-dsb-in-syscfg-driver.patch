@@ -1,0 +1,71 @@
+From 7e87bfbf30ee2c327455181d74928fb17f03f57f Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 11 May 2023 19:41:41 +0200
+Subject: [PATCH 0753/1695] plat-stm32mp1: syscfg: add dsb in syscfg driver
+
+Add dsb in syscfg driver to guarantee that the request operations
+are performed in SYSCFG register when the external API are called
+and before to return to caller:
+- stm32mp1_iocomp() in init sequence
+- stm32mp_set_vddsd_comp_state() and stm32mp_set_hslv_state()
+  called by PWR driver
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e784bf873d20ede435346307f5b1ac37e88cb60e plat-stm32mp1: syscfg: add dsb in syscfg driver]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I168431182b1749a7e35b54bae46c62e069d1c6dd
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/305818
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373111
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c
+index 03e02b2b1..e3c78fef9 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c
+@@ -152,6 +152,9 @@ static TEE_Result stm32mp1_iocomp(void)
+ 
+ 	enable_io_compensation(SYSCFG_CMPCR);
+ 
++	/* Make sure the write above is visible */
++	dsb();
++
+ 	return TEE_SUCCESS;
+ }
+ 
+@@ -162,6 +165,9 @@ void stm32mp_set_vddsd_comp_state(enum stm32mp13_vddsd_comp_id id, bool enable)
+ {
+ 	int cmpcr_offset = 0;
+ 
++	/* Make sure the previous operations are visible */
++	dsb();
++
+ 	switch (id) {
+ 	case SYSCFG_IO_COMP_IDX_SD1:
+ 		cmpcr_offset = SYSCFG_CMPSD1CR;
+@@ -177,6 +183,9 @@ void stm32mp_set_vddsd_comp_state(enum stm32mp13_vddsd_comp_id id, bool enable)
+ 		enable_io_compensation(cmpcr_offset);
+ 	else
+ 		disable_io_compensation(cmpcr_offset);
++
++	/* Make sure the write above is visible */
++	dsb();
+ }
+ 
+ void stm32mp_set_hslv_state(enum stm32mp13_hslv_id id, bool enable)
+@@ -184,6 +193,9 @@ void stm32mp_set_hslv_state(enum stm32mp13_hslv_id id, bool enable)
+ 	size_t hslvenxr_offset = 0;
+ 	uint32_t hlvs_value = 0;
+ 
++	/* Make sure the previous operations are visible */
++	dsb();
++
+ 	assert(id < SYSCFG_HSLV_COUNT);
+ 
+ 	if (enable)
+-- 
+2.47.2
+

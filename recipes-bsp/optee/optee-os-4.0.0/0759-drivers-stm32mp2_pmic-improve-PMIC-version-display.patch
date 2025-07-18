@@ -1,0 +1,62 @@
+From 4b058922a9baca9a81e2f3f1a95e0090e4a19a56 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Tue, 9 Apr 2024 15:19:46 +0200
+Subject: [PATCH 0759/1695] drivers: stm32mp2_pmic: improve PMIC version
+ display
+
+Improve PMIC version display to something more
+human readable: "I/TC: PMIC STPMIC25A V1.0"
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 864f2e33bae5a10a198db05fe962a2caeb71e8cd drivers: stm32mp2_pmic: improve PMIC version display]
+Change-Id: I08c4bcdea7bcf633725a5764465ebdbc8651bfed
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373103
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c | 7 ++++++-
+ core/include/drivers/stpmic2.h                      | 8 ++++++++
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
+index 220d68032..9a886d1c7 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
+@@ -704,7 +704,12 @@ static void initialize_pmic2(const void *fdt, int node,
+ 	    stpmic2_get_version(pmic, &ver))
+ 		panic("Failed to access PMIC");
+ 
+-	DMSG("PMIC pid=%#"PRIx8" version=%#"PRIx8, pid, ver);
++	/* NVM version A stands for NVM_ID=1 */
++	IMSG("PMIC STPMIC25%c V%"PRIu8".%"PRIu8,
++	     'A' + (pid & PMIC_NVM_ID_MASK) - U(1),
++	     (ver & MAJOR_VERSION_MASK) >> MAJOR_VERSION_SHIFT,
++	     ver & MINOR_VERSION_MASK);
++
+ 	stpmic2_dump_regulators(pmic);
+ }
+ 
+diff --git a/core/include/drivers/stpmic2.h b/core/include/drivers/stpmic2.h
+index 07fbdd8e6..50a116768 100644
+--- a/core/include/drivers/stpmic2.h
++++ b/core/include/drivers/stpmic2.h
+@@ -145,6 +145,14 @@ enum {
+ #define INT_DBG_LATCH_R3	U(0x82)
+ #define INT_DBG_LATCH_R4	U(0x83)
+ 
++/* PRODUCT_ID bits definition */
++#define PMIC_NVM_ID_MASK	GENMASK_32(3, 0)
++
++/* VERSION_SR bits definition */
++#define MINOR_VERSION_MASK	GENMASK_32(3, 0)
++#define MAJOR_VERSION_MASK	GENMASK_32(7, 4)
++#define MAJOR_VERSION_SHIFT	4
++
+ /* BUCKS_MRST_CR bits definition */
+ #define BUCK1_MRST		BIT(0)
+ #define BUCK2_MRST		BIT(1)
+-- 
+2.47.2
+

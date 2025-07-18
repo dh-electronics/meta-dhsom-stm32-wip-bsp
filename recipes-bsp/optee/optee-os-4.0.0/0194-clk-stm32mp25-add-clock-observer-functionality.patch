@@ -1,0 +1,149 @@
+From bafdba245137c6158930c21362a8d5e8ea2e83b1 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 9 Feb 2023 11:56:40 +0100
+Subject: [PATCH 0194/1695] clk: stm32mp25: add clock observer functionality
+
+Two micro-controller clock output (MCO) pins are available (MCO1
+and MCO2). For each output, it is possible to select a clock source.
+The MCO1 and MCO2 outputs are provided via two channels of the
+flexclkgen engine or via Clock observation logic.
+Refer documentation for additional information.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2ed3963317ea7176b163cd24ac1e5c84308d06e2 clk: stm32mp25: add clock observer functionality]
+Change-Id: Ic1e9b0b84740cdc36fae122d1df807e95cc4180f
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c              | 41 +++++++++++++++
+ .../dt-bindings/clock/stm32mp25-clksrc.h      | 50 +++++++++++++++++++
+ 2 files changed, 91 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index d4ccaaae5..644fcab17 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -1787,6 +1787,43 @@ static int stm32_clk_configure_by_addr_val(struct clk_stm32_priv *priv,
+ 	return 0;
+ }
+ 
++static int stm32_clk_configure_obs(struct clk_stm32_priv *priv,
++				   uint32_t data)
++{
++	int id = (data & OBS_ID_MASK) >> OBS_ID_SHIFT;
++	int status = (data & OBS_STATUS_MASK) >> OBS_STATUS_SHIFT;
++	int int_ext = (data & OBS_INTEXT_MASK) >> OBS_INTEXT_SHIFT;
++	int div = (data & OBS_DIV_MASK) >> OBS_DIV_SHIFT;
++	int inv = (data & OBS_INV_MASK) >> OBS_INV_SHIFT;
++	int sel = (data & OBS_SEL_MASK) >> OBS_SEL_SHIFT;
++	uint32_t reg = 0;
++	uint32_t val = 0;
++
++	if (!id)
++		reg = RCC_FCALCOBS0CFGR;
++	else
++		reg = RCC_FCALCOBS1CFGR;
++
++	if (status)
++		val |= RCC_FCALCOBS0CFGR_CKOBSEN;
++
++	if (int_ext == OBS_EXT) {
++		val |= RCC_FCALCOBS0CFGR_CKOBSEXTSEL;
++		val |= sel << RCC_FCALCOBS0CFGR_CKEXTSEL_SHIFT;
++	} else {
++		val |= sel << RCC_FCALCOBS0CFGR_CKINTSEL_SHIFT;
++	}
++
++	if (inv)
++		val |= RCC_FCALCOBS0CFGR_CKOBSINV;
++
++	val |= div << RCC_FCALCOBS0CFGR_CKOBSDIV_SHIFT;
++
++	io_write32(priv->base + reg, val);
++
++	return 0;
++}
++
+ static int stm32_clk_configure(struct clk_stm32_priv *priv, uint32_t val)
+ {
+ 	uint32_t cmd_data = 0;
+@@ -1811,6 +1848,10 @@ static int stm32_clk_configure(struct clk_stm32_priv *priv, uint32_t val)
+ 		ret = stm32_clk_configure_mux(priv, cmd_data);
+ 		break;
+ 
++	case CMD_OBS:
++		ret = stm32_clk_configure_obs(priv, cmd_data);
++		break;
++
+ 	default:
+ 		EMSG("%s: cmd unknown ! : 0x%x\n", __func__, val);
+ 		ret = -1;
+diff --git a/core/include/dt-bindings/clock/stm32mp25-clksrc.h b/core/include/dt-bindings/clock/stm32mp25-clksrc.h
+index 24ba580ab..e154fcffd 100644
+--- a/core/include/dt-bindings/clock/stm32mp25-clksrc.h
++++ b/core/include/dt-bindings/clock/stm32mp25-clksrc.h
+@@ -10,6 +10,7 @@
+ #define CMD_MUX		1
+ #define CMD_CLK		2
+ #define CMD_FLEXGEN	3
++#define CMD_OBS		4
+ 
+ #define CMD_ADDR_BIT	0x80000000
+ 
+@@ -212,6 +213,55 @@
+ 					((addr) << CLK_ADDR_SHIFT) |\
+ 					((status) << MCO_STATUS_SHIFT) |\
+ 					(sel))
++#define OBS_ID_SHIFT		14
++#define OBS_STATUS_SHIFT	13
++#define OBS_INTEXT_SHIFT	12
++#define OBS_DIV_SHIFT		9
++#define OBS_INV_SHIFT		8
++#define OBS_SEL_SHIFT		0
++
++#define OBS_ID_MASK		GENMASK_32(14, 14)
++#define OBS_STATUS_MASK		GENMASK_32(13, 13)
++#define OBS_INTEXT_MASK		GENMASK_32(12, 12)
++#define OBS_DIV_MASK		GENMASK_32(11, 9)
++#define OBS_INV_MASK		BIT(8)
++#define OBS_SEL_MASK		GENMASK_32(7, 0)
++
++#define OBS_CFG(id, status, int_ext, div, inv, sel)\
++	((CMD_OBS << CMD_SHIFT) |\
++	((id) << OBS_ID_SHIFT) |\
++	((status) << OBS_STATUS_SHIFT) |\
++	((int_ext) << OBS_INTEXT_SHIFT) |\
++	((div) << OBS_DIV_SHIFT) |\
++	((inv) << OBS_INV_SHIFT) |\
++	((sel) << OBS_SEL_SHIFT))
++
++#define OBS0			0
++#define OBS1			1
++
++#define OBS_OFF			0
++#define OBS_ON			1
++
++#define OBS_INT			0
++#define OBS_EXT			1
++
++#define OBS_DIV1		0
++#define OBS_DIV2		1
++#define OBS_DIV4		2
++#define OBS_DIV8		3
++#define OBS_DIV16		4
++#define OBS_DIV32		5
++#define OBS_DIV64		6
++#define OBS_DIV128		7
++
++#define OBS_NO_INV		0
++#define OBS_INV			1
++
++#define OBS_INT_CFG(id, status, div, inv, sel)\
++		OBS_CFG(id, status, OBS_INT, div, inv, sel)
++
++#define OBS_EXT_CFG(id, status, div, inv, sel)\
++		OBS_CFG(id, status, OBS_EXT, div, inv, sel)
+ 
+ /* define for st,pll /csg */
+ #define SSCG_MODE_CENTER_SPREAD	0
+-- 
+2.47.2
+

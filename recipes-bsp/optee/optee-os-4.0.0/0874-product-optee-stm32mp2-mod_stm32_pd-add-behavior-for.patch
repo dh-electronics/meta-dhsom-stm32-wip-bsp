@@ -1,0 +1,121 @@
+From f16f787b959a891c99c899cb327bb37a967def68 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Thu, 21 Mar 2024 19:16:56 +0100
+Subject: [PATCH 0874/1695] product/optee-stm32mp2/mod_stm32_pd: add behavior
+ for GPU power domain
+
+Add set/get for SCMI_GPU power domain.
+It will enable/disable required regulator and clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5e50a376439cab986d927a3e74b03b98cc8823f7 product/optee-stm32mp2/mod_stm32_pd: add behavior for GPU power domain]
+Change-Id: Ib0db44967787ebb2cae30fac52bdf75915e9dc65
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/373691
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/385199
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../module/stm32_pd/src/mod_stm32_pd.c        | 66 +++++++++++++++++++
+ 1 file changed, 66 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+index 5c5c00579..8a2f16b80 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+@@ -44,6 +44,56 @@ static int stm32_pd_reset(fwk_id_t pd_id)
+     return FWK_E_SUPPORT;
+ }
+ 
++static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
++{
++    struct mod_stm32_pd *ctx = mod_stm32_pd_ctx + fwk_id_get_element_idx(pd_id);
++    struct clk *clk = ctx->config->clk;
++    struct regulator *regu = ctx->config->regu;
++
++    fwk_assert(fwk_id_get_element_idx(pd_id) == PD_SCMI_GPU);
++
++    /* Nothing to do */
++    if (state == ctx->current_state) {
++        return FWK_SUCCESS;
++    }
++
++    switch (state) {
++        case MOD_PD_STATE_ON:
++            if (regu != NULL && regulator_enable(regu) != TEE_SUCCESS) {
++                return FWK_E_DEVICE;
++            }
++            if (clk != NULL && clk_enable(clk) != TEE_SUCCESS) {
++                if (regu != NULL)
++                    regulator_disable(regu);
++                return FWK_E_DEVICE;
++            }
++            break;
++        case MOD_PD_STATE_OFF:
++            if (clk != NULL) {
++                clk_disable(clk);
++            }
++            if (regu != NULL && regulator_disable(regu) != TEE_SUCCESS) {
++                if (clk != NULL) {
++                    clk_enable(clk);
++                }
++                return FWK_E_DEVICE;
++            }
++            break;
++        default:
++            FWK_LOG_ERR("State %d not supported on power domain %s",
++                        state,
++                        fwk_module_get_element_name(pd_id));
++            return FWK_E_SUPPORT;
++    }
++
++    FWK_LOG_DEBUG("Power domain %s change state to %s",
++                  fwk_module_get_element_name(pd_id),
++                  state == MOD_PD_STATE_ON ? "ON" : "OFF");
++
++    ctx->current_state = state;
++    return FWK_SUCCESS;
++}
++
+ static int stm32_pd_bind(fwk_id_t id, unsigned int round)
+ {
+     return FWK_SUCCESS;
+@@ -58,10 +108,21 @@ static int stm32_pd_element_init(fwk_id_t element_id,
+ 
+     ctx->config = (const struct mod_stm32_pd_config *)data;
+ 
++    if (fwk_id_get_element_idx(element_id) == PD_SCMI_GPU) {
++        ctx->current_state = MOD_PD_STATE_OFF;
++        return FWK_SUCCESS;
++    }
++
+     ctx->current_state = MOD_PD_STATE_ON;
+     return FWK_SUCCESS;
+ }
+ 
++static const struct mod_pd_driver_api stm32_pd_api_gpu = {
++    .set_state = stm32_pd_set_state_gpu,
++    .get_state = stm32_pd_get_state,
++    .reset = stm32_pd_reset,
++};
++
+ static const struct mod_pd_driver_api stm32_pd_api = {
+     .set_state = stm32_pd_set_state,
+     .get_state = stm32_pd_get_state,
+@@ -73,6 +134,11 @@ static int stm32_pd_process_bind_request(fwk_id_t requester_id,
+                                          fwk_id_t api_type,
+                                          const void **api)
+ {
++    if (fwk_id_get_element_idx(target_id) == PD_SCMI_GPU) {
++        *api = &stm32_pd_api_gpu;
++        return FWK_SUCCESS;
++    }
++
+     *api = &stm32_pd_api;
+     return FWK_SUCCESS;
+ }
+-- 
+2.47.2
+

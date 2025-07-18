@@ -1,0 +1,61 @@
+From a8f653d7faceb150f208a0d429b6c1b14c06674a Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Tue, 20 Feb 2024 11:45:22 +0100
+Subject: [PATCH 0661/1695] plat-stm32mp1: stm32mp_pmic: remove i2c power
+ management
+
+I2C suspend resume is handled by I2C driver, so remove it
+from the PMIC driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c6513905a9f81a80b86bd5224eb755902a2ee027 plat-stm32mp1: stm32mp_pmic: remove i2c power management]
+Change-Id: I6b36d22915c2d6f983da1b0d172cab520d17a414
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/361373
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ .../arm/plat-stm32mp1/drivers/stm32mp1_pmic.c | 19 -------------------
+ 1 file changed, 19 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+index 7300576a8..dccc731ba 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+@@ -703,23 +703,6 @@ static void initialize_pmic_i2c(const void *fdt, int pmic_node)
+ 	stm32mp_put_pmic();
+ }
+ 
+-/*
+- * Automated suspend/resume at system suspend/resume is expected
+- * only when the PMIC is secure. If it is non secure, only atomic
+- * execution context can get/put the PMIC resources.
+- */
+-static TEE_Result pmic_pm(enum pm_op op, uint32_t pm_hint __unused,
+-			  const struct pm_callback_handle *pm_handle __unused)
+-{
+-	if (op == PM_OP_SUSPEND)
+-		stm32_i2c_suspend(i2c_handle);
+-	else
+-		stm32_i2c_resume(i2c_handle);
+-
+-	return TEE_SUCCESS;
+-}
+-DECLARE_KEEP_PAGER(pmic_pm);
+-
+ /* stm32mp_get/put_pmic allows secure atomic sequences to use non secure PMIC */
+ void stm32mp_get_pmic(void)
+ {
+@@ -795,8 +778,6 @@ static TEE_Result initialize_pmic(const void *fdt, int pmic_node)
+ 	else
+ 		register_non_secure_pmic();
+ 
+-	register_pm_driver_cb(pmic_pm, NULL, "stm32mp1-pmic");
+-
+ 	parse_regulator_fdt_nodes(fdt, pmic_node);
+ 
+ 	return TEE_SUCCESS;
+-- 
+2.47.2
+

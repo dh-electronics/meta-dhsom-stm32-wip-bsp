@@ -1,0 +1,431 @@
+From 92ad6d1338939b97840e26bb56f9b960f74d1c52 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 27 Nov 2024 18:31:22 +0100
+Subject: [PATCH 1489/1695] drivers: add driver for DBGMCU secure debug mailbox
+ for STM32MP21
+
+On STM32MP21, the debug authentication protocol implements a bidirectional
+communication between the debugger (host) and the target (STM32MP21)
+through a mailbox interface located in the DBGMCU.
+The host can write to the mailbox via the JTAG/SWD interface. It expects to
+get responses and messages from the target via the same mailbox.
+
+stm32_dbgmcu_mbx driver is introduced to demonstrate this mailbox and its
+behaviors.
+It requires to enable DBGMCU clock.
+It requires two interrupts:
+- dbg_auth_wr (write): it detects a debugger write in DBG_AUTH_HOST
+register (request for debug of debugger that writes a key). It is cleared
+when the CPU reads DBG_AUTH_HOST register or with POR.
+- dbg_auth_rd (read): it detects a debugger read DBG_AUTH_DEVICE register
+(debugger read response). It is also set with POR. It is cleared when the
+CPU writes the DBG_AUTH_DEVICE register.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ab5f9eae756872e0b1da5f85d2e69efc08216547 drivers: add driver for DBGMCU secure debug mailbox for STM32MP21]
+Change-Id: I52dd5411bcd56d0316e180cdce39c99b4cde07a0
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/433588
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../conf.disable-secure-services.mk           |   1 +
+ core/arch/arm/plat-stm32mp2/conf.mk           |   7 +-
+ core/drivers/stm32_dbgmcu_mbx.c               | 297 ++++++++++++++++++
+ core/drivers/sub.mk                           |   1 +
+ core/include/drivers/stm32_dbgmcu_mbx.h       |  28 ++
+ 5 files changed, 332 insertions(+), 2 deletions(-)
+ create mode 100644 core/drivers/stm32_dbgmcu_mbx.c
+ create mode 100644 core/include/drivers/stm32_dbgmcu_mbx.h
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk b/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
+index 16aa3853b..a6a3d417b 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
+@@ -36,6 +36,7 @@ $(call force,CFG_RPMB_FS,n)
+ 
+ # Deactivate secure debug
+ $(call force,CFG_PSA_ADAC,n)
++$(call force,CFG_STM32_DBGMCU_MBX,n)
+ 
+ # Default deactivate services related to security configuration
+ CFG_STM32_PANIC_ON_IAC_EVENT ?= n
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index 9c012b721..36a652c74 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -245,17 +245,20 @@ else
+ CFG_STM32_SAES_SW_FALLBACK ?= y
+ endif
+ 
+-# PSA-ADAC
++# PSA-ADAC and DBGMCU mailbox
+ # OP-TEE support on STM32MP21 CA35TDCID but not on STM32MP21 CM33TDCID
+ # nor STM32MP23/25
+-# Default disable CFG_PSA_ADAC on STM32MP21 CM33TD and STM32MP23/25
++# Default disable CFG_PSA_ADAC and CFG_STM32_DBGMCU_MBX on STM32MP21 CM33TD
++# and STM32MP23/25
+ ifeq ($(CFG_STM32MP21)-$(CFG_STM32_CM33TDCID), y-n)
+ CFG_PSA_ADAC ?= y
+ ifeq ($(CFG_PSA_ADAC), y)
+ $(call force,CFG_PSA_ADAC_AUTHENTICATOR_IMPLICIT_TRANSPORT,y,Explicit Transport API not yet defined)
++$(call force,CFG_STM32_DBGMCU_MBX,y,Mandated by CFG_PSA_ADAC)
+ endif
+ else
+ $(call force,CFG_PSA_ADAC,n)
++$(call force,CFG_STM32_DBGMCU_MBX,n)
+ endif
+ 
+ CFG_DRIVERS_REMOTEPROC ?= $(CFG_STM32MP_REMOTEPROC)
+diff --git a/core/drivers/stm32_dbgmcu_mbx.c b/core/drivers/stm32_dbgmcu_mbx.c
+new file mode 100644
+index 000000000..5ccd42ff8
+--- /dev/null
++++ b/core/drivers/stm32_dbgmcu_mbx.c
+@@ -0,0 +1,297 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2025, STMicroelectronics - All Rights Reserved
++ */
++#include <drivers/clk.h>
++#include <drivers/clk_dt.h>
++#include <drivers/stm32_dbgmcu_mbx.h>
++#include <io.h>
++#include <kernel/dt.h>
++#include <kernel/interrupt.h>
++#include <kernel/notif.h>
++#include <libfdt.h>
++#include <stdlib_ext.h>
++
++/* DBGMCU mailbox offset register */
++#define DBGMCU_DBG_AUTH_HOST		U(0x0)
++#define DBGMCU_DBG_AUTH_DEV		U(0x4)
++#define DBGMCU_DBG_AUTH_ACK		U(0x8)
++
++/* DBGMCU_DBG_AUTH_ACK register*/
++#define DBGMCU_DBG_AUTH_ACK_HOST	BIT(0)
++#define DBGMCU_DBG_AUTH_ACK_DEV		BIT(1)
++
++/* Timeout for mailbox read and write */
++#define DBGMCU_MBX_DELAY_US		50
++#define DBGMCU_MBX_USEC_PER_MSEC	UL(1000)
++
++/* DBGMCU interrupts */
++enum {
++	DBGMCU_ITR_AUTH_WR, /* debugger_auth_write */
++	DBGMCU_ITR_AUTH_RD, /* debugger_auth_read */
++	DBGMCU_ITR_AUTH_NUM,
++};
++
++struct dbgmcu_device {
++	struct clk *clock;
++	vaddr_t base;
++
++	size_t itr_irq[DBGMCU_ITR_AUTH_NUM];
++	struct itr_chip *itr_chip[DBGMCU_ITR_AUTH_NUM];
++	struct itr_handler *itr[DBGMCU_ITR_AUTH_NUM];
++};
++
++/* Only 1 instance of DBGMCU is expected per platform */
++static struct dbgmcu_device dbgmcu_d;
++
++TEE_Result stm32_dbgmcu_mbx_read_auth_host(uint32_t *value, uint32_t timeout_ms)
++{
++	vaddr_t reg_auth_ack = dbgmcu_d.base + DBGMCU_DBG_AUTH_ACK;
++	uint32_t auth_ack = 0;
++
++	/* Wait until the debugger has written DBG_AUTH_HOST */
++	if (IO_READ32_POLL_TIMEOUT(reg_auth_ack, auth_ack,
++				   auth_ack & DBGMCU_DBG_AUTH_ACK_HOST,
++				   DBGMCU_MBX_DELAY_US,
++				   timeout_ms * DBGMCU_MBX_USEC_PER_MSEC))
++		return TEE_ERROR_TIMEOUT;
++
++	*value = io_read32(dbgmcu_d.base + DBGMCU_DBG_AUTH_HOST);
++	DMSG("%s: DBGMCU_DBG_AUTH_HOST = 0x%08x", __func__, *value);
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stm32_dbgmcu_mbx_write_auth_dev(uint32_t value, uint32_t timeout_ms)
++{
++	vaddr_t reg_auth_ack = dbgmcu_d.base + DBGMCU_DBG_AUTH_ACK;
++	uint32_t auth_ack = 0;
++
++	/* Wait until debugger has read DBG_AUTH_DEV */
++	if (IO_READ32_POLL_TIMEOUT(reg_auth_ack, auth_ack,
++				   !(auth_ack & DBGMCU_DBG_AUTH_ACK_DEV),
++				   DBGMCU_MBX_DELAY_US,
++				   timeout_ms * DBGMCU_MBX_USEC_PER_MSEC))
++		return TEE_ERROR_TIMEOUT;
++
++	io_write32(dbgmcu_d.base + DBGMCU_DBG_AUTH_DEV, value);
++	DMSG("%s: DBGMCU_DBG_AUTH_DEV = 0x%08x",
++	     __func__, io_read32(dbgmcu_d.base + DBGMCU_DBG_AUTH_DEV));
++
++	return TEE_SUCCESS;
++}
++
++/* TODO Maybe to move to platform */
++static void stm32_dbgmcu_mbx_secure_debug(void)
++{
++	//TODO
++}
++
++static void stm32_dbgmcu_mbx_enable_interrupts(bool both)
++{
++	/* Enable detection of write DBG_AUTH_HOST, aka need to read it */
++	interrupt_enable(dbgmcu_d.itr_chip[DBGMCU_ITR_AUTH_WR],
++			 dbgmcu_d.itr[DBGMCU_ITR_AUTH_WR]->it);
++
++	if (!both)
++		return;
++
++	/* Enable detection of read DBG_AUTH_DEV, aka need to write it */
++	interrupt_enable(dbgmcu_d.itr_chip[DBGMCU_ITR_AUTH_RD],
++			 dbgmcu_d.itr[DBGMCU_ITR_AUTH_RD]->it);
++}
++
++static void stm32_dbgmcu_mbx_disable_interrupts(void)
++{
++	/* Disable detection of write DBG_AUTH_HOST */
++	interrupt_disable(dbgmcu_d.itr_chip[DBGMCU_ITR_AUTH_WR],
++			  dbgmcu_d.itr[DBGMCU_ITR_AUTH_WR]->it);
++
++	/* Disable detection of read DBG_AUTH_DEV */
++	interrupt_disable(dbgmcu_d.itr_chip[DBGMCU_ITR_AUTH_RD],
++			  dbgmcu_d.itr[DBGMCU_ITR_AUTH_RD]->it);
++}
++
++static enum itr_return stm32_dbgmcu_mbx_threaded_itr(void)
++{
++	DMSG("Process request from Debugger");
++
++	stm32_dbgmcu_mbx_secure_debug();
++
++	stm32_dbgmcu_mbx_enable_interrupts(true);
++
++	return ITRR_HANDLED;
++}
++
++static enum itr_return stm32_dbgmcu_mbx_itr_auth_wr(struct itr_handler *h
++						    __unused)
++{
++	uint32_t value = 0;
++
++	DMSG("Request available from Debugger");
++
++	if (notif_async_is_started()) {
++		stm32_dbgmcu_mbx_disable_interrupts();
++		notif_send_async(NOTIF_VALUE_DO_BOTTOM_HALF);
++	} else {
++		/* Dummy read to avoid spurious IT */
++		stm32_dbgmcu_mbx_read_auth_host(&value, 1000);
++		EMSG("Request dropped (0x%x), async notifications not started",
++		     value);
++	}
++
++	return ITRR_HANDLED;
++}
++
++static enum itr_return stm32_dbgmcu_mbx_itr_auth_rd(struct itr_handler *h
++						    __unused)
++{
++	TEE_Result res __maybe_unused = TEE_ERROR_GENERIC;
++	uint32_t value = 0xdeadbeef;
++
++	/*
++	 * We should theoretically never enter this interrupt handler. As per
++	 * ADAC specification, "In this protocol, the debug host is always the
++	 * Requester and initiator of commands.". That's why a dummy value is
++	 * written.
++	 */
++	res = stm32_dbgmcu_mbx_write_auth_dev(value, 1000);
++
++	DMSG("Reply requested by Debugger: res=%x", res);
++
++	return ITRR_HANDLED;
++}
++
++static void yielding_stm32_dbgmcu_mbx_notif(struct notif_driver *ndrv __unused,
++					    enum notif_event ev)
++{
++	switch (ev) {
++	case NOTIF_EVENT_DO_BOTTOM_HALF:
++		DMSG("Notif DO_BOTTOM_HALF");
++		stm32_dbgmcu_mbx_threaded_itr();
++		break;
++	case NOTIF_EVENT_STOPPED:
++		DMSG("Notif STOPPED");
++		break;
++	default:
++		EMSG("Unknown event %d", ev);
++	}
++}
++
++struct notif_driver stm32_dbgmcu_mbx_notif = {
++	.yielding_cb = yielding_stm32_dbgmcu_mbx_notif,
++};
++
++static bool stm32_dbgmcu_mbx_early_request(void)
++{
++	vaddr_t reg_auth_ack = dbgmcu_d.base + DBGMCU_DBG_AUTH_ACK;
++
++	return !!(io_read32(reg_auth_ack) & DBGMCU_DBG_AUTH_ACK_HOST);
++}
++
++static TEE_Result stm32_dbgmcu_mbx_parse_fdt(const void *fdt, int node)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct dt_node_info dt_info = { };
++	struct io_pa_va base = { };
++
++	assert(fdt);
++
++	fdt_fill_device_info(fdt, &dt_info, node);
++	if (dt_info.status == DT_STATUS_DISABLED ||
++	    dt_info.reg == DT_INFO_INVALID_REG ||
++	    dt_info.clock == DT_INFO_INVALID_CLOCK)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	base.pa = dt_info.reg;
++	dbgmcu_d.base = io_pa_or_va_secure(&base, dt_info.reg_size);
++
++	res = interrupt_dt_get_by_name(fdt, node, "dbg_auth_wr",
++				       &dbgmcu_d.itr_chip[DBGMCU_ITR_AUTH_WR],
++				       &dbgmcu_d.itr_irq[DBGMCU_ITR_AUTH_WR]);
++	if (res)
++		return res;
++
++	res = interrupt_dt_get_by_name(fdt, node, "dbg_auth_rd",
++				       &dbgmcu_d.itr_chip[DBGMCU_ITR_AUTH_RD],
++				       &dbgmcu_d.itr_irq[DBGMCU_ITR_AUTH_RD]);
++	if (res)
++		return res;
++
++	return clk_dt_get_by_index(fdt, node, 0, &dbgmcu_d.clock);
++}
++
++static TEE_Result stm32_dbgmcu_mbx_probe(const void *fdt, int node,
++					 const void *compat_data __unused)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	/*
++	 * Manage dependency on crypto, used for ADAC. It returns
++	 * TEE_ERROR_DEFER_DRIVER_INIT if crypto is not yet initialized.
++	 */
++	res = dt_driver_get_crypto();
++	if (res)
++		return res;
++
++	res = stm32_dbgmcu_mbx_parse_fdt(fdt, node);
++	if (res)
++		return res;
++
++	res = clk_enable(dbgmcu_d.clock);
++	if (res)
++		return res;
++
++	res = interrupt_create_handler(dbgmcu_d.itr_chip[DBGMCU_ITR_AUTH_WR],
++				       dbgmcu_d.itr_irq[DBGMCU_ITR_AUTH_WR],
++				       stm32_dbgmcu_mbx_itr_auth_wr,
++				       &dbgmcu_d, 0,
++				       &dbgmcu_d.itr[DBGMCU_ITR_AUTH_WR]);
++	if (res)
++		goto err_clk_disable;
++
++	/* auth_read irq requires edge-triggered type as it is high on POR */
++	res = interrupt_create_handler(dbgmcu_d.itr_chip[DBGMCU_ITR_AUTH_RD],
++				       dbgmcu_d.itr_irq[DBGMCU_ITR_AUTH_RD],
++				       stm32_dbgmcu_mbx_itr_auth_rd,
++				       &dbgmcu_d, 0,
++				       &dbgmcu_d.itr[DBGMCU_ITR_AUTH_RD]);
++	if (res)
++		goto err_itr_wr_free;
++
++	if (IS_ENABLED(CFG_CORE_ASYNC_NOTIF))
++		notif_register_driver(&stm32_dbgmcu_mbx_notif);
++
++	/* Before enabling interrupts, handle early debug request */
++	if (stm32_dbgmcu_mbx_early_request())
++		stm32_dbgmcu_mbx_secure_debug();
++	else
++		DMSG("No early debug request");
++
++	stm32_dbgmcu_mbx_enable_interrupts(false);
++
++	IMSG("DBGMCU Authenticated Debug Mailbox online");
++
++	return TEE_SUCCESS;
++
++err_itr_wr_free:
++	interrupt_remove_free_handler(dbgmcu_d.itr[DBGMCU_ITR_AUTH_WR]);
++
++err_clk_disable:
++	clk_disable(dbgmcu_d.clock);
++
++	EMSG("DBGMCU Authenticated Debug Mailbox offline");
++
++	return res;
++}
++
++static const struct dt_device_match stm32_dbgmcu_mbx_match_table[] = {
++	{ .compatible = "st,stm32mp21-dbgmcu-mbx" },
++	{ }
++};
++
++DEFINE_DT_DRIVER(stm32_dbgmcu_mbx_dt_driver) = {
++	.name = "stm32-dbgmcu-mbx",
++	.match_table = stm32_dbgmcu_mbx_match_table,
++	.probe = stm32_dbgmcu_mbx_probe,
++};
+diff --git a/core/drivers/sub.mk b/core/drivers/sub.mk
+index 6296bc184..36ce83965 100644
+--- a/core/drivers/sub.mk
++++ b/core/drivers/sub.mk
+@@ -39,6 +39,7 @@ srcs-$(CFG_STM32_BSEC) += stm32_bsec.c
+ srcs-$(CFG_STM32_BSEC3) += stm32_bsec3.c
+ srcs-$(CFG_STM32_CPU_OPP) += stm32_cpu_opp.c
+ srcs-$(CFG_STM32_GPU_OPP) += stm32_gpu_opp.c
++srcs-$(CFG_STM32_DBGMCU_MBX) += stm32_dbgmcu_mbx.c
+ srcs-$(CFG_STM32_EXTI) += stm32_exti.c
+ srcs-$(CFG_STM32_FMC) += stm32_fmc.c
+ srcs-$(CFG_STM32_GPIO) += stm32_gpio.c
+diff --git a/core/include/drivers/stm32_dbgmcu_mbx.h b/core/include/drivers/stm32_dbgmcu_mbx.h
+new file mode 100644
+index 000000000..83a933d3f
+--- /dev/null
++++ b/core/include/drivers/stm32_dbgmcu_mbx.h
+@@ -0,0 +1,28 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2025, STMicroelectronics
++ */
++
++#ifndef __DRIVERS_STM32_DBGMCU_MBX_H
++#define __DRIVERS_STM32_DBGMCU_MBX_H
++
++#include <tee_api_types.h>
++
++/*
++ * Read a value from DBGMCU_DBG_AUTH_HOST register.
++ * @value: pointer to value read from register
++ * @timeout_ms: timeout in milliseconds
++ * Return a TEE_Result compliant status
++ */
++TEE_Result stm32_dbgmcu_mbx_read_auth_host(uint32_t *value,
++					   uint32_t timeout_ms);
++
++/*
++ * Write a value in DBGMCU_DBG_AUTH_DEV register.
++ * @value: value to write in the register
++ * @timeout_ms: timeout in milliseconds
++ * Return a TEE_Result compliant status
++ */
++TEE_Result stm32_dbgmcu_mbx_write_auth_dev(uint32_t value, uint32_t timeout_ms);
++
++#endif /* __DRIVERS_STM32_DBGMCU_MBX_H */
+-- 
+2.47.2
+

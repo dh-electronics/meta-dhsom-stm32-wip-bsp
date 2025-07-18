@@ -1,0 +1,87 @@
+From 7893d08ee866cb52f7a654e9c8117799ec9daf4c Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 26 Jun 2024 21:01:47 +0200
+Subject: [PATCH 1006/1695] core: kernel: from_/to_bounce_params() relates to
+ CFG_WITH_USER_TA
+
+Condition to_bounce_params() and from_bounce_params() functions
+implemented by pseudo_ta.c to CFG_WITH_USER_TA being enabled. This is
+consistent because these functions are used only for PTAs that interact
+with user TAs. Actually the attestation PTA being the only caller of
+these function and is dedicated to attestation of TA immutable
+memory segments (code/read-only data).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 82c3a246c8e8798074cea457db3bd7fe552868db core: kernel: from_/to_bounce_params() relates to CFG_WITH_USER_TA]
+Change-Id: Idaba1d80419a393dce7a8cf11255146c76fecbfb
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391655
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/include/kernel/pseudo_ta.h | 23 +++++++++++++++++++++++
+ core/kernel/pseudo_ta.c         |  2 ++
+ 2 files changed, 25 insertions(+)
+
+diff --git a/core/include/kernel/pseudo_ta.h b/core/include/kernel/pseudo_ta.h
+index b2a138ca0..39813baee 100644
+--- a/core/include/kernel/pseudo_ta.h
++++ b/core/include/kernel/pseudo_ta.h
+@@ -77,6 +77,7 @@ static inline bool is_caller_ta_with_pan(void)
+ 	return s && is_user_ta_ctx(s->ctx);
+ }
+ 
++#ifdef CFG_WITH_USER_TA
+ /*
+  * If caller is a TA and PAN is enabled, allocate bounce buffers for each
+  * memref in @params and build @bparams, then make *@oparams point to @bparams.
+@@ -95,6 +96,28 @@ TEE_Result from_bounce_params(uint32_t param_types,
+ 			      TEE_Param params[TEE_NUM_PARAMS],
+ 			      TEE_Param bparams[TEE_NUM_PARAMS],
+ 			      TEE_Param *eparams);
++#else
++static inline TEE_Result
++to_bounce_params(uint32_t param_types __unused,
++		 TEE_Param params[TEE_NUM_PARAMS] __unused,
++		 TEE_Param bparams[TEE_NUM_PARAMS] __unused,
++		 TEE_Param **oparams __unused)
++{
++	return TEE_ERROR_NOT_SUPPORTED;
++}
+ 
++/*
++ * If @eparams == @bparams, copy data from @bparams to @params. Otherwise, do
++ * nothing.
++ */
++static inline TEE_Result
++from_bounce_params(uint32_t param_types __unused,
++		   TEE_Param params[TEE_NUM_PARAMS] __unused,
++		   TEE_Param bparams[TEE_NUM_PARAMS] __unused,
++		   TEE_Param *eparams __unused)
++{
++	return TEE_ERROR_NOT_SUPPORTED;
++}
++#endif
+ #endif /* __KERNEL_PSEUDO_TA_H */
+ 
+diff --git a/core/kernel/pseudo_ta.c b/core/kernel/pseudo_ta.c
+index 828a1d844..7d974843e 100644
+--- a/core/kernel/pseudo_ta.c
++++ b/core/kernel/pseudo_ta.c
+@@ -329,6 +329,7 @@ TEE_Result tee_ta_init_pseudo_ta_session(const TEE_UUID *uuid,
+ 	return TEE_SUCCESS;
+ }
+ 
++#ifdef CFG_WITH_USER_TA
+ TEE_Result to_bounce_params(uint32_t param_types,
+ 			    TEE_Param params[TEE_NUM_PARAMS],
+ 			    TEE_Param bparams[TEE_NUM_PARAMS],
+@@ -420,3 +421,4 @@ TEE_Result from_bounce_params(uint32_t param_types,
+ 
+ 	return res;
+ }
++#endif
+-- 
+2.47.2
+

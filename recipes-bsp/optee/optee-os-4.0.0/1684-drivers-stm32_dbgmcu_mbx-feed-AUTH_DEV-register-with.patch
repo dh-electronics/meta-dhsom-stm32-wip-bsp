@@ -1,0 +1,52 @@
+From 9e2435016e18519e95e7f4c91e9075c1f16210bd Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 2 Apr 2025 11:44:36 +0200
+Subject: [PATCH 1684/1695] drivers: stm32_dbgmcu_mbx: feed AUTH_DEV register
+ with dummy value
+
+To unlock AP0, authentication device register (AUTH_DEV) has to be written
+once with any value. Use 0xbadf00d0 for that purpose.
+
+During ADAC process, interrupts are disabled. There are enabled again at
+the end of ADAC process, to detect a debug hot plug connection. To start
+a hot plug secure debug request, the debugger should write AUTH_HOST. But
+if, for any reason, it reads AUTH_DEV register, debugger_auth_read
+interrupt is raised and cleared with 0xbadf00d1 value.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git fe4962d4d0f7f02979cfc08ebedc223c50870c98 drivers: stm32_dbgmcu_mbx: feed AUTH_DEV register with dummy value]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: I4bd869a0d52d5cf79e4df17e0244c36ad8d0c254
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/451702
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_dbgmcu_mbx.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/stm32_dbgmcu_mbx.c b/core/drivers/stm32_dbgmcu_mbx.c
+index b3e67b87c..722db243f 100644
+--- a/core/drivers/stm32_dbgmcu_mbx.c
++++ b/core/drivers/stm32_dbgmcu_mbx.c
+@@ -148,7 +148,7 @@ static enum itr_return stm32_dbgmcu_mbx_itr_auth_rd(struct itr_handler *h
+ 						    __unused)
+ {
+ 	TEE_Result res __maybe_unused = TEE_ERROR_GENERIC;
+-	uint32_t value = 0xdeadbeef;
++	uint32_t value = 0xbadf00d1;
+ 
+ 	/*
+ 	 * We should theoretically never enter this interrupt handler. As per
+@@ -263,6 +263,8 @@ static TEE_Result stm32_dbgmcu_mbx_probe(const void *fdt, int node,
+ 	if (IS_ENABLED(CFG_CORE_ASYNC_NOTIF))
+ 		notif_register_driver(&stm32_dbgmcu_mbx_notif);
+ 
++	stm32_dbgmcu_mbx_write_auth_dev(0xbadf00d0, 1000);
++
+ 	/* Before enabling interrupts, handle early debug request */
+ 	if (stm32_dbgmcu_mbx_early_request())
+ 		stm32_dbgmcu_mbx_secure_debug();
+-- 
+2.47.2
+

@@ -1,0 +1,105 @@
+From 1f159080d6c539c88e641e36fcb6cce081fff0e6 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Fri, 28 Feb 2025 16:54:50 +0100
+Subject: [PATCH 1659/1695] prod/tfm-stm32mp: add smt respond without interrupt
+
+For some services a respond without interrupt needs to be supported
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e89ce3a5e78eea7b885f786a2dca42b77d68310d prod/tfm-stm32mp: add smt respond without interrupt]
+Change-Id: I245c8ac452b7f91ff9d094baf0507490d42ac30f
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/445561
+Domain-Review: Valentin CARON <valentin.caron@foss.st.com>
+Tested-by: Valentin CARON <valentin.caron@foss.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../product/tfm-stm32mp2/fw/config_all.c            |  1 +
+ .../module/tfm_mbx/include/mod_tfm_mbx.h            |  3 +++
+ .../tfm-stm32mp2/module/tfm_mbx/src/mod_tfm_mbx.c   |  5 +++++
+ .../tfm-stm32mp2/module/tfm_smt/src/mod_tfm_smt.c   | 13 ++++++-------
+ 4 files changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
+index 24c0f6dfe..f1cb0e48e 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
+@@ -530,6 +530,7 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+                         .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_SMT, tfm_smt_index),
+                         .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_SMT,
+                                                                    MOD_TFM_SMT_API_IDX_DRIVER_INPUT),
++                        .chan_mbx = channel_cfg->chan_mbx,
+                     };
+                 tfm_smt_index++;
+                 break;
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/include/mod_tfm_mbx.h b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/include/mod_tfm_mbx.h
+index 0330fa74c..0be43f48f 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/include/mod_tfm_mbx.h
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/include/mod_tfm_mbx.h
+@@ -21,6 +21,9 @@ struct mod_tfm_mbx_channel_config {
+ 
+     /*! Identifier of the driver API to bind to */
+     fwk_id_t driver_api_id;
++
++    /*! Mailbox handler to raise notifcation when request done */
++    void *chan_mbx;
+ };
+ 
+ /*!
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/src/mod_tfm_mbx.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/src/mod_tfm_mbx.c
+index 38d2ea534..511ec8288 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/src/mod_tfm_mbx.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/src/mod_tfm_mbx.c
+@@ -22,6 +22,8 @@
+ #include <mod_tfm_smt.h>
+ #include <mod_msg_smt.h>
+ 
++#include "scp_mbox.h"
++
+ /* MBX device context */
+ struct mbx_device_ctx {
+     /* Channel configuration data */
+@@ -113,6 +115,9 @@ static int raise_smt_interrupt(fwk_id_t channel_id)
+     size_t idx = fwk_id_get_element_idx(channel_id);
+     struct mbx_device_ctx *channel_ctx = &mbx_ctx.device_ctx_table[idx];
+ 
++    if (scp_mbox_raise(channel_ctx->config->chan_mbx))
++        fwk_unexpected();
++
+     /* There should be a message in the mailbox */
+     return FWK_SUCCESS;
+ }
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/src/mod_tfm_smt.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/src/mod_tfm_smt.c
+index 1469b1eac..5f0a01f40 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/src/mod_tfm_smt.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/src/mod_tfm_smt.c
+@@ -211,7 +211,8 @@ static int smt_respond(fwk_id_t channel_id, const void *payload, size_t size)
+     memory->length = sizeof(memory->message_header) + size;
+     memory->status |= MOD_TFM_SMT_MAILBOX_STATUS_FREE_MASK;
+ 
+-    channel_ctx->driver_api->raise_interrupt(channel_ctx->driver_id);
++    if (memory->flags & MOD_TFM_SMT_MAILBOX_FLAGS_IENABLED_MASK)
++        channel_ctx->driver_api->raise_interrupt(channel_ctx->driver_id);
+ 
+     return FWK_SUCCESS;
+ }
+@@ -236,12 +237,10 @@ static int smt_transmit(fwk_id_t channel_id, uint32_t message_header,
+ 
+     memory->message_header = message_header;
+ 
+-    /*
+-     * we do not want the agent to send an interrupt when it receives
+-     * the message.
+-     */
+-    memory->flags = 0;
+-
++    if (request_ack_by_interrupt)
++        memory->flags = MOD_TFM_SMT_MAILBOX_FLAGS_IENABLED_MASK;
++    else
++        memory->flags = 0;
+     /* Copy the payload */
+     fwk_str_memcpy(memory->payload, payload, size);
+ 
+-- 
+2.47.2
+

@@ -1,0 +1,83 @@
+From ab38d8e1518d02e03ff4264335a80a446fbde319 Mon Sep 17 00:00:00 2001
+From: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+Date: Fri, 26 Apr 2024 13:12:06 +0200
+Subject: [PATCH 1065/1695] dt-bindings: update YAML documentation for
+ stm32mp25-rifsc
+
+Add description of st,risal property
+
+RISAL (Resource Isolation Slave Unit for Address Space) is part of RISC
+(RIF Security Controller) which is responsible for the isolation
+of hardware resources like memory or peripherals.
+
+RISAL allow to configure LPSRAM security access.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5c73c8dc39e245181a585b18c9a748cfa082ff20 dt-bindings: update YAML documentation for stm32mp25-rifsc]
+Change-Id: Ife3251dba6bad7c3ddfbfc8eb4c7417e2263bbfd
+Signed-off-by: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/376881
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gwenael TREUVEUR <gwenael.treuveur@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gwenael TREUVEUR <gwenael.treuveur@st.com>
+---
+ .../soc/stm32/st,stm32mp25-rifsc.yaml         | 40 +++++++++++++++++++
+ 1 file changed, 40 insertions(+)
+
+diff --git a/documentation/devicetree/bindings/soc/stm32/st,stm32mp25-rifsc.yaml b/documentation/devicetree/bindings/soc/stm32/st,stm32mp25-rifsc.yaml
+index f005deff8..30f489e0b 100644
+--- a/documentation/devicetree/bindings/soc/stm32/st,stm32mp25-rifsc.yaml
++++ b/documentation/devicetree/bindings/soc/stm32/st,stm32mp25-rifsc.yaml
+@@ -131,6 +131,46 @@ properties:
+         RIF_CIDSEL_P, master CID is inherited from the associated RISUP.
+         RIF_CIDSEL_M, master CID is defined in the “scid” field
+ 
++  st,risal:
++    minItems: 1
++    $ref: "/schemas/types.yaml#/definitions/uint32-array"
++    description:
++      Describes the firewall hardware configuration to apply for a given
++      memory under RISAL logic. It is only accessible by the TDCID.
++
++      RISALPROT(risal_id, block_id, srcid, lock, sec, priv, sren)
++
++      When a field isn't effective, it should be filled with RIF_UNUSED.
++
++      “risal_id” ID of the RISAL memory region.
++
++      “block_id” ID of the RISAL memory subregion block.
++        RIF_BLOCK_A, selects the subregion A
++        RIF_BLOCK_B, selects the subregion B
++
++      “srcid” CID by which the subregion is accessible. Effective only if “sren” =
++             RIF_SREN. When “sren” = RIF_SRDIS, "srcid" should be set to
++             RIF_UNUSED.
++
++      "lock" Specifies whether the RISAL configuration is locked until
++             next platform reset for this memory subregion.
++        RIF_UNLOCK, the RISAL configuration will not be locked for this
++                    subregion
++        RIF_LOCK, the RISAL configuration will be locked and will not be
++                  editable until next platform reset for this subregion
++
++      "sec" Defines the secure level necessary to access this memory subregion.
++        RIF_SEC, subregion is accessible by secure masters only
++        RIF_NSEC, subregion is accessible by non secure masters only.
++
++      "priv" Defines the privilege level necessary to access this memory subregion.
++        RIF_PRIV, subregion is accessible by privileged masters only
++        RIF_NPRIV, subregion is accessible by privileged and non-privileged masters
++
++      “sren” Defines if the RISAL memory subregion is enabled and its CID filtering is enabled.
++        RIF_SREN, enables the subregion and its CID filtering
++        RIF_SRDIS, disables the subregion and its CID filtering
++
+   st,glocked:
+     $ref: /schemas/types.yaml#/definitions/uint32
+     description:
+-- 
+2.47.2
+

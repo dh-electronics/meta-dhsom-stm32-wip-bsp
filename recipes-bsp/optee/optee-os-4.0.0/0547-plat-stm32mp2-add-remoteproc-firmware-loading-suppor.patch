@@ -1,0 +1,54 @@
+From 59628c2544f02a9f2db07d3aa02c5faf7bd4b5ee Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Fri, 8 Dec 2023 19:00:26 +0100
+Subject: [PATCH 0547/1695] plat-stm32mp2: add remoteproc firmware loading
+ support
+
+Enable the remoteproc TA, the remoteproc PTA and the
+stm32mp_remoteproc driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9668f5337bdd8c488562fdc61b2c952b5204dee6 plat-stm32mp2: add remoteproc firmware loading support]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I51a1f29502ab26013b9aed26b46cc051d6451be9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/348401
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/conf.mk | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index 3b77438fc..530e1e996 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -60,6 +60,7 @@ $(call force,CFG_STM32_FIREWALL,y)
+ $(call force,CFG_STM32_PWR,y)
+ $(call force,CFG_STM32_PWR_REGUL,y)
+ $(call force,CFG_STM32MP_CLK_CORE,y)
++$(call force,CFG_STM32MP_REMOTEPROC,y)
+ $(call force,CFG_STM32MP25_CLK,y)
+ $(call force,CFG_STM32MP25_RSTCTRL,y)
+ $(call force,CFG_WITH_ARM_TRUSTED_FW,y)
+@@ -125,6 +126,16 @@ CFG_STM32_EARLY_CONSOLE_UART ?= 2
+ # Default disable external DT support
+ CFG_EXTERNAL_DT ?= n
+ 
++CFG_STM32MP_REMOTEPROC ?= n
++CFG_DRIVERS_REMOTEPROC ?= $(CFG_STM32MP_REMOTEPROC)
++CFG_REMOTEPROC_PTA ?= $(CFG_STM32MP_REMOTEPROC)
++ifeq ($(CFG_REMOTEPROC_PTA),y)
++# Remoteproc early TA for coprocessor firmware management in boot stages
++CFG_IN_TREE_EARLY_TAS += remoteproc/80a4c275-0a47-4905-8285-1486a9771a08
++# Embed public part of this key in OP-TEE OS
++RPROC_SIGN_KEY ?= keys/default.pem
++endif
++
+ # Default enable HWRNG PTA support
+ CFG_HWRNG_PTA ?= y
+ ifeq ($(CFG_HWRNG_PTA),y)
+-- 
+2.47.2
+

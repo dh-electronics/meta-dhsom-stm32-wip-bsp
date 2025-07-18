@@ -1,0 +1,193 @@
+From ff6116105a2fa036f50ae07c2cf1c1dd79227652 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 29 Nov 2024 18:45:20 +0100
+Subject: [PATCH 1519/1695] plat-stm32mp1: simplify
+ CFG_STM32MP1_PM_CONTEXT_VERSION management
+
+Update CFG_STM32MP1_PM_CONTEXT_VERSION management in OP-TEE, because
+since OSTL v2.x and TF-A v2.4, the V3 context is the supported mailbox
+version and this version is provided by BL2 in magic address with
+	backup_data->magic = MAILBOX_MAGIC_V3;
+
+This patch limits the supported version at V3, used by TF-A since OST v2.x
+and required for PLL1 setting with OP-TEE in sysram.
+
+The supported version by TF-A and OP-TEE is managed dynamically
+to prepare V4 introduction: the supported version in OP-TEE (optee_magic)
+is limited by the version supported by TF-A BL2 (for standby exit) and
+supported by OP-TEE, defined with CFG_STM32MP1_PM_CONTEXT_VERSION.
+
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/423281
+Change-Id: I0d216e3b9fdfb79958122d14917a205db58204dd
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/437077
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/442506
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+
+squash! plat-stm32mp1: simplify CFG_STM32MP1_PM_CONTEXT_VERSION management
+
+When context version is not provided for old TF-A BL2, for example when
+OP-TEE is  running in DDR the context wasn't initialized and version = 0,
+OP-TEE assumes that BL2 support a V3 context to be backward compatible.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d1694480768ef57e40a55e93f81764a74f797ac5 plat-stm32mp1: simplify CFG_STM32MP1_PM_CONTEXT_VERSION management]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Idcd91bd56a157af68e4c5647a4a018d14c06d2ba
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/pm/context.c | 70 +++++++++++-------------
+ 1 file changed, 31 insertions(+), 39 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.c b/core/arch/arm/plat-stm32mp1/pm/context.c
+index f323e9bdc..0ccc4b141 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/context.c
++++ b/core/arch/arm/plat-stm32mp1/pm/context.c
+@@ -35,44 +35,29 @@
+ #define TRAINING_AREA_SIZE		64
+ 
+ /*
+- * STANDBY_CONTEXT_MAGIC0:
+- * Context provides magic, resume entry, zq0cr0 zdata and DDR training buffer.
++ * STANDBY_CONTEXT_MAGIC  - V1 and V2 are not supported by OP-TEE
+  *
+- * STANDBY_CONTEXT_MAGIC1:
+- * Context provides MAGIC0 content and PLL1 dual OPP settings structure
+- * (86 bytes).
+- *
+- * STANDBY_CONTEXT_MAGIC2:
+- * Context provides MAGIC1 content, low power entry point, BL2 code start, end
+- * and BL2_END (102 bytes). And, only for STM32MP13, add MCE master key
+- * (16 bytes).
++ * STANDBY_CONTEXT_MAGIC V3
++ * Context provides magic, resume entry, zq0cr0 zdata and DDR training buffer,
++ * PLL1 dual OPP settings structure (86 bytes) and low power entry point,
++ * BL2 code start, end and BL2_END (102 bytes). And, only for STM32MP13,
++ * add MCE master key (16 bytes)
+  */
+-#define STANDBY_CONTEXT_MAGIC0		(0x0001 << 16)
+-#define STANDBY_CONTEXT_MAGIC1		(0x0002 << 16)
+-#define STANDBY_CONTEXT_MAGIC2		(0x0003 << 16)
+-
+-#if CFG_STM32MP1_PM_CONTEXT_VERSION == 1
+-#define STANDBY_CONTEXT_MAGIC	(STANDBY_CONTEXT_MAGIC0 | TRAINING_AREA_SIZE)
+-#elif CFG_STM32MP1_PM_CONTEXT_VERSION == 2
+-#define STANDBY_CONTEXT_MAGIC	(STANDBY_CONTEXT_MAGIC1 | TRAINING_AREA_SIZE)
+-#elif CFG_STM32MP1_PM_CONTEXT_VERSION == 3
+-#define STANDBY_CONTEXT_MAGIC	(STANDBY_CONTEXT_MAGIC2 | TRAINING_AREA_SIZE)
+-#else
++
++#if CFG_STM32MP1_PM_CONTEXT_VERSION < 3 || CFG_STM32MP1_PM_CONTEXT_VERSION > 3
+ #error Invalid value for CFG_STM32MP1_PM_CONTEXT_VERSION
+ #endif
+ 
+-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 2
+-#if (PLAT_MAX_OPP_NB != 2) || (PLAT_MAX_PLLCFG_NB != 6)
+-#error STANDBY_CONTEXT_MAGIC does not support expected PLL1 settings
+-#endif
++#define STANDBY_CONTEXT_MAGIC(version)	((version) << 16 |  TRAINING_AREA_SIZE)
++#define MAGIC_VERSION(magic)		((magic) >> 16)
++#define MAGIC_AREA_SIZE(magic)		((magic) & GENMASK_32(15, 0))
+ 
+ /* pll_settings structure size definitions (reference to clock driver) */
+ #define PLL1_SETTINGS_SIZE		(((PLAT_MAX_OPP_NB * \
+ 					  (PLAT_MAX_PLLCFG_NB + 3)) + 1) * \
+ 					 sizeof(uint32_t))
+-#endif
+ 
+-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 3 && defined(CFG_STM32MP13)
++#if defined(CFG_STM32MP13)
+ #define MCE_KEY_SIZE_IN_BYTES		16
+ #endif
+ 
+@@ -118,10 +103,7 @@ struct pm_mailbox {
+ 	uint32_t core0_resume_ep;
+ 	uint32_t zq0cr0_zdata;
+ 	uint8_t ddr_training_backup[TRAINING_AREA_SIZE];
+-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 2
+ 	uint8_t pll1_settings[PLL1_SETTINGS_SIZE];
+-#endif
+-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 3
+ 	uint32_t low_power_ep;
+ 	uint32_t bl2_code_base;
+ 	uint32_t bl2_code_end;
+@@ -129,9 +111,10 @@ struct pm_mailbox {
+ #ifdef CFG_STM32MP13
+ 	uint8_t mce_mkey[MCE_KEY_SIZE_IN_BYTES];
+ #endif
+-#endif
+ };
+ 
++uint32_t optee_magic;
++
+ static tee_mm_entry_t *teeram_bkp_mm;
+ 
+ /*
+@@ -221,11 +204,23 @@ static void restore_time(void)
+ void stm32mp_pm_wipe_context(void)
+ {
+ 	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
+-	struct pm_mailbox __maybe_unused *mailbox = get_pm_mailbox();
++	struct pm_mailbox *mailbox = get_pm_mailbox();
++	unsigned int version = 0;
+ 
+ 	clk_enable(pm_clocks.bkpsram);
+ 
+ 	memset(ctx, 0xa5, sizeof(*ctx));
++
++	/* BL2 set the supported MAGIC in mailbox since V3 */
++	version = MIN(MAGIC_VERSION(mailbox->magic),
++		      (uint32_t)CFG_STM32MP1_PM_CONTEXT_VERSION);
++
++	/* When version is not provided for old TF-A BL2 OP-TEE assumed V3 */
++	if (version == 0)
++		version = 3;
++
++	optee_magic = STANDBY_CONTEXT_MAGIC(version);
++
+ #ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
+ 	memset(mailbox, 0xa5, sizeof(*mailbox));
+ #endif
+@@ -283,9 +278,8 @@ __maybe_unused static void save_ddr_training_area(void)
+  * structure must then be saved before going to STANDBY in the PM mailbox
+  * shared with the warm boot boot stage.
+  */
+-#if (CFG_STM32MP1_PM_CONTEXT_VERSION >= 2) && \
+-    defined(CFG_STM32MP1_OPTEE_IN_SYSRAM)
+-__maybe_unused static void save_pll1_settings(void)
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++static void save_pll1_settings(void)
+ {
+ 	struct pm_mailbox *mailbox = get_pm_mailbox();
+ 	size_t size = sizeof(mailbox->pll1_settings);
+@@ -293,7 +287,7 @@ __maybe_unused static void save_pll1_settings(void)
+ 
+ 	stm32mp1_clk_lp_save_opp_pll1_settings(data, size);
+ }
+-#endif
++#endif /* CFG_STM32MP1_OPTEE_IN_SYSRAM */
+ 
+ static void load_earlyboot_pm_mailbox(void)
+ {
+@@ -309,9 +303,7 @@ static void load_earlyboot_pm_mailbox(void)
+ 
+ 	mailbox->zq0cr0_zdata = get_ddrphy_calibration();
+ 
+-#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 2
+ 	save_pll1_settings();
+-#endif
+ #endif /* CFG_STM32MP1_OPTEE_IN_SYSRAM */
+ 
+ 	save_ddr_training_area();
+@@ -420,7 +412,7 @@ static void enable_pm_mailbox(unsigned int suspend)
+ 
+ 	if (suspend) {
+ 		magic = BOOT_API_A7_CORE0_MAGIC_NUMBER;
+-		mailbox->magic = STANDBY_CONTEXT_MAGIC;
++		mailbox->magic = optee_magic;
+ 
+ #ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
+ 		hint = virt_to_phys(stm32mp_sysram_resume);
+-- 
+2.47.2
+

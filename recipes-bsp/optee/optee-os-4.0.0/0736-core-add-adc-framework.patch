@@ -1,0 +1,501 @@
+From c3745c97518ef239e6af29643c3c306f083b264f Mon Sep 17 00:00:00 2001
+From: Olivier Moysan <olivier.moysan@foss.st.com>
+Date: Mon, 8 Apr 2024 17:20:21 +0200
+Subject: [PATCH 0736/1695] core: add adc framework
+
+Add minimal ADC framework:
+- Add support of ADC channel providers
+  The ADC provider drivers have to register read callback
+  to support single shot conversion.
+- Add support of ADC channel consumers
+  The ADC consumers are registered in a lookup table and can be
+  identified by a client entity through an ADC name and a channel number.
+
+This API relies on ADC driver to manage ADC configuration
+on a conversion request:
+- Make ADC state management transparent for end user.
+- Let driver manage PM.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git dbba1f8820b02e8bcc59279364968604479be92f core: add adc framework]
+Signed-off-by: Olivier Moysan <olivier.moysan@foss.st.com>
+Change-Id: Icb9149470e7865b6bb7f1d49b6911f750c6418e7
+---
+ core/drivers/adc/adc_fw.c  | 261 +++++++++++++++++++++++++++++++++++++
+ core/drivers/adc/sub.mk    |   1 +
+ core/drivers/sub.mk        |   1 +
+ core/include/drivers/adc.h | 175 +++++++++++++++++++++++++
+ 4 files changed, 438 insertions(+)
+ create mode 100644 core/drivers/adc/adc_fw.c
+ create mode 100644 core/drivers/adc/sub.mk
+ create mode 100644 core/include/drivers/adc.h
+
+diff --git a/core/drivers/adc/adc_fw.c b/core/drivers/adc/adc_fw.c
+new file mode 100644
+index 000000000..d7b1b374b
+--- /dev/null
++++ b/core/drivers/adc/adc_fw.c
+@@ -0,0 +1,261 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2022, STMicroelectronics
++ */
++
++#include <assert.h>
++#include <drivers/adc.h>
++#include <io.h>
++#include <libfdt.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/queue.h>
++#include <trace.h>
++#include <util.h>
++
++static SLIST_HEAD(adc_consumer_list_head, adc_consumer) adc_cons_list =
++	SLIST_HEAD_INITIALIZER(adc_consumer_list_head);
++
++TEE_Result adc_trylock(struct adc_device *dev)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	res = mutex_trylock(&dev->lock) ? TEE_SUCCESS : TEE_ERROR_BUSY;
++
++	if (dev->state) {
++		DMSG("ADC is %s already running", dev->name);
++		mutex_unlock(&dev->lock);
++		res = TEE_ERROR_BUSY;
++	}
++
++	return res;
++}
++
++void adc_unlock(struct adc_device *dev)
++{
++	mutex_unlock(&dev->lock);
++}
++
++TEE_Result adc_get_by_name(const char *adc_name, struct adc_device **adc_dev)
++{
++	struct adc_consumer *c = NULL;
++
++	SLIST_FOREACH(c, &adc_cons_list, link) {
++		if (!strncmp(adc_name, c->dev->name, strlen(c->dev->name))) {
++			*adc_dev = c->dev;
++			return TEE_SUCCESS;
++		}
++	}
++
++	EMSG("ADC Device '%s' not found", adc_name);
++
++	return TEE_ERROR_ITEM_NOT_FOUND;
++}
++
++TEE_Result adc_print_info(const char *adc_name)
++{
++	struct adc_device *adc_dev = NULL;
++	TEE_Result res = TEE_ERROR_GENERIC;
++	size_t i;
++
++	res = adc_get_by_name(adc_name, &adc_dev);
++	if (res) {
++		EMSG("ADC Device '%s' not found", adc_name);
++		return res;
++	}
++
++	IMSG("ADC Device '%s':", adc_dev->name);
++	IMSG("Channel mask: 0x%x", adc_dev->channel_mask);
++	IMSG("Channels:");
++	for (i = 0; i < adc_dev->channels_nb; i++)
++		IMSG("\tChannel id=%u label='%s'",
++		     adc_dev->channels[i].id,
++		     adc_dev->channels[i].name);
++
++	IMSG("Data mask: 0x%x", adc_dev->data_mask);
++	IMSG("VDD: %"PRId32"uv", adc_dev->vref_uv);
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result adc_channel_read_raw(struct adc_device *dev,
++				       uint32_t channel, uint32_t *data)
++{
++	struct adc_ops *ops = dev->ops;
++
++	if (!ops || !ops->read_channel)
++		return TEE_ERROR_NOT_IMPLEMENTED;
++
++	return ops->read_channel(dev, channel, data);
++}
++
++static TEE_Result adc_conv_raw_data(struct adc_device *dev,
++				    uint32_t data_raw, int *data_uv)
++{
++	uint64_t data = data_raw;
++
++	data *= dev->vref_uv;
++	*data_uv = UDIV_ROUND_NEAREST(data, dev->data_mask);
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result adc_consumer_lookup(const char *adc_name, uint32_t channel,
++				      struct adc_consumer **adc_cons)
++{
++	struct adc_consumer *c = NULL;
++
++	SLIST_FOREACH(c, &adc_cons_list, link)
++		if (c->channel == channel && !strcmp(adc_name, c->dev->name))
++			break;
++
++	if (!c) {
++		EMSG("No consumer found for channel %"PRIu32" on ADC %s",
++		     channel, adc_name);
++		return TEE_ERROR_ITEM_NOT_FOUND;
++	}
++
++	*adc_cons = c;
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result adc_consumer_get_by_name(const char *adc_name, uint32_t channel,
++				    struct adc_consumer **cons)
++{
++	return adc_consumer_lookup(adc_name, channel, cons);
++}
++
++TEE_Result adc_consumer_register(struct adc_device *dev,
++				 uint32_t channel, struct adc_consumer **cons)
++{
++	struct adc_consumer *adc_cons = NULL;
++
++	adc_cons = calloc(1, sizeof(*adc_cons));
++	if (!adc_cons)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	adc_cons->dev = dev;
++	adc_cons->channel = channel;
++	*cons = adc_cons;
++
++	SLIST_INSERT_HEAD(&adc_cons_list, adc_cons, link);
++
++	return TEE_SUCCESS;
++}
++
++void adc_consumer_print_list(void)
++{
++	struct adc_consumer *cons = NULL;
++
++	IMSG("ADC consumers:");
++
++	SLIST_FOREACH(cons, &adc_cons_list, link) {
++		IMSG("ADC %s : channel %"PRIu32,
++		     cons->dev->name, cons->channel);
++	}
++}
++
++static TEE_Result adc_consumer_get_count(const void *fdt, int node,
++					 size_t *nb_cons)
++{
++	int len = 0;
++	int channel_cells = 0;
++	int parent_node = 0;
++	int idx = 0;
++	int cnt = 0;
++	uint32_t phandle = 0;
++	const uint32_t *prop = NULL;
++
++	prop = fdt_getprop(fdt, node, "io-channels", &len);
++	if (!prop) {
++		*nb_cons = 0;
++		return TEE_SUCCESS;
++	}
++
++	len /= sizeof(uint32_t);
++	while (idx < len) {
++		phandle = fdt32_to_cpu(prop[idx]);
++		parent_node = fdt_node_offset_by_phandle(fdt, phandle);
++		if (parent_node < 0)
++			return TEE_ERROR_GENERIC;
++
++		channel_cells = fdt_get_dt_driver_cells(fdt, parent_node,
++							DT_DRIVER_ADC);
++		if (channel_cells < 0)
++			return TEE_ERROR_GENERIC;
++
++		idx += 1 + channel_cells;
++		cnt++;
++	}
++
++	*nb_cons = cnt;
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result adc_consumer_get_all(const void *fdt, int node, size_t *nb_cons,
++				struct adc_consumer ***cons)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	size_t i = 0;
++	size_t cnt = 0;
++	struct adc_consumer **c = NULL;
++	struct adc_consumer **p = NULL;
++
++	res = adc_consumer_get_count(fdt, node, &cnt);
++	if (res)
++		return res;
++
++	if (!cnt) {
++		DMSG("No ADC consumers found");
++		return res;
++	}
++	*nb_cons = cnt;
++
++	c = calloc(1, cnt * sizeof(*cons));
++	if (!c)
++		return TEE_ERROR_OUT_OF_MEMORY;
++	p = c;
++
++	while (i < cnt) {
++		res = dt_driver_device_from_node_idx_prop("io-channels",
++							  fdt, node, i,
++							  DT_DRIVER_ADC,
++							  &*c);
++		if (res) {
++			if (res != TEE_ERROR_DEFER_DRIVER_INIT)
++				EMSG("Failed to get ADC channel");
++			return res;
++		}
++
++		DMSG("Found channel %d on ADC %s",
++		     (*c)->channel, (*c)->dev->name);
++
++		i++;
++		c++;
++	}
++
++	*cons = p;
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result adc_consumer_read_processed(struct adc_consumer *cons,
++				       int32_t *uv)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint32_t data = 0;
++
++	res = adc_trylock(cons->dev);
++	if (res)
++		return res;
++
++	res = adc_channel_read_raw(cons->dev, cons->channel, &data);
++	if (!res)
++		adc_conv_raw_data(cons->dev, data, uv);
++
++	adc_unlock(cons->dev);
++
++	return res;
++}
+diff --git a/core/drivers/adc/sub.mk b/core/drivers/adc/sub.mk
+new file mode 100644
+index 000000000..2d4eb9815
+--- /dev/null
++++ b/core/drivers/adc/sub.mk
+@@ -0,0 +1 @@
++srcs-y += adc_fw.c
+diff --git a/core/drivers/sub.mk b/core/drivers/sub.mk
+index 56c781877..5c2ff347d 100644
+--- a/core/drivers/sub.mk
++++ b/core/drivers/sub.mk
+@@ -91,6 +91,7 @@ subdirs-y += counter
+ subdirs-y += crypto
+ subdirs-y += firewall
+ subdirs-$(CFG_BNXT_FW) += bnxt
++subdirs-$(CFG_DRIVERS_ADC) += adc
+ subdirs-$(CFG_DRIVERS_CLK) += clk
+ subdirs-$(CFG_DRIVERS_GPIO) += gpio
+ subdirs-$(CFG_DRIVERS_I2C) += i2c
+diff --git a/core/include/drivers/adc.h b/core/include/drivers/adc.h
+new file mode 100644
+index 000000000..a3d98372b
+--- /dev/null
++++ b/core/include/drivers/adc.h
+@@ -0,0 +1,175 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2022, STMicroelectronics
++ */
++
++#ifndef __DRIVERS_ADC_H
++#define __DRIVERS_ADC_H
++
++#include <kernel/dt_driver.h>
++#include <kernel/mutex.h>
++
++struct adc_ops;
++
++/**
++ * struct adc_chan - ADC channel descriptor
++ * @id: ADC channel identifier
++ * @name: ADC channel name
++ * @smpt: ADC channel minimum sampling time
++ */
++struct adc_chan {
++	unsigned int id;
++	const char *name;
++	uint32_t smpt;
++};
++
++/**
++ * struct adc_device - ADC device
++ * @ops: ADC device operations pointer
++ * @name: ADC device instance name
++ * @state: ADC state (set when ADC is active)
++ * @vref_uv: Reference supply voltage level in uV
++ * @lock: Protect ADC device against concurrent accessesw
++ * @channels: ADC channels table
++ * @channels_nb: ADC channels number
++ * @channel_mask: Bit mask of available channels
++ * @data_mask: Conversion output data mask
++ * @data: Pointer to private data
++ */
++struct adc_device {
++	struct adc_ops *ops;
++	char *name;
++	int state;
++	int vref_uv;
++	struct mutex lock; /* Protection against concurrent accesses */
++	struct adc_chan *channels;
++	size_t channels_nb;
++	uint32_t channel_mask;
++	uint32_t data_mask;
++	void *data;
++};
++
++/**
++ * struct adc_consumer - ADC consumer
++ * @dev: Pointer to ADC device provider
++ * @evt: Pointer to event descriptor
++ * @channel: ADC consumer channel
++ * @link: ADC consumer chained list pointer
++ */
++struct adc_consumer {
++	struct adc_device *dev;
++	struct adc_evt *evt;
++	uint32_t channel;
++	SLIST_ENTRY(adc_consumer) link;
++};
++
++/**
++ * struct adc_ops - ADC driver callbacks
++ * @read_channel: function to read a data from an ADC device channel
++ */
++struct adc_ops {
++	TEE_Result (*read_channel)(struct adc_device *dev, uint32_t channel,
++				   uint32_t *data);
++};
++
++static inline void *adc_get_drv_data(struct adc_device *dev)
++{
++	return dev->data;
++}
++
++static inline void adc_set_drv_data(struct adc_device *dev, void *data)
++{
++	dev->data = data;
++}
++
++static inline void adc_register(struct adc_device *dev, struct adc_ops *ops)
++{
++	dev->ops = ops;
++	mutex_init(&dev->lock);
++}
++
++static inline void adc_unregister(struct adc_device *dev)
++{
++	dev->ops = NULL;
++}
++
++/**
++ * adc_get_by_name() - get ADC device handle from ADC name
++ *
++ * @adc_name: ADC instance name
++ * @adc_dev: [out] Pointer to the ADC device handle
++ * Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_get_by_name(const char *adc_name, struct adc_device **adc_dev);
++
++/**
++ * adc_trylock() - try to get lock on an ADC device
++ *
++ * @dev: ADC device
++ * Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_trylock(struct adc_device *dev);
++
++/**
++ * adc_unlock() - try to get lock on an ADC device
++ *
++ * @dev: ADC device
++ */
++void adc_unlock(struct adc_device *dev);
++
++/**
++ * adc_consumer_get_by_name() - get consumer from ADC name and channel index
++ *
++ * @adc_name: ADC instance name
++ * @channel: ADC channel number
++ * @cons: [out] Pointer to the ADC consumer handle
++ * Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_consumer_get_by_name(const char *adc_name, uint32_t channel,
++				    struct adc_consumer **cons);
++
++/**
++ * adc_consumer_print_list() - display the list of registered ADC consumers
++ */
++void adc_consumer_print_list(void);
++
++/**
++ * adc_print_info() - display ADC device info
++ *
++ * @adc_name: ADC instance name
++ * Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_print_info(const char *adc_name);
++
++/**
++ * adc_consumer_register() - register an ADC device consumer in ADC framework
++ *
++ * @dev: ADC device
++ * @channel: ADC channel number
++ * @cons: [out] Pointer to the registered ADC consumer handle
++ * Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_consumer_register(struct adc_device *dev, uint32_t channel,
++				 struct adc_consumer **cons);
++
++/**
++ * adc_consumer_get_all() - get all ADC consumers for node
++ *
++ * @fdt: Pointer to the device tree blob
++ * @node: Offset of a tree node
++ * @nb_cons: [out] Pointer to ADC consumers number in @cons array
++ * @cons: [out] Pointer to consumers pointer array
++ * Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_consumer_get_all(const void *fdt, int node, size_t *nb_cons,
++				struct adc_consumer ***cons);
++
++/**
++ * adc_consumer_read_processed() - launch a single conversion on an ADC channel
++ *
++ * @cons: ADC consumer handle
++ * @uv: [out] Pointer to the converted data in uV
++ * Return: TEE_SUCCESS on success, error code otherwise
++ */
++TEE_Result adc_consumer_read_processed(struct adc_consumer *cons, int32_t *uv);
++#endif /* __DRIVERS_ADC_H */
+-- 
+2.47.2
+

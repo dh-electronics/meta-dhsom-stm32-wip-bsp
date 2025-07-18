@@ -1,0 +1,102 @@
+From 40c19e5addd817dd48af032f11d83e0ada8b6d8f Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 23 Oct 2024 10:33:39 +0200
+Subject: [PATCH 1465/1695] plat-stm32mp1: remove unused
+ stm32mp_nsec_can_access_pmic_regu()
+
+Remove platform functions stm32mp_nsec_can_access_pmic_regu() and
+register_nsec_regu() that have no effect on the system are deprecated
+since a while.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 69139d2d6a0a9ee2b99fa5aaa0267d190fd6beb2 plat-stm32mp1: remove unused stm32mp_nsec_can_access_pmic_regu()]
+Change-Id: I89a300e5f09ec1ab6e55bb10b06de306f094cbec
+Link: https://github.com/OP-TEE/optee_os/commit/7faa85d7ff5f35304ecaae9172066a6731e3197e
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/413524
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../plat-stm32mp1/drivers/stm32mp1_stpmic1.c  | 37 -------------------
+ core/arch/arm/plat-stm32mp1/stm32_util.h      | 10 -----
+ 2 files changed, 47 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+index 75f9f3c10..209470d43 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+@@ -306,40 +306,6 @@ const char *stm32mp_pmic_get_cpu_supply_name(void)
+ 	return cpu_supply_name;
+ }
+ 
+-/* Preallocate not that much regu references */
+-static char *nsec_access_regu_name[PMIC_REGU_COUNT];
+-
+-bool stm32mp_nsec_can_access_pmic_regu(const char *name)
+-{
+-	size_t n = 0;
+-
+-	for (n = 0; n < ARRAY_SIZE(nsec_access_regu_name); n++)
+-		if (nsec_access_regu_name[n] &&
+-		    !strcmp(nsec_access_regu_name[n], name))
+-			return true;
+-
+-	return false;
+-}
+-
+-static void register_nsec_regu(const char *name_ref)
+-{
+-	size_t n = 0;
+-
+-	assert(!stm32mp_nsec_can_access_pmic_regu(name_ref));
+-
+-	for (n = 0; n < ARRAY_SIZE(nsec_access_regu_name); n++) {
+-		if (!nsec_access_regu_name[n]) {
+-			nsec_access_regu_name[n] = strdup(name_ref);
+-
+-			if (!nsec_access_regu_name[n])
+-				panic();
+-			break;
+-		}
+-	}
+-
+-	assert(stm32mp_nsec_can_access_pmic_regu(name_ref));
+-}
+-
+ static TEE_Result pmic_set_state(struct regulator *regulator, bool enable)
+ {
+ 	struct pmic_regulator_data *priv = regulator->priv;
+@@ -700,9 +666,6 @@ static void parse_regulator_fdt_nodes(const void *fdt, int pmic_node)
+ 
+ 		assert(stpmic1_regulator_is_valid(regu_name));
+ 
+-		if (status & DT_STATUS_OK_NSEC)
+-			register_nsec_regu(regu_name);
+-
+ 		for (n = 0; n < ARRAY_SIZE(regu_lp_state); n++)
+ 			dt_get_regu_low_power_config(fdt, regu_name, regu_node,
+ 						     regu_lp_state[n].name);
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index 0dc36be4b..65ad71580 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -95,16 +95,6 @@ static inline bool stm32mp_nsec_can_access_clock(unsigned long clock_id
+ }
+ #endif /* CFG_STM32MP1_SHARED_RESOURCES */
+ 
+-#if defined(CFG_STPMIC1)
+-/* Return true if non-secure world can manipulate regulator @pmic_regu_name */
+-bool stm32mp_nsec_can_access_pmic_regu(const char *pmic_regu_name);
+-#else
+-static inline bool stm32mp_nsec_can_access_pmic_regu(const char *name __unused)
+-{
+-	return false;
+-}
+-#endif
+-
+ #ifdef CFG_STM32MP1_SHARED_RESOURCES
+ /* Return true if and only if @reset_id relates to a non-secure peripheral */
+ bool stm32mp_nsec_can_access_reset(unsigned int reset_id);
+-- 
+2.47.2
+

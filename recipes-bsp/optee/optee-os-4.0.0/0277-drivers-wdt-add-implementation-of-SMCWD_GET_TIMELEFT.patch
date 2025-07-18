@@ -1,0 +1,104 @@
+From 2ed6b3580570e67241b3329207bd95184ea5dd51 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Fri, 12 May 2023 15:57:46 +0200
+Subject: [PATCH 0277/1695] drivers: wdt: add implementation of
+ SMCWD_GET_TIMELEFT
+
+Implement watchdog SMC service SMCWD_GET_TIMELEFT that is optional
+and allows non-secure world to get information on watchdog state.
+The service is supported by new watchdog driver operation handler
+get_timeleft.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b0dc3fb93bd43592b014a0cdaa72e18fccd97d3b drivers: wdt: add implementation of SMCWD_GET_TIMELEFT]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/wdt/watchdog_sm.c | 14 ++++++++++++++
+ core/include/drivers/wdt.h     | 18 ++++++++++++++++++
+ 2 files changed, 32 insertions(+)
+
+diff --git a/core/drivers/wdt/watchdog_sm.c b/core/drivers/wdt/watchdog_sm.c
+index a9fbc1ba0..9281d3661 100644
+--- a/core/drivers/wdt/watchdog_sm.c
++++ b/core/drivers/wdt/watchdog_sm.c
+@@ -20,6 +20,8 @@ enum sm_handler_ret __wdt_sm_handler(struct thread_smc_args *args)
+ 	uint32_t exceptions = 0;
+ 	unsigned long min_timeout = 0;
+ 	unsigned long max_timeout = 0;
++	unsigned long timeleft = 0;
++	bool is_enabled = false;
+ 
+ 	switch (args->a1) {
+ 	case SMCWD_INIT:
+@@ -66,6 +68,18 @@ enum sm_handler_ret __wdt_sm_handler(struct thread_smc_args *args)
+ 		break;
+ 	/* SMCWD_GET_TIMELEFT is optional */
+ 	case SMCWD_GET_TIMELEFT:
++		res = watchdog_gettimeleft(&is_enabled, &timeleft);
++		if (res == TEE_ERROR_NOT_SUPPORTED) {
++			args->a0 = PSCI_RET_NOT_SUPPORTED;
++		} else if (res) {
++			args->a0 = PSCI_RET_INTERNAL_FAILURE;
++		} else if (!is_enabled) {
++			args->a0 = PSCI_RET_DISABLED;
++		} else {
++			args->a0 = PSCI_RET_SUCCESS;
++			args->a1 = timeleft;
++		}
++		break;
+ 	default:
+ 		args->a0 = PSCI_RET_NOT_SUPPORTED;
+ 	}
+diff --git a/core/include/drivers/wdt.h b/core/include/drivers/wdt.h
+index 8a22b5eb4..5088fc07f 100644
+--- a/core/include/drivers/wdt.h
++++ b/core/include/drivers/wdt.h
+@@ -26,6 +26,8 @@ struct wdt_chip {
+  * @ping:	The routine that sends a keepalive ping to the watchdog device.
+  * @set_timeout:The routine that finds the load value that will reset system in
+  * required timeout (in seconds).
++ * @get_timeleft:The routine that finds if the watchdog is already started and
++ * the time left (in seconds) before the watchdog timeouts.
+  *
+  * The wdt_ops structure contains a list of low-level operations
+  * that control a watchdog device.
+@@ -37,6 +39,8 @@ struct wdt_ops {
+ 	void (*stop)(struct wdt_chip *chip);
+ 	void (*ping)(struct wdt_chip *chip);
+ 	TEE_Result (*set_timeout)(struct wdt_chip *chip, unsigned long timeout);
++	TEE_Result (*get_timeleft)(struct wdt_chip *chip, bool *is_enabled,
++				   unsigned long *timeleft);
+ };
+ 
+ #ifdef CFG_WDT
+@@ -80,6 +84,15 @@ static inline void watchdog_settimeout(unsigned long timeout)
+ 	if (wdt_chip)
+ 		wdt_chip->ops->set_timeout(wdt_chip, timeout);
+ }
++
++static inline TEE_Result watchdog_gettimeleft(bool *is_enabled,
++					      unsigned long *timeleft)
++{
++	if (!wdt_chip || !wdt_chip->ops->get_timeleft)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return wdt_chip->ops->get_timeleft(wdt_chip, is_enabled, timeleft);
++}
+ #else
+ static inline TEE_Result watchdog_register(struct wdt_chip *chip __unused)
+ {
+@@ -96,6 +109,11 @@ static inline void watchdog_start(void) {}
+ static inline void watchdog_stop(void) {}
+ static inline void watchdog_ping(void) {}
+ static inline void watchdog_settimeout(unsigned long timeout __unused) {}
++static inline TEE_Result watchdog_gettimeleft(bool *is_enabled __unused,
++					      unsigned long *timeleft __unused)
++{
++	return TEE_ERROR_NOT_SUPPORTED;
++}
+ #endif
+ 
+ #ifdef CFG_WDT_SM_HANDLER
+-- 
+2.47.2
+

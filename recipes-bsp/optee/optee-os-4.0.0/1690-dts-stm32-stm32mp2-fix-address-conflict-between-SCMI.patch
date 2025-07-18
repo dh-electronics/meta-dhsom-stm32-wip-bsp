@@ -1,0 +1,250 @@
+From 313931c8842c3f42e58f0b070b8aa725d0768f8b Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 25 Apr 2025 15:10:56 +0200
+Subject: [PATCH 1690/1695] dts: stm32: stm32mp2: fix address conflict between
+ SCMI SHM and IPCC SHM
+
+Currently, the server must be addressed by M33 (secure or non secure)
+for some SCMI requests. As symmetric approach, we will use the same
+SRAM1 shared memory as used in M33-TD.
+
+It needs 4kB for each mailbox:
+ - scmi_cid2_ns for M33_NS to A35S
+ - scmi_cid2_s for M33_S to A35_S
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c0589bbbb359a40436262d4ae394d9be06988293 dts: stm32: stm32mp2: fix address conflict between SCMI SHM and IPCC SHM]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I1162060a43e2ba8c1e29fee8b5c3bf79ce3a13eb
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/454195
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../arm/dts/stm32mp215f-dk-ca35tdcid-resmem.dtsi   | 14 ++++++++++++--
+ .../arch/arm/dts/stm32mp215f-dk-ca35tdcid-rif.dtsi | 10 +++++++++-
+ .../arm/dts/stm32mp235f-dk-ca35tdcid-resmem.dtsi   | 14 ++++++++++++--
+ .../arch/arm/dts/stm32mp235f-dk-ca35tdcid-rif.dtsi | 10 +++++++++-
+ .../arm/dts/stm32mp257f-dk-ca35tdcid-resmem.dtsi   | 14 ++++++++++++--
+ .../arch/arm/dts/stm32mp257f-dk-ca35tdcid-rif.dtsi | 10 +++++++++-
+ .../arm/dts/stm32mp257f-ev1-ca35tdcid-resmem.dtsi  | 14 ++++++++++++--
+ .../arm/dts/stm32mp257f-ev1-ca35tdcid-rif.dtsi     | 10 +++++++++-
+ 8 files changed, 84 insertions(+), 12 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp215f-dk-ca35tdcid-resmem.dtsi b/core/arch/arm/dts/stm32mp215f-dk-ca35tdcid-resmem.dtsi
+index 80dd07aed..f1f5c820a 100644
+--- a/core/arch/arm/dts/stm32mp215f-dk-ca35tdcid-resmem.dtsi
++++ b/core/arch/arm/dts/stm32mp215f-dk-ca35tdcid-resmem.dtsi
+@@ -31,8 +31,18 @@
+ 			no-map;
+ 		};
+ 
+-		cm33_sram1: cm33-sram1@a061000 {
+-			reg = <0x0 0xa061000 0x0 0xf000>;
++		scmi_cid2_s: scmi-cid2-s@a061000 {
++			reg = <0x0 0xa061000 0x0 0x1000>;
++			no-map;
++		};
++
++		scmi_cid2_ns: scmi-cid2-ns@a062000 {
++			reg = <0x0 0xa062000 0x0 0x1000>;
++			no-map;
++		};
++
++		cm33_sram1: cm33-sram1@a063000 {
++			reg = <0x0 0xa063000 0x0 0xd000>;
+ 			no-map;
+ 		};
+ 
+diff --git a/core/arch/arm/dts/stm32mp215f-dk-ca35tdcid-rif.dtsi b/core/arch/arm/dts/stm32mp215f-dk-ca35tdcid-rif.dtsi
+index 84285dfef..9180a4236 100644
+--- a/core/arch/arm/dts/stm32mp215f-dk-ca35tdcid-rif.dtsi
++++ b/core/arch/arm/dts/stm32mp215f-dk-ca35tdcid-rif.dtsi
+@@ -696,6 +696,14 @@
+ 	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_SEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
+ };
+ 
++&scmi_cid2_s {
++	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_SEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
++};
++
++&scmi_cid2_ns {
++	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_NSEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
++};
++
+ &cm33_sram1 {
+ 	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_NSEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
+ };
+@@ -718,7 +726,7 @@
+ 
+ &risab3 {
+ 	st,srwiad;
+-	memory-region = <&bsec_mirror>, <&cm33_sram1>;
++	memory-region = <&bsec_mirror>, <&scmi_cid2_s>, <&scmi_cid2_ns>, <&cm33_sram1>;
+ };
+ 
+ &risab5 {
+diff --git a/core/arch/arm/dts/stm32mp235f-dk-ca35tdcid-resmem.dtsi b/core/arch/arm/dts/stm32mp235f-dk-ca35tdcid-resmem.dtsi
+index 61093b2fe..4dd57d00e 100644
+--- a/core/arch/arm/dts/stm32mp235f-dk-ca35tdcid-resmem.dtsi
++++ b/core/arch/arm/dts/stm32mp235f-dk-ca35tdcid-resmem.dtsi
+@@ -32,8 +32,18 @@
+ 			no-map;
+ 		};
+ 
+-		cm33_sram1: cm33-sram1@a041000 {
+-			reg = <0x0 0xa041000 0x0 0x1f000>;
++		scmi_cid2_s: scmi-cid2-s@a041000 {
++			reg = <0x0 0xa041000 0x0 0x1000>;
++			no-map;
++		};
++
++		scmi_cid2_ns: scmi-cid2-ns@a042000 {
++			reg = <0x0 0xa042000 0x0 0x1000>;
++			no-map;
++		};
++
++		cm33_sram1: cm33-sram1@a043000 {
++			reg = <0x0 0xa043000 0x0 0x1d000>;
+ 			no-map;
+ 		};
+ 
+diff --git a/core/arch/arm/dts/stm32mp235f-dk-ca35tdcid-rif.dtsi b/core/arch/arm/dts/stm32mp235f-dk-ca35tdcid-rif.dtsi
+index 4bc6ba9e9..dce800ef9 100644
+--- a/core/arch/arm/dts/stm32mp235f-dk-ca35tdcid-rif.dtsi
++++ b/core/arch/arm/dts/stm32mp235f-dk-ca35tdcid-rif.dtsi
+@@ -837,6 +837,14 @@
+ 	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_SEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
+ };
+ 
++&scmi_cid2_s {
++	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_SEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
++};
++
++&scmi_cid2_ns {
++	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_NSEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
++};
++
+ &cm33_sram1 {
+ 	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_NSEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
+ };
+@@ -863,7 +871,7 @@
+ 
+ &risab3 {
+ 	st,srwiad;
+-	memory-region = <&bsec_mirror>, <&cm33_sram1>;
++	memory-region = <&bsec_mirror>, <&scmi_cid2_s>, <&scmi_cid2_ns>, <&cm33_sram1>;
+ };
+ 
+ &risab4 {
+diff --git a/core/arch/arm/dts/stm32mp257f-dk-ca35tdcid-resmem.dtsi b/core/arch/arm/dts/stm32mp257f-dk-ca35tdcid-resmem.dtsi
+index 2453d598d..f44a1f8fc 100644
+--- a/core/arch/arm/dts/stm32mp257f-dk-ca35tdcid-resmem.dtsi
++++ b/core/arch/arm/dts/stm32mp257f-dk-ca35tdcid-resmem.dtsi
+@@ -25,8 +25,18 @@
+ 			no-map;
+ 		};
+ 
+-		cm33_sram1: cm33-sram1@a041000 {
+-			reg = <0x0 0xa041000 0x0 0x1f000>;
++		scmi_cid2_s: scmi-cid2-s@a041000 {
++			reg = <0x0 0xa041000 0x0 0x1000>;
++			no-map;
++		};
++
++		scmi_cid2_ns: scmi-cid2-ns@a042000 {
++			reg = <0x0 0xa042000 0x0 0x1000>;
++			no-map;
++		};
++
++		cm33_sram1: cm33-sram1@a043000 {
++			reg = <0x0 0xa043000 0x0 0x1d000>;
+ 			no-map;
+ 		};
+ 
+diff --git a/core/arch/arm/dts/stm32mp257f-dk-ca35tdcid-rif.dtsi b/core/arch/arm/dts/stm32mp257f-dk-ca35tdcid-rif.dtsi
+index f36d599b6..a78d1c323 100644
+--- a/core/arch/arm/dts/stm32mp257f-dk-ca35tdcid-rif.dtsi
++++ b/core/arch/arm/dts/stm32mp257f-dk-ca35tdcid-rif.dtsi
+@@ -854,6 +854,14 @@
+ 	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_SEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
+ };
+ 
++&scmi_cid2_s {
++	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_SEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
++};
++
++&scmi_cid2_ns {
++	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_NSEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
++};
++
+ &cm33_sram1 {
+ 	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_NSEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
+ };
+@@ -880,7 +888,7 @@
+ 
+ &risab3 {
+ 	st,srwiad;
+-	memory-region = <&bsec_mirror>, <&cm33_sram1>;
++	memory-region = <&bsec_mirror>, <&scmi_cid2_s>, <&scmi_cid2_ns>, <&cm33_sram1>;
+ };
+ 
+ &risab4 {
+diff --git a/core/arch/arm/dts/stm32mp257f-ev1-ca35tdcid-resmem.dtsi b/core/arch/arm/dts/stm32mp257f-ev1-ca35tdcid-resmem.dtsi
+index 2453d598d..f44a1f8fc 100644
+--- a/core/arch/arm/dts/stm32mp257f-ev1-ca35tdcid-resmem.dtsi
++++ b/core/arch/arm/dts/stm32mp257f-ev1-ca35tdcid-resmem.dtsi
+@@ -25,8 +25,18 @@
+ 			no-map;
+ 		};
+ 
+-		cm33_sram1: cm33-sram1@a041000 {
+-			reg = <0x0 0xa041000 0x0 0x1f000>;
++		scmi_cid2_s: scmi-cid2-s@a041000 {
++			reg = <0x0 0xa041000 0x0 0x1000>;
++			no-map;
++		};
++
++		scmi_cid2_ns: scmi-cid2-ns@a042000 {
++			reg = <0x0 0xa042000 0x0 0x1000>;
++			no-map;
++		};
++
++		cm33_sram1: cm33-sram1@a043000 {
++			reg = <0x0 0xa043000 0x0 0x1d000>;
+ 			no-map;
+ 		};
+ 
+diff --git a/core/arch/arm/dts/stm32mp257f-ev1-ca35tdcid-rif.dtsi b/core/arch/arm/dts/stm32mp257f-ev1-ca35tdcid-rif.dtsi
+index b5e9baa4f..f864284a2 100644
+--- a/core/arch/arm/dts/stm32mp257f-ev1-ca35tdcid-rif.dtsi
++++ b/core/arch/arm/dts/stm32mp257f-ev1-ca35tdcid-rif.dtsi
+@@ -854,6 +854,14 @@
+ 	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_SEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
+ };
+ 
++&scmi_cid2_s {
++	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_SEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
++};
++
++&scmi_cid2_ns {
++	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_NSEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
++};
++
+ &cm33_sram1 {
+ 	st,protreg = <RISABPROT(RIF_DDCID_DIS, RIF_UNUSED, RIF_NSEC, RIF_NPRIV, RIF_CFDIS, RIF_UNUSED, RIF_UNUSED, RIF_UNUSED)>;
+ };
+@@ -880,7 +888,7 @@
+ 
+ &risab3 {
+ 	st,srwiad;
+-	memory-region = <&bsec_mirror>, <&cm33_sram1>;
++	memory-region = <&bsec_mirror>, <&scmi_cid2_s>, <&scmi_cid2_ns>, <&cm33_sram1>;
+ };
+ 
+ &risab4 {
+-- 
+2.47.2
+

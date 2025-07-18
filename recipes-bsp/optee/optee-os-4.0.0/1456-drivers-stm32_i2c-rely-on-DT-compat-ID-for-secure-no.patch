@@ -1,0 +1,93 @@
+From 20a05985d78785cc4608cb48b03fe48cd93fa732 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 23 Oct 2024 10:54:44 +0200
+Subject: [PATCH 1456/1695] drivers: stm32_i2c: rely on DT compat ID for
+ secure/non-secure bus state
+
+STM32 I2C driver relies on the compatible DT property of the
+node to store whether the bus is expected assigned to secure or
+non-secure world. This prevent duplication of the information
+that, prior to this change, was also stored in .dt_status field
+of the bus instance, where .secure field already provides the info.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ea4c5c75e2393707673477f9089af7c321e37431 drivers: stm32_i2c: rely on DT compat ID for secure/non-secure bus state]
+Change-Id: I1cd24b4d1d49b271402308f1b1ae244f5f06f2e9
+Link: https://github.com/OP-TEE/optee_os/commit/ded20780a4ad85f64b383c3f8ecc96c3ffade082
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/413520
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_i2c.c         | 2 --
+ core/include/drivers/stm32_i2c.h | 6 +-----
+ 2 files changed, 1 insertion(+), 7 deletions(-)
+
+diff --git a/core/drivers/stm32_i2c.c b/core/drivers/stm32_i2c.c
+index edeeb5f45..fc1421a2c 100644
+--- a/core/drivers/stm32_i2c.c
++++ b/core/drivers/stm32_i2c.c
+@@ -708,7 +708,6 @@ TEE_Result stm32_i2c_get_setup_from_fdt(void *fdt, int node,
+ 	assert(info.reg != DT_INFO_INVALID_REG &&
+ 	       info.reg_size != DT_INFO_INVALID_REG_SIZE);
+ 
+-	init->dt_status = info.status;
+ 	init->pbase = info.reg;
+ 	init->reg_size = info.reg_size;
+ 
+@@ -1659,7 +1658,6 @@ static TEE_Result stm32_i2c_probe(const void *fdt, int node,
+ 	if (!i2c_handle_p)
+ 		return TEE_ERROR_OUT_OF_MEMORY;
+ 
+-	i2c_handle_p->dt_status = init_data.dt_status;
+ 	i2c_handle_p->reg_size = init_data.reg_size;
+ 	i2c_handle_p->clock = init_data.clock;
+ 	i2c_handle_p->base.pa = init_data.pbase;
+diff --git a/core/include/drivers/stm32_i2c.h b/core/include/drivers/stm32_i2c.h
+index 726674b94..f78a9966f 100644
+--- a/core/include/drivers/stm32_i2c.h
++++ b/core/include/drivers/stm32_i2c.h
+@@ -32,7 +32,6 @@
+ /*
+  * struct stm32_i2c_init_s - STM32 I2C configuration data
+  *
+- * @dt_status: non-secure/secure status read from DT
+  * @pbase: I2C interface base address
+  * @reg_size: I2C interface register map size
+  * @clock: I2C bus/interface clock
+@@ -50,7 +49,6 @@
+  * @digital_filter_coef: filter coef (below STM32_I2C_DIGITAL_FILTER_MAX)
+  */
+ struct stm32_i2c_init_s {
+-	unsigned int dt_status;
+ 	paddr_t pbase;
+ 	size_t reg_size;
+ 	struct clk *clock;
+@@ -106,7 +104,6 @@ struct i2c_cfg {
+  * I2C bus device
+  * @base: I2C SoC registers base address
+  * @reg_size: I2C SoC registers address map size
+- * @dt_status: non-secure/secure status read from DT
+  * @clock: clock ID
+  * @i2c_state: Driver state ID I2C_STATE_*
+  * @i2c_err: Last error code I2C_ERROR_*
+@@ -121,7 +118,6 @@ struct i2c_cfg {
+ struct i2c_handle_s {
+ 	struct io_pa_va base;
+ 	size_t reg_size;
+-	unsigned int dt_status;
+ 	struct clk *clock;
+ 	enum i2c_state_e i2c_state;
+ 	uint32_t i2c_err;
+@@ -280,7 +276,7 @@ void stm32_i2c_resume(struct i2c_handle_s *hi2c);
+  */
+ static inline bool i2c_is_secure(struct i2c_handle_s *hi2c)
+ {
+-	return hi2c->dt_status == DT_STATUS_OK_SEC;
++	return hi2c->i2c_secure;
+ }
+ 
+ #endif /* __DRIVERS_STM32_I2C_H*/
+-- 
+2.47.2
+

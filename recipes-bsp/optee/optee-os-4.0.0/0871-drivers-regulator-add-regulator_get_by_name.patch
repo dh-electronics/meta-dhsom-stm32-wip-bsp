@@ -1,0 +1,78 @@
+From 9c35954c09facaad3d472142c82013aa29a3a811 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Mon, 15 Apr 2024 17:51:47 +0200
+Subject: [PATCH 0871/1695] drivers: regulator: add regulator_get_by_name()
+
+Add an API to regulator framework to find a regulator by its name.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b67286d030f6a1d07996cea3a9ef98f86c1e7d72 drivers: regulator: add regulator_get_by_name()]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I5e8b2317f364d3e6c455d268dc2282fae0793242
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373694
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/regulator/regulator.c | 14 ++++++++++++++
+ core/include/drivers/regulator.h   | 12 ++++++++++++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/core/drivers/regulator/regulator.c b/core/drivers/regulator/regulator.c
+index 6ccedb699..4d2dd9203 100644
+--- a/core/drivers/regulator/regulator.c
++++ b/core/drivers/regulator/regulator.c
+@@ -260,6 +260,20 @@ TEE_Result regulator_supported_voltages(struct regulator *regulator,
+ 	return TEE_SUCCESS;
+ }
+ 
++struct regulator *regulator_get_by_name(const char *name)
++{
++	struct regulator *regulator = NULL;
++
++	assert(name);
++
++	SLIST_FOREACH(regulator, &regulator_device_list, link)
++		if (!strcmp(regulator->name, name))
++			return regulator;
++
++	EMSG("%s not found", name);
++	return NULL;
++}
++
+ TEE_Result regulator_register(struct regulator *regulator)
+ {
+ 	TEE_Result res = TEE_SUCCESS;
+diff --git a/core/include/drivers/regulator.h b/core/include/drivers/regulator.h
+index cb4a2ad26..95424eb28 100644
+--- a/core/include/drivers/regulator.h
++++ b/core/include/drivers/regulator.h
+@@ -174,6 +174,13 @@ bool regulator_is_enabled(struct regulator *regulator);
+  */
+ TEE_Result regulator_set_voltage(struct regulator *regulator, int level_uv);
+ 
++/*
++ * regulator_get_by_name() - Get a regulator from its name
++ * @name - name of the regulator
++ * Return pointer to regulator if succeed, NULL else.
++ */
++struct regulator *regulator_get_by_name(const char *name);
++
+ /*
+  * regulator_register() - Register and initialize a regulator
+  * @regulator: Regulator reference
+@@ -204,6 +211,11 @@ static inline TEE_Result regulator_set_voltage(struct regulator *regul __unused,
+ 	return TEE_ERROR_NOT_SUPPORTED;
+ }
+ 
++static inline struct regulator *regulator_get_by_name(const char *name)
++{
++	return TEE_ERROR_NOT_SUPPORTED;
++}
++
+ static inline TEE_Result regulator_init(struct regulator *regulator __unused)
+ {
+ 	return TEE_ERROR_NOT_SUPPORTED;
+-- 
+2.47.2
+

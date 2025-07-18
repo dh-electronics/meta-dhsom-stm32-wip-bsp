@@ -1,0 +1,93 @@
+From be82bc07fb64fecb0c97ef019a8355b4f7c8c3c0 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Fri, 7 Jul 2023 17:45:00 +0200
+Subject: [PATCH 0218/1695] plat-stm32mp1: add Makefile target to build all DTB
+ files
+
+For debug purpose, add a new target 'all_dtbs' to Makefile that
+forces the build of all the DTB files for the PLATFORM
+
+The resulting DTB files are not embedded in the final binary.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git dd04b6c034a2f57254552523a08500c16032506b plat-stm32mp1: add Makefile target to build all DTB files]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I2d916f66fb1ee0193cbb0561090f30b9126c4b2d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/317171
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk | 14 +++++++++++---
+ core/arch/arm/plat-stm32mp1/link.mk | 28 ++++++++++++++++++++++++++++
+ 2 files changed, 39 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 5379ac645..bb124703d 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -66,14 +66,22 @@ flavorlist-MP15 = $(flavor_dts_file-157A_DHCOR_AVENGER96) \
+ 
+ flavorlist-MP13 = $(flavor_dts_file-135F_DK)
+ 
++# External device tree default path
++CFG_EXT_DTS ?= $(arch-dir)/dts/external-dt/optee
++
++# Extend flavorlists with external device trees
++ifneq ($(wildcard $(CFG_EXT_DTS)/conf.mk),)
++-include $(CFG_EXT_DTS)/conf.mk
++endif
++
++# List of all DTS for this PLATFORM
++ALL_DTS = $(flavorlist-MP15) $(flavorlist-MP13)
++
+ # Check if device-tree exist in OP-TEE source code, else search it in external
+ # device tree repository
+ ifeq ($(wildcard $(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE)),)
+-# External device tree default path
+-CFG_EXT_DTS ?= $(arch-dir)/dts/external-dt/optee
+ ifneq ($(wildcard $(CFG_EXT_DTS)/$(CFG_EMBED_DTB_SOURCE_FILE)),)
+ override dts-source-path := $(CFG_EXT_DTS)
+--include $(CFG_EXT_DTS)/conf.mk
+ else
+ $(error Cannot find DTS file $(CFG_EXT_DTS)/$(CFG_EMBED_DTB_SOURCE_FILE))
+ endif
+diff --git a/core/arch/arm/plat-stm32mp1/link.mk b/core/arch/arm/plat-stm32mp1/link.mk
+index 4f92d15ef..6cda7671f 100644
+--- a/core/arch/arm/plat-stm32mp1/link.mk
++++ b/core/arch/arm/plat-stm32mp1/link.mk
+@@ -44,3 +44,31 @@ cleanfiles += $(link-out-dir)/tee-pageable_v2.stm32
+ $(link-out-dir)/tee-pageable_v2.stm32: $(link-out-dir)/tee-pageable_v2.bin
+ 	$(stm32image_cmd) --source $< --dest $@ --bintype 0x22
+ endif
++
++#
++# Add target 'all_dtbs' that builds all the dtb for current PLATFORM
++#
++ifneq ($(filter all_dtbs,$(MAKECMDGOALS)),)
++
++.PHONY: all_dtbs
++
++define add-dts-and-build
++# DTS file name in $1
++dts-file := $(if $(wildcard $(arch-dir)/dts/$1), \
++	$(arch-dir)/dts/$1, \
++	$(CFG_EXT_DTS)/$1)
++dtb-file := $(out-dir)/$(arch-dir)/dts/$(1:.dts=.dtb)
++$$(eval $$(call gen-dtb-file,$$(dts-file),$$(dtb-file)))
++
++all_dtbs: $$(dtb-file)
++
++endef
++
++$(foreach dts, \
++	$(filter-out $(CFG_EMBED_DTB_SOURCE_FILE),$(ALL_DTS)), \
++	$(eval $(call add-dts-and-build,$(dts))) \
++)
++
++all_dtbs: $(out-dir)/$(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE:.dts=.dtb)
++
++endif
+-- 
+2.47.2
+

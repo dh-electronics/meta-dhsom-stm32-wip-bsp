@@ -1,0 +1,69 @@
+From 421676083f72b06867ddaf1178f74212d9eef68c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 4 Sep 2024 19:33:40 +0200
+Subject: [PATCH 1391/1695] plat-stm32mp2: stm32mp25_pwr: avoid PM operation
+ for Stop1 modes
+
+The PM operation of PWR regulators to protect the IOs are needed only
+for Standby modes and Stop2 modes; it is not needed for Stop1 modes
+(as the associated regulators are not changed, only the D1 clocks are
+stopped) and the duration of voltage switch of regulator can be important
+with PMIC with ramp delay.
+
+For Stop2 modes, the regulator supply for PWR IO domain can change,
+so it is safe to protect the IO during low power modes.
+
+For example, on STMicroelectronics boards the VDDIO1 for SDcard is
+provided by STPMIC25 = VDDIO_SDCARD(LDO8) and is controlled by
+pwrctrl3 = PWR_CPU_ON & NRST_FLASH_CPU (with st,pwrctrl-sel = <3> and
+st,pwrctrl-reset). The supply is stopped in Stop2 and Standby1 low power
+modes and restored tho NVM value on wake-up (regulator ON at 3V3).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c048ddfa60a98068d6ddf09c6eeb2bc1cd57a684 plat-stm32mp2: stm32mp25_pwr: avoid PM operation for Stop1 modes]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I16a99c47046dba7247b9ab43df821692a1a1e958
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/409248
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Christophe GUIBOUT <christophe.guibout@st.com>
+---
+ core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
+index 79e679508..3ea5e85dc 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
+@@ -17,6 +17,7 @@
+ #include <kernel/thread.h>
+ #include <libfdt.h>
+ #include <stm32_sysconf.h>
++#include <stm32mp_pm.h>
+ #include <trace.h>
+ 
+ #define PWR_CR1			U(0x00)
+@@ -329,15 +330,20 @@ static TEE_Result pwr_supported_voltages(struct regulator *regulator,
+  * To protect the IOs, disable low voltage mode before entering suspend
+  * resume restore the previous configuration.
+  */
+-static TEE_Result pwr_regu_pm(enum pm_op op, unsigned int pm_hint __unused,
++static TEE_Result pwr_regu_pm(enum pm_op op, unsigned int pm_hint,
+ 			      const struct pm_callback_handle *hdl)
+ {
+ 	struct regulator *regulator = hdl->handle;
+ 	struct pwr_regu *pwr_regu = regulator->priv;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
++	unsigned int pwrlvl = PM_HINT_PLATFORM_STATE(pm_hint);
+ 
+ 	assert(op == PM_OP_SUSPEND || op == PM_OP_RESUME);
+ 
++	/* Skip as regulators don't change for Stop1 modes */
++	if (pwrlvl < PM_D1_LPLV_LEVEL)
++		return TEE_SUCCESS;
++
+ 	if (op == PM_OP_SUSPEND) {
+ 		FMSG("%s: suspend", regulator_name(regulator));
+ 
+-- 
+2.47.2
+

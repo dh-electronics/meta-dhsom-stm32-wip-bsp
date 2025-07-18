@@ -1,0 +1,98 @@
+From dcbfd94315f4baa6254b656ef1e18a948a86fa5e Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 14 Mar 2024 14:14:36 +0100
+Subject: [PATCH 0697/1695] drivers: stm32_gpio: add stm32_gpio_get_bank_id()
+ helper
+
+Add stm32_gpio_get_bank_id() helper function to get the STM32
+GPIO bank ID related to its GPIO chip
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d8754065c2726877fc8299af0f793fa299f5796b drivers: stm32_gpio: add stm32_gpio_get_bank_id() helper]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I3cc84e4c10ff92a38ccf7c69493c8d63e426a131
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/366957
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_gpio.c         | 11 ++++++++++-
+ core/include/drivers/stm32_gpio.h | 15 ++++++++++++++-
+ 2 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/stm32_gpio.c b/core/drivers/stm32_gpio.c
+index 642cfcacc..d4daf54ff 100644
+--- a/core/drivers/stm32_gpio.c
++++ b/core/drivers/stm32_gpio.c
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: BSD-3-Clause
+ /*
+- * Copyright (c) 2017-2023, STMicroelectronics
++ * Copyright (c) 2017-2024, STMicroelectronics
+  *
+  * STM32 GPIO driver is used as pin controller for stm32mp SoCs.
+  */
+@@ -211,6 +211,15 @@ static struct stm32_gpio_bank *gpio_chip_to_bank(struct gpio_chip *chip)
+ 	return container_of(chip, struct stm32_gpio_bank, gpio_chip);
+ }
+ 
++unsigned int stm32_gpio_chip_bank_id(struct gpio_chip *chip)
++{
++	struct stm32_gpio_bank *bank = gpio_chip_to_bank(chip);
++
++	assert(bank);
++
++	return bank->bank_id;
++}
++
+ static enum gpio_level stm32_gpio_get_level(struct gpio_chip *chip,
+ 					    unsigned int gpio_pin)
+ {
+diff --git a/core/include/drivers/stm32_gpio.h b/core/include/drivers/stm32_gpio.h
+index 883888171..f822e6045 100644
+--- a/core/include/drivers/stm32_gpio.h
++++ b/core/include/drivers/stm32_gpio.h
+@@ -1,12 +1,13 @@
+ /* SPDX-License-Identifier: BSD-3-Clause */
+ /*
+- * Copyright (c) 2017-2023, STMicroelectronics
++ * Copyright (c) 2017-2024, STMicroelectronics
+  */
+ 
+ #ifndef __DRIVERS_STM32_GPIO_H
+ #define __DRIVERS_STM32_GPIO_H
+ 
+ #include <assert.h>
++#include <drivers/gpio.h>
+ #include <drivers/pinctrl.h>
+ #include <stdbool.h>
+ #include <stdint.h>
+@@ -44,6 +45,12 @@ void stm32_pinctrl_set_secure_cfg(struct pinctrl_state *pinctrl, bool secure);
+ void stm32_gpio_pinctrl_bank_pin(struct pinctrl_state *pinctrl,
+ 				 unsigned int *bank, unsigned int *pin,
+ 				 unsigned int *count);
++
++/*
++ * stm32_gpio_chip_bank_id() - Get the GPIO bank associated to a chip
++ * @chip: GPIO chip associated to the bank
++ */
++unsigned int stm32_gpio_chip_bank_id(struct gpio_chip *chip);
+ #else
+ static inline void
+ stm32_pinctrl_set_secure_cfg(struct pinctrl_state *pinctrl __unused,
+@@ -57,5 +64,11 @@ static inline void stm32_gpio_pinctrl_bank_pin(struct pinctrl_state *p __unused,
+ 					       unsigned int *count __unused)
+ {
+ }
++
++static inline unsigned int
++stm32_gpio_chip_bank_id(struct gpio_chip *chip __unused)
++{
++	panic();
++}
+ #endif /*CFG_STM32_GPIO*/
+ #endif /*__DRIVERS_STM32_GPIO_H*/
+-- 
+2.47.2
+

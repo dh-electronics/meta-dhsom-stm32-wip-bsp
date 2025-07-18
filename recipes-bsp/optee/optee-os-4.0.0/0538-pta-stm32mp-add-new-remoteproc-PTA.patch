@@ -1,0 +1,473 @@
+From c5c03a2b7b918fe6550f9039d0f4f93c1b191964 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Wed, 6 Jul 2022 18:12:18 +0200
+Subject: [PATCH 0538/1695] pta: stm32mp: add new remoteproc PTA
+
+Add remoteproc PTA for the stm32mp1 platform.
+The PTA relies on the stm32_remoteproc driver for the remoteproc
+management.
+It is charge of providing interface for authenticating firmware images
+and managing the remote processor live cycle.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5c0232068acab65024d11f595b881c357bd8e0b6 pta: stm32mp: add new remoteproc PTA]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Reviewed-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Acked-by: Jerome Forissier <jerome.forissier@linaro.org>
+Change-Id: I78eadd9764b2f0da1e83abf25c136b7eff479e86
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/348392
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk |   1 +
+ core/pta/stm32mp/remoteproc_pta.c   | 356 ++++++++++++++++++++++++++++
+ core/pta/stm32mp/rproc_pub_key.h    |  16 ++
+ core/pta/stm32mp/sub.mk             |   1 +
+ core/pta/sub.mk                     |   9 +
+ mk/config.mk                        |   3 +
+ 6 files changed, 386 insertions(+)
+ create mode 100644 core/pta/stm32mp/remoteproc_pta.c
+ create mode 100644 core/pta/stm32mp/rproc_pub_key.h
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 31fbb34b6..a4e9275de 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -216,6 +216,7 @@ CFG_CORE_ASLR ?= n
+ 
+ CFG_STM32MP_REMOTEPROC ?= n
+ CFG_DRIVERS_REMOTEPROC ?= $(CFG_STM32MP_REMOTEPROC)
++CFG_REMOTEPROC_PTA ?= $(CFG_STM32MP_REMOTEPROC)
+ 
+ ifneq ($(CFG_WITH_LPAE),y)
+ # Without LPAE, default TEE virtual address range is 1MB, we need at least 2MB.
+diff --git a/core/pta/stm32mp/remoteproc_pta.c b/core/pta/stm32mp/remoteproc_pta.c
+new file mode 100644
+index 000000000..b2eed7f25
+--- /dev/null
++++ b/core/pta/stm32mp/remoteproc_pta.c
+@@ -0,0 +1,356 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ */
++
++#include <crypto/crypto.h>
++#include <drivers/clk.h>
++#include <drivers/rstctrl.h>
++#include <drivers/stm32_remoteproc.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stm32mp1_rcc.h>
++#include <initcall.h>
++#include <kernel/pseudo_ta.h>
++#include <kernel/user_ta.h>
++#include <remoteproc_pta.h>
++#include <string.h>
++
++#include "rproc_pub_key.h"
++
++#define PTA_NAME	"remoteproc.pta"
++
++/*
++ * UUID of the remoteproc Trusted application authorized to communicate with
++ * the remoteproc pseudo TA. The UID should match the one defined in the
++ * ta_remoteproc.h header file.
++ */
++#define TA_REMOTEPROC_UUID \
++	{ 0x80a4c275, 0x0a47, 0x4905, \
++		{ 0x82, 0x85, 0x14, 0x86, 0xa9, 0x77, 0x1a, 0x08} }
++
++/*
++ * Firmware states
++ * REMOTEPROC_OFF: firmware is off
++ * REMOTEPROC_ON: firmware is running
++ */
++enum rproc_load_state {
++	REMOTEPROC_OFF = 0,
++	REMOTEPROC_ON,
++};
++
++/* Currently supporting a single remote processor instance */
++static enum rproc_load_state rproc_ta_state = REMOTEPROC_OFF;
++
++static TEE_Result rproc_pta_capabilities(uint32_t pt,
++					 TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_OUTPUT,
++						TEE_PARAM_TYPE_VALUE_OUTPUT,
++						TEE_PARAM_TYPE_NONE);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!stm32_rproc_get(params[0].value.a))
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	/* Support only ELF format */
++	params[1].value.a = PTA_RPROC_HWCAP_FMT_ELF;
++
++	/*
++	 * Due to stm32mp1 pager, secure memory is too expensive. Support hash
++	 * protected image only, so that firmware image can be loaded from
++	 * non-secure memory.
++	 */
++	params[2].value.a = PTA_RPROC_HWCAP_PROT_HASH_TABLE;
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result rproc_pta_load_segment(uint32_t pt,
++					 TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT);
++	TEE_Result res = TEE_ERROR_GENERIC;
++	paddr_t pa = 0;
++	void *dst = NULL;
++	uint8_t *src = params[1].memref.buffer;
++	size_t size = params[1].memref.size;
++	uint8_t *hash = params[3].memref.buffer;
++	paddr_t da = (paddr_t)reg_pair_to_64(params[2].value.b,
++					     params[2].value.a);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!hash || params[3].memref.size != TEE_SHA256_HASH_SIZE)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	/* Get the physical address in local context mapping */
++	res = stm32_rproc_da_to_pa(params[0].value.a, da, size, &pa);
++	if (res)
++		return res;
++
++	if (stm32_rproc_map(params[0].value.a, pa, size, &dst)) {
++		EMSG("Can't map region %#"PRIxPA" size %zu", pa, size);
++		return TEE_ERROR_GENERIC;
++	}
++
++	/* Copy the segment to the remote processor memory */
++	memcpy(dst, src, size);
++
++	/* Verify that loaded segment is valid */
++	res = hash_sha256_check(hash, dst, size);
++	if (res)
++		memset(dst, 0, size);
++
++	stm32_rproc_unmap(params[0].value.a, dst, size);
++
++	return res;
++}
++
++static TEE_Result rproc_pta_set_memory(uint32_t pt,
++				       TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT);
++	TEE_Result res = TEE_ERROR_GENERIC;
++	paddr_t pa = 0;
++	void *dst = NULL;
++	paddr_t da = params[1].value.a;
++	size_t size = params[2].value.a;
++	uint8_t value = params[3].value.a && 0xFF;
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	/* Get the physical address in CPU mapping */
++	res = stm32_rproc_da_to_pa(params[0].value.a, da, size, &pa);
++	if (res)
++		return res;
++
++	res = stm32_rproc_map(params[0].value.a, pa, size, &dst);
++	if (res) {
++		EMSG("Can't map region %#"PRIxPA" size %zu", pa, size);
++		return TEE_ERROR_GENERIC;
++	}
++
++	memset(dst, value, size);
++
++	return stm32_rproc_unmap(params[0].value.a, dst, size);
++}
++
++static TEE_Result rproc_pta_da_to_pa(uint32_t pt,
++				     TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_VALUE_OUTPUT);
++	TEE_Result res = TEE_ERROR_GENERIC;
++	paddr_t da = params[1].value.a;
++	size_t size = params[2].value.a;
++	paddr_t pa = 0;
++
++	DMSG("Conversion for address %#"PRIxPA" size %zu", da, size);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	/* Target address is expected 32bit, ensure 32bit MSB are zero */
++	if (params[1].value.b || params[2].value.b)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	res = stm32_rproc_da_to_pa(params[0].value.a, da, size, &pa);
++	if (res)
++		return res;
++
++	reg_pair_from_64((uint64_t)pa, &params[3].value.b, &params[3].value.a);
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result rproc_pta_start(uint32_t pt,
++				  TEE_Param params[TEE_NUM_PARAMS])
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	res = stm32_rproc_start(params[0].value.a);
++	if (res)
++		return res;
++
++	rproc_ta_state = REMOTEPROC_ON;
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result rproc_pta_stop(uint32_t pt,
++				 TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (rproc_ta_state != REMOTEPROC_ON)
++		return TEE_ERROR_BAD_STATE;
++
++	res = stm32_rproc_stop(params[0].value.a);
++	if (res)
++		return res;
++
++	rproc_ta_state = REMOTEPROC_OFF;
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result rproc_pta_verify_rsa_signature(TEE_Param *hash,
++						 TEE_Param *sig, uint32_t algo)
++{
++	struct rsa_public_key key = { };
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint32_t e = TEE_U32_TO_BIG_ENDIAN(rproc_pub_key_exponent);
++	size_t hash_size = (size_t)hash->memref.size;
++	size_t sig_size = (size_t)sig->memref.size;
++
++	res = crypto_acipher_alloc_rsa_public_key(&key, sig_size);
++	if (res)
++		return res;
++
++	res = crypto_bignum_bin2bn((uint8_t *)&e, sizeof(e), key.e);
++	if (res)
++		goto out;
++
++	res = crypto_bignum_bin2bn(rproc_pub_key_modulus,
++				   rproc_pub_key_modulus_size, key.n);
++	if (res)
++		goto out;
++
++	res = crypto_acipher_rsassa_verify(algo, &key, hash_size,
++					   hash->memref.buffer, hash_size,
++					   sig->memref.buffer, sig_size);
++
++out:
++	crypto_acipher_free_rsa_public_key(&key);
++
++	return res;
++}
++
++static TEE_Result rproc_pta_verify_digest(uint32_t pt,
++					  TEE_Param params[TEE_NUM_PARAMS])
++{
++	struct rproc_pta_key_info *keyinfo = NULL;
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT,
++						TEE_PARAM_TYPE_MEMREF_INPUT);
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!stm32_rproc_get(params[0].value.a))
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	if (rproc_ta_state != REMOTEPROC_OFF)
++		return TEE_ERROR_BAD_STATE;
++
++	keyinfo = params[1].memref.buffer;
++
++	if (!keyinfo ||
++	    rproc_pta_keyinfo_size(keyinfo) != params[1].memref.size)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (keyinfo->algo != TEE_ALG_RSASSA_PKCS1_V1_5_SHA256)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return rproc_pta_verify_rsa_signature(&params[2], &params[3],
++					      keyinfo->algo);
++}
++
++static TEE_Result rproc_pta_invoke_command(void *session __unused,
++					   uint32_t cmd_id,
++					   uint32_t param_types,
++					   TEE_Param params[TEE_NUM_PARAMS])
++{
++	switch (cmd_id) {
++	case PTA_RPROC_HW_CAPABILITIES:
++		return rproc_pta_capabilities(param_types, params);
++	case PTA_RPROC_LOAD_SEGMENT_SHA256:
++		return rproc_pta_load_segment(param_types, params);
++	case PTA_RPROC_SET_MEMORY:
++		return rproc_pta_set_memory(param_types, params);
++	case PTA_RPROC_FIRMWARE_START:
++		return rproc_pta_start(param_types, params);
++	case PTA_RPROC_FIRMWARE_STOP:
++		return rproc_pta_stop(param_types, params);
++	case PTA_RPROC_FIRMWARE_DA_TO_PA:
++		return rproc_pta_da_to_pa(param_types, params);
++	case PTA_RPROC_VERIFY_DIGEST:
++		return rproc_pta_verify_digest(param_types, params);
++	default:
++		return TEE_ERROR_NOT_IMPLEMENTED;
++	}
++}
++
++/*
++ * Pseudo Trusted Application entry points
++ */
++static TEE_Result rproc_pta_open_session(uint32_t pt,
++					 TEE_Param params[TEE_NUM_PARAMS],
++					 void **sess_ctx __unused)
++{
++	struct ts_session *s = ts_get_calling_session();
++	const uint32_t exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE,
++						TEE_PARAM_TYPE_NONE);
++	struct ts_ctx *ctx = NULL;
++	TEE_UUID ta_uuid = TA_REMOTEPROC_UUID;
++
++	if (pt != exp_pt)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!s || !is_user_ta_ctx(s->ctx))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	/* Check that we're called by the remoteproc Trusted application*/
++	ctx = s->ctx;
++	if (memcmp(&ctx->uuid, &ta_uuid, sizeof(TEE_UUID)))
++		return TEE_ERROR_ACCESS_DENIED;
++
++	if (!stm32_rproc_get(params[0].value.a))
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return TEE_SUCCESS;
++}
++
++pseudo_ta_register(.uuid = PTA_RPROC_UUID, .name = PTA_NAME,
++		   .flags = PTA_DEFAULT_FLAGS,
++		   .invoke_command_entry_point = rproc_pta_invoke_command,
++		   .open_session_entry_point = rproc_pta_open_session);
+diff --git a/core/pta/stm32mp/rproc_pub_key.h b/core/pta/stm32mp/rproc_pub_key.h
+new file mode 100644
+index 000000000..b36256523
+--- /dev/null
++++ b/core/pta/stm32mp/rproc_pub_key.h
+@@ -0,0 +1,16 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ */
++
++#ifndef PTA_STM32MP_RPROC_PUB_KEY_H
++#define PTA_STM32MP_RPROC_PUB_KEY_H
++
++#include <types_ext.h>
++
++extern const uint32_t rproc_pub_key_exponent;
++extern const uint8_t rproc_pub_key_modulus[];
++extern const size_t rproc_pub_key_modulus_size;
++
++#endif /* PTA_STM32MP_RPROC_PUB_KEY_H */
++
+diff --git a/core/pta/stm32mp/sub.mk b/core/pta/stm32mp/sub.mk
+index ed16c5f47..f463e32a6 100644
+--- a/core/pta/stm32mp/sub.mk
++++ b/core/pta/stm32mp/sub.mk
+@@ -1 +1,2 @@
+ srcs-$(CFG_STM32_BSEC_PTA) += bsec_pta.c
++srcs-$(CFG_RPROC_PTA) += remoteproc_pta.c
+\ No newline at end of file
+diff --git a/core/pta/sub.mk b/core/pta/sub.mk
+index 41212d338..b7b057147 100644
+--- a/core/pta/sub.mk
++++ b/core/pta/sub.mk
+@@ -19,3 +19,12 @@ subdirs-y += bcm
+ subdirs-y += stm32mp
+ subdirs-y += imx
+ subdirs-y += k3
++
++ifeq ($(CFG_RPROC_PTA),y)
++gensrcs-y += rproc_pub_key
++produce-rproc_pub_key = rproc_pub_key.c
++depends-rproc_pub_key = $(RPROC_SIGN_KEY) scripts/pem_to_pub_c.py
++recipe-rproc_pub_key = $(PYTHON3) scripts/pem_to_pub_c.py \
++	--prefix rproc_pub_key --key $(RPROC_SIGN_KEY)    \
++	--out $(sub-dir-out)/rproc_pub_key.c
++endif
+\ No newline at end of file
+diff --git a/mk/config.mk b/mk/config.mk
+index 418e12881..092564542 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -1076,6 +1076,9 @@ endif
+ # CFG_DRIVERS_REMOTEPROC, when enabled, embeds support for remote processor
+ # management including generic DT bindings for the configuration.
+ CFG_DRIVERS_REMOTEPROC ?= n
++# CFG_REMOTEPROC_PTA, when enabled, embeds remote processor management PTA
++# service.
++CFG_REMOTEPROC_PTA ?= n
+ # User TA runtime context dump.
+ # When this option is enabled, OP-TEE provides a debug method for
+ # developer to dump user TA's runtime context, including TA's heap stats.
+-- 
+2.47.2
+

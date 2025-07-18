@@ -1,0 +1,153 @@
+From 0a4fafade626afa625037a5bceed71d23fb96284 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Tue, 19 Mar 2024 17:14:55 +0100
+Subject: [PATCH 0706/1695] plat-stm32mp1: stm32mp_pmic: add property
+ st,regulator-warm-boot-on
+
+Add st,regulator-warm-boot-on property in PMIC1 driver to
+enable the regulator at suspend and recover the previous state
+at resume. This can be used on a storage to allow the boot-ROM
+to reload the binaries after a standby.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7c59625de0c5b6d2e8e6eccf6b3cb3c597b2af23 plat-stm32mp1: stm32mp_pmic: add property st,regulator-warm-boot-on]
+Change-Id: Ia4f00c5f407f5d4c40cb8dfe21d77d9d25eae2b3
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/367952
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ .../arm/plat-stm32mp1/drivers/stm32mp1_pmic.c | 35 +++++++++++++++++++
+ .../devicetree/bindings/mfd/st,stpmic1.yaml   | 20 +++++++++++
+ 2 files changed, 55 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+index e8f8b7733..c7404c7d1 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+@@ -41,6 +41,7 @@
+ 
+ /* PMIC private flags */
+ #define PMIC_REGU_FLAG_MASK_RESET	BIT(0)
++#define PMIC_REGU_FLAG_WARM_BOOT_ON	BIT(1)
+ 
+ static_assert(IS_ENABLED(CFG_DRIVERS_REGULATOR));
+ 
+@@ -106,6 +107,9 @@ static void priv_dt_properties(const void *fdt, int regu_node,
+ 
+ 	if (fdt_getprop(fdt, regu_node, "st,mask-reset", NULL))
+ 		priv->flags |= PMIC_REGU_FLAG_MASK_RESET;
++
++	if (fdt_getprop(fdt, regu_node, "st,regulator-warm-boot-on", NULL))
++		priv->flags |= PMIC_REGU_FLAG_WARM_BOOT_ON;
+ }
+ 
+ /*
+@@ -494,6 +498,34 @@ static TEE_Result pmic_list_voltages(struct regulator *regulator,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint __unused,
++			       const struct pm_callback_handle *pm_handle)
++{
++	struct regulator *regulator = pm_handle->handle;
++	struct pmic_regulator_data *priv = regulator->priv;
++
++	/*
++	 * Enable regulators flagged warm-boot-on before entering suspend
++	 * to ensure it is enabled after standby when the boot-rom reloads
++	 * the binaries.
++	 */
++	if (priv->flags & PMIC_REGU_FLAG_WARM_BOOT_ON) {
++		TEE_Result res = TEE_ERROR_GENERIC;
++
++		if (op == PM_OP_SUSPEND)
++			res = regulator_enable(regulator);
++		else if (op == PM_OP_RESUME)
++			res = regulator_disable(regulator);
++
++		if (res) {
++			EMSG("Failed to handle warm-boot-on");
++			return res;
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result pmic_regu_init(struct regulator *regulator,
+ 				 const void *fdt __unused, int node __unused)
+ {
+@@ -523,6 +555,9 @@ static TEE_Result pmic_regu_init(struct regulator *regulator,
+ 
+ 	stm32mp_put_pmic();
+ 
++	register_pm_core_service_cb(pmic_regu_pm, regulator,
++				    regulator_name(regulator));
++
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/documentation/devicetree/bindings/mfd/st,stpmic1.yaml b/documentation/devicetree/bindings/mfd/st,stpmic1.yaml
+index 6359d49cd..5c2b71854 100644
+--- a/documentation/devicetree/bindings/mfd/st,stpmic1.yaml
++++ b/documentation/devicetree/bindings/mfd/st,stpmic1.yaml
+@@ -112,6 +112,10 @@ properties:
+           interrupts:
+             maxItems: 1
+ 
++          st,regulator-warm-boot-on:
++            description: enable the regulator after standby.
++            $ref: /schemas/types.yaml#/definitions/flag
++
+           st,mask-reset:
+             description: mask reset for this regulator, the regulator configuration
+               is maintained during pmic reset.
+@@ -134,6 +138,10 @@ properties:
+           interrupts:
+             maxItems: 1
+ 
++          st,regulator-warm-boot-on:
++            description: enable the regulator after standby.
++            $ref: /schemas/types.yaml#/definitions/flag
++
+           st,mask-reset:
+             description: mask reset for this regulator, the regulator configuration
+               is maintained during pmic reset.
+@@ -171,6 +179,10 @@ properties:
+           interrupts:
+             maxItems: 1
+ 
++          st,regulator-warm-boot-on:
++            description: enable the regulator after standby.
++            $ref: /schemas/types.yaml#/definitions/flag
++
+           st,mask-reset:
+             description: mask reset for this regulator, the regulator configuration
+               is maintained during pmic reset.
+@@ -197,6 +209,10 @@ properties:
+           interrupts:
+             maxItems: 1
+ 
++          st,regulator-warm-boot-on:
++            description: enable the regulator after standby.
++            $ref: /schemas/types.yaml#/definitions/flag
++
+           st,mask-reset:
+             description: mask reset for this regulator, the regulator configuration
+               is maintained during pmic reset.
+@@ -219,6 +235,10 @@ properties:
+           interrupts:
+             maxItems: 1
+ 
++          st,regulator-warm-boot-on:
++            description: enable the regulator after standby.
++            $ref: /schemas/types.yaml#/definitions/flag
++
+           st,mask-reset:
+             description: mask reset for this regulator, the regulator configuration
+               is maintained during pmic reset.
+-- 
+2.47.2
+

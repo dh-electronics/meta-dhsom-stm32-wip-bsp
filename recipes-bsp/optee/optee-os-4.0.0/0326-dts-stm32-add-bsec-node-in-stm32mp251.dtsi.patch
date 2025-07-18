@@ -1,0 +1,75 @@
+From d962776477beb56d3ea0e01da6a913e73a04be15 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 24 Mar 2023 17:07:15 +0100
+Subject: [PATCH 0326/1695] dts: stm32: add bsec node in stm32mp251.dtsi
+
+Add the bsec node to access OTP on stm32mp25 platforms with
+the NVMEM description needed by OP-TEE for STM32MP25x device
+- part_number_otp
+- package_otp
+- HCONF1: hardware configuration fuse
+- PKH OTP: hash of public keys hashes
+- encryption keys
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ec49b3f557525b395ecc5312e5b48174008f779a dts: stm32: add bsec node in stm32mp251.dtsi]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/247732
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/247733
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/267534
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/289113
+Change-Id: I0ab2fdd500bca9400245cccbb107082cec4f0520
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/349109
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/dts/stm32mp251.dtsi | 30 +++++++++++++++++++++++++++++-
+ 1 file changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/dts/stm32mp251.dtsi b/core/arch/arm/dts/stm32mp251.dtsi
+index cdea25840..95e938c27 100644
+--- a/core/arch/arm/dts/stm32mp251.dtsi
++++ b/core/arch/arm/dts/stm32mp251.dtsi
+@@ -301,8 +301,36 @@
+ 		};
+ 
+ 		bsec: efuse@44000000 {
++			compatible = "st,stm32mp25-bsec";
+ 			reg = <0x44000000 0x1000>;
+-			status = "disabled";
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			part_number_otp@24 {
++				reg = <0x24 0x4>;
++			};
++
++			package_otp@1e8 {
++				reg = <0x1e8 0x1>;
++			};
++
++			hconf1_otp: otp124@1f0 {
++				reg = <0x1f0 0x4>;
++			};
++
++			pkh_otp: otp144@240 {
++				reg = <0x240 0x20>;
++			};
++
++			oem_fip_enc_key: otp260@410 {
++				reg = <0x410 0x20>;
++				st,non-secure-otp-provisioning;
++			};
++
++			oem_enc_key: otp364@5b0 {
++				reg = <0x5b0 0x10>;
++				st,non-secure-otp-provisioning;
++			};
+ 		};
+ 
+ 		serc: serc@44080000 {
+-- 
+2.47.2
+

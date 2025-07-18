@@ -1,0 +1,106 @@
+From 216516c1b64a8c9958382ffe600d2d42b2126811 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 5 Dec 2023 17:16:07 +0100
+Subject: [PATCH 0169/1695] clk: add duty cycle ops
+
+Some IPs, such as ADCs, need to know the duty cycle of their clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 114c552056f753665e17b93c1cd92049715264c4 clk: add duty cycle ops]
+Change-Id: I52342f547a2b0fd9cb10977120018c5c643ffe36
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 14 ++++++++++++++
+ core/include/drivers/clk.h | 24 ++++++++++++++++++++++++
+ 2 files changed, 38 insertions(+)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index e1d409741..1ddf0fd9c 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -430,6 +430,20 @@ TEE_Result clk_set_rate(struct clk *clk, unsigned long rate)
+ 	return res;
+ }
+ 
++TEE_Result clk_get_duty_cycle(struct clk *clk, struct clk_duty *duty)
++{
++	if (clk->ops->get_duty_cycle)
++		return clk->ops->get_duty_cycle(clk, duty);
++
++	if (clk->parent && (clk->flags & CLK_DUTY_CYCLE_PARENT))
++		return clk_get_duty_cycle(clk->parent, duty);
++
++	duty->num = 1;
++	duty->den = 2;
++
++	return TEE_SUCCESS;
++}
++
+ /* Return updated message buffer position of NULL on failure */
+ static __printf(3, 4) char *add_msg(char *cur, char *end, const char *fmt, ...)
+ {
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 265d80753..3531623cc 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -17,6 +17,7 @@
+ #define CLK_OPS_PARENT_ENABLE	BIT(2) /* parent need enable during re-parent */
+ #define CLK_SET_RATE_PARENT	BIT(3) /* propagate rate change up one level */
+ #define CLK_SET_RATE_UNGATE	BIT(4) /* clock needs to run to set rate */
++#define CLK_DUTY_CYCLE_PARENT	BIT(5) /* forward duty cycle call to parent */
+ 
+ /**
+  * struct clk - Clock structure
+@@ -64,6 +65,17 @@ struct clk_rate_request {
+ 	struct clk *best_parent;
+ };
+ 
++/**
++ * struct clk_duty - Struture encoding the duty cycle ratio of a clock
++ *
++ * @num:	Numerator of the duty cycle ratio
++ * @den:	Denominator of the duty cycle ratio
++ */
++struct clk_duty {
++	unsigned int num;
++	unsigned int den;
++};
++
+ /**
+  * struct clk_ops
+  *
+@@ -79,6 +91,7 @@ struct clk_rate_request {
+  * @determine_rate: Given a target rate as input, returns the closest rate
+  *		actually supported by the clock, and optionally the parent clock
+  *		that should be used to provide the clock rate
++ * @get_duty_cycle: Get duty cytcle of the clock
+  */
+ struct clk_ops {
+ 	bool (*is_enabled)(struct clk *clk);
+@@ -96,6 +109,8 @@ struct clk_ops {
+ 				      unsigned long *max, unsigned long *step);
+ 	TEE_Result (*determine_rate)(struct clk *clk,
+ 				     struct clk_rate_request *req);
++	TEE_Result (*get_duty_cycle)(struct clk *clk,
++				     struct clk_duty *duty);
+ };
+ 
+ /**
+@@ -241,6 +256,15 @@ TEE_Result clk_get_rates_array(struct clk *clk, size_t start_index,
+ TEE_Result clk_get_rates_steps(struct clk *clk, unsigned long *min,
+ 			       unsigned long *max, unsigned long *step);
+ 
++/**
++ * clk_get_duty_cycle - Get clock duty cycle
++ *
++ * @clk: Clock for which the duty cycle is requested
++ * @duty: Output duty cycle info
++ * Return a TEE_Result compliant value
++ */
++TEE_Result clk_get_duty_cycle(struct clk *clk, struct clk_duty *duty);
++
+ /* Print current clock tree summary to output console with debug trace level */
+ #ifdef CFG_DRIVERS_CLK
+ void clk_print_tree(void);
+-- 
+2.47.2
+

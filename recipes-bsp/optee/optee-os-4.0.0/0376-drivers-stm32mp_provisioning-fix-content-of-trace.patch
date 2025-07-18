@@ -1,0 +1,62 @@
+From e2e5306b39d6ab8a6bf3bebb149089cfbe531fbf Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 20 Sep 2023 10:33:07 +0200
+Subject: [PATCH 0376/1695] drivers: stm32mp_provisioning: fix content of trace
+
+Update trace to add missing information needed to understand issues
+and correct the display of the OTP identifier (otp_id => otp_id + i).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3e1945e9b2b178864cbf91b21900c7c41d80919d drivers: stm32mp_provisioning: fix content of trace]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I80c265b7521f9ce3ccfb117c96b565f84ec9861c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/330743
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32mp_provisioning.c | 20 ++++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/core/drivers/stm32mp_provisioning.c b/core/drivers/stm32mp_provisioning.c
+index 6f3460bd5..02b181b70 100644
+--- a/core/drivers/stm32mp_provisioning.c
++++ b/core/drivers/stm32mp_provisioning.c
+@@ -67,21 +67,25 @@ static TEE_Result provisioning_subnode(const void *fdt, int node)
+ 			if (stm32_bsec_read_sw_lock(otp_id + i, &lock))
+ 				panic();
+ 
+-			if (lock)
+-				panic("Shadow write lock");
++			if (lock) {
++				EMSG("Override the OTP %u: shadow write lock",
++				     otp_id + i);
++				panic();
++			}
+ 
+ 			shadow_val = fdt32_to_cpu(*cuint++);
+ 
+ 			if (stm32_bsec_shadow_read_otp(&otp_val, otp_id + i))
+ 				panic();
+ 
+-			if (otp_val)
+-				IMSG("Override the OTP %u initial value",
+-				     otp_id);
++			if (otp_val != (otp_val | shadow_val)) {
++				IMSG("Override the OTP %u: %x to %x",
++				     otp_id + i, otp_val, otp_val | shadow_val);
+ 
+-			if (stm32_bsec_write_otp(otp_val | shadow_val,
+-						 otp_id + i))
+-				panic();
++				if (stm32_bsec_write_otp(otp_val | shadow_val,
++							 otp_id + i))
++					panic();
++			}
+ 
+ 			switch (otp_lock) {
+ 			case STICKY_LOCK_SW:
+-- 
+2.47.2
+

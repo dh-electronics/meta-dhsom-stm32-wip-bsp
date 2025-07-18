@@ -1,0 +1,58 @@
+From b6be96d6382bf87a124944bd8ec3af958f3bf1c9 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 22 Oct 2024 18:05:37 +0200
+Subject: [PATCH 1457/1695] drivers: remoteproc: stm32mp15: check Cortex-M
+ isolation
+
+Set Cortex-M RCC isolation (MCKPROT) configuration when STM32MP15
+remote processor secure loading is embedded in the platform.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b9f1c0820783436d45646fa50a62702f85d8fd62 drivers: remoteproc: stm32mp15: check Cortex-M isolation]
+Change-Id: Ia7268729b858175d540c6ff49a4dcdb650bd848c
+Link: https://github.com/OP-TEE/optee_os/commit/0cc468d19a74f3415d37860ba529d7290747ca02
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/413521
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index 80199d9da..de47c44d0 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -8,6 +8,9 @@
+ #include <drivers/firewall_device.h>
+ #include <drivers/rstctrl.h>
+ #include <drivers/stm32_remoteproc.h>
++#ifdef CFG_STM32MP15
++#include <drivers/stm32mp1_rcc.h>
++#endif
+ #include <keep.h>
+ #include <kernel/cache_helpers.h>
+ #include <kernel/dt_driver.h>
+@@ -865,6 +868,19 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 	stm32_rproc_a35ss_cfg(rproc);
+ #endif
+ 
++#ifdef CFG_STM32MP15
++	if (!rproc->cdata->ns_loading) {
++		if (!stm32_rcc_is_secure()) {
++			if (IS_ENABLED(CFG_INSECURE))
++				IMSG("WARNING: insecure rproc support regarding RCC hardening");
++			else
++				panic("RCC secure hardening issue");
++		} else {
++			stm32_rcc_set_mckprot(true);
++		}
++	}
++#endif
++
+ 	if (!rproc->cdata->ns_loading)
+ 		SLIST_INSERT_HEAD(&rproc_list, rproc, link);
+ 
+-- 
+2.47.2
+

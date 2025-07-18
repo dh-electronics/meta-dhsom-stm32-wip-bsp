@@ -1,0 +1,147 @@
+From ec7297a05a918fbb70e51147aa03922111d1a474 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 30 Apr 2025 18:41:42 +0200
+Subject: [PATCH 1687/1695] drivers: stm32_bsec: add permissions mask parsing
+ for debug configuration
+
+Permissions mask is a 32-bit value, each set bit indicates that the
+permission corresponding to that bit position is allowed.
+Permissions mask allow to define a specific debug behavior.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 67e9135b54a377b1d9a6470645ce8bc6fbf9886e drivers: stm32_bsec: add permissions mask parsing for debug configuration]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: If7575603ab5fb014966512cc0680b064f418e518
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/454758
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/stm32_bsec3.c        | 77 +++++++++++++++++++++++++++++++
+ core/include/drivers/stm32_bsec.h | 15 ++++++
+ 2 files changed, 92 insertions(+)
+
+diff --git a/core/drivers/stm32_bsec3.c b/core/drivers/stm32_bsec3.c
+index a2676481e..b174d7aac 100644
+--- a/core/drivers/stm32_bsec3.c
++++ b/core/drivers/stm32_bsec3.c
+@@ -157,6 +157,26 @@ static_assert(!(IS_ENABLED(CFG_STM32_CM33TDCID) &&
+ #define OTP_SECURE_BOOT			18U
+ #define OTP_CLOSED_SECURE		GENMASK_32(3, 0)
+ 
++#if defined(CFG_STM32MP21)
++#define STM32MP21_PERM_MASK_A35NSTO	BIT(0) /* A35 Non-Secure Trace-only */
++#define STM32MP21_PERM_MASK_A35NSFD	BIT(1) /* A35 Non-Secure Full-Debug */
++#define STM32MP21_PERM_MASK_A35STO	BIT(2) /* A35 Secure Trace-only */
++#define STM32MP21_PERM_MASK_A35SFD	BIT(3) /* A35 Secure Full-Debug */
++#define STM32MP21_PERM_MASK_M33NSTO	BIT(4) /* M33 Non-Secure Trace-only */
++#define STM32MP21_PERM_MASK_M33NSFD	BIT(5) /* M33 Non-Secure Full-Debug */
++#define STM32MP21_PERM_MASK_M33STO	BIT(6) /* M33 Secure Trace-only */
++#define STM32MP21_PERM_MASK_M33SFD	BIT(7) /* M33 Secure Full-Debug */
++#define STM32MP21_PERM_MASK_A35HDPL	BIT(8) /* A35 Minimal Debug level */
++#define STM32MP21_PERM_MASK_A35HDP(lvl) (STM32MP21_PERM_MASK_A35HDPL << (lvl))
++#define STM32MP21_PERM_MASK_M33HDPL	BIT(12) /* M33 Minimal Debug level */
++#define STM32MP21_PERM_MASK_M33HDP(lvl) (STM32MP21_PERM_MASK_M33HDPL << (lvl))
++#define STM32MP21_PERM_MASK_A35SDDIS	BIT(16) /* A35 Secure Dbg Disabled */
++#define STM32MP21_PERM_MASK_A35NSDDIS	BIT(17) /* A35 Non-Sec Dbg Disabled */
++#define STM32MP21_PERM_MASK_M33SDDIS	BIT(18) /* M33 Secure Dbg Disabled */
++#define STM32MP21_PERM_MASK_M33NSDDIS	BIT(19) /* M33 Non-Sec Dbg Disabled */
++#define STM32MP21_PERM_MASK_WAITATTACH	BIT(31) /* Wait for attach at boot tm */
++#endif
++
+ struct nvmem_cell {
+ 	char *name;
+ 	uint32_t phandle;
+@@ -697,6 +717,63 @@ TEE_Result stm32_bsec_write_debug_ctrl(uint32_t ca_value, uint32_t cm_value)
+ 
+ 	return result;
+ }
++
++void stm32_bsec_parse_permissions(uint32_t perm_mask,
++				  uint32_t *dbg_en_val,
++				  uint32_t *dbg_a_ctrl_val,
++				  uint32_t *dbg_m_ctrl_val)
++{
++	uint32_t hdpl_values[] = { BSEC_AUTH_HDPL0, BSEC_AUTH_HDPL1,
++				   BSEC_AUTH_HDPL2, BSEC_AUTH_HDPL3 };
++	int8_t lvl = ARRAY_SIZE(hdpl_values) - 1;
++
++	*dbg_en_val = 0;
++	*dbg_a_ctrl_val = 0;
++	*dbg_m_ctrl_val = 0;
++
++	/* Prepare value for BSEC debug enable register */
++	*dbg_en_val |= BSEC_DEVICEEN | BSEC_HDPEN | BSEC_DBGSWEN;
++	if (perm_mask & STM32MP21_PERM_MASK_A35NSTO)
++		*dbg_en_val |= BSEC_NIDENA;
++	if (perm_mask & STM32MP21_PERM_MASK_A35NSFD)
++		*dbg_en_val |= BSEC_NIDENA | BSEC_DBGENA;
++	if (perm_mask & STM32MP21_PERM_MASK_A35STO)
++		*dbg_en_val |= BSEC_SPNIDENA;
++	if (perm_mask & STM32MP21_PERM_MASK_A35SFD)
++		*dbg_en_val |= BSEC_SPNIDENA | BSEC_SPIDENA;
++	if (perm_mask & STM32MP21_PERM_MASK_M33NSTO)
++		*dbg_en_val |= BSEC_NIDENM;
++	if (perm_mask & STM32MP21_PERM_MASK_M33NSFD)
++		*dbg_en_val |= BSEC_NIDENM | BSEC_DBGENM;
++	if (perm_mask & STM32MP21_PERM_MASK_M33STO)
++		*dbg_en_val |= BSEC_SPNIDENM;
++	if (perm_mask & STM32MP21_PERM_MASK_M33SFD)
++		*dbg_en_val |= BSEC_SPNIDENM | BSEC_SPIDENM;
++
++	/* Prepare values for BSEC debug control registers */
++	for (lvl = ARRAY_SIZE(hdpl_values) - 1; lvl >= 0; lvl--) {
++		if (perm_mask & STM32MP21_PERM_MASK_A35HDP(lvl)) {
++			*dbg_a_ctrl_val |= BSEC_AUTH_HDPL(hdpl_values[lvl]);
++			break;
++		}
++	}
++	for (lvl = ARRAY_SIZE(hdpl_values) - 1; lvl >= 0; lvl--) {
++		if (perm_mask & STM32MP21_PERM_MASK_M33HDP(lvl)) {
++			*dbg_m_ctrl_val |= BSEC_AUTH_HDPL(hdpl_values[lvl]);
++			break;
++		}
++	}
++	if (!(perm_mask & STM32MP21_PERM_MASK_A35NSDDIS))
++		*dbg_a_ctrl_val |= BSEC_AUTH_UNLOCK(BSEC_AUTH_UNLOCKED);
++	if (!(perm_mask & STM32MP21_PERM_MASK_A35SDDIS))
++		*dbg_a_ctrl_val |= BSEC_AUTH_SEC(BSEC_AUTH_UNLOCKED);
++	if (!(perm_mask & STM32MP21_PERM_MASK_M33NSDDIS))
++		*dbg_m_ctrl_val |= BSEC_AUTH_UNLOCK(BSEC_AUTH_UNLOCKED);
++	if (!(perm_mask & STM32MP21_PERM_MASK_M33SDDIS))
++		*dbg_m_ctrl_val |= BSEC_AUTH_SEC(BSEC_AUTH_UNLOCKED);
++
++	/* TODO: STM32MP21_PERM_MASK_WAITATTACH */
++}
+ #endif /* CFG_STM32MP21 */
+ 
+ /*
+diff --git a/core/include/drivers/stm32_bsec.h b/core/include/drivers/stm32_bsec.h
+index 2b1bb09cd..08dc47de3 100644
+--- a/core/include/drivers/stm32_bsec.h
++++ b/core/include/drivers/stm32_bsec.h
+@@ -164,6 +164,21 @@ uint32_t stm32_bsec_read_debug_conf(void);
+  * Return a TEE_Result compliant return value
+  */
+ TEE_Result stm32_bsec_write_debug_ctrl(uint32_t ca_value, uint32_t cm_value);
++
++/*
++ * Parse permissions mask and prepare values to feed stm32_bsec_write_debug_conf
++ * and stm32_bsec_write_debug_ctrl functions to enable/disable debug
++ * @perm_mask: Permissions mask to enable/disable debug features
++ * @dbg_en_val: (out) Value to write in BSEC debug enable register
++ * @dbg_a_ctrl_val: (out) Value to write in BSEC debug control register for
++ *			  Cortex-A
++ * @dbg_m_ctrl_val: (out) Value to write in BSEC debug control register for
++ *			  Cortex-M
++ */
++void stm32_bsec_parse_permissions(uint32_t perm_mask,
++				  uint32_t *dbg_en_val,
++				  uint32_t *dbg_a_ctrl_val,
++				  uint32_t *dbg_m_ctrl_val);
+ #endif
+ 
+ /*
+-- 
+2.47.2
+

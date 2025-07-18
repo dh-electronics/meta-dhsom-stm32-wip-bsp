@@ -1,0 +1,122 @@
+From 0429167c449209380126dc1e08fad3dfc80d41d8 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 10 Jan 2025 14:22:03 +0100
+Subject: [PATCH 1520/1695] plat-stm32mp1: add support of CRC support in pm
+ standby context v4
+
+Add support of STANDBY context V4 with size and CRC32 of the context,
+computed on @size with @crc_32 = 0.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 649b11b4231c948ed9cbbb035bce0a8359464916 plat-stm32mp1: add support of CRC support in pm standby context v4]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/423282
+Change-Id: Icbf019e06028063f8d4873ead50d5b8e522e241f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/437078
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk      |  4 +++
+ core/arch/arm/plat-stm32mp1/pm/context.c | 32 +++++++++++++++++++++---
+ 2 files changed, 33 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 4dcdbe94e..6435b8b74 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -548,3 +548,7 @@ CFG_STM32MP15x_STM32IMAGE ?= n
+ 
+ # When CFG_DT_CACHED_NODE_INFO is enabled, boot time may be divided by 2
+ CFG_DT_CACHED_NODE_INFO ?= y
++
++ifeq (,$(filter 1 2 3,$(CFG_STM32MP1_PM_CONTEXT_VERSION)))
++$(call force,CFG_ZLIB,y)
++endif
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.c b/core/arch/arm/plat-stm32mp1/pm/context.c
+index 0ccc4b141..e77437324 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/context.c
++++ b/core/arch/arm/plat-stm32mp1/pm/context.c
+@@ -28,6 +28,7 @@
+ #include <stm32_util.h>
+ #include <stm32mp_pm.h>
+ #include <string.h>
++#include <zlib.h>
+ 
+ #include "context.h"
+ #include "power.h"
+@@ -42,9 +43,12 @@
+  * PLL1 dual OPP settings structure (86 bytes) and low power entry point,
+  * BL2 code start, end and BL2_END (102 bytes). And, only for STM32MP13,
+  * add MCE master key (16 bytes)
++ *
++ * STANDBY_CONTEXT_MAGIC V4
++ * Context v4 provides the v3 content + size and CRC.
+  */
+ 
+-#if CFG_STM32MP1_PM_CONTEXT_VERSION < 3 || CFG_STM32MP1_PM_CONTEXT_VERSION > 3
++#if CFG_STM32MP1_PM_CONTEXT_VERSION < 3 || CFG_STM32MP1_PM_CONTEXT_VERSION > 4
+ #error Invalid value for CFG_STM32MP1_PM_CONTEXT_VERSION
+ #endif
+ 
+@@ -97,6 +101,8 @@ static struct pm_clocks pm_clocks;
+  * @magic: magic value read by early boot stage for consistency
+  * @zq0cr0_zdata: DDRPHY configuration to be restored.
+  * @ddr_training_backup: DDR area saved at suspend and backed up at resume
++ * @size: struct size, used for CRC32 check
++ * @crc_32: CRC32 of this struct, computed on @size with @crc_32 = 0
+  */
+ struct pm_mailbox {
+ 	uint32_t magic;
+@@ -111,6 +117,9 @@ struct pm_mailbox {
+ #ifdef CFG_STM32MP13
+ 	uint8_t mce_mkey[MCE_KEY_SIZE_IN_BYTES];
+ #endif
++/* VERSION 4 */
++	uint32_t size;
++	uint32_t crc_32;
+ };
+ 
+ uint32_t optee_magic;
+@@ -306,6 +315,9 @@ static void load_earlyboot_pm_mailbox(void)
+ 	save_pll1_settings();
+ #endif /* CFG_STM32MP1_OPTEE_IN_SYSRAM */
+ 
++	if (MAGIC_VERSION(optee_magic) >= 4)
++		mailbox->size = sizeof(*mailbox);
++
+ 	save_ddr_training_area();
+ }
+ 
+@@ -419,14 +431,28 @@ static void enable_pm_mailbox(unsigned int suspend)
+ #else
+ 		hint = virt_to_phys(&get_retram_resume_ctx()->resume_sequence);
+ #endif
++		mailbox->core0_resume_ep = hint;
++
++		if (MAGIC_VERSION(optee_magic) >= 4) {
++			mailbox->crc_32 = 0;
++#ifdef CFG_ZLIB
++			/* compute CRC32 on struct size with crc_32 = 0 */
++			mailbox->crc_32 = crc32(0, (const Bytef *)mailbox,
++						mailbox->size);
++#endif
++		}
++
++		DMSG("%s(crc=%x, size=%u, magic=%x)\n", __func__,
++		     mailbox->crc_32, mailbox->size, mailbox->magic);
+ 	} else {
+ 		mailbox->magic = 0;
++		mailbox->core0_resume_ep = 0;
++		if (MAGIC_VERSION(optee_magic) >= 4)
++			mailbox->crc_32 = 0;
+ 	}
+ 
+ 	io_write32(stm32mp_bkpreg(BCKR_CORE1_MAGIC_NUMBER), magic);
+ 	io_write32(stm32mp_bkpreg(BCKR_CORE1_BRANCH_ADDRESS), hint);
+-
+-	mailbox->core0_resume_ep = hint;
+ }
+ 
+ static void gate_pm_context_clocks(bool enable)
+-- 
+2.47.2
+

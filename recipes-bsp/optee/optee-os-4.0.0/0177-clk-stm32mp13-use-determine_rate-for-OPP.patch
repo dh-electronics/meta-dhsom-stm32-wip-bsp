@@ -1,0 +1,114 @@
+From 73b885a383f1fce5835afe440de91ffd126f6aaa Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 7 Oct 2022 15:57:13 +0200
+Subject: [PATCH 0177/1695] clk: stm32mp13: use determine_rate() for OPP
+
+'determine_rate()' ops is need to change parent during a set_rate()
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f2fb8b3e045fe6a4aaee81cd3ade6f7e20828163 clk: stm32mp13: use determine_rate() for OPP]
+Change-Id: I0c5a521623cab7cc0c5886e3f85a97a7424eb395
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp13.c | 73 ++++++++++++++++++++++++++++++++
+ 1 file changed, 73 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 0d0e65a12..0a71ea2cf 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -1920,19 +1920,92 @@ static const struct clk_ops clk_stm32_pll1p_ops = {
+ 	.is_enabled	= clk_stm32_composite_gate_is_enabled,
+ };
+ 
++static TEE_Result clk_stm32_mpu_determine_rate(struct clk *clk,
++					       struct clk_rate_request *req)
++{
++	struct clk_stm32_priv *priv = clk_stm32_get_priv();
++	struct stm32_clk_platdata *pdata = priv->pdata;
++	struct stm32_clk_opp_cfg *opp = NULL;
++	unsigned long rate = req->rate;
++	struct clk *parent = NULL;
++	int index = 0;
++
++	opp = clk_stm32_get_opp_config(pdata->opp->mpu_opp, rate);
++	if (!opp)
++		return TEE_SUCCESS;
++
++	index = (opp->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
++
++	parent = clk_get_parent_by_index(clk, index);
++
++	req->best_parent = parent;
++	req->best_parent_rate = req->rate;
++
++	return TEE_SUCCESS;
++}
++
+ static const struct clk_ops clk_stm32_mpu_ops = {
++	.determine_rate = clk_stm32_mpu_determine_rate,
+ 	.get_parent	= clk_stm32_composite_get_parent,
+ 	.set_parent	= clk_stm32_composite_set_parent,
+ };
+ 
++static TEE_Result clk_stm32_axi_determine_rate(struct clk *clk,
++					       struct clk_rate_request *req)
++{
++	struct clk_stm32_priv *priv = clk_stm32_get_priv();
++	struct stm32_clk_platdata *pdata = priv->pdata;
++	struct stm32_clk_opp_cfg *opp = NULL;
++	unsigned long rate = req->rate;
++	struct clk *parent = NULL;
++	int index = 0;
++
++	opp = clk_stm32_get_opp_config(pdata->opp->axi_opp, rate);
++	if (!opp)
++		return TEE_SUCCESS;
++
++	index = (opp->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
++	parent = clk_get_parent_by_index(clk, index);
++
++	req->best_parent = parent;
++	req->best_parent_rate = parent->rate;
++
++	return TEE_SUCCESS;
++}
++
+ static const struct clk_ops clk_stm32_axi_ops = {
++	.determine_rate = clk_stm32_axi_determine_rate,
+ 	.get_parent	= clk_stm32_composite_get_parent,
+ 	.set_parent	= clk_stm32_composite_set_parent,
+ 	.set_rate	= clk_stm32_composite_set_rate,
+ 	.get_rate	= clk_stm32_composite_get_rate,
+ };
+ 
++static TEE_Result clk_stm32_mlahb_determine_rate(struct clk *clk,
++						 struct clk_rate_request *req)
++{
++	struct clk_stm32_priv *priv = clk_stm32_get_priv();
++	struct stm32_clk_platdata *pdata = priv->pdata;
++	struct stm32_clk_opp_cfg *opp = NULL;
++	unsigned long rate = req->rate;
++	struct clk *parent = NULL;
++	int index = 0;
++
++	opp = clk_stm32_get_opp_config(pdata->opp->mlahbs_opp, rate);
++	if (!opp)
++		return TEE_SUCCESS;
++
++	index = (opp->src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
++	parent = clk_get_parent_by_index(clk, index);
++
++	req->best_parent = parent;
++	req->best_parent_rate = parent->rate;
++
++	return TEE_SUCCESS;
++}
++
+ const struct clk_ops clk_stm32_mlahb_ops = {
++	.determine_rate = clk_stm32_mlahb_determine_rate,
+ 	.get_parent	= clk_stm32_composite_get_parent,
+ 	.set_parent	= clk_stm32_composite_set_parent,
+ 	.set_rate	= clk_stm32_composite_set_rate,
+-- 
+2.47.2
+

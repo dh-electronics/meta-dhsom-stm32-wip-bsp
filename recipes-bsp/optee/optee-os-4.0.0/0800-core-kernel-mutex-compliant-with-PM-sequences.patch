@@ -1,0 +1,133 @@
+From 4f53b86b6dd7a7fb8756b3a86d38b22b5b6213c5 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 12 Mar 2024 12:44:02 +0100
+Subject: [PATCH 0800/1695] core: kernel: mutex compliant with PM sequences
+
+Add mutex_pm_aware_*() functions for mutex used on resources accessed
+at runtime using a conventional mutex and also during low power
+sequences that execute in a non-thread context.
+
+This change defines MUTEX_PM_AWARE_INITIALIZER macro from a new
+header file (mutex_pm_aware.h) instead of existing mutex.h to prevent
+a circular dependency between spinlock.h (requires thread.h), thread.h
+(indirectly includes mutex.h) and mutex.h (that would depend on
+spinlock.h for definition of the SPINLOCK_UNLOCK macro ).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 59b3634cbf688e0cb83bdde051cd93c0a9556edc core: kernel: mutex compliant with PM sequences]
+Change-Id: Ide718073c2b6424e724495815978a6b20346cd54
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+(cherry picked from commit 3a20c6612811bf408eca3316b49702b767803de2)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/367754
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/include/kernel/mutex_pm_aware.h | 43 ++++++++++++++++++++++++++++
+ core/kernel/mutex.c                  | 34 ++++++++++++++++++++++
+ 2 files changed, 77 insertions(+)
+ create mode 100644 core/include/kernel/mutex_pm_aware.h
+
+diff --git a/core/include/kernel/mutex_pm_aware.h b/core/include/kernel/mutex_pm_aware.h
+new file mode 100644
+index 000000000..1345feb52
+--- /dev/null
++++ b/core/include/kernel/mutex_pm_aware.h
+@@ -0,0 +1,43 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2024, STMicroelectronics
++ */
++#ifndef __KERNEL_MUTEX_PM_AWARE_H
++#define __KERNEL_MUTEX_PM_AWARE_H
++
++#include <kernel/mutex.h>
++#include <kernel/spinlock.h>
++
++/*
++ * struct mutex_pm_aware - Mutex usable in PM atomic sequence
++ *
++ * Some resources need a mutex protection for runtime operations but are
++ * also accessed during specific system power transition (PM power off,
++ * suspend and resume) that operate in atomic execution environment where
++ * non-secure world is not operational, for example in fastcall SMC entries
++ * of the PSCI services. In such case we cannot take a mutex and we expect
++ * the mutex is unlocked. Additionally a spinning lock is attempted to be
++ * locked to check the resource access consistency.
++ *
++ * Core intentionally panics in case of unexpected resource access contention:
++ * - When a thread requests a mutex held by a non-thread context;
++ * - When a non-thread context requests a mutex held by a thread;
++ * - When a non-thread context requests a mutex held by a non-thread context.
++ */
++struct mutex_pm_aware {
++	struct mutex mutex;	/* access protection in thread context */
++	unsigned int lock;	/* access consistency in PM context */
++};
++
++#define MUTEX_PM_AWARE_INITIALIZER { \
++		.mutex = MUTEX_INITIALIZER, \
++		.lock = SPINLOCK_UNLOCK, \
++	}
++
++void mutex_pm_aware_init(struct mutex_pm_aware *m);
++void mutex_pm_aware_destroy(struct mutex_pm_aware *m);
++void mutex_pm_aware_lock(struct mutex_pm_aware *m);
++void mutex_pm_aware_unlock(struct mutex_pm_aware *m);
++
++#endif /*__KERNEL_MUTEX_PM_AWARE_H*/
++
+diff --git a/core/kernel/mutex.c b/core/kernel/mutex.c
+index 45028c431..dfdb75912 100644
+--- a/core/kernel/mutex.c
++++ b/core/kernel/mutex.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <kernel/mutex.h>
++#include <kernel/mutex_pm_aware.h>
+ #include <kernel/panic.h>
+ #include <kernel/refcount.h>
+ #include <kernel/spinlock.h>
+@@ -342,6 +343,39 @@ unsigned int mutex_get_recursive_lock_depth(struct recursive_mutex *m)
+ 	return refcount_val(&m->lock_depth);
+ }
+ 
++void mutex_pm_aware_init(struct mutex_pm_aware *m)
++{
++	*m = (struct mutex_pm_aware)MUTEX_PM_AWARE_INITIALIZER;
++}
++
++void mutex_pm_aware_destroy(struct mutex_pm_aware *m)
++{
++	mutex_destroy(&m->mutex);
++}
++
++void mutex_pm_aware_lock(struct mutex_pm_aware *m)
++{
++	if (thread_get_id_may_fail() == THREAD_ID_INVALID) {
++		if (!cpu_spin_trylock(&m->lock) || m->mutex.state)
++			panic();
++	} else {
++		mutex_lock(&m->mutex);
++		if (!thread_spin_trylock(&m->lock))
++			panic();
++	}
++}
++
++void mutex_pm_aware_unlock(struct mutex_pm_aware *m)
++{
++	if (thread_get_id_may_fail() == THREAD_ID_INVALID) {
++		assert(!m->mutex.state);
++		cpu_spin_unlock(&m->lock);
++	} else {
++		thread_spin_unlock(&m->lock);
++		mutex_unlock(&m->mutex);
++	}
++}
++
+ void condvar_init(struct condvar *cv)
+ {
+ 	*cv = (struct condvar)CONDVAR_INITIALIZER;
+-- 
+2.47.2
+

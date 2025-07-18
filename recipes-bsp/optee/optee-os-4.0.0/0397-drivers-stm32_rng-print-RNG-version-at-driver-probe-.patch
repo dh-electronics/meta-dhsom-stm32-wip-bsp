@@ -1,0 +1,67 @@
+From 30d5e74ed38f4b4fefd8bc3dff7e5f1a81854440 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 10 May 2023 18:33:34 +0200
+Subject: [PATCH 0397/1695] drivers: stm32_rng: print RNG version at driver
+ probe time
+
+Print the RNG version that is read from RNG_VERR at driver probe time.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7b954401dfc3104b0589e66b0235a5e82b6b07a8 drivers: stm32_rng: print RNG version at driver probe time]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Iaaa595806039c3ed1337f4fe1f74cf362fb24a10
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/305416
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_rng.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index 1f0b43f8a..80d363711 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -28,6 +28,7 @@
+ #define RNG_DR			U(0x08)
+ #define RNG_NSCR		U(0x0C)
+ #define RNG_HTCR		U(0x10)
++#define RNG_VERR		U(0x3F4)
+ 
+ #define RNG_CR_RNGEN		BIT(2)
+ #define RNG_CR_IE		BIT(3)
+@@ -51,6 +52,10 @@
+ 
+ #define RNG_NSCR_MASK		GENMASK_32(17, 0)
+ 
++#define RNG_VERR_MINOR_MASK	GENMASK_32(3, 0)
++#define RNG_VERR_MAJOR_MASK	GENMASK_32(7, 4)
++#define RNG_VERR_MAJOR_SHIFT	U(4)
++
+ #if TRACE_LEVEL > TRACE_DEBUG
+ #define RNG_READY_TIMEOUT_US	U(100000)
+ #else
+@@ -593,6 +598,7 @@ static TEE_Result stm32_rng_probe(const void *fdt, int offs,
+ 				  const void *compat_data)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
++	unsigned int __maybe_unused version = 0;
+ 
+ 	/* Expect a single RNG instance */
+ 	assert(!stm32_rng);
+@@ -612,6 +618,11 @@ static TEE_Result stm32_rng_probe(const void *fdt, int offs,
+ 	if (res)
+ 		goto err;
+ 
++	version = io_read32(get_base() + RNG_VERR);
++	DMSG("RNG version Major %u, Minor %u",
++	     (version & RNG_VERR_MAJOR_MASK) >> RNG_VERR_MAJOR_SHIFT,
++	     version & RNG_VERR_MINOR_MASK);
++
+ 	if (stm32_rng->rstctrl &&
+ 	    rstctrl_assert_to(stm32_rng->rstctrl, RNG_RESET_TIMEOUT_US)) {
+ 		res = TEE_ERROR_GENERIC;
+-- 
+2.47.2
+

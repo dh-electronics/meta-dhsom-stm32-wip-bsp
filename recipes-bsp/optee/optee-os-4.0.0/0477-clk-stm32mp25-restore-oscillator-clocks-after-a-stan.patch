@@ -1,0 +1,126 @@
+From 1ae8ceb51ac0ca13d36ebccebbe9e3e072e7ad5d Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 28 Jun 2023 17:50:49 +0200
+Subject: [PATCH 0477/1695] clk: stm32mp25: restore oscillator clocks after a
+ standby
+
+After a standby, Oscillator configuration will be restored by the clock
+device tree.
+Then we have just to restore gating and also the rate for MSI.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c251f3d20757d99446ea63191e7aad48566f94bd clk: stm32mp25: restore oscillator clocks after a standby]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Ic9990cbc223bd41a280aaf184926c7103c02ca7f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/326478
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 51 ++++++++++++++++++++++++++++++++
+ 1 file changed, 51 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 3fbb247a3..8f956cb6a 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -2201,10 +2201,22 @@ static void clk_stm32_osc_disable(struct clk *clk)
+ 		clk_stm32_gate_ready_disable(clk);
+ }
+ 
++#ifdef CFG_PM
++static void clk_stm32_osc_pm_restore(struct clk *clk)
++{
++	if (!stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
++		return;
++
++	if (clk_is_enabled(clk))
++		clk_stm32_osc_enable(clk);
++}
++#endif
++
+ static const struct clk_ops clk_stm32_osc_ops = {
+ 	.enable		= clk_stm32_osc_enable,
+ 	.disable	= clk_stm32_osc_disable,
+ 	.is_enabled	= clk_stm32_gate_is_enabled,
++	.restore_context = clk_stm32_osc_pm_restore,
+ };
+ 
+ static unsigned long clk_stm32_msi_get_rate(__maybe_unused struct clk *clk,
+@@ -2231,12 +2243,26 @@ static TEE_Result clk_stm32_msi_set_rate(__maybe_unused struct clk *clk,
+ 	return TEE_SUCCESS;
+ }
+ 
++#ifdef CFG_PM
++static void clk_stm32_osc_msi_pm_restore(struct clk *clk)
++{
++	if (!stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
++		return;
++
++	clk_stm32_msi_set_rate(clk, clk->rate, clk->parent->rate);
++
++	if (clk_is_enabled(clk))
++		clk_stm32_osc_enable(clk);
++}
++#endif
++
+ static const struct clk_ops clk_stm32_oscillator_msi_ops = {
+ 	.enable		= clk_stm32_osc_enable,
+ 	.disable	= clk_stm32_osc_disable,
+ 	.is_enabled	= clk_stm32_gate_is_enabled,
+ 	.get_rate	= clk_stm32_msi_get_rate,
+ 	.set_rate	= clk_stm32_msi_set_rate,
++	.restore_context = clk_stm32_osc_msi_pm_restore,
+ };
+ 
+ static TEE_Result clk_stm32_hse_div_set_rate(struct clk *clk,
+@@ -2249,9 +2275,20 @@ static TEE_Result clk_stm32_hse_div_set_rate(struct clk *clk,
+ 	return TEE_SUCCESS;
+ }
+ 
++#ifdef CFG_PM
++static void clk_stm32_hse_div_pm_restore(struct clk *clk)
++{
++	if (!stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
++		return;
++
++	clk_stm32_hse_div_set_rate(clk, clk->rate, clk->parent->rate);
++}
++#endif
++
+ static const struct clk_ops  clk_stm32_hse_div_ops = {
+ 	.get_rate = clk_stm32_divider_get_rate,
+ 	.set_rate = clk_stm32_hse_div_set_rate,
++	.restore_context = clk_stm32_hse_div_pm_restore,
+ };
+ 
+ static TEE_Result clk_stm32_hsediv2_enable(struct clk *clk)
+@@ -2280,11 +2317,25 @@ static unsigned long clk_stm32_hsediv2_get_rate(__maybe_unused struct clk *clk,
+ 	return prate / 2;
+ }
+ 
++#ifdef CFG_PM
++static void clk_stm32_hsediv2_pm_restore(struct clk *clk)
++{
++	struct clk_stm32_gate_cfg *cfg = clk->priv;
++
++	if (!stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
++		return;
++
++	if (clk_is_enabled(clk))
++		stm32_gate_endisable(cfg->gate_id, true);
++}
++#endif
++
+ static const struct clk_ops clk_hsediv2_ops = {
+ 	.enable		= clk_stm32_hsediv2_enable,
+ 	.disable	= clk_stm32_hsediv2_disable,
+ 	.is_enabled	= clk_stm32_gate_is_enabled,
+ 	.get_rate	= clk_stm32_hsediv2_get_rate,
++	.restore_context = clk_stm32_hsediv2_pm_restore,
+ };
+ 
+ #define PLL_PARENTS { &ck_hsi, &ck_hse, &ck_msi }
+-- 
+2.47.2
+

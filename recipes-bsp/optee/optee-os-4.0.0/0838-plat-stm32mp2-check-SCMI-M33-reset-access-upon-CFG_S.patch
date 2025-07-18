@@ -1,0 +1,85 @@
+From 522f3b5bfe5c2ff1218c1585fb36247b23d83386 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 3 May 2024 17:56:36 +0200
+Subject: [PATCH 0838/1695] plat-stm32mp2: check SCMI M33 reset access upon
+ CFG_STM32MP_REMOTEPROC=y
+
+Check access to Cortex-M33 SCMI reset control only when secure loading
+of remote processor is enabled (CFG_STM32MP_REMOTEPROC=y).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d098e5787f1d53d9689b085ac8783983ae4634c7 plat-stm32mp2: check SCMI M33 reset access upon CFG_STM32MP_REMOTEPROC=y]
+Change-Id: I7c8a7d531bcdb67f4b2cd0cc1fc1525b07a51657
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/378335
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     | 28 ++++++++-----------
+ 1 file changed, 12 insertions(+), 16 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index 175fe7098..6e5a0335a 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -525,8 +525,7 @@ static TEE_Result plat_scmi_reset_assert_level(struct rstctrl *rstctrl,
+ 	};
+ 	int index = rstctrl - plat_resets;
+ 	paddr_t domain_iobase = 0;
+-	unsigned long reset_id = 0;
+-	TEE_Result res = TEE_ERROR_GENERIC;
++	unsigned long __maybe_unused reset_id = 0;
+ 
+ 	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
+ 	domain_iobase = stm32_scmi_reset[index].base;
+@@ -535,13 +534,12 @@ static TEE_Result plat_scmi_reset_assert_level(struct rstctrl *rstctrl,
+ 	    stm32_firewall_check_access(domain_iobase, 0, nsec_cfg))
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
++#ifdef CFG_STM32MP_REMOTEPROC
+ 	reset_id = stm32_scmi_reset[index].reset_id;
+-
+-	if (reset_id == C2_R || reset_id == C2_HOLDBOOT_R) {
+-		res = stm32_rproc_reset_grant_access(STM32MP2_M33_RPROC_ID);
+-		if (res)
+-			return res;
+-	}
++	if ((reset_id == C2_R || reset_id == C2_HOLDBOOT_R) &&
++	    stm32_rproc_reset_grant_access(STM32MP2_M33_RPROC_ID))
++		return TEE_ERROR_ACCESS_DENIED;
++#endif
+ 
+ 	return rstctrl_assert_to(stm32_scmi_reset[index].rstctrl_be, to_us);
+ }
+@@ -555,8 +553,7 @@ static TEE_Result plat_scmi_reset_deassert_level(struct rstctrl *rstctrl,
+ 	};
+ 	int index = rstctrl - plat_resets;
+ 	paddr_t domain_iobase = 0;
+-	unsigned long reset_id = 0;
+-	TEE_Result res = TEE_ERROR_GENERIC;
++	unsigned long __maybe_unused reset_id = 0;
+ 
+ 	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
+ 	domain_iobase = stm32_scmi_reset[index].base;
+@@ -565,13 +562,12 @@ static TEE_Result plat_scmi_reset_deassert_level(struct rstctrl *rstctrl,
+ 	    stm32_firewall_check_access(domain_iobase, 0, nsec_cfg))
+ 		return TEE_ERROR_ACCESS_DENIED;
+ 
++#ifdef CFG_STM32MP_REMOTEPROC
+ 	reset_id = stm32_scmi_reset[index].reset_id;
+-
+-	if (reset_id == C2_R || reset_id == C2_HOLDBOOT_R) {
+-		res = stm32_rproc_reset_grant_access(STM32MP2_M33_RPROC_ID);
+-		if (res)
+-			return res;
+-	}
++	if ((reset_id == C2_R || reset_id == C2_HOLDBOOT_R) &&
++	    stm32_rproc_reset_grant_access(STM32MP2_M33_RPROC_ID))
++		return TEE_ERROR_ACCESS_DENIED;
++#endif
+ 
+ 	return rstctrl_deassert_to(stm32_scmi_reset[index].rstctrl_be, to_us);
+ }
+-- 
+2.47.2
+

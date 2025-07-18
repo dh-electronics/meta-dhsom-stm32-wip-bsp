@@ -1,0 +1,78 @@
+From 3419df8ce2cdc561f17935940abd3361a9f9b60e Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Tue, 17 Jan 2023 11:35:57 +0100
+Subject: [PATCH 0338/1695] drivers: stm32_exti: register the driver as
+ provider
+
+The driver is referenced in DT, e.g. by 'stm32_gpio'.
+
+Registers the driver as provider 'interrupt', even if the driver
+doesn't use the interrupt API yet, so it can be referenced in
+the DT.
+
+While there, rename struct stm32_exti_priv as stm32_exti_pdata.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f5a602e9d3e32a7f99a9c7f68f800b3bf39f7225 drivers: stm32_exti: register the driver as provider]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Ia0b87be3f2b0eb189e1d2d86efc1a8043e265f33
+---
+ core/drivers/stm32_exti.c | 21 +++++++++++++++++++--
+ 1 file changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/stm32_exti.c b/core/drivers/stm32_exti.c
+index ff41bf6d7..bfa9d6d83 100644
+--- a/core/drivers/stm32_exti.c
++++ b/core/drivers/stm32_exti.c
+@@ -36,11 +36,11 @@ struct stm32_exti_bank {
+ 
+ static uint32_t port_sel_bkp[4];
+ 
+-struct stm32_exti_priv {
++struct stm32_exti_pdata {
+ 	vaddr_t base;
+ };
+ 
+-static struct stm32_exti_priv stm32_exti;
++static struct stm32_exti_pdata stm32_exti;
+ 
+ static struct stm32_exti_bank stm32mp1_exti_b1 = {
+ 	.imr_ofst	= 0x80,
+@@ -343,11 +343,20 @@ stm32_exti_pm(enum pm_op op, unsigned int pm_hint __unused,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result
++stm32_exti_get_handle(struct dt_pargs *pargs __unused, void *data,
++		      struct stm32_exti_pdata **out_data)
++{
++	*out_data = data;
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result stm32_exti_probe(const void *fdt, int node,
+ 				   const void *comp_data __unused)
+ {
+ 	struct dt_node_info dt_info = { };
+ 	struct io_pa_va base = { };
++	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+ 	fdt_fill_device_info(fdt, &dt_info, node);
+ 
+@@ -356,6 +365,14 @@ static TEE_Result stm32_exti_probe(const void *fdt, int node,
+ 	stm32_exti.base = io_pa_or_va_secure(&base, dt_info.reg_size);
+ 	assert(stm32_exti.base);
+ 
++	res = dt_driver_register_provider(fdt, node,
++					  (get_of_device_func)
++					  stm32_exti_get_handle,
++					  (void *)&stm32_exti,
++					  DT_DRIVER_INTERRUPT);
++	if (res)
++		return res;
++
+ 	register_pm_core_service_cb(stm32_exti_pm, NULL, "stm32-exti");
+ 
+ 	return TEE_SUCCESS;
+-- 
+2.47.2
+

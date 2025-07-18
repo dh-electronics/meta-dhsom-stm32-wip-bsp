@@ -1,0 +1,347 @@
+From bba22b4300b64268b3715f90c2b077c5c1c60d43 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 14 Jun 2023 21:35:48 +0200
+Subject: [PATCH 0050/1695] core: interrupt: registering interrupt providers
+
+Adds interrupt chip framework API functions for an interrupt controller
+to register as an interrupt provider in the driver probing sequence
+based on device tree. This allows interrupt consumer to be deferred
+when a dependent interrupt controller is not yet initialized.
+
+Interrupt controllers register a driver in DT_DRIVER providers list
+with: interrupt_register_provider().
+
+Interrupt consumer can get their interrupt through DT data with
+interrupt_dt_get(), interrupt_dt_get_by_index() or
+interrupt_dt_get_by_name().
+
+This change removes inclusion of interrupt.h from kernel/dt.h as it is
+not needed and conflicts with inclusion of kernel/dt.h from
+kernel/interrupt.h.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 88377b3d54e43c53ac13a0699f9da3a1fcca5c65 core: interrupt: registering interrupt providers]
+Change-Id: I62a23a6d898909be892a7a89879d0615c0aac752
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 33a0c8350ac15de18e20ca47c5267b803fed76f8]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/kernel/thread.c   |   1 +
+ core/drivers/atmel_piobu.c      |   1 +
+ core/drivers/atmel_wdt.c        |   1 +
+ core/include/kernel/dt.h        |   1 -
+ core/include/kernel/interrupt.h | 121 ++++++++++++++++++++++++++++++++
+ core/kernel/interrupt.c         | 109 ++++++++++++++++++++++++++++
+ 6 files changed, 233 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/kernel/thread.c b/core/arch/arm/kernel/thread.c
+index 66833b3a0..0dd9007ba 100644
+--- a/core/arch/arm/kernel/thread.c
++++ b/core/arch/arm/kernel/thread.c
+@@ -14,6 +14,7 @@
+ #include <keep.h>
+ #include <kernel/asan.h>
+ #include <kernel/boot.h>
++#include <kernel/interrupt.h>
+ #include <kernel/linker.h>
+ #include <kernel/lockdep.h>
+ #include <kernel/misc.h>
+diff --git a/core/drivers/atmel_piobu.c b/core/drivers/atmel_piobu.c
+index 1f6aa115f..de1da2039 100644
+--- a/core/drivers/atmel_piobu.c
++++ b/core/drivers/atmel_piobu.c
+@@ -13,6 +13,7 @@
+ #include <kernel/boot.h>
+ #include <kernel/dt.h>
+ #include <kernel/dt_driver.h>
++#include <kernel/interrupt.h>
+ #include <kernel/pm.h>
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+diff --git a/core/drivers/atmel_wdt.c b/core/drivers/atmel_wdt.c
+index b2aa5458d..93bb1f97a 100644
+--- a/core/drivers/atmel_wdt.c
++++ b/core/drivers/atmel_wdt.c
+@@ -11,6 +11,7 @@
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+ #include <kernel/dt_driver.h>
++#include <kernel/interrupt.h>
+ #include <kernel/pm.h>
+ #include <matrix.h>
+ #include <sama5d2.h>
+diff --git a/core/include/kernel/dt.h b/core/include/kernel/dt.h
+index c24d3bfa5..ddabfd17e 100644
+--- a/core/include/kernel/dt.h
++++ b/core/include/kernel/dt.h
+@@ -7,7 +7,6 @@
+ #define __KERNEL_DT_H
+ 
+ #include <compiler.h>
+-#include <kernel/interrupt.h>
+ #include <kernel/panic.h>
+ #include <scattered_array.h>
+ #include <stdint.h>
+diff --git a/core/include/kernel/interrupt.h b/core/include/kernel/interrupt.h
+index e445a1b47..700141073 100644
+--- a/core/include/kernel/interrupt.h
++++ b/core/include/kernel/interrupt.h
+@@ -6,6 +6,7 @@
+ #define __KERNEL_INTERRUPT_H
+ 
+ #include <dt-bindings/interrupt-controller/irq.h>
++#include <kernel/dt_driver.h>
+ #include <mm/core_memprot.h>
+ #include <sys/queue.h>
+ #include <tee_api_types.h>
+@@ -75,6 +76,20 @@ struct itr_ops {
+ 		uint8_t cpu_mask);
+ };
+ 
++/*
++ * struct itr_desc - Interrupt description
++ * @chip	Interrupt controller reference
++ * @itr_num	Interrupt number
++ *
++ * This struct is used for binding interrupt device data between
++ * drivers when using DT_DRIVERS means. See itr_dt_get_func type
++ * definition.
++ */
++struct itr_desc {
++	struct itr_chip *chip;
++	size_t itr_num;
++};
++
+ /* Interrupt handler return value */
+ enum itr_return {
+ 	ITRR_NONE,
+@@ -399,4 +414,110 @@ static inline TEE_Result interrupt_alloc_add_handler(struct itr_chip *chip,
+  * This function may panic on non-NULL invalid @hdl reference.
+  */
+ void interrupt_remove_free_handler(struct itr_handler *hdl);
++
++/*
++ * itr_dt_get_func - Typedef of function to get an interrupt in DT node
++ *
++ * @args	Reference to phandle arguments
++ * @data	Pointer to data given at interrupt_register_provider() call
++ * @itr_desc_p	Pointer to the struct itr_desc to fill
++ * Return TEE_SUCCESS in case of success.
++ * Return TEE_ERROR_DEFER_DRIVER_INIT if controller is not initialized.
++ * Return another TEE_Result code otherwise.
++ *
++ * Upon success, the interrupt is configured and consumer can add a handler
++ * function to the interrupt. Yet, the interrupt is not enabled until consumer
++ * calls interrupt_enable().
++ */
++typedef TEE_Result (*itr_dt_get_func)(struct dt_pargs *args, void *data,
++				      struct itr_desc *itr_desc_p);
++
++#ifdef CFG_DT
++/**
++ * interrupt_register_provider() - Register an interrupt provider
++ *
++ * @fdt		Device tree to work on
++ * @node	Node offset of the interrupt controller in the DT
++ * @dt_get_itr	Callback to match the devicetree interrupt reference with
++ * @data	Data which will be passed to the get_dt_its callback
++ */
++TEE_Result interrupt_register_provider(const void *fdt, int node,
++				       itr_dt_get_func dt_get_itr, void *data);
++
++/**
++ * interrupt_dt_get_by_index() - Get an interrupt from DT by interrupt index
++ *
++ * Interrupt index (@index) refers to the index of the target interrupt to be
++ * retrieved as DT binding property "interrupts" may define several
++ * interrupts.
++ *
++ * @fdt		Device tree to work on
++ * @node	Node offset of the subnode containing interrupt(s) references
++ * @index	Index in "interrupts" or "extended-interrupts" property list
++ * @chip	Output interrupt controller reference upon success
++ * @itr_num	Output interrupt number upon success
++ *
++ * Return TEE_SUCCESS in case of success
++ * Return TEE_ERROR_DEFER_DRIVER_INIT if interrupt driver is not yet initialized
++ * Return TEE_ERROR_ITEM_NOT_FOUND if the DT does not reference target interrupt
++ * Return any other TEE_Result compliant code in case of error
++ */
++TEE_Result interrupt_dt_get_by_index(const void *fdt, int node,
++				     unsigned int index, struct itr_chip **chip,
++				     size_t *itr_num);
++
++/**
++ * interrupt_dt_get_by_name() - Get an interrupt from DT by interrupt name
++ *
++ * @fdt		Device tree to work on
++ * @node	Node offset of the subnode containing interrupt(s) references
++ * @name	Name identifier used in "interrupt-names" property
++ * @chip	Output interrupt controller reference upon success
++ * @itr_num	Output interrupt number upon success
++ *
++ * Return TEE_SUCCESS in case of success
++ * Return TEE_ERROR_DEFER_DRIVER_INIT if interrupt driver is not yet initialized
++ * Return TEE_ERROR_ITEM_NOT_FOUND if the DT does not reference target interrupt
++ * Return any other TEE_Result compliant code in case of error
++ */
++TEE_Result interrupt_dt_get_by_name(const void *fdt, int node, const char *name,
++				    struct itr_chip **chip, size_t *itr_num);
++#else
++static inline TEE_Result interrupt_register_provider(const void *dt __unused,
++						     int node __unused,
++						     itr_dt_get_func f __unused,
++						     void *data __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline TEE_Result interrupt_dt_get_by_index(const void *fdt __unused,
++						   int node __unused,
++						   unsigned int index __unused,
++						   struct itr_chip **c __unused,
++						   size_t *itr_num __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline TEE_Result interrupt_dt_get_by_name(const void *fdt __unused,
++						  int node __unused,
++						  const char *name __unused,
++						  struct itr_chip **ch __unused,
++						  size_t *itr_num __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++#endif /*CFG_DT*/
++
++/*
++ * Helper function for when caller retrieves the first interrupt defined
++ * in "interrupts" or "extended-interrupts" DT binding property list.
++ */
++static inline TEE_Result interrupt_dt_get(const void *fdt, int node,
++					  struct itr_chip **chip,
++					  size_t *itr_num)
++{
++	return interrupt_dt_get_by_index(fdt, node, 0, chip, itr_num);
++}
+ #endif /*__KERNEL_INTERRUPT_H*/
+diff --git a/core/kernel/interrupt.c b/core/kernel/interrupt.c
+index a49bbf2d1..5413dff21 100644
+--- a/core/kernel/interrupt.c
++++ b/core/kernel/interrupt.c
+@@ -196,3 +196,112 @@ void interrupt_remove_free_handler(struct itr_handler *hdl)
+ 		free(hdl);
+ 	}
+ }
++
++#ifdef CFG_DT
++TEE_Result interrupt_register_provider(const void *fdt, int node,
++				       itr_dt_get_func dt_get_itr, void *data)
++{
++	return dt_driver_register_provider(fdt, node,
++					   (get_of_device_func)dt_get_itr,
++					   data, DT_DRIVER_INTERRUPT);
++}
++
++/*
++ * Fills an itr_desc reference based on "interrupts" property bindings.
++ * May return TEE_ERROR_DEFER_DRIVER_INIT if parent controller is found but
++ * not yet initialized.
++ */
++static TEE_Result get_legacy_interrupt_by_index(const void *fdt, int node,
++						unsigned int index,
++						struct itr_desc *itr_desc)
++{
++	const uint32_t *prop = NULL;
++	uint32_t phandle = 0;
++	int pnode = 0;
++	int len = 0;
++
++	prop = fdt_getprop(fdt, node, "interrupts", &len);
++	if (!prop)
++		return TEE_ERROR_ITEM_NOT_FOUND;
++
++	/* Find "interrupt-parent" in node or its parents */
++	pnode = node;
++	prop = fdt_getprop(fdt, pnode, "interrupt-parent", &len);
++
++	while (!prop) {
++		pnode = fdt_parent_offset(fdt, pnode);
++		if (pnode < 0)
++			break;
++
++		prop = fdt_getprop(fdt, pnode, "interrupt-parent", &len);
++		if (!prop && len != -FDT_ERR_NOTFOUND)
++			break;
++	}
++	if (!prop) {
++		DMSG("No interrupt parent for node %s",
++		     fdt_get_name(fdt, node, NULL));
++		return TEE_ERROR_GENERIC;
++	}
++
++	/* "interrupt-parent" provides interrupt controller phandle */
++	phandle = fdt32_to_cpu(prop[0]);
++
++	/* Get interrupt chip/number from phandle and "interrupts" property */
++	return dt_driver_device_from_node_idx_prop_phandle("interrupts", fdt,
++							   node, index,
++							   DT_DRIVER_INTERRUPT,
++							   phandle,
++							   itr_desc);
++}
++
++/*
++ * Fills an itr_desc based on "interrupts-extended" property bindings.
++ * May return TEE_ERROR_DEFER_DRIVER_INIT if parent controller is found
++ * but not yet initialized.
++ */
++static TEE_Result get_extended_interrupt_by_index(const void *fdt, int node,
++						  unsigned int index,
++						  struct itr_desc *itr_desc)
++{
++	return dt_driver_device_from_node_idx_prop("interrupts-extended",
++						   fdt, node, index,
++						   DT_DRIVER_INTERRUPT,
++						   itr_desc);
++}
++
++TEE_Result interrupt_dt_get_by_index(const void *fdt, int node,
++				     unsigned int index, struct itr_chip **chip,
++				     size_t *itr_num)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct itr_desc desc = { };
++
++	assert(chip && itr_num);
++
++	/* "interrupts-extended" takes precedence over "interrupts" */
++	if (fdt_getprop(fdt, node, "interrupts-extended", NULL))
++		res = get_extended_interrupt_by_index(fdt, node, index, &desc);
++	else
++		res = get_legacy_interrupt_by_index(fdt, node, index, &desc);
++
++	if (!res) {
++		assert(desc.chip);
++		*chip = desc.chip;
++		*itr_num = desc.itr_num;
++	}
++
++	return res;
++}
++
++TEE_Result interrupt_dt_get_by_name(const void *fdt, int node, const char *name,
++				    struct itr_chip **chip, size_t *itr_num)
++{
++	int idx = 0;
++
++	idx = fdt_stringlist_search(fdt, node, "interrupt-names", name);
++	if (idx < 0)
++		return TEE_ERROR_GENERIC;
++
++	return interrupt_dt_get_by_index(fdt, node, idx, chip, itr_num);
++}
++#endif /*CFG_DT*/
+-- 
+2.47.2
+

@@ -1,0 +1,230 @@
+From 81c9d038b268089e9a9f2fed5b0c9be9b95211c7 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 12 Jul 2024 09:42:23 +0200
+Subject: [PATCH 1164/1695] plat-stm32mp1: enumerate clocks by arrays where
+ applicable
+
+Replace clock rates enumeration by step with a discrete enumeration
+where applicable to support round rate requests passed through
+SCMI describe rate commands.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git fc8f4ce81bd9a66b6a073ec0043866b9f006d181 plat-stm32mp1: enumerate clocks by arrays where applicable]
+Change-Id: I35a1283332c2bc8db8b242cf87de5895a8b5ca0a
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/393549
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/scmi_server.c     | 63 ++++++++++++-------
+ .../arm/plat-stm32mp1/scmi_server_scpfw.c     | 25 ++++++++
+ core/drivers/clk/clk-stm32mp13.c              | 57 +++++++++++++++++
+ 3 files changed, 123 insertions(+), 22 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index 145e8e32b..278e98e0d 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -354,17 +354,48 @@ const char *plat_scmi_clock_get_name(unsigned int channel_id,
+ 	return clock->name;
+ }
+ 
+-int32_t plat_scmi_clock_rates_array(unsigned int channel_id __unused,
+-				    unsigned int scmi_id __unused,
+-				    size_t start_index __unused,
+-				    unsigned long *array __unused,
+-				    size_t *nb_elts __unused)
++int32_t plat_scmi_clock_rates_array(unsigned int channel_id,
++				    unsigned int scmi_id, size_t start_index,
++				    unsigned long *array, size_t *nb_elts)
+ {
+ 	/*
+-	 * Explicitly do not expose clock rates by array since not
+-	 * fully supported by Linux kernel as of v5.4.24.
++	 * Be warned that Linux kernel as of v5.4.24 may not fully support
++	 * clock rates by array description.
+ 	 */
+-	return SCMI_NOT_SUPPORTED;
++	struct stm32_scmi_clk *clock = find_clock(channel_id, scmi_id);
++	TEE_Result __maybe_unused res = TEE_ERROR_GENERIC;
++
++	assert(nb_elts && (!*nb_elts || array));
++
++	if (!clock)
++		return SCMI_NOT_FOUND;
++
++	if (!stm32mp_nsec_can_access_clock(clock->clock_id))
++		return SCMI_DENIED;
++
++	switch (scmi_id) {
++	case CK_SCMI_MPU:
++		/* MPU clock shall use plat_scmi_clock_rates_by_step() */
++		return SCMI_NOT_SUPPORTED;
++#ifdef CFG_STM32MP13
++	case CK_SCMI_PLL4_Q:
++		res = clk_get_rates_array(clock->clk, start_index, array,
++					  nb_elts);
++		if (res == TEE_ERROR_NOT_SUPPORTED)
++			return SCMI_NOT_SUPPORTED;
++		if (res)
++			return SCMI_GENERIC_ERROR;
++		return SCMI_SUCCESS;
++#endif
++	default:
++		if (start_index)
++			return SCMI_INVALID_PARAMETERS;
++		if (*nb_elts)
++			*array = clk_get_rate(clock->clk);
++		*nb_elts = 1;
++
++		return SCMI_SUCCESS;
++	}
+ }
+ 
+ int32_t plat_scmi_clock_rates_by_step(unsigned int channel_id,
+@@ -388,22 +419,10 @@ int32_t plat_scmi_clock_rates_by_step(unsigned int channel_id,
+ 		array[0] = 0U;
+ 		array[1] = UINT32_MAX;
+ 		array[2] = 1U;
+-		break;
+-#ifdef CFG_STM32MP13
+-	case CK_SCMI_PLL4_Q:
+-		array[0] = 0U;
+-		array[1] = UINT32_MAX;
+-		array[2] = 0U;
+-		break;
+-#endif
++		return SCMI_SUCCESS;
+ 	default:
+-		array[0] = clk_get_rate(clock->clk);
+-		array[1] = array[0];
+-		array[2] = 0U;
+-		break;
++		return SCMI_NOT_SUPPORTED;
+ 	}
+-
+-	return SCMI_SUCCESS;
+ }
+ 
+ int32_t plat_scmi_clock_set_rate(unsigned int channel_id, unsigned int scmi_id,
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
+index dfec6ee02..b4bc5e7e2 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server_scpfw.c
+@@ -228,7 +228,32 @@ static TEE_Result plat_scmi_clk_get_rates_steps(struct clk *clk,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result plat_scmi_clk_get_rates_array(struct clk *clk, size_t index,
++						unsigned long *rates,
++						size_t *nb_elts)
++{
++	struct stm32_scmi_clk *scmi_clk = clk->priv;
++
++	if (scmi_clk->change_rate)
++		return clk_get_rates_array(clk->parent, index, rates, nb_elts);
++
++	if (!rates || !*nb_elts) {
++		*nb_elts = 1;
++		return TEE_SUCCESS;
++	}
++
++	if (start_index)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	assert(rates);
++	*rates = clk_get_rate(clk->parent);
++	*nb_elts = 1;
++
++	return TEE_SUCCESS;
++}
++
+ static const struct clk_ops plat_scmi_clk_ops = {
++	.get_rates_array = plat_scmi_clk_get_rates_array,
+ 	.get_rates_steps = plat_scmi_clk_get_rates_steps,
+ };
+ 
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 2e23c658f..db42324a3 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -17,6 +17,7 @@
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ 
+ #include "clk-stm32-core.h"
+ 
+@@ -1973,11 +1974,67 @@ static unsigned long clk_stm32_composite_round_rate(struct clk *clk,
+ 	return UDIV_ROUND_NEAREST((uint64_t)prate, div);
+ }
+ 
++static TEE_Result clk_stm32_composite_rates_array(struct clk *clk,
++						  size_t start_index,
++						  unsigned long *rates,
++						  size_t *nb_elts)
++{
++	struct clk_stm32_priv *priv = clk_stm32_get_priv();
++	struct clk_stm32_composite_cfg *cfg = NULL;
++	const struct div_cfg *divider = NULL;
++	uint64_t parent_rate = 0;
++	size_t rates_count = 1;
++	size_t n = 0;
++
++	assert(clk && clk->priv && nb_elts && (!*nb_elts || rates));
++
++	cfg = clk->priv;
++
++	if (cfg->div_id == NO_DIV) {
++		rates_count = 1;
++	} else {
++		divider = priv->div + cfg->div_id;
++		rates_count = MASK_WIDTH_SHIFT(divider->width, 0) + 1;
++	}
++
++	if (start_index >= rates_count)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!rates || !*nb_elts) {
++		*nb_elts = rates_count;
++
++		return TEE_SUCCESS;
++	}
++
++	if (start_index + *nb_elts > rates_count)
++		*nb_elts = rates_count - start_index;
++
++	if (cfg->div_id == NO_DIV) {
++		rates[0] = clk_get_rate(clk);
++	} else {
++		unsigned int div = 0;
++
++		parent_rate = clk_get_rate(clk->parent);
++		if (!parent_rate) {
++			EMSG("Invalid rate for clock %s, parent of clock %s",
++			     clk_get_name(clk->parent), clk_get_name(clk));
++			return TEE_ERROR_GENERIC;
++		}
++
++		for (div = rates_count - *nb_elts - start_index + 1, n = 0;
++		     n < *nb_elts; div--, n++)
++			rates[n] = UDIV_ROUND_NEAREST(parent_rate, div);
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static const struct clk_ops clk_stm32_composite_duty_cycle_ops = {
+ 	.get_parent	= clk_stm32_composite_get_parent,
+ 	.set_parent	= clk_stm32_composite_set_parent,
+ 	.get_rate	= clk_stm32_composite_get_rate,
+ 	.set_rate	= clk_stm32_composite_set_rate,
++	.get_rates_array = clk_stm32_composite_rates_array,
+ 	.enable		= clk_stm32_composite_gate_enable,
+ 	.disable	= clk_stm32_composite_gate_disable,
+ 	.is_enabled	= clk_stm32_composite_gate_is_enabled,
+-- 
+2.47.2
+

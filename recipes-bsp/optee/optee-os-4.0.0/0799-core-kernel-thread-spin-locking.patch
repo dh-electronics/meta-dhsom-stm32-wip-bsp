@@ -1,0 +1,62 @@
+From dac45ffea5b1a19ee6420eeaba4d57cc4f8a2602 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 12 Mar 2024 12:25:36 +0100
+Subject: [PATCH 0799/1695] core: kernel: thread spin locking
+
+Add thread_spin_lock() and thread_spin_unlock() for active spinning
+locks in situation where we need an exclusive lock in a thread and
+interruptible context even at the cost of a high CPU usage.
+
+These function are intended to be used in thread context hence
+they assert being executed in such a context. This is to prevent
+on mistakenly spin in an atomic context which potentially leads
+to a deadlock situation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 17673917f15b729b842f72814c618fb87ee50bde core: kernel: thread spin locking]
+Change-Id: Ic09ff1ffbbd007f7800ca8da5a5f5e096c493c0a
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+(cherry picked from commit f6412fbd119a88419879d4cc69330c794d7f302e)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/367753
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/include/kernel/spinlock.h | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/core/include/kernel/spinlock.h b/core/include/kernel/spinlock.h
+index e7a84d32b..f40a95ed8 100644
+--- a/core/include/kernel/spinlock.h
++++ b/core/include/kernel/spinlock.h
+@@ -42,6 +42,28 @@ static inline void cpu_spin_lock_no_dldetect(unsigned int *lock)
+ 	spinlock_count_incr();
+ }
+ 
++static inline bool thread_spin_trylock(unsigned int *lock)
++{
++	assert(thread_get_id_may_fail() != THREAD_ID_INVALID);
++	return !__cpu_spin_trylock(lock);
++}
++
++/*
++ * To be used with lot of care: it is not recommended to spin in a thread
++ * context without masking foreign interrupts
++ */
++static inline void thread_spin_lock(unsigned int *lock)
++{
++	assert(thread_get_id_may_fail() != THREAD_ID_INVALID);
++	__cpu_spin_lock(lock);
++}
++
++static inline void thread_spin_unlock(unsigned int *lock)
++{
++	assert(thread_get_id_may_fail() != THREAD_ID_INVALID);
++	__cpu_spin_unlock(lock);
++}
++
+ #ifdef CFG_TEE_CORE_DEBUG
+ #define cpu_spin_lock(lock) \
+ 	cpu_spin_lock_dldetect(__func__, __LINE__, lock)
+-- 
+2.47.2
+

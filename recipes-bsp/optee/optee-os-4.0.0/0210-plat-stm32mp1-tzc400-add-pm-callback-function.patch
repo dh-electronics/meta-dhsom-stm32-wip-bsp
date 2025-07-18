@@ -1,0 +1,69 @@
+From 4ad1f4d3169046d79129c287681a7bfcd04f5a3b Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Tue, 15 Feb 2022 17:55:49 +0100
+Subject: [PATCH 0210/1695] plat-stm32mp1: tzc400: add pm callback function
+
+Add the pm callback to restore the region managed
+configured at boot time.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8cd70fd859fd0456370a230b7bc5ff4cc36ec049 plat-stm32mp1: tzc400: add pm callback function]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Iaf4943e0f216865db03675bdbc597b69fc8458b1
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/239956
+---
+ core/arch/arm/plat-stm32mp1/plat_tzc400.c | 25 +++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/plat_tzc400.c b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+index 5547224b6..c4314a47d 100644
+--- a/core/arch/arm/plat-stm32mp1/plat_tzc400.c
++++ b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+@@ -15,6 +15,7 @@
+ #include <kernel/dt.h>
+ #include <kernel/interrupt.h>
+ #include <kernel/panic.h>
++#include <kernel/pm.h>
+ #include <kernel/spinlock.h>
+ #include <kernel/tee_misc.h>
+ #include <libfdt.h>
+@@ -437,6 +438,27 @@ static TEE_Result stm32mp_tzc_parse_fdt(struct tzc_device *tzc_dev,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result stm32mp1_tzc_pm(enum pm_op op,
++				  unsigned int pm_hint __unused,
++				  const struct pm_callback_handle *hdl)
++{
++	unsigned int i = 0;
++	struct tzc_device *tzc_dev =
++		(struct tzc_device *)PM_CALLBACK_GET_HANDLE(hdl);
++
++	if (op == PM_OP_RESUME) {
++		stm32mp_tzc_region0(true);
++
++		stm32mp_tzc_reset_region(tzc_dev);
++
++		for (i = 0; i < tzc_dev->nb_reg_used; i++)
++			tzc_configure_region(i + 1, &tzc_dev->reg[i]);
++	}
++
++	return TEE_SUCCESS;
++}
++DECLARE_KEEP_PAGER(stm32mp1_tzc_pm);
++
+ static TEE_Result stm32mp1_tzc_probe(const void *fdt, int node,
+ 				     const void *compt_data __unused)
+ {
+@@ -500,6 +522,9 @@ static TEE_Result stm32mp1_tzc_probe(const void *fdt, int node,
+ 	interrupt_enable(tzc_dev->pdata.itr_chip, tzc_dev->pdata.itr_num);
+ 	tzc_set_action(TZC_ACTION_INT);
+ 
++	register_pm_core_service_cb(stm32mp1_tzc_pm, tzc_dev,
++				    "stm32mp1-tzc400");
++
+ 	return TEE_SUCCESS;
+ }
+ 
+-- 
+2.47.2
+

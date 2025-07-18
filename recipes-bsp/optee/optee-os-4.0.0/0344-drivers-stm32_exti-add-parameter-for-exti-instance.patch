@@ -1,0 +1,184 @@
+From d75380a0316f4bd9e7cfcaeadc9ebb0d7a7b33e4 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Wed, 8 Feb 2023 11:19:08 +0100
+Subject: [PATCH 0344/1695] drivers: stm32_exti: add parameter for exti
+ instance
+
+Modify the prototypes of the EXTI APIs to allow passing the
+pointer of the EXTI instance.
+The new parameter is currently unused, so we can simply pass
+NULL in all the callers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e28fe953866bf01782737378e7e2708b6c736c4e drivers: stm32_exti: add parameter for exti instance]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I82d813296102715c8d617ea01f7bd8cbd18590fc
+---
+ core/drivers/stm32_exti.c         | 23 +++++++++++++++--------
+ core/include/drivers/stm32_exti.h | 20 ++++++++++++--------
+ 2 files changed, 27 insertions(+), 16 deletions(-)
+
+diff --git a/core/drivers/stm32_exti.c b/core/drivers/stm32_exti.c
+index 35202e3a4..4b8a0d4a5 100644
+--- a/core/drivers/stm32_exti.c
++++ b/core/drivers/stm32_exti.c
+@@ -55,7 +55,8 @@ static uint32_t stm32_exti_get_bank(uint32_t exti_line)
+ 	return bank;
+ }
+ 
+-void stm32_exti_set_type(uint32_t exti_line, uint32_t type)
++void stm32_exti_set_type(struct stm32_exti_pdata *exti __unused,
++			 uint32_t exti_line, uint32_t type)
+ {
+ 	uint32_t mask = BIT(exti_line % 32);
+ 	uint32_t r_trig = 0;
+@@ -90,7 +91,7 @@ void stm32_exti_set_type(uint32_t exti_line, uint32_t type)
+ 	cpu_spin_unlock_xrestore(&stm32_exti.lock, exceptions);
+ }
+ 
+-void stm32_exti_mask(uint32_t exti_line)
++void stm32_exti_mask(struct stm32_exti_pdata *exti __unused, uint32_t exti_line)
+ {
+ 	uint32_t val = 0;
+ 	uint32_t mask = BIT(exti_line % 32);
+@@ -109,7 +110,8 @@ void stm32_exti_mask(uint32_t exti_line)
+ 	cpu_spin_unlock_xrestore(&stm32_exti.lock, exceptions);
+ }
+ 
+-void stm32_exti_unmask(uint32_t exti_line)
++void stm32_exti_unmask(struct stm32_exti_pdata *exti __unused,
++		       uint32_t exti_line)
+ {
+ 	uint32_t val = 0;
+ 	uint32_t mask = BIT(exti_line % 32);
+@@ -128,7 +130,8 @@ void stm32_exti_unmask(uint32_t exti_line)
+ 	cpu_spin_unlock_xrestore(&stm32_exti.lock, exceptions);
+ }
+ 
+-void stm32_exti_enable_wake(uint32_t exti_line)
++void stm32_exti_enable_wake(struct stm32_exti_pdata *exti __unused,
++			    uint32_t exti_line)
+ {
+ 	uint32_t mask = BIT(exti_line % 32);
+ 	uint32_t exceptions = 0;
+@@ -143,7 +146,8 @@ void stm32_exti_enable_wake(uint32_t exti_line)
+ 	cpu_spin_unlock_xrestore(&stm32_exti.lock, exceptions);
+ }
+ 
+-void stm32_exti_disable_wake(uint32_t exti_line)
++void stm32_exti_disable_wake(struct stm32_exti_pdata *exti __unused,
++			     uint32_t exti_line)
+ {
+ 	uint32_t mask = BIT(exti_line % 32);
+ 	uint32_t exceptions = 0;
+@@ -158,7 +162,8 @@ void stm32_exti_disable_wake(uint32_t exti_line)
+ 	cpu_spin_unlock_xrestore(&stm32_exti.lock, exceptions);
+ }
+ 
+-void stm32_exti_clear(uint32_t exti_line)
++void stm32_exti_clear(struct stm32_exti_pdata *exti __unused,
++		      uint32_t exti_line)
+ {
+ 	uint32_t mask = BIT(exti_line % 32);
+ 	uint32_t exceptions = 0;
+@@ -174,7 +179,8 @@ void stm32_exti_clear(uint32_t exti_line)
+ 	cpu_spin_unlock_xrestore(&stm32_exti.lock, exceptions);
+ }
+ 
+-void stm32_exti_set_tz(uint32_t exti_line)
++void stm32_exti_set_tz(struct stm32_exti_pdata *exti __unused,
++		       uint32_t exti_line)
+ {
+ 	uint32_t mask = BIT(exti_line % 32);
+ 	uint32_t exceptions = 0;
+@@ -189,7 +195,8 @@ void stm32_exti_set_tz(uint32_t exti_line)
+ 	cpu_spin_unlock_xrestore(&stm32_exti.lock, exceptions);
+ }
+ 
+-void stm32_exti_set_gpio_port_sel(uint8_t bank, uint8_t pin)
++void stm32_exti_set_gpio_port_sel(struct stm32_exti_pdata *exti __unused,
++				  uint8_t bank, uint8_t pin)
+ {
+ 	uint32_t reg = _EXTI_CR(pin / 4);
+ 	uint32_t shift = (pin % 4) * 8;
+diff --git a/core/include/drivers/stm32_exti.h b/core/include/drivers/stm32_exti.h
+index afb246c0f..70be6fb9a 100644
+--- a/core/include/drivers/stm32_exti.h
++++ b/core/include/drivers/stm32_exti.h
+@@ -12,48 +12,51 @@
+ #define EXTI_TYPE_FALLING	2
+ #define EXTI_TYPE_BOTH	(EXTI_TYPE_RISING | EXTI_TYPE_FALLING)
+ 
++struct stm32_exti_pdata;
++
+ /*
+  * Set EXTI type in RTSR and FTSR EXTI registers
+  * @exti_line: EXTI line number
+  * @type: type (rising, falling or both) to set
+  * Return a TEE_Result compliant return value
+  */
+-void stm32_exti_set_type(uint32_t exti_line, uint32_t type);
++void stm32_exti_set_type(struct stm32_exti_pdata *exti, uint32_t exti_line,
++			 uint32_t type);
+ 
+ /*
+  * Mask EXTI Interrupt (IMR)
+  * @exti_line: EXTI line number
+  * Return a TEE_Result compliant return value
+  */
+-void stm32_exti_mask(uint32_t exti_line);
++void stm32_exti_mask(struct stm32_exti_pdata *exti, uint32_t exti_line);
+ 
+ /*
+  * Unmask EXTI Interrupt (IMR)
+  * @exti_line: EXTI line number
+  * Return a TEE_Result compliant return value
+  */
+-void stm32_exti_unmask(uint32_t exti_line);
++void stm32_exti_unmask(struct stm32_exti_pdata *exti, uint32_t exti_line);
+ 
+ /*
+  * Enable EXTI line as wakeup interrupt
+  * @exti_line: EXTI line number
+  * Return a TEE_Result compliant return value
+  */
+-void stm32_exti_enable_wake(uint32_t exti_line);
++void stm32_exti_enable_wake(struct stm32_exti_pdata *exti, uint32_t exti_line);
+ 
+ /*
+  * Disable EXTI line as wakeup interrupt
+  * @exti_line: EXTI line number
+  * Return a TEE_Result compliant return value
+  */
+-void stm32_exti_disable_wake(uint32_t exti_line);
++void stm32_exti_disable_wake(struct stm32_exti_pdata *exti, uint32_t exti_line);
+ 
+ /*
+  * Clear pending EXTI interrupts
+  * @exti_line: EXTI line number
+  * Return a TEE_Result compliant return value
+  */
+-void stm32_exti_clear(uint32_t exti_line);
++void stm32_exti_clear(struct stm32_exti_pdata *exti, uint32_t exti_line);
+ 
+ /*
+  * Configure EXTI mux for GPIO irq
+@@ -61,13 +64,14 @@ void stm32_exti_clear(uint32_t exti_line);
+  * @pin: GPIO number in the bank
+  * Return a TEE_Result compliant return value
+  */
+-void stm32_exti_set_gpio_port_sel(uint8_t bank, uint8_t pin);
++void stm32_exti_set_gpio_port_sel(struct stm32_exti_pdata *exti, uint8_t bank,
++				  uint8_t pin);
+ 
+ /*
+  * Securize the EXTI line
+  * @exti_line: EXTI line number
+  * Return a TEE_Result compliant return value
+  */
+-void stm32_exti_set_tz(uint32_t exti_line);
++void stm32_exti_set_tz(struct stm32_exti_pdata *exti, uint32_t exti_line);
+ 
+ #endif /*__STM32_EXTI_H*/
+-- 
+2.47.2
+

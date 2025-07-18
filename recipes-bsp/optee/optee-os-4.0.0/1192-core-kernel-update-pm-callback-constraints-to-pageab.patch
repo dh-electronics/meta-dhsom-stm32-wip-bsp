@@ -1,0 +1,96 @@
+From 218a53b1314ad98c71ba9c2a5cb06348c6faa57e Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 5 Jul 2024 14:09:36 +0200
+Subject: [PATCH 1192/1695] core: kernel: update pm callback constraints to
+ pageable PM context
+
+Define DECLARE_KEEP_PAGER_PM() macro to ease declaration of PM
+resource that may need to be unpaged, depending on whether both
+CFG_PAGED_PSCI_SYSTEM_OFF and CFG_PAGED_PSCI_SYSTEM_SUSPEND are enabled.
+
+Helper function verify_cb_args() (sm/pm.c) no more enforces PM callback
+handler and handle are unpaged when CFG_PAGED_PSCI_SYSTEM_OFF and
+CFG_PAGED_PSCI_SYSTEM_SUSPEND are enabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4640613320413511b84a1fbaf73a12f66bc11959 core: kernel: update pm callback constraints to pageable PM context]
+Change-Id: I8af9fe622689cbab2f51c83fbf64c0762cbe8ec6
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/403871
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/include/keep.h      | 11 +++++++++++
+ core/include/kernel/pm.h |  3 ++-
+ core/kernel/pm.c         | 11 ++++++++++-
+ 3 files changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/core/include/keep.h b/core/include/keep.h
+index 622d1d65b..126a50e2c 100644
+--- a/core/include/keep.h
++++ b/core/include/keep.h
+@@ -45,4 +45,15 @@
+ 
+ #endif /* __ASSEMBLER__ */
+ 
++/*
++ * DECLARE_KEEP_PAGER_PM() makes resource unpaged unless both of
++ * CFG_PAGED_PSCI_SYSTEM_SUSPEND and CFG_PAGED_PSCI_SYSTEM_OFF
++ * are enabled.
++ */
++#if defined(CFG_PAGED_PSCI_SYSTEM_SUSPEND) && defined(CFG_PAGED_PSCI_SYSTEM_OFF)
++#define DECLARE_KEEP_PAGER_PM(sym)	static int __unused sym##__LINE__
++#else
++#define DECLARE_KEEP_PAGER_PM(sym)	DECLARE_KEEP_PAGER(sym)
++#endif
++
+ #endif /*__KEEP_H*/
+diff --git a/core/include/kernel/pm.h b/core/include/kernel/pm.h
+index c833ccda5..4340524ab 100644
+--- a/core/include/kernel/pm.h
++++ b/core/include/kernel/pm.h
+@@ -83,7 +83,8 @@ typedef TEE_Result (*pm_callback)(enum pm_op op, uint32_t pm_hint,
+  *
+  * Callback implementations should ensure their functions belong to unpaged
+  * memory sections (see DECLARE_KEEP_PAGER()) since the callback is likely to
+- * be called from an unpaged execution context.
++ * be called from an unpaged execution context unless
++ * CFG_PAGED_PSCI_SYSTEM_SUSPEND and CFG_PAGED_SYSTEM_OFF are enabled.
+  *
+  * Power Mamagement callback functions API:
+  *
+diff --git a/core/kernel/pm.c b/core/kernel/pm.c
+index efd553f14..4928a3f69 100644
+--- a/core/kernel/pm.c
++++ b/core/kernel/pm.c
+@@ -21,8 +21,17 @@ static size_t pm_cb_count;
+ static const char no_name[] = "no-name";
+ DECLARE_KEEP_PAGER(no_name);
+ 
++static bool need_unpaged_resources(void)
++{
++	return !IS_ENABLED(CFG_PAGED_PSCI_SYSTEM_OFF) ||
++	       !IS_ENABLED(CFG_PAGED_PSCI_SYSTEM_SUSPEND);
++}
++
+ static void verify_cb_args(struct pm_callback_handle *pm_hdl)
+ {
++	if (!need_unpaged_resources())
++		return;
++
+ 	if (is_unpaged((void *)(vaddr_t)pm_change_state) &&
+ 	    (!is_unpaged((void *)(vaddr_t)pm_hdl->callback) ||
+ 	     (pm_hdl->handle && !is_unpaged(pm_hdl->handle)))) {
+@@ -44,7 +53,7 @@ void register_pm_cb(struct pm_callback_handle *pm_hdl)
+ 	if (!name)
+ 		name = no_name;
+ 
+-	if (!is_unpaged((void *)name)) {
++	if (!is_unpaged((void *)name) && need_unpaged_resources()) {
+ 		name = strdup(name);
+ 		if (!name)
+ 			panic();
+-- 
+2.47.2
+

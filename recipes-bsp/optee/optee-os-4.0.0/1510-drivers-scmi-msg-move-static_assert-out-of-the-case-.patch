@@ -1,0 +1,91 @@
+From 6403d81ab8deb87fca9d06df1711b2405531649b Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Mon, 10 Feb 2025 15:28:01 +0100
+Subject: [PATCH 1510/1695] drivers: scmi-msg: move static_assert out of the
+ case statement
+
+static_assert in a case produce this error at compilation time:
+error: a label can only be part of a statement and a declaration is not
+a statement
+   59 | #define static_assert _Static_assert
+      |                       ^~~~~~~~~~~~~~
+
+Move them out of the function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 34ca57d005b25115250333c4c2e297cd13a9f8d0 drivers: scmi-msg: move static_assert out of the case statement]
+Fixes: 47a26c739bc3 ("drivers: scmi-msg: specific OSTLv4/v5 duty-cycle/round_rate messages")
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I0ce0f4394c3a795b5d4a574cc2be2f61a4db693f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/435935
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/scmi-msg/clock.c | 38 ++++++++++++++++++-----------------
+ 1 file changed, 20 insertions(+), 18 deletions(-)
+
+diff --git a/core/drivers/scmi-msg/clock.c b/core/drivers/scmi-msg/clock.c
+index c29632f56..9247a421e 100644
+--- a/core/drivers/scmi-msg/clock.c
++++ b/core/drivers/scmi-msg/clock.c
+@@ -559,6 +559,26 @@ static bool message_id_is_supported(unsigned int message_id)
+ 	       scmi_clock_handler_table[message_id];
+ }
+ 
++#ifdef CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT
++/*
++ * Special case to support OSTLv5 duty-cycle requests:
++ * based on input message size, distinguish standard
++ * SCMI clock protocol v3.0 SCMI_CLOCK_CONFIG_GET
++ * from OSTLv4/v5 SCMI_CLOCK_DUTY_CYCLE_GET.
++ */
++static_assert(sizeof(struct scmi_clock_config_get_a2p) !=
++	      sizeof(struct scmi_clock_duty_cycle_get_a2p));
++
++/*
++ * Special case to support OSTLv5 duty-cycle requests:
++ * based on input message size, distinguish standard
++ * SCMI clock protocol v3.0 SCMI_CLOCK_POSSIBLE_PARENT_GET
++ * from OSTLv4/v5 SCMI_CLOCK_ROUND_RATE_GET.
++ */
++static_assert(sizeof(struct scmi_clock_possible_parent_a2p) !=
++	      sizeof(struct scmi_clock_ostl_round_rate_a2p));
++#endif /* CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT */
++
+ scmi_msg_handler_t scmi_msg_get_clock_handler(struct scmi_msg *msg)
+ {
+ 	const size_t array_size = ARRAY_SIZE(scmi_clock_handler_table);
+@@ -574,29 +594,11 @@ scmi_msg_handler_t scmi_msg_get_clock_handler(struct scmi_msg *msg)
+ #ifdef CFG_STM32_OTSL_SCMI_CLOCK_SUPPORT
+ 	switch (msg->message_id) {
+ 	case SCMI_CLOCK_DUTY_CYCLE_GET:
+-		/*
+-		 * Special case to support OSTLv5 duty-cycle requests:
+-		 * based on input message size, distinguish standard
+-		 * SCMI clock protocol v3.0 SCMI_CLOCK_CONFIG_GET
+-		 * from OSTLv4/v5 SCMI_CLOCK_DUTY_CYCLE_GET.
+-		 */
+-		static_assert(sizeof(struct scmi_clock_config_get_a2p) !=
+-			      sizeof(struct scmi_clock_duty_cycle_get_a2p));
+-
+ 		if (msg->in_size ==
+ 		    sizeof(struct scmi_clock_duty_cycle_get_a2p))
+ 			return scmi_clock_ostl_duty_cycle_get;
+ 		break;
+ 	case SCMI_CLOCK_ROUND_RATE_GET:
+-		/*
+-		 * Special case to support OSTLv5 duty-cycle requests:
+-		 * based on input message size, distinguish standard
+-		 * SCMI clock protocol v3.0 SCMI_CLOCK_POSSIBLE_PARENT_GET
+-		 * from OSTLv4/v5 SCMI_CLOCK_ROUND_RATE_GET.
+-		 */
+-		static_assert(sizeof(struct scmi_clock_possible_parent_a2p) !=
+-			      sizeof(struct scmi_clock_ostl_round_rate_a2p));
+-
+ 		if (msg->in_size ==
+ 		    sizeof(struct scmi_clock_ostl_round_rate_a2p))
+ 			return scmi_clock_ostl_round_rate_get;
+-- 
+2.47.2
+
