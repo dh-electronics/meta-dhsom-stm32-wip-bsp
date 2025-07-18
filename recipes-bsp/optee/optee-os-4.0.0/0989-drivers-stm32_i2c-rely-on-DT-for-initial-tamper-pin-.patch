@@ -1,0 +1,43 @@
+From 27963b3a2ee548200dd9e08caa6824d19dfcc3ed Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 3 Jul 2024 11:56:39 +0200
+Subject: [PATCH 0989/1695] drivers: stm32_i2c: rely on DT for initial tamper
+ pin secure state
+
+Remove call to stm32_pinctrl_set_secure_cfg() as we should rely on the
+device tree for the pin secure state at platform initialization.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7a6dbb5b22927e7161182e307fd490761ec7c582 drivers: stm32_i2c: rely on DT for initial tamper pin secure state]
+Change-Id: Ice98b2f73c1887437276337bc00e9478f54981f9
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391136
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_i2c.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/core/drivers/stm32_i2c.c b/core/drivers/stm32_i2c.c
+index 8a42fab3c..c74d80126 100644
+--- a/core/drivers/stm32_i2c.c
++++ b/core/drivers/stm32_i2c.c
+@@ -1674,10 +1674,8 @@ static TEE_Result stm32_i2c_probe(const void *fdt, int node,
+ 	init_data.analog_filter = true;
+ 	init_data.digital_filter_coef = 0;
+ 
+-	if (compat_data == &secure_i2c) {
+-		stm32_pinctrl_set_secure_cfg(pinctrl_active, true);
++	if (compat_data == &secure_i2c)
+ 		i2c_handle_p->i2c_secure = true;
+-	}
+ 
+ 	if (pinctrl_apply_state(i2c_handle_p->pinctrl))
+ 		panic();
+-- 
+2.47.2
+

@@ -1,0 +1,113 @@
+From 3f905c1dc1a19ba24f8a5c4023c974598fc2e53c Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Sun, 5 May 2024 23:10:12 +0200
+Subject: [PATCH 0833/1695] core: crypto: rng_hw: register/unregister TRNG
+
+Add API functions for the platform to register, unregister and query
+registration of a TRNG device.
+
+Update plat_get_random_stack_canaries() to fallback to static canaries
+if PRNG is disabled and there is no registered TRNG.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 49111a93f3a05cbecccd84690a7231824b3fffc9 core: crypto: rng_hw: register/unregister TRNG]
+Change-Id: Iffe8496ccbfea0694d6176e91c66a2416261833c
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/377164
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/kernel/boot.c  |  2 +-
+ core/crypto/rng_hw.c         | 18 ++++++++++++++++++
+ core/include/crypto/crypto.h | 26 ++++++++++++++++++++++++++
+ 3 files changed, 45 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/kernel/boot.c b/core/arch/arm/kernel/boot.c
+index fdab4f867..96d6e6b19 100644
+--- a/core/arch/arm/kernel/boot.c
++++ b/core/arch/arm/kernel/boot.c
+@@ -127,7 +127,7 @@ __weak void plat_get_random_stack_canaries(void *buf, size_t ncan, size_t size)
+ 	 */
+ 	if (IS_ENABLED(CFG_NS_VIRTUALIZATION) ||
+ 	    (!IS_ENABLED(CFG_WITH_SOFTWARE_PRNG) &&
+-	     !IS_ENABLED(CFG_WITH_TRNG))) {
++	     !crypto_rng_hw_is_registered())) {
+ 		IMSG("WARNING: Using fixed value for stack canary");
+ 		memset(buf, 0xab, ncan * size);
+ 		goto out;
+diff --git a/core/crypto/rng_hw.c b/core/crypto/rng_hw.c
+index 4d94ea7ed..2637c7efa 100644
+--- a/core/crypto/rng_hw.c
++++ b/core/crypto/rng_hw.c
+@@ -8,6 +8,24 @@
+ #include <tee/tee_cryp_utl.h>
+ #include <types_ext.h>
+ 
++static bool registered;
++
++void crypto_rng_register_hw(void)
++{
++	assert(!registered);
++	registered = true;
++}
++
++void crypto_rng_unregister_hw(void)
++{
++	registered = false;
++}
++
++bool crypto_rng_hw_is_registered(void)
++{
++	return registered;
++}
++
+ /* This is a HW RNG, no need for seeding */
+ TEE_Result crypto_rng_init(const void *data __unused, size_t dlen __unused)
+ {
+diff --git a/core/include/crypto/crypto.h b/core/include/crypto/crypto.h
+index 67b4def51..a73674c36 100644
+--- a/core/include/crypto/crypto.h
++++ b/core/include/crypto/crypto.h
+@@ -22,6 +22,7 @@
+ #ifndef __CRYPTO_CRYPTO_H
+ #define __CRYPTO_CRYPTO_H
+ 
++#include <stdbool.h>
+ #include <tee/tee_obj.h>
+ #include <tee_api_types.h>
+ 
+@@ -420,6 +421,31 @@ static inline TEE_Result crypto_rng_read(void *buf __unused,
+ }
+ #endif
+ 
++#ifdef CFG_WITH_TRNG
++/* crypto_rng_register_hw() - register a true hardware random generator */
++void crypto_rng_register_hw(void);
++
++/* crypto_rng_unregister_hw() - unregister true hardware random generator */
++void crypto_rng_unregister_hw(void);
++
++/* crypto_rng_hw_is_registered() - return whether a TRNG is registered */
++bool crypto_rng_hw_is_registered(void);
++#else
++static inline void crypto_rng_register_hw(void)
++{
++}
++
++/* crypto_rng_unregister_hw() - unregister true hardware random generator */
++static inline void crypto_rng_unregister_hw(void)
++{
++}
++
++static inline bool crypto_rng_hw_is_registered(void)
++{
++	return false;
++}
++#endif
++
+ /*
+  * crypto_aes_expand_enc_key() - Expand an AES key
+  * @key:	AES key buffer
+-- 
+2.47.2
+

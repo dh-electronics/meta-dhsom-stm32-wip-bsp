@@ -1,0 +1,111 @@
+From 044100548e1ac4b010a2356f677f25950388f936 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Tue, 28 Jan 2025 14:37:23 +0100
+Subject: [PATCH 1582/1695] drivers: stm32_tamp: drop EXTI wakeup and use
+ interrupt framework
+
+There is no more use for the EXTI API in the tamper driver.
+Drop them.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 527777a10313a3ec767aeab335f7a9359eef5128 drivers: stm32_tamp: drop EXTI wakeup and use interrupt framework]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I04ea7d4ec7c49807424ba4f47fd3ad68fd8fcdef
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434928
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_tamp.c         | 19 ++-----------------
+ core/include/drivers/stm32_tamp.h |  2 --
+ 2 files changed, 2 insertions(+), 19 deletions(-)
+
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index 591cbb59d..de014525d 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -9,7 +9,6 @@
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+ #include <drivers/gpio.h>
+-#include <drivers/stm32_exti.h>
+ #include <drivers/stm32_gpio.h>
+ #include <drivers/stm32_rtc.h>
+ #include <drivers/stm32_tamp.h>
+@@ -2013,14 +2012,6 @@ static TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
+ 
+ 	parse_bkpregs_dt_conf(pdata, fdt, node);
+ 
+-	if (pdata->is_wakeup_source && IS_ENABLED(CFG_STM32_EXTI)) {
+-		res = stm32_exti_get_pdata(fdt, node, &pdata->exti);
+-		if (res == TEE_ERROR_DEFER_DRIVER_INIT)
+-			return TEE_ERROR_DEFER_DRIVER_INIT;
+-		if (res)
+-			panic("DT property 'wakeup-source' requires 'wakeup-parent'");
+-	}
+-
+ 	return TEE_SUCCESS;
+ }
+ 
+@@ -2129,11 +2120,8 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
+ 		goto err;
+ 
+ 	if (stm32_tamp.pdata.is_wakeup_source) {
+-		struct stm32_tamp_compat *compat = stm32_tamp.pdata.compat;
+-
+-		if (IS_ENABLED(CFG_STM32_EXTI))
+-			stm32_exti_enable_wake(stm32_tamp.pdata.exti,
+-					       compat->exti_wakeup_line);
++		if (interrupt_can_set_wake(chip))
++			interrupt_set_wake(chip, it_num, true);
+ 		else
+ 			DMSG("TAMP event are not configured as wakeup source");
+ 	}
+@@ -2193,7 +2181,6 @@ static const struct stm32_tamp_compat mp13_compat = {
+ 		.ext_tamp_size = ARRAY_SIZE(ext_tamp_mp13),
+ 		.pin_map = pin_map_mp13,
+ 		.pin_map_size = ARRAY_SIZE(pin_map_mp13),
+-		.exti_wakeup_line = U(18),
+ };
+ 
+ static const struct stm32_tamp_compat mp15_compat = {
+@@ -2205,7 +2192,6 @@ static const struct stm32_tamp_compat mp15_compat = {
+ 		.ext_tamp_size = ARRAY_SIZE(ext_tamp_mp15),
+ 		.pin_map = pin_map_mp15,
+ 		.pin_map_size = ARRAY_SIZE(pin_map_mp15),
+-		.exti_wakeup_line = U(18),
+ };
+ 
+ static const struct stm32_tamp_compat mp25_compat = {
+@@ -2223,7 +2209,6 @@ static const struct stm32_tamp_compat mp25_compat = {
+ 		.ext_tamp_size = ARRAY_SIZE(ext_tamp_mp25),
+ 		.pin_map = pin_map_mp25,
+ 		.pin_map_size = ARRAY_SIZE(pin_map_mp25),
+-		.exti_wakeup_line = U(21),
+ };
+ 
+ static const struct stm32_tamp_compat mp23_compat = {
+diff --git a/core/include/drivers/stm32_tamp.h b/core/include/drivers/stm32_tamp.h
+index 5c60a0b72..607ab2e25 100644
+--- a/core/include/drivers/stm32_tamp.h
++++ b/core/include/drivers/stm32_tamp.h
+@@ -109,7 +109,6 @@ struct stm32_tamp_compat {
+ 	uint32_t int_tamp_size;
+ 	uint32_t pin_map_size;
+ 	uint32_t tags;
+-	uint32_t exti_wakeup_line;
+ };
+ 
+ struct stm32_tamp_platdata {
+@@ -118,7 +117,6 @@ struct stm32_tamp_platdata {
+ 	struct stm32_tamp_compat *compat;
+ 	struct rif_conf_data *conf_data;
+ 	struct stm32_bkpregs_conf *bkpregs_conf;
+-	struct stm32_exti_pdata *exti;
+ 	unsigned int nb_resources;
+ 	uint32_t passive_conf;
+ 	uint32_t active_conf;
+-- 
+2.47.2
+

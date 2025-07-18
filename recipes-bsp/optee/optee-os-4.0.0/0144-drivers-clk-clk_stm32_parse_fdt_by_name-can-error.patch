@@ -1,0 +1,40 @@
+From 5be66e8f309c57e23f1dd7c9848b69beb4aef758 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 20 Dec 2023 12:35:41 +0100
+Subject: [PATCH 0144/1695] drivers: clk: clk_stm32_parse_fdt_by_name() can
+ error
+
+Report error code when clk_stm32_parse_fdt_by_name() fails and
+do not set the output count value that is an error code when
+fdt_getprop() fails.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git dbedc743006b27d8304d4ecb4940a575cb9d5e0e drivers: clk: clk_stm32_parse_fdt_by_name() can error]
+Change-Id: I50b6f541965a7c68bedf3179908674bace168f89
+Fixes: e5e793a6f1c7 ("clk: stm32mp13: Introduce STM32MP13 clocks platform")
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/clk/clk-stm32-core.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32-core.c b/core/drivers/clk/clk-stm32-core.c
+index 536197f80..90aa61f0c 100644
+--- a/core/drivers/clk/clk-stm32-core.c
++++ b/core/drivers/clk/clk-stm32-core.c
+@@ -487,9 +487,11 @@ int clk_stm32_parse_fdt_by_name(const void *fdt, int node, const char *name,
+ 	uint32_t i = 0;
+ 
+ 	cell = fdt_getprop(fdt, node, name, &len);
+-	if (cell)
+-		for (i = 0; i < ((uint32_t)len / sizeof(uint32_t)); i++)
+-			tab[i] = fdt32_to_cpu(cell[i]);
++	if (!cell)
++		return -1;
++
++	for (i = 0; i < ((uint32_t)len / sizeof(uint32_t)); i++)
++		tab[i] = fdt32_to_cpu(cell[i]);
+ 
+ 	*nb = (uint32_t)len / sizeof(uint32_t);
+ 
+-- 
+2.47.2
+

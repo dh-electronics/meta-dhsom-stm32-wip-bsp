@@ -1,0 +1,63 @@
+From ea14526170957c21698b1e975d7a4abbfd197c6d Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 18 Dec 2023 10:25:14 +0100
+Subject: [PATCH 0272/1695] drivers: stm32_iwdg: enable state helper functions
+
+Add iwdg_wdt_set_enabled() to register the watchdog is activated
+and rename is_enable() to iwdg_wdt_is_enabled() for consistency.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b4a51bf184a6cfc69d0ab5b91b9ba8d242be52f2 drivers: stm32_iwdg: enable state helper functions]
+Acked-by: Jerome Forissier <jerome.forissier@linaro.org>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/stm32_iwdg.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/stm32_iwdg.c b/core/drivers/stm32_iwdg.c
+index fba45d312..c7b7ae86b 100644
+--- a/core/drivers/stm32_iwdg.c
++++ b/core/drivers/stm32_iwdg.c
+@@ -103,7 +103,12 @@ static bool is_assigned_to_nsec(struct stm32_iwdg_device *iwdg)
+ 	return iwdg->flags & IWDG_FLAGS_NON_SECURE;
+ }
+ 
+-static bool is_enable(struct stm32_iwdg_device *iwdg)
++static void iwdg_wdt_set_enabled(struct stm32_iwdg_device *iwdg)
++{
++	iwdg->flags |= IWDG_FLAGS_ENABLED;
++}
++
++static bool iwdg_wdt_is_enabled(struct stm32_iwdg_device *iwdg)
+ {
+ 	return iwdg->flags & IWDG_FLAGS_ENABLED;
+ }
+@@ -144,7 +149,7 @@ static TEE_Result configure_timeout(struct stm32_iwdg_device *iwdg)
+ 	vaddr_t iwdg_base = get_base(iwdg);
+ 	uint32_t rlr_value = 0;
+ 
+-	assert(is_enable(iwdg));
++	assert(iwdg_wdt_is_enabled(iwdg));
+ 
+ 	rlr_value = iwdg_timeout_cnt(iwdg, iwdg->timeout);
+ 	if (!rlr_value)
+@@ -164,7 +169,7 @@ static void iwdg_start(struct stm32_iwdg_device *iwdg)
+ {
+ 	io_write32(get_base(iwdg) + IWDG_KR_OFFSET, IWDG_KR_START_KEY);
+ 
+-	iwdg->flags |= IWDG_FLAGS_ENABLED;
++	iwdg_wdt_set_enabled(iwdg);
+ }
+ 
+ static void iwdg_refresh(struct stm32_iwdg_device *iwdg)
+@@ -222,7 +227,7 @@ static TEE_Result iwdg_wdt_set_timeout(struct wdt_chip *chip,
+ 
+ 	iwdg->timeout = timeout;
+ 
+-	if (is_enable(iwdg)) {
++	if (iwdg_wdt_is_enabled(iwdg)) {
+ 		TEE_Result res = TEE_ERROR_GENERIC;
+ 
+ 		res = configure_timeout(iwdg);
+-- 
+2.47.2
+

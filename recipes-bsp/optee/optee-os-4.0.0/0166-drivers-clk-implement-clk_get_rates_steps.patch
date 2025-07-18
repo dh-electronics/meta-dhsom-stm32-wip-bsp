@@ -1,0 +1,79 @@
+From 1d02e0fd4a50c6dec464a56c97fccdd1783b2e23 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 5 Dec 2023 17:14:52 +0100
+Subject: [PATCH 0166/1695] drivers: clk: implement clk_get_rates_steps()
+
+Implement clk_get_rates_steps() for the SCMI to get support clock
+rates using triplet min/max/setp values.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4538185f7012744e8036cb3c271185d2e9316fba drivers: clk: implement clk_get_rates_steps()]
+Change-Id: I5ef73269806926616c22275ffb843c125c5ac609
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/clk/clk.c     |  9 +++++++++
+ core/include/drivers/clk.h | 15 +++++++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index 2ad6ddcc8..ca32f5b1f 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -366,6 +366,15 @@ TEE_Result clk_get_rates_array(struct clk *clk, size_t start_index,
+ 	return clk->ops->get_rates_array(clk, start_index, rates, nb_elts);
+ }
+ 
++TEE_Result clk_get_rates_steps(struct clk *clk, unsigned long *min,
++			       unsigned long *max, unsigned long *step)
++{
++	if (!clk->ops->get_rates_steps)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return clk->ops->get_rates_steps(clk, min, max, step);
++}
++
+ /* Return updated message buffer position of NULL on failure */
+ static __printf(3, 4) char *add_msg(char *cur, char *end, const char *fmt, ...)
+ {
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 7422df4b7..2c1342016 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -57,6 +57,7 @@ struct clk {
+  * @set_rate: Set the clock rate
+  * @get_rate: Get the clock rate
+  * @get_rates_array: Get the supported clock rates as array
++ * @get_rates_steps: Get support clock rates by min/max/step representation
+  */
+ struct clk_ops {
+ 	bool (*is_enabled)(struct clk *clk);
+@@ -70,6 +71,8 @@ struct clk_ops {
+ 				  unsigned long parent_rate);
+ 	TEE_Result (*get_rates_array)(struct clk *clk, size_t start_index,
+ 				      unsigned long *rates, size_t *nb_elts);
++	TEE_Result (*get_rates_steps)(struct clk *clk, unsigned long *min,
++				      unsigned long *max, unsigned long *step);
+ };
+ 
+ /**
+@@ -203,6 +206,18 @@ TEE_Result clk_set_parent(struct clk *clk, struct clk *parent);
+ TEE_Result clk_get_rates_array(struct clk *clk, size_t start_index,
+ 			       unsigned long *rates, size_t *nb_elts);
+ 
++/*
++ * clk_get_rates_steps - Get supported rates as min/max/step triplet
++ *
++ * @clk: Clock for which the rates are requested
++ * @min: Output min supported rate in Hz
++ * @max: Output max supported rate in Hz
++ * @step: Output rate step in Hz
++ * Returns a TEE_Result compliant value
++ */
++TEE_Result clk_get_rates_steps(struct clk *clk, unsigned long *min,
++			       unsigned long *max, unsigned long *step);
++
+ /* Print current clock tree summary to output console with debug trace level */
+ #ifdef CFG_DRIVERS_CLK
+ void clk_print_tree(void);
+-- 
+2.47.2
+

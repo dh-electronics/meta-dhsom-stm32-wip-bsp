@@ -1,0 +1,46 @@
+From f6fb935333211ffe980289dfeecffcbe324eb37d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 14 Nov 2023 17:14:31 +0100
+Subject: [PATCH 0158/1695] clk: stm32-core: set clock number to 0 if node is
+ not found
+
+If fdt_clk_stm32_parse_by_name() is called for a clock node that is not
+present, the fdt_getprop may return an error value for len. In this
+case, set *nb to 0 instead of returning an error code.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 457b5fac6188fa76aff94f01136a5cc2e753e575 clk: stm32-core: set clock number to 0 if node is not found]
+Change-Id: I981fca1bb7c62afa5504baac8b2ebbef1b32432e
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/clk/clk-stm32-core.c | 13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32-core.c b/core/drivers/clk/clk-stm32-core.c
+index 4492af12b..308045dd8 100644
+--- a/core/drivers/clk/clk-stm32-core.c
++++ b/core/drivers/clk/clk-stm32-core.c
+@@ -487,13 +487,14 @@ int clk_stm32_parse_fdt_by_name(const void *fdt, int node, const char *name,
+ 	uint32_t i = 0;
+ 
+ 	cell = fdt_getprop(fdt, node, name, &len);
+-	if (!cell)
+-		return -1;
+-
+-	for (i = 0; i < ((uint32_t)len / sizeof(uint32_t)); i++)
+-		tab[i] = fdt32_to_cpu(cell[i]);
++	if (cell && len > 0) {
++		for (i = 0; i < ((uint32_t)len / sizeof(uint32_t)); i++)
++			tab[i] = fdt32_to_cpu(cell[i]);
+ 
+-	*nb = (uint32_t)len / sizeof(uint32_t);
++		*nb = (uint32_t)len / sizeof(uint32_t);
++	} else {
++		*nb = 0;
++	}
+ 
+ 	return 0;
+ }
+-- 
+2.47.2
+

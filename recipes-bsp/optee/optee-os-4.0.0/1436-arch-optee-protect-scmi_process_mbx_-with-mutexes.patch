@@ -1,0 +1,71 @@
+From 61999501cc307dc4e78d0f64ef4a4c9d785c0188 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Tue, 7 Jan 2025 15:15:17 +0100
+Subject: [PATCH 1436/1695] arch: optee: protect scmi_process_mbx_* with
+ mutexes
+
+These functions can be called at the same time by two different CPUs.
+As they are not multi-thread safe, protect them with a mutex.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6792c7e1a608f9fb0a8a9daca5083472e760a9d5 arch: optee: protect scmi_process_mbx_* with mutexes]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I8d7aaa94187607efdbdcc7ff69871a8b57d52045
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/427299
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../SCP-firmware/arch/none/optee/src/arch_main.c     | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c b/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c
+index 9ef8fd71c..17c44186b 100644
+--- a/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c
+@@ -24,6 +24,10 @@
+ #include <arch_interrupt.h>
+ #include <arch_main.h>
+ 
++#include <kernel/mutex.h>
++
++static struct mutex process_lock = MUTEX_INITIALIZER;
++
+ static const struct fwk_arch_init_driver scmi_init_driver = {
+     .interrupt = arch_interrupt_init,
+ };
+@@ -69,11 +73,15 @@ void scmi_process_mbx_smt(unsigned int fwk_id)
+ 
+     device_id.value = fwk_id;
+ 
++    mutex_lock(&process_lock);
++
+     optee_mbx_signal_smt_message(device_id);
+ 
+     fwk_process_event_queue();
+ 
+     fwk_log_flush();
++
++    mutex_unlock(&process_lock);
+ #endif
+ }
+ 
+@@ -85,11 +93,15 @@ void scmi_process_mbx_msg(unsigned int fwk_id, void *in_buf, size_t in_size,
+ 
+     device_id.value = fwk_id;
+ 
++    mutex_lock(&process_lock);
++
+     optee_mbx_signal_msg_message(device_id, in_buf, in_size, out_buf, out_size);
+ 
+     fwk_process_event_queue();
+ 
+     fwk_log_flush();
++
++    mutex_unlock(&process_lock);
+ #endif
+ }
+ 
+-- 
+2.47.2
+

@@ -1,0 +1,67 @@
+From 354aef4ef2a03ebad3e8ab9d2c4798602938c84f Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Wed, 3 Jul 2024 12:32:24 +0200
+Subject: [PATCH 0999/1695] drivers: stm32_risaf: add a check for region
+ encryption mode
+
+Do not use CFG_ flags in DT bindings file.
+As RIF_ENC_MCE_EN is only supported for STM32MP21, add a check inside
+the driver to verify that encryption mode is well-supported by the
+platform.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7a2f3c50be2b9cf0505baaf29c0b2da729d79e24 drivers: stm32_risaf: add a check for region encryption mode]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Ide2f0e1e52df89b3b72b5f84f0e42aa4597120d3
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391109
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/firewall/stm32_risaf.c            | 11 +++++++++++
+ core/include/dt-bindings/soc/stm32mp25-risaf.h |  7 ++++---
+ 2 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index 580898f00..520b29b33 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -385,6 +385,17 @@ static TEE_Result risaf_configure_region(struct stm32_risaf_instance *risaf,
+ 			return TEE_ERROR_GENERIC;
+ 		}
+ 
++		/*
++		 * MCE encryption is only available on STM32MP21.
++		 * Check if it is wrongly set on reserved bit 14
++		 * for another platform.
++		 */
++		if (!IS_ENABLED(CFG_STM32MP21) && (cfg & BIT(14))) {
++			EMSG("RISAF %#"PRIxPTR": unsupported encryption mode",
++			     risaf->pdata.base.pa);
++			return TEE_ERROR_NOT_SUPPORTED;
++		}
++
+ 		if ((cfg & _RISAF_REG_CFGR_SEC) != _RISAF_REG_CFGR_SEC) {
+ 			EMSG("RISAF %#"PRIxPTR": encryption on non secure area",
+ 			     risaf->pdata.base.pa);
+diff --git a/core/include/dt-bindings/soc/stm32mp25-risaf.h b/core/include/dt-bindings/soc/stm32mp25-risaf.h
+index 0a634c6a1..c7c9128c3 100644
+--- a/core/include/dt-bindings/soc/stm32mp25-risaf.h
++++ b/core/include/dt-bindings/soc/stm32mp25-risaf.h
+@@ -15,9 +15,10 @@
+ 
+ /* RISAF encryption modes */
+ #define RIF_ENC_DIS		0x0
+-#if defined(CFG_STM32MP21)
+-#define RIF_ENC_MCE_EN		0x1 /* Side-channel attack protection */
+-#endif /* defined(CFG_STM32MP21) */
++#define RIF_ENC_MCE_EN		0x1 /*
++				     * STM32MP21 only,
++				     * side-channel attack protection.
++				     */
+ #define RIF_ENC_EN		0x2
+ 
+ #define DT_RISAF_EN_SHIFT	4
+-- 
+2.47.2
+

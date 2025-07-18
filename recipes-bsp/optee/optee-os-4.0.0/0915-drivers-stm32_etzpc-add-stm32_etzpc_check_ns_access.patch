@@ -1,0 +1,88 @@
+From 7d6194d1c4e08a8e421289eccb68740769f01e68 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 30 May 2024 19:35:47 +0200
+Subject: [PATCH 0915/1695] drivers: stm32_etzpc: add
+ stm32_etzpc_check_ns_access()
+
+Add stm32_etzpc_check_ns_access() to allow to check non-secure access
+to a given peripheral.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 050d8561d589e3fdc402c04c593b6ee3d701ee63 drivers: stm32_etzpc: add stm32_etzpc_check_ns_access()]
+Change-Id: Ibbd890d548ed2360e4bc50a8b4f7c4c59280d594
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/384196
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/firewall/stm32_etzpc.c | 25 +++++++++++++++++++++++++
+ core/include/drivers/stm32_etzpc.h  | 10 ++++++++++
+ 2 files changed, 35 insertions(+)
+
+diff --git a/core/drivers/firewall/stm32_etzpc.c b/core/drivers/firewall/stm32_etzpc.c
+index cc8606df4..7f235ab9d 100644
+--- a/core/drivers/firewall/stm32_etzpc.c
++++ b/core/drivers/firewall/stm32_etzpc.c
+@@ -119,6 +119,29 @@ static const char *const etzpc_decprot_strings[] __maybe_unused = {
+ 	"ETZPC_DECPROT_NS_RW",
+ };
+ 
++/* Temporary firewall controller reference */
++static struct firewall_controller *fw_ctrl;
++
++TEE_Result stm32_etzpc_check_ns_access(unsigned int id)
++{
++	TEE_Result res = TEE_ERROR_ACCESS_DENIED;
++	struct firewall_query query = { };
++
++	query.ctrl = fw_ctrl;
++	query.arg_count = 2;
++	query.args = calloc(2, sizeof(uint32_t));
++	if (!query.args)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	query.args[0] = id;
++	query.args[1] = DECPROT(id, DECPROT_NS_RW, DECPROT_UNLOCK);
++
++	res = firewall_check_access(&query);
++	free(query.args);
++
++	return res;
++}
++
+ static uint32_t etzpc_lock(struct etzpc_device *dev)
+ {
+ 	return may_spin_lock(&dev->lock);
+@@ -686,6 +709,8 @@ static TEE_Result stm32_etzpc_probe(const void *fdt, int node,
+ 	if (res)
+ 		goto err;
+ 
++	fw_ctrl = controller;
++
+ 	register_pm_core_service_cb(etzpc_pm, etzpc_dev, "stm32-etzpc");
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/include/drivers/stm32_etzpc.h b/core/include/drivers/stm32_etzpc.h
+index 15493a5a9..3b8f42e66 100644
+--- a/core/include/drivers/stm32_etzpc.h
++++ b/core/include/drivers/stm32_etzpc.h
+@@ -17,4 +17,14 @@ enum etzpc_decprot_attributes {
+ 	ETZPC_DECPROT_NS_RW = 3,
+ 	ETZPC_DECPROT_MAX = 4,
+ };
++
++#if defined(CFG_STM32_ETZPC)
++TEE_Result stm32_etzpc_check_ns_access(unsigned int id);
++#else
++static inline TEE_Result stm32_etzpc_check_ns_access(unsigned int id __unused)
++{
++	return TEE_ERROR_ACCESS_DENIED;
++}
++#endif
++
+ #endif /*__DRIVERS_STM32_ETZPC_H*/
+-- 
+2.47.2
+

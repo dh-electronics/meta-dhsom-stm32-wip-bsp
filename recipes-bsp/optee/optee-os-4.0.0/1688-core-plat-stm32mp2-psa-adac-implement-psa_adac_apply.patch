@@ -1,0 +1,85 @@
+From 01e75050d383ef4b00eddf9947e3fb7e6abc1703 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 2 Apr 2025 15:35:36 +0200
+Subject: [PATCH 1688/1695] core: plat-stm32mp2: psa-adac: implement
+ psa_adac_apply_permissions()
+
+Permission mask defines what to enable or disable in terms of debug
+features: Cortex-A35 debug, Cortex-M33 debug; Non-Secure, Secure; Trace
+only, Full debug; HDPL level.
+To apply these permissions, use stm32_bsec_parse_permissions(),
+stm32_bsec_write_debug_conf() and stm32_bsec_write_debug_ctrl().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5cf8ce6bfdc9a9d92732e49dba5f2efcf3655c83 core: plat-stm32mp2: psa-adac: implement psa_adac_apply_permissions()]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: I24b07a54dc69de128eabd84c0c0cc6daccc0cf98
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/451705
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../psa-adac/stm32mp21_psa_adac.c             | 32 +++++++------------
+ 1 file changed, 12 insertions(+), 20 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac.c b/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac.c
+index 21a6dc83a..b79f4135c 100644
+--- a/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac.c
++++ b/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac.c
+@@ -16,24 +16,6 @@
+ #include "platform/platform.h"
+ #include "platform/msg_interface.h"
+ 
+-#define STM32MP21_PERM_MASK_A35NSTO	BIT(0) /* A35 Non-Secure Trace-only */
+-#define STM32MP21_PERM_MASK_A35NSFD	BIT(1) /* A35 Non-Secure Full-Debug */
+-#define STM32MP21_PERM_MASK_A35STO	BIT(2) /* A35 Secure Trace-only */
+-#define STM32MP21_PERM_MASK_A35SFD	BIT(3) /* A35 Secure Full-Debug */
+-#define STM32MP21_PERM_MASK_M33NSTO	BIT(4) /* M33 Non-Secure Trace-only */
+-#define STM32MP21_PERM_MASK_M33NSFD	BIT(5) /* M33 Non-Secure Full-Debug */
+-#define STM32MP21_PERM_MASK_M33STO	BIT(6) /* M33 Secure Trace-only */
+-#define STM32MP21_PERM_MASK_M33SFD	BIT(7) /* M33 Secure Full-Debug */
+-#define STM32MP21_PERM_MASK_A35HDPL	BIT(8) /* A35 Minimal Debug level */
+-#define STM32MP21_PERM_MASK_A35HDP(lvl) (STM32MP21_PERM_MASK_A35HDPL << (lvl))
+-#define STM32MP21_PERM_MASK_M33HDPL	BIT(12) /* M33 Minimal Debug level */
+-#define STM32MP21_PERM_MASK_M33HDP(lvl) (STM32MP21_PERM_MASK_M33HDPL << (lvl))
+-#define STM32MP21_PERM_MASK_A35SDDIS	BIT(16) /* A35 Secure Dbg Disabled */
+-#define STM32MP21_PERM_MASK_A35NSDDIS	BIT(17) /* A35 Non-Sec Dbg Disabled */
+-#define STM32MP21_PERM_MASK_M33SDDIS	BIT(18) /* M33 Secure Dbg Disabled */
+-#define STM32MP21_PERM_MASK_M33NSDDIS	BIT(19) /* M33 Non-Sec Dbg Disabled */
+-#define STM32MP21_PERM_MASK_WAITATTACH	BIT(31) /* Wait for attach at boot tm */
+-
+ /* TODO Discovery template */
+ uint8_t discovery_template[] = {
+ 	// @+00 (12 bytes) psa_auth_version: 1.0
+@@ -143,6 +125,10 @@ int psa_adac_platform_check_certificate(uint8_t *crt __unused,
+ 
+ int psa_adac_apply_permissions(uint8_t permissions_mask[16])
+ {
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint32_t dbg_a_ctrl_val = 0;
++	uint32_t dbg_m_ctrl_val = 0;
++	uint32_t dbg_en_val = 0;
+ 	uint32_t perm_mask = 0;
+ 
+ 	/* Permission mask on this platform is defined on 32 bits */
+@@ -150,9 +136,15 @@ int psa_adac_apply_permissions(uint8_t permissions_mask[16])
+ 
+ 	DMSG("perm_mask=%#" PRIx32, perm_mask);
+ 
+-	/* TODO: psa_adac_apply_permissions: use BSEC API */
++	stm32_bsec_parse_permissions(perm_mask, &dbg_en_val,
++				     &dbg_a_ctrl_val, &dbg_m_ctrl_val);
+ 
+-	return PSA_SUCCESS;
++	res = stm32_bsec_write_debug_conf(dbg_en_val);
++	if (!res)
++		res = stm32_bsec_write_debug_ctrl(dbg_a_ctrl_val,
++						  dbg_m_ctrl_val);
++
++	return (!res) ? PSA_SUCCESS : PSA_ERROR_HARDWARE_FAILURE;
+ }
+ 
+ void platform_init(void)
+-- 
+2.47.2
+

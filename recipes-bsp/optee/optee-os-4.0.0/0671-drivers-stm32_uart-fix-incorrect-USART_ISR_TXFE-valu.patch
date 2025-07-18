@@ -1,0 +1,38 @@
+From 379f6f2d9536d6fc2e5cce38a137c489eda3e1d8 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 12 Jan 2024 10:54:46 +0100
+Subject: [PATCH 0671/1695] drivers: stm32_uart: fix incorrect USART_ISR_TXFE
+ value
+
+USART_ISR_TXFE indicates that the FIFO is empty. The register offset is
+BIT(23), not BIT(27).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2ff4f140c5547ffa4b6677424da41e757c15ead9 drivers: stm32_uart: fix incorrect USART_ISR_TXFE value]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/stm32_uart.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/stm32_uart.c b/core/drivers/stm32_uart.c
+index 50479f5f4..b1e8512bc 100644
+--- a/core/drivers/stm32_uart.c
++++ b/core/drivers/stm32_uart.c
+@@ -39,12 +39,12 @@
+  * Bit 5 RXNE: Read data register not empty/RXFIFO not empty
+  * Bit 6 TC: Transmission complete
+  * Bit 7 TXE/TXFNF: Transmit data register empty/TXFIFO not full
+- * Bit 27 TXFE: TXFIFO threshold reached
++ * Bit 23 TXFE: TXFIFO empty
+  */
+ #define USART_ISR_RXNE_RXFNE		BIT(5)
+ #define USART_ISR_TC			BIT(6)
+ #define USART_ISR_TXE_TXFNF		BIT(7)
+-#define USART_ISR_TXFE			BIT(27)
++#define USART_ISR_TXFE			BIT(23)
+ 
+ static vaddr_t loc_chip_to_base(struct serial_chip *chip)
+ {
+-- 
+2.47.2
+

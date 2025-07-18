@@ -1,0 +1,186 @@
+From 012a50d84b69347ec308ec559081afa2448b5bf9 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Mon, 26 Aug 2024 16:12:20 +0200
+Subject: [PATCH 1117/1695] plat: stm32mp2: enable debug on STM32MP21
+
+Implement the whole sequence to open the debug and enable all the
+debug Access Port (AP) on STM32MP21, emulating the ADAC process.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e9f027c0ba68a7df604d13ca8f29d82d1e9055d8 plat: stm32mp2: enable debug on STM32MP21]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I2a24b8ee138c28da55464655e1e862b255cbbeba
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/400321
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c            | 35 ++++++++++++++-----
+ core/arch/arm/plat-stm32mp2/platform_config.h |  5 +--
+ core/drivers/stm32_bsec3.c                    | 17 +++++++++
+ core/include/drivers/stm32_bsec.h             |  5 +++
+ 4 files changed, 52 insertions(+), 10 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 4df4d8203..64eee0fed 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -35,7 +35,8 @@
+ #include <util.h>
+ 
+ /* DBGMCU registers */
+-#define DBGMCU_CR			U(0x4)
++#define DBGMCU_CR			U(0x004)
++#define DBGMCU_DBG_AUTH_DEV		U(0x104)
+ 
+ #define DBGMCU_CR_DBG_SLEEP		BIT(0)
+ #define DBGMCU_CR_DBG_STOP		BIT(1)
+@@ -130,6 +131,13 @@ vaddr_t stm32_rcc_base(void)
+ 	return io_pa_or_va_secure(&base, 1);
+ }
+ 
++static uintptr_t stm32_dbgmcu_base(void)
++{
++	static struct io_pa_va dbgmcu_base = { .pa = DBGMCU_BASE };
++
++	return io_pa_or_va_nsec(&dbgmcu_base, 1);
++}
++
+ void boot_primary_init_intc(void)
+ {
+ 	gic_init(GIC_BASE + GICC_OFFSET, GIC_BASE + GICD_OFFSET);
+@@ -182,6 +190,8 @@ static TEE_Result init_debug(void)
+ 		return res;
+ 
+ 	if (state != BSEC_STATE_SEC_CLOSED) {
++		struct clk __maybe_unused *dbgmcu_clk = NULL;
++
+ 		if (IS_ENABLED(CFG_INSECURE))
+ 			IMSG("WARNING: All debug access are allowed");
+ 
+@@ -193,6 +203,22 @@ static TEE_Result init_debug(void)
+ 		assert(dbg_clk);
+ 		if (clk_enable(dbg_clk))
+ 			panic("Could not enable debug clock");
++
++#if defined(CFG_STM32MP21)
++		dbgmcu_clk = stm32mp_rcc_clock_id_to_clk(CK_DBGMCU);
++
++		assert(dbgmcu_clk);
++		if (clk_enable(dbgmcu_clk))
++			panic("Could not enable DBGMCU clock");
++
++		stm32_bsec_mp21_dummy_adac();
++
++		/*
++		 * Write a dummy value to trigger the full visibility
++		 * of the debug port.
++		 */
++		io_write32(stm32_dbgmcu_base() + DBGMCU_DBG_AUTH_DEV, 1);
++#endif
+ 	}
+ 
+ 	if (stm32_bsec_self_hosted_debug_is_enabled()) {
+@@ -421,13 +447,6 @@ static TEE_Result stm32_hse_monitoring(void)
+ driver_init_late(stm32_hse_monitoring);
+ #endif /* CFG_STM32_HSE_MONITORING */
+ 
+-static uintptr_t stm32_dbgmcu_base(void)
+-{
+-	static struct io_pa_va dbgmcu_base = { .pa = DBGMCU_BASE };
+-
+-	return io_pa_or_va_nsec(&dbgmcu_base, 1);
+-}
+-
+ /*
+  * Handle low-power emulation mode
+  * In PWR debug Standby mode, the low power modes is not signaled to external
+diff --git a/core/arch/arm/plat-stm32mp2/platform_config.h b/core/arch/arm/plat-stm32mp2/platform_config.h
+index 949f93883..fa1a333fd 100644
+--- a/core/arch/arm/plat-stm32mp2/platform_config.h
++++ b/core/arch/arm/plat-stm32mp2/platform_config.h
+@@ -83,7 +83,6 @@
+ #define FMC_BASE			0x48200000
+ #define PCIE_BASE			0x48400000
+ #define A35SSC_BASE			0x48800000
+-#define DBGMCU_BASE			0x4a010000
+ #define GIC_BASE			0x4ac00000
+ #define DDR_BASE			UL(0x80000000)
+ 
+@@ -91,11 +90,13 @@
+ 
+ #ifdef CFG_STM32MP21
+ #define SRAM1_BASE			0x0e060000
++#define DBGMCU_BASE			0x440A0000
+ #else
+ #define SRAM1_BASE			0x0e040000
++#define DBGMCU_BASE			0x4a010000
+ #endif
+ 
+-/* DBGCMU */
++/* DBGMCU */
+ #define DBGMCU_SIZE			0x10000
+ 
+ /* GIC resources */
+diff --git a/core/drivers/stm32_bsec3.c b/core/drivers/stm32_bsec3.c
+index d76c112e3..a1c2a2c05 100644
+--- a/core/drivers/stm32_bsec3.c
++++ b/core/drivers/stm32_bsec3.c
+@@ -33,6 +33,9 @@
+ #define BSEC_DENR			U(0xE20)
+ #define BSEC_SR				U(0xE40)
+ #define BSEC_OTPSR			U(0xE44)
++#define BSEC_DBGMCR			U(0xE8C)
++#define BSEC_AP_UNLOCK			U(0xE90)
++#define BSEC_DBGACR			U(0xEAC)
+ #define BSEC_VERR			U(0xFF4)
+ #define BSEC_IPIDR			U(0xFF8)
+ 
+@@ -85,6 +88,10 @@
+ #define BSEC_DENR_SPNIDENM		BIT(11)
+ #define BSEC_DENR_CFGSDIS		BIT(12)
+ 
++/* Dummy value for ADAC emulation on BSEC_DBGMCR and BSEC_DBGACR */
++#define BSEC_DBGxCR_DUMMY_ADAC		U(0xB4B4B400)
++#define BSEC_AP_UNLOCK_DUMMY_ADAC	U(0x000000B4)
++
+ #if (defined(CFG_STM32MP25) || defined(CFG_STM32MP23))
+ #define BSEC_DENR_CP15SDIS_MASK		GENMASK_32(14, 13)
+ #define BSEC_DENR_CP15SDIS_SHIFT	13U
+@@ -560,6 +567,16 @@ bool stm32_bsec_self_hosted_debug_is_enabled(void)
+ 	return stm32_bsec_read_debug_conf() & BSEC_DENR_DBGSWEN;
+ }
+ 
++/*
++ * Dummy ADAC requires setting BSEC_DBGACR and BSEC_DBGMCR.
++ */
++void stm32_bsec_mp21_dummy_adac(void)
++{
++	io_write32(bsec_base() + BSEC_DBGACR, BSEC_DBGxCR_DUMMY_ADAC);
++	io_write32(bsec_base() + BSEC_DBGMCR, BSEC_DBGxCR_DUMMY_ADAC);
++	io_write32(bsec_base() + BSEC_AP_UNLOCK, BSEC_AP_UNLOCK_DUMMY_ADAC);
++}
++
+ /*
+  * bsec_get_version: return BSEC version.
+  */
+diff --git a/core/include/drivers/stm32_bsec.h b/core/include/drivers/stm32_bsec.h
+index b813b5979..7c5505ee2 100644
+--- a/core/include/drivers/stm32_bsec.h
++++ b/core/include/drivers/stm32_bsec.h
+@@ -189,6 +189,11 @@ bool stm32_bsec_nsec_can_access_otp(uint32_t otp_id);
+  */
+ bool stm32_bsec_self_hosted_debug_is_enabled(void);
+ 
++/*
++ * Program BSEC for dummy ADAC (open access to every AP).
++ */
++void stm32_bsec_mp21_dummy_adac(void);
++
+ /*
+  * Find and get OTP location from its name.
+  * @name: sub-node name to look up.
+-- 
+2.47.2
+

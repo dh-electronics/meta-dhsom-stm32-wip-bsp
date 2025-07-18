@@ -1,0 +1,116 @@
+From f10aa9ed5a3e6c152cd081a809ba2d8cec0f8993 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 30 Jan 2024 18:36:23 +0100
+Subject: [PATCH 0726/1695] drivers: crypto: stm32: move context
+ allocation/free functions
+
+Move cipher context allocation and free functions to place them
+next to each other for CRYP and SAES support to ease their maintenance
+as the context free sequence is the counter part of the context
+allocation sequence. No functional changes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 19f392825ec792db954b6f60fb31161824dd6721 drivers: crypto: stm32: move context allocation/free functions]
+Reviewed-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Change-Id: I8e67593aad22ca11f82a9af748f51e752225abc3
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372864
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/crypto/stm32/cipher.c | 56 ++++++++++++------------------
+ 1 file changed, 22 insertions(+), 34 deletions(-)
+
+diff --git a/core/drivers/crypto/stm32/cipher.c b/core/drivers/crypto/stm32/cipher.c
+index 8848e6f01..e189b54f8 100644
+--- a/core/drivers/crypto/stm32/cipher.c
++++ b/core/drivers/crypto/stm32/cipher.c
+@@ -149,13 +149,6 @@ static void stm32_cipher_final(void *ctx __unused)
+ {
+ }
+ 
+-static void stm32_cipher_free(void *ctx)
+-{
+-	struct stm32_cipher_ctx *c = to_stm32_cipher_ctx(ctx);
+-
+-	free(c);
+-}
+-
+ static void stm32_cipher_copy_state(void *dst_ctx, void *src_ctx)
+ {
+ 	struct stm32_cipher_ctx *src = to_stm32_cipher_ctx(src_ctx);
+@@ -179,27 +172,6 @@ static TEE_Result alloc_cryp_ctx(void **ctx, enum stm32_cryp_algo_mode algo)
+ 	return TEE_SUCCESS;
+ }
+ 
+-static TEE_Result alloc_saes_ctx(void **ctx, enum stm32_saes_chaining_mode algo)
+-{
+-	struct stm32_cipher_ctx *c = calloc(1, sizeof(*c));
+-
+-	if (!c)
+-		return TEE_ERROR_OUT_OF_MEMORY;
+-
+-	FMSG("Using SAES %d", algo);
+-	c->ip_ctx.saes.algo = algo;
+-	c->ops = &saes_ops;
+-	*ctx = &c->c_ctx;
+-
+-	return TEE_SUCCESS;
+-}
+-
+-/*
+- * Allocate the SW cipher data context for CRYP peripheral.
+- *
+- * @ctx   [out] Caller context variable
+- * @algo  Algorithm ID of the context
+- */
+ static TEE_Result stm32_cryp_cipher_allocate(void **ctx, uint32_t algo)
+ {
+ 	/*
+@@ -225,12 +197,21 @@ static TEE_Result stm32_cryp_cipher_allocate(void **ctx, uint32_t algo)
+ 	}
+ }
+ 
+-/*
+- * Allocate the SW cipher data context for SAES peripheral.
+- *
+- * @ctx   [out] Caller context variable
+- * @algo  Algorithm ID of the context
+- */
++static TEE_Result alloc_saes_ctx(void **ctx, enum stm32_saes_chaining_mode algo)
++{
++	struct stm32_cipher_ctx *c = calloc(1, sizeof(*c));
++
++	if (!c)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	FMSG("Using SAES %d", algo);
++	c->ip_ctx.saes.algo = algo;
++	c->ops = &saes_ops;
++	*ctx = &c->c_ctx;
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result stm32_saes_cipher_allocate(void **ctx, uint32_t algo)
+ {
+ 	/*
+@@ -248,6 +229,13 @@ static TEE_Result stm32_saes_cipher_allocate(void **ctx, uint32_t algo)
+ 	}
+ }
+ 
++static void stm32_cipher_free(void *ctx)
++{
++	struct stm32_cipher_ctx *c = to_stm32_cipher_ctx(ctx);
++
++	free(c);
++}
++
+ static struct drvcrypt_cipher driver_cipher_cryp = {
+ 	.alloc_ctx = stm32_cryp_cipher_allocate,
+ 	.free_ctx = stm32_cipher_free,
+-- 
+2.47.2
+

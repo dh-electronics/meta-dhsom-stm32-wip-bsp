@@ -1,0 +1,89 @@
+From 701084cd5bfc116b50a35ce57b44e09e6c4e0379 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 18 Dec 2023 09:45:49 +0100
+Subject: [PATCH 0270/1695] drivers: stm32_iwdg: rename bus clock to clk_pclk
+
+Rename STM32 IWDG watchdog bus clock clk_pclk, matching the reference
+manual naming instead of clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3ca737de0185125540b465947bd5af2c5abbea1b drivers: stm32_iwdg: rename bus clock to clk_pclk]
+Acked-by: Jerome Forissier <jerome.forissier@linaro.org>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/stm32_iwdg.c | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/core/drivers/stm32_iwdg.c b/core/drivers/stm32_iwdg.c
+index 43a12b1be..0ff2a53d2 100644
+--- a/core/drivers/stm32_iwdg.c
++++ b/core/drivers/stm32_iwdg.c
+@@ -73,7 +73,7 @@
+ /*
+  * IWDG watch instance data
+  * @base - IWDG interface IOMEM base address
+- * @clock - Bus clock
++ * @clk_pclk - Bus clock
+  * @clk_lsi - IWDG source clock
+  * @flags - Property flags for the IWDG instance
+  * @timeout - Watchdog elaspure timeout
+@@ -82,7 +82,7 @@
+  */
+ struct stm32_iwdg_device {
+ 	struct io_pa_va base;
+-	struct clk *clock;
++	struct clk *clk_pclk;
+ 	struct clk *clk_lsi;
+ 	uint32_t flags;
+ 	unsigned long timeout;
+@@ -150,7 +150,7 @@ static TEE_Result configure_timeout(struct stm32_iwdg_device *iwdg)
+ 	if (!rlr_value)
+ 		return TEE_ERROR_GENERIC;
+ 
+-	clk_enable(iwdg->clock);
++	clk_enable(iwdg->clk_pclk);
+ 
+ 	io_write32(iwdg_base + IWDG_KR_OFFSET, IWDG_KR_ACCESS_KEY);
+ 	io_write32(iwdg_base + IWDG_PR_OFFSET, IWDG_PR_DIV_256);
+@@ -159,25 +159,25 @@ static TEE_Result configure_timeout(struct stm32_iwdg_device *iwdg)
+ 
+ 	res = iwdg_wait_sync(iwdg);
+ 
+-	clk_disable(iwdg->clock);
++	clk_disable(iwdg->clk_pclk);
+ 
+ 	return res;
+ }
+ 
+ static void iwdg_start(struct stm32_iwdg_device *iwdg)
+ {
+-	clk_enable(iwdg->clock);
++	clk_enable(iwdg->clk_pclk);
+ 	io_write32(get_base(iwdg) + IWDG_KR_OFFSET, IWDG_KR_START_KEY);
+-	clk_disable(iwdg->clock);
++	clk_disable(iwdg->clk_pclk);
+ 
+ 	iwdg->flags |= IWDG_FLAGS_ENABLED;
+ }
+ 
+ static void iwdg_refresh(struct stm32_iwdg_device *iwdg)
+ {
+-	clk_enable(iwdg->clock);
++	clk_enable(iwdg->clk_pclk);
+ 	io_write32(get_base(iwdg) + IWDG_KR_OFFSET, IWDG_KR_RELOAD_KEY);
+-	clk_disable(iwdg->clock);
++	clk_disable(iwdg->clk_pclk);
+ }
+ 
+ /* Operators for watchdog OP-TEE interface */
+@@ -263,7 +263,7 @@ static TEE_Result stm32_iwdg_parse_fdt(struct stm32_iwdg_device *iwdg,
+ 	    dt_info.reg_size == DT_INFO_INVALID_REG_SIZE)
+ 		panic();
+ 
+-	res = clk_dt_get_by_name(fdt, node, "pclk", &iwdg->clock);
++	res = clk_dt_get_by_name(fdt, node, "pclk", &iwdg->clk_pclk);
+ 	if (res)
+ 		return res;
+ 
+-- 
+2.47.2
+

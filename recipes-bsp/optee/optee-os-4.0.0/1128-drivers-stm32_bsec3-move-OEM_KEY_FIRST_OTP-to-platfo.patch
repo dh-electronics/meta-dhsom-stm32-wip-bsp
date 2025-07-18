@@ -1,0 +1,56 @@
+From b32f8d82a000afec92a9007240d8d0da9064df72 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Wed, 7 Aug 2024 13:54:50 +0200
+Subject: [PATCH 1128/1695] drivers: stm32_bsec3: move OEM_KEY_FIRST_OTP to
+ platform_config.h
+
+Move OEM_KEY_FIRST_OTP to platform_config as it contains already the
+definition for STM32MP2_OTP_MAX_ID.
+Prepare support for STM32MP21 SoC as both macro will need to be
+redefined.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 005dc2680d5bb9b24f7482313045d1fca030e270 drivers: stm32_bsec3: move OEM_KEY_FIRST_OTP to platform_config.h]
+Change-Id: Ib764c14c2886391a67810fcc70c7e5ba78b29827
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/397299
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/platform_config.h | 2 ++
+ core/drivers/stm32_bsec3.c                    | 3 ---
+ 2 files changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/platform_config.h b/core/arch/arm/plat-stm32mp2/platform_config.h
+index fa1a333fd..435dd4397 100644
+--- a/core/arch/arm/plat-stm32mp2/platform_config.h
++++ b/core/arch/arm/plat-stm32mp2/platform_config.h
+@@ -109,9 +109,11 @@
+ 
+ /*
+  * BSEC: 368 available OTPs, the other are masked
++ * - OEM FSBL keys 360 to 367 (programmable but not readable)
+  * - ECIES key: 368 to 375 (only readable by bootrom)
+  * - HWKEY: 376 to 383 (never reloadable or readable)
+  */
++#define OEM_KEY_FIRST_OTP		360
+ #define STM32MP2_OTP_MAX_ID		0x16FU
+ #define STM32MP2_UPPER_OTP_START	0x100U
+ 
+diff --git a/core/drivers/stm32_bsec3.c b/core/drivers/stm32_bsec3.c
+index a1c2a2c05..3b4af8c75 100644
+--- a/core/drivers/stm32_bsec3.c
++++ b/core/drivers/stm32_bsec3.c
+@@ -152,9 +152,6 @@
+ #define OTP_SECURE_BOOT			18U
+ #define OTP_CLOSED_SECURE		GENMASK_32(3, 0)
+ 
+-/* OEM Keys are stored from OEM_KEY_FIRST_OTP to OTP bsec_dev.max_id (367) */
+-#define OEM_KEY_FIRST_OTP		360
+-
+ struct nvmem_cell {
+ 	char *name;
+ 	uint32_t phandle;
+-- 
+2.47.2
+

@@ -1,0 +1,313 @@
+From d84b41242e5451f85c25427c540e0a2b9c60fa96 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Tue, 28 Jan 2025 15:59:00 +0100
+Subject: [PATCH 1480/1695] core: plat-stm32mp2: put lib psa-adac target stuff
+ in psa-adac subdir
+
+Use files defined in lib psa-adac target directory to implement
+platform support of ADAC for STM32MP21.
+
+From <psa-adac>/target/trusted-firmware-m/platform/arm/xxx/include:
+- include/platform/msg_interface.h:
+  adapt #include, update copyright and fix SPDX,
+  remove ctx, not used with PSA_ADAC_AUTHENTICATOR_IMPLICIT_TRANSPORT,
+  fix request_packet_receive() prototype [-Werror=strict-prototypes],
+  ignore checkpatch warning regarding target_msg_interface_t typedef, as
+  it is used in library.
+- include/platform/platform.h:
+  update copyright and fix SPDX.
+- include/psa_adac_platform.h:
+  update copyright, fix SPDX and adapt to optee-os
+
+From <psa-adac/template_hal_files:
+- target_name.c renamed into stm32mp21_psa_adac.c:
+  update copyright and fix SPDX,
+  add returns and __unused on function parameters pending implementation.
+- transport_layer.c renamed into stm32mp21_psa_adac_mbx.c:
+  update copyright and fix SPDX,
+  add returns and __unused on function parameters pending implementation,
+  remove request_packet_send() and response_packet_receive() as it is a
+  target SDA implementation, not a host SDM implementation.
+
+As explicit transport API is not yet defined, OPTEE ADAC implementation
+relies on implicit transport API and then forces
+PSA_ADAC_AUTHENTICATOR_IMPLICIT_TRANSPORT. That's why all about
+!PSA_ADAC_AUTHENTICATOR_IMPLICIT_TRANSPORT is removed.
+
+Add sub.mk to build target files.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9d7f855ad740d4bd9dce596b59528653dea891ca core: plat-stm32mp2: put lib psa-adac target stuff in psa-adac subdir]
+Change-Id: Ibbdce87adfeedba6f98430740c2b77db7210f8ae
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/433581
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../psa-adac/include/platform/msg_interface.h | 27 ++++++++
+ .../psa-adac/include/platform/platform.h      | 40 ++++++++++++
+ .../psa-adac/include/psa_adac_platform.h      | 37 +++++++++++
+ .../psa-adac/stm32mp21_psa_adac.c             | 61 +++++++++++++++++++
+ .../psa-adac/stm32mp21_psa_adac_mbx.c         | 45 ++++++++++++++
+ core/arch/arm/plat-stm32mp2/psa-adac/sub.mk   |  3 +
+ 6 files changed, 213 insertions(+)
+ create mode 100644 core/arch/arm/plat-stm32mp2/psa-adac/include/platform/msg_interface.h
+ create mode 100644 core/arch/arm/plat-stm32mp2/psa-adac/include/platform/platform.h
+ create mode 100644 core/arch/arm/plat-stm32mp2/psa-adac/include/psa_adac_platform.h
+ create mode 100644 core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac.c
+ create mode 100644 core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac_mbx.c
+ create mode 100644 core/arch/arm/plat-stm32mp2/psa-adac/sub.mk
+
+diff --git a/core/arch/arm/plat-stm32mp2/psa-adac/include/platform/msg_interface.h b/core/arch/arm/plat-stm32mp2/psa-adac/include/platform/msg_interface.h
+new file mode 100644
+index 000000000..17e8038ed
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/psa-adac/include/platform/msg_interface.h
+@@ -0,0 +1,27 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2022-2025 Arm Limited. All rights reserved.
++ * Copyright (c) 2025 STMicroelectronics - All Rights Reserved
++ */
++
++#ifndef __MSG_INTERFACE_H__
++#define __MSG_INTERFACE_H__
++
++#include <psa_adac.h>
++#include "platform/platform.h"
++#include <stddef.h>
++
++int msg_interface_init(uint8_t buffer[], size_t size);
++int msg_interface_free(void);
++
++request_packet_t *request_packet_lock(size_t *max_data_size);
++response_packet_t *response_packet_lock(size_t *max_data_size);
++int response_packet_release(response_packet_t *packet);
++int request_packet_release(request_packet_t *packet);
++
++request_packet_t *request_packet_receive(void);
++response_packet_t *response_packet_build(uint16_t status, uint8_t *data,
++					 size_t data_size);
++int response_packet_send(response_packet_t *packet);
++
++#endif /* __MSG_INTERFACE_H__ */
+diff --git a/core/arch/arm/plat-stm32mp2/psa-adac/include/platform/platform.h b/core/arch/arm/plat-stm32mp2/psa-adac/include/platform/platform.h
+new file mode 100644
+index 000000000..030aac338
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/psa-adac/include/platform/platform.h
+@@ -0,0 +1,40 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2022-2025 Arm Limited. All rights reserved.
++ * Copyright (c) 2025 STMicroelectronics - All Rights Reserved
++ */
++
++#ifndef __PLATFORM_H__
++#define __PLATFORM_H__
++
++#include <stdint.h>
++#include <stddef.h>
++
++#include <psa_adac_platform.h>
++
++void platform_init(void);
++/**
++ * psa_adac_platform_discovery() - This function is called on response to the
++ *				   discovery command from the debug host.
++ *				   It returns information about the target and
++ *				   set of all response fragments format
++ *				   supported by the debug target.
++ *
++ * @reply: [out] Pointer to reply buffer.
++ * @reply_size: [in] Size of the reply buffer in bytes.
++ *
++ * Returns size of actual populated reply buffer.
++ */
++size_t psa_adac_platform_discovery(uint8_t *reply, size_t reply_size);
++adac_status_t psa_adac_change_life_cycle_state(uint8_t *input,
++					       size_t input_size);
++void psa_adac_platform_lock(void);
++void psa_adac_platform_init(void);
++int psa_adac_platform_check_token(uint8_t *token, size_t token_size);
++int psa_adac_platform_check_certificate(uint8_t *crt, size_t crt_size);
++int psa_adac_apply_permissions(uint8_t permissions_mask[16]);
++
++int psa_adac_detect_debug_request(void);
++void psa_adac_acknowledge_debug_request(void);
++
++#endif /* __PLATFORM_H__ */
+diff --git a/core/arch/arm/plat-stm32mp2/psa-adac/include/psa_adac_platform.h b/core/arch/arm/plat-stm32mp2/psa-adac/include/psa_adac_platform.h
+new file mode 100644
+index 000000000..9aec5a1d3
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/psa-adac/include/psa_adac_platform.h
+@@ -0,0 +1,37 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2025 Arm Limited. All rights reserved.
++ * Copyright (c) 2025 STMicroelectronics - All Rights Reserved
++ */
++
++#ifndef __PSA_ADAC_PLATFORM_H__
++#define __PSA_ADAC_PLATFORM_H__
++
++#include <psa_adac_config.h>
++
++#define PSA_ADAC_PLATFORM_BANNER "PSA ADAC: OPTEE-OS STM32 platform"
++
++/**
++ * psa_adac_start_secure_debug() - Wait for host debugger to initiate the
++ *				   secure debug connection and perform the
++ *				   secure debug authentication process.
++ *				   From optee to psa-adac.
++ *
++ * Returns TEE_SUCCESS when authentication is successful, otherwise
++ * TEE_ERROR_CANCEL when no secure debug connection is detected, or
++ * TEE_ERROR_NOT_SUPPORTED when PSA-ADAC library initialization failed, or
++ * TEE_ERROR_GENERIC/TEE_ERROR_OUT_OF_MEMORY when failing to get ROTPKH, or
++ * TEE_ERROR_BAD_STATE when message interface initialization failed or
++ * secure debug is not authenticated.
++ */
++int psa_adac_start_secure_debug(void);
++
++/**
++ * psa_adac_apply_secure_debug_permissions() - Apply secure debug permissions.
++ *					       From psa-adac to optee.
++ *
++ * @permissions_mask: Debug access permissions requested by the debug host
++ */
++int psa_adac_apply_secure_debug_permissions(uint8_t permissions_mask[16]);
++
++#endif /* __PSA_ADAC_PLATFORM_H__ */
+diff --git a/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac.c b/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac.c
+new file mode 100644
+index 000000000..649ba49fa
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac.c
+@@ -0,0 +1,61 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2020-2025 Arm Limited. All rights reserved.
++ * Copyright (c) 2025 STMicroelectronics - All Rights Reserved
++ */
++
++#include <compiler.h>
++#include "psa_adac_config.h"
++#include "psa_adac_debug.h"
++#include "psa_adac_sda.h"
++#include "platform/platform.h"
++#include "platform/msg_interface.h"
++
++void psa_adac_platform_init(void)
++{
++	/* TODO: Code me */
++}
++
++size_t psa_adac_platform_discovery(uint8_t *reply __unused,
++				   size_t reply_size __unused)
++{
++	/* TODO: Code me */
++	return 0;
++}
++
++adac_status_t psa_adac_change_life_cycle_state(uint8_t *input __unused,
++					       size_t input_size __unused)
++{
++	/* TODO: Code me */
++	return ADAC_UNSUPPORTED;
++}
++
++void psa_adac_platform_lock(void)
++{
++	/* TODO: Code me */
++}
++
++int psa_adac_platform_check_token(uint8_t *token __unused,
++				  size_t token_size __unused)
++{
++	/* TODO: Code me */
++	return PSA_ERROR_NOT_SUPPORTED;
++}
++
++int psa_adac_platform_check_certificate(uint8_t *crt __unused,
++					size_t crt_size __unused)
++{
++	/* TODO: Code me */
++	return PSA_ERROR_NOT_SUPPORTED;
++}
++
++int psa_adac_apply_permissions(uint8_t permissions_mask[16] __unused)
++{
++	/* TODO: Code me */
++	return PSA_ERROR_NOT_SUPPORTED;
++}
++
++void platform_init(void)
++{
++	/* TODO: Code me */
++}
+diff --git a/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac_mbx.c b/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac_mbx.c
+new file mode 100644
+index 000000000..f036859c0
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/psa-adac/stm32mp21_psa_adac_mbx.c
+@@ -0,0 +1,45 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2020-2025 Arm Limited. All rights reserved.
++ * Copyright (c) 2025 STMicroelectronics - All Rights Reserved
++ */
++
++#include <compiler.h>
++#include "psa_adac_debug.h"
++#include "platform/msg_interface.h"
++#include "platform/platform.h"
++
++int psa_adac_detect_debug_request(void)
++{
++	/* Code me */
++	return PSA_ERROR_NOT_SUPPORTED;
++}
++
++void psa_adac_acknowledge_debug_request(void)
++{
++	/* Code me */
++}
++
++int msg_interface_init(uint8_t buffer[] __unused, size_t buffer_size __unused)
++{
++	/* Code me */
++	return PSA_ERROR_NOT_SUPPORTED;
++}
++
++int msg_interface_free(void)
++{
++	/* Code me */
++	return PSA_ERROR_NOT_SUPPORTED;
++}
++
++request_packet_t *request_packet_receive(void)
++{
++	/* Code me */
++	return NULL;
++}
++
++int response_packet_send(response_packet_t *p __unused)
++{
++	/* Code me */
++	return PSA_ERROR_NOT_SUPPORTED;
++}
+diff --git a/core/arch/arm/plat-stm32mp2/psa-adac/sub.mk b/core/arch/arm/plat-stm32mp2/psa-adac/sub.mk
+new file mode 100644
+index 000000000..0cd77a9de
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/psa-adac/sub.mk
+@@ -0,0 +1,3 @@
++global-incdirs-y += include
++srcs-y += stm32mp21_psa_adac.c
++srcs-y += stm32mp21_psa_adac_mbx.c
+-- 
+2.47.2
+

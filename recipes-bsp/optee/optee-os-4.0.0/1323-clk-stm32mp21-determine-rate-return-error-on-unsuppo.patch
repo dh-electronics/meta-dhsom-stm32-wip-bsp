@@ -1,0 +1,53 @@
+From b3f3bea1f0cb691b74e00257f96db9ec1f796fac Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 11 Oct 2024 11:09:35 +0200
+Subject: [PATCH 1323/1695] clk: stm32mp21: determine rate return error on
+ unsupported frequency
+
+When the functions clk_cpu1_determine_rate() and clk_stm32_pll1_set_rate()
+search in the list of supported frequency for the associated OPP defined
+in device tree, the function should return an error to indicate that the
+requested OPP is not defined.
+
+This patch is a preliminary step to skip OPP when the associated
+PLL settings is not provided to the RCC.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a681d71ab86d7dfd35d07f365819dd5c2dc23758 clk: stm32mp21: determine rate return error on unsupported frequency]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/382032
+Change-Id: Ie4a44a2ebc7db5675455cb43e881dc0368d697a3
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/410782
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp21.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index c0d46d3d4..c19bcee8b 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -2441,7 +2441,7 @@ static TEE_Result clk_stm32_pll1_set_rate(struct clk *clk __unused,
+ 
+ 	opp = clk_stm32_get_opp_config(pdata->opp->cpu1_opp, rate);
+ 	if (!opp)
+-		return TEE_ERROR_GENERIC;
++		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+ 	pll_conf = &opp->pll_cfg;
+ 
+@@ -2904,7 +2904,7 @@ static TEE_Result clk_cpu1_determine_rate(struct clk *clk,
+ 
+ 	opp = clk_stm32_get_opp_config(pdata->opp->cpu1_opp, rate);
+ 	if (!opp)
+-		return TEE_SUCCESS;
++		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+ 	/*
+ 	 * PLL1 is always the source of the ck_cpu1 for OPP description
+-- 
+2.47.2
+

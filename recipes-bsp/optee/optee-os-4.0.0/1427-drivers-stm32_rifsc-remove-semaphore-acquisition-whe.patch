@@ -1,0 +1,75 @@
+From ef74fdb8d1f6db53cbc242b314a269ea3f77be58 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 2 Jan 2025 15:28:01 +0100
+Subject: [PATCH 1427/1695] drivers: stm32_rifsc: remove semaphore acquisition
+ when applying the conf
+
+Remove the semaphore acquisition when applying the configuration
+so that they are taken, if necessary, during the firewall bus probe.
+This avoid semaphores being taken by OP-TEE when the peripheral isn't
+used.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b5ab7d96a17761ce985505801004ac5ebb550296 drivers: stm32_rifsc: remove semaphore acquisition when applying the conf]
+Change-Id: I23714f78e8c5d791796c68a181f93df442e11279
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/426752
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/firewall/stm32_rifsc.c | 29 -----------------------------
+ 1 file changed, 29 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_rifsc.c b/core/drivers/firewall/stm32_rifsc.c
+index bcc6e3c14..900f91b8b 100644
+--- a/core/drivers/firewall/stm32_rifsc.c
++++ b/core/drivers/firewall/stm32_rifsc.c
+@@ -495,7 +495,6 @@ static TEE_Result stm32_risup_cfg(struct rifsc_platdata *pdata,
+ 	uintptr_t cidcfgr_offset = _OFFSET_PERX_CIDCFGR * risup->id;
+ 	uintptr_t offset = sizeof(uint32_t) * (risup->id / _PERIPH_IDS_PER_REG);
+ 	uint32_t shift = risup->id % _PERIPH_IDS_PER_REG;
+-	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+ 	if (!risup || risup->id >= drv_data->nb_risup)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+@@ -525,34 +524,6 @@ static TEE_Result stm32_risup_cfg(struct rifsc_platdata *pdata,
+ 		}
+ 	}
+ 
+-	/* Take semaphore if the resource is in semaphore mode and secured */
+-	if (stm32_rif_semaphore_enabled_and_ok(risup->cid_attr, RIF_CID1)) {
+-		if (!(io_read32(pdata->base + _RIFSC_RISC_SECCFGR0 + offset) &
+-		      BIT(shift))) {
+-			res =
+-			stm32_rif_release_semaphore(pdata->base +
+-						    _RIFSC_RISC_PER0_SEMCR +
+-						    cidcfgr_offset,
+-						    MAX_CID_SUPPORTED);
+-			if (res) {
+-				EMSG("Couldn't release semaphore for resource %"PRIu32,
+-				     risup->id);
+-				return TEE_ERROR_ACCESS_DENIED;
+-			}
+-		} else {
+-			res =
+-			stm32_rif_acquire_semaphore(pdata->base +
+-						    _RIFSC_RISC_PER0_SEMCR +
+-						    cidcfgr_offset,
+-						    MAX_CID_SUPPORTED);
+-			if (res) {
+-				EMSG("Couldn't acquire semaphore for resource %"PRIu32,
+-				     risup->id);
+-				return TEE_ERROR_ACCESS_DENIED;
+-			}
+-		}
+-	}
+-
+ 	return TEE_SUCCESS;
+ }
+ 
+-- 
+2.47.2
+

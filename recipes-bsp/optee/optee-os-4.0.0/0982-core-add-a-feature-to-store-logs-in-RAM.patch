@@ -1,0 +1,191 @@
+From 0994e510ae3adc069bc9ee8b2f70ca07af45f667 Mon Sep 17 00:00:00 2001
+From: Cheick TRAORE <cheick.traore-ext@st.com>
+Date: Thu, 13 Jun 2024 18:07:13 +0200
+Subject: [PATCH 0982/1695] core: add a feature to store logs in RAM
+
+When UART console relies on a UART driver probed from the DT,
+the early console cannot be used and trace message are printed
+only from the initcalls. Add a RAM base console to store trace messages
+at least once TA RAM memory pool is initialized and allow effective
+UART driver to print these messages when it registers as console driver.
+The feature depends on configuration switch CFG_RAM_CONSOLE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cf1b71b138a7c2ec0404948c943896f1e2f0d996 core: add a feature to store logs in RAM]
+Change-Id: I8297a827268253dbc81eced4a6ec6191b4088bda
+Signed-off-by: Cheick TRAORE <cheick.traore-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/379979
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/kernel/boot.c |  3 ++
+ core/include/console.h      | 13 +++++-
+ core/kernel/console.c       | 85 +++++++++++++++++++++++++++++++++++++
+ mk/config.mk                |  7 +++
+ 4 files changed, 107 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/kernel/boot.c b/core/arch/arm/kernel/boot.c
+index 96d6e6b19..3034bd8bd 100644
+--- a/core/arch/arm/kernel/boot.c
++++ b/core/arch/arm/kernel/boot.c
+@@ -1106,6 +1106,9 @@ void init_tee_runtime(void)
+ 	/* Pager initializes TA RAM early */
+ 	core_mmu_init_ta_ram();
+ #endif
++	/* Init RAM console if any */
++	ram_console_init();
++
+ 	/*
+ 	 * With virtualization we call this function when creating the
+ 	 * OP-TEE partition instead.
+diff --git a/core/include/console.h b/core/include/console.h
+index f9cfaca51..0191a7b54 100644
+--- a/core/include/console.h
++++ b/core/include/console.h
+@@ -46,9 +46,20 @@ TEE_Result get_console_node_from_dt(void *fdt, int *offs_out,
+  * the console to this device.
+  */
+ void configure_console_from_dt(void);
++
++#ifdef CFG_RAM_CONSOLE
++/* Allocate and initialize RAM console */
++void ram_console_init(void);
++#else
++static inline void ram_console_init(void)
++{
++}
++#endif /* CFG_RAM_CONSOLE */
++
+ #else
+ static inline void configure_console_from_dt(void)
+-{}
++{
++}
+ #endif /* !CFG_DT */
+ 
+ #endif /* __CONSOLE_H */
+diff --git a/core/kernel/console.c b/core/kernel/console.c
+index 6291b2c39..638f0a2d3 100644
+--- a/core/kernel/console.c
++++ b/core/kernel/console.c
+@@ -18,6 +18,84 @@
+ 
+ static struct serial_chip *serial_console __nex_bss;
+ 
++#ifdef CFG_RAM_CONSOLE
++/*
++ * struct ram_console - RAM console to store messages in.
++ * ram_serial: Serial chip instance for the RAM console
++ * @mm: RAM console buffer allocate in TA RAM
++ * @logs: Virtual address of the buffer referenced by @mm
++ * @write_offset: Byte offset from @logs where to store next trace byte
++ */
++struct ram_console {
++	struct serial_chip ram_serial;
++	tee_mm_entry_t *mm;
++	char *logs;
++	size_t write_offset;
++};
++
++/* RAM console reference used to switch console in matching UART probe */
++static struct ram_console *ram_console;
++
++static void ram_console_putc(struct serial_chip *chip __unused, int ch)
++{
++	if (ram_console->write_offset < CFG_RAM_CONSOLE_SIZE) {
++		*(ram_console->logs + ram_console->write_offset) = ch;
++		ram_console->write_offset++;
++	}
++}
++
++static void ram_console_flush(struct serial_chip *chip)
++{
++	size_t n = 0;
++
++	if (ram_console && ram_console->write_offset) {
++		if (chip->ops->putc)
++			for (n = 0; n < ram_console->write_offset; n++)
++				chip->ops->putc(chip, ram_console->logs[n]);
++
++		if (chip->ops->flush)
++			chip->ops->flush(chip);
++		ram_console->write_offset = 0;
++	}
++}
++
++static const struct serial_ops ram_console_ops = {
++	.putc = ram_console_putc,
++};
++DECLARE_KEEP_PAGER(ram_console_ops);
++
++void ram_console_init(void)
++{
++	ram_console = calloc(1, sizeof(*ram_console));
++	if (!ram_console)
++		return;
++
++	ram_console->mm = tee_mm_alloc(&tee_mm_sec_ddr, CFG_RAM_CONSOLE_SIZE);
++	if (!ram_console->mm) {
++		free(ram_console);
++		ram_console = NULL;
++		return;
++	}
++	ram_console->logs = phys_to_virt(tee_mm_get_smem(ram_console->mm),
++					 MEM_AREA_TA_RAM, CFG_RAM_CONSOLE_SIZE);
++
++	ram_console->ram_serial.ops = &ram_console_ops;
++	serial_console = &ram_console->ram_serial;
++
++	DMSG("RAM console registered");
++}
++
++static void release_ram_console(void)
++{
++	if (ram_console) {
++		tee_mm_free(ram_console->mm);
++		free(ram_console);
++		ram_console = NULL;
++		DMSG("RAM console released");
++	}
++}
++#endif /*CFG_RAM_CONSOLE*/
++
+ void __weak console_putc(int ch)
+ {
+ 	if (!serial_console)
+@@ -38,7 +116,14 @@ void __weak console_flush(void)
+ 
+ void register_serial_console(struct serial_chip *chip)
+ {
++#ifdef CFG_RAM_CONSOLE
++	if (ram_console && chip)
++		ram_console_flush(chip);
++#endif /* CFG_RAM_CONSOLE */
+ 	serial_console = chip;
++#ifdef CFG_RAM_CONSOLE
++	release_ram_console();
++#endif /* CFG_RAM_CONSOLE */
+ }
+ 
+ #ifdef CFG_DT
+diff --git a/mk/config.mk b/mk/config.mk
+index c06563247..183b19086 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -1122,3 +1122,10 @@ $(eval $(call cfg-depends-all,CFG_CRYPTO_HW_PBKDF2,CFG_CRYPTO_PBKDF2))
+ CFG_HALT_CORES_ON_PANIC ?= n
+ CFG_HALT_CORES_ON_PANIC_SGI ?= 15
+ $(eval $(call cfg-depends-all,CFG_HALT_CORES_ON_PANIC,CFG_GIC))
++
++# CFG_RAM_CONSOLE, when enabled, stores in TA RAM all trace messages emitted
++# as soon as TA RAM memory pool is initialized. When a console driver registers,
++# it prints logged messages and frees the RAM console memory.
++# CFG_RAM_CONSOLE_SIZE defines the byte size of the RAM console buffer.
++CFG_RAM_CONSOLE ?= n
++CFG_RAM_CONSOLE_SIZE ?= 65536
+\ No newline at end of file
+-- 
+2.47.2
+

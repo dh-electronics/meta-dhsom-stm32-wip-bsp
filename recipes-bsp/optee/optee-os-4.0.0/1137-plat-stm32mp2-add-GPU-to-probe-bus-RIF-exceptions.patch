@@ -1,0 +1,52 @@
+From 2ad0361fd235dd45900ef140fde9c513fe64bfe2 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 12 Sep 2024 17:47:45 +0200
+Subject: [PATCH 1137/1695] plat: stm32mp2: add GPU to probe bus RIF exceptions
+
+GPU driver is probed to support GPU OPP.
+GPU is configured for non secure. Hence add compatible "vivante,gc" to
+the list of RIF exception to allow the probe of this non secure IP.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a4450b6d8005d42c33423e500e4f7822dabeb505 plat: stm32mp2: add GPU to probe bus RIF exceptions]
+Change-Id: I5168b79a80d164f15629f3714c0d47426dae13ad
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/404205
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 64eee0fed..122b15c2c 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -492,6 +492,7 @@ void stm32_debug_suspend(unsigned long a0)
+ bool stm32mp_allow_probe_shared_device(const void *fdt, int node)
+ {
+ 	static int uart_console_node = -1;
++	const char *compat = NULL;
+ 	static bool once;
+ 
+ 	if (!once) {
+@@ -500,8 +501,14 @@ bool stm32mp_allow_probe_shared_device(const void *fdt, int node)
+ 		once = true;
+ 	}
+ 
+-	/* Allow OP-TEE console to be shared with non-secure world */
+-	if (node == uart_console_node)
++	compat = fdt_stringlist_get(fdt, node, "compatible", 0, NULL);
++
++	/*
++	 * Allow OP-TEE console to be shared with non-secure world.
++	 * Allow GPU to be probed to handle GPU OPP.
++	 */
++	if (node == uart_console_node ||
++	    !strcmp(compat, "vivante,gc"))
+ 		return true;
+ 
+ 	return false;
+-- 
+2.47.2
+

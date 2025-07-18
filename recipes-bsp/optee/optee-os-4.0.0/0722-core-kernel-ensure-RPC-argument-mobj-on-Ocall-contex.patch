@@ -1,0 +1,187 @@
+From 8121f772a6f3d1d87f6ee23b26b666eab5ab3cb3 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 19 Mar 2024 12:23:01 +0100
+Subject: [PATCH 0722/1695] core: kernel: ensure RPC argument mobj on Ocall
+ context
+
+Ensure there is an RPC argument memory object available when executing
+an OCall context unless what some standard RPC commands will fail
+to provide Linux kernel with the valid RPC argument memory buffer.
+
+The Ocall2 context setup by the Linux kernel does not provide an RPC
+argument reference related to memory object (struct mobj) but one will
+be needed if issuing a standard RPC from a RPC aware context. Therefore
+thread_rpc_ocall2_prepare() allocates one for the thread and
+thread_rpc_ocall2_unprepare() releases it and restores the original RPC
+argument reference in the thread context.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 00b4e0972125dc82643a499d22c530b5d81ecab7 core: kernel: ensure RPC argument mobj on Ocall context]
+Change-Id: I470ee206e91f5f60fb7877e13433843187acfa21
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/367756
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/kernel/thread_optee_smc.c | 46 +++++++++++++++++++++++++
+ core/include/kernel/thread.h            | 14 ++++++++
+ core/pta/scmi.c                         | 16 +++++++++
+ 3 files changed, 76 insertions(+)
+
+diff --git a/core/arch/arm/kernel/thread_optee_smc.c b/core/arch/arm/kernel/thread_optee_smc.c
+index e814e2492..f90ff052f 100644
+--- a/core/arch/arm/kernel/thread_optee_smc.c
++++ b/core/arch/arm/kernel/thread_optee_smc.c
+@@ -581,6 +581,52 @@ uint32_t thread_rpc_cmd(uint32_t cmd, size_t num_params,
+ 	return get_rpc_arg_res(arg, num_params, params);
+ }
+ 
++/*
++ * The Ocall2 context setup by the Linux kernel does not provide an RPC
++ * argument reference related to memory object (struct mobj) but one will
++ * be needed if issuing a standard RPC from a RPC aware context. Therefore
++ * thread_rpc_ocall2_prepare() allocates one for the thread and
++ * thread_rpc_ocall2_unprepare() releases it and restores the original RPC
++ * argument reference in the thread context.
++ */
++TEE_Result thread_rpc_ocall2_prepare(struct optee_msg_arg **rpc_arg)
++{
++	struct thread_ctx *thr = threads + thread_get_id();
++
++	if (!thr->rpc_mobj) {
++		size_t sz = OPTEE_MSG_GET_ARG_SIZE(THREAD_RPC_MAX_NUM_PARAMS);
++		struct mobj *new_rpc_mobj = NULL;
++		struct optee_msg_arg *new_rpc_arg = NULL;
++
++		new_rpc_mobj = thread_rpc_alloc_arg(sz);
++		if (!new_rpc_mobj)
++			return TEE_ERROR_OUT_OF_MEMORY;
++
++		new_rpc_arg = mobj_get_va(new_rpc_mobj, 0, sz);
++		if (!new_rpc_arg) {
++			thread_rpc_free_arg(mobj_get_cookie(new_rpc_mobj));
++			return TEE_ERROR_OUT_OF_MEMORY;
++		}
++
++		*rpc_arg = thr->rpc_arg;
++		thr->rpc_arg = new_rpc_arg;
++		thr->rpc_mobj = new_rpc_mobj;
++	}
++
++	return TEE_SUCCESS;
++}
++
++void thread_rpc_ocall2_unprepare(struct optee_msg_arg *rpc_arg)
++{
++	if (rpc_arg) {
++		struct thread_ctx *thr = threads + thread_get_id();
++
++		thread_rpc_free_arg(mobj_get_cookie(thr->rpc_mobj));
++		thr->rpc_arg = rpc_arg;
++		thr->rpc_mobj = NULL;
++	}
++}
++
+ uint32_t thread_rpc_ocall2_cmd(uint32_t param[2])
+ {
+ 	uint32_t rpc_args[THREAD_RPC_NUM_ARGS] = {
+diff --git a/core/include/kernel/thread.h b/core/include/kernel/thread.h
+index 956616a47..20797833a 100644
+--- a/core/include/kernel/thread.h
++++ b/core/include/kernel/thread.h
+@@ -28,6 +28,8 @@
+ 
+ #ifndef __ASSEMBLER__
+ 
++struct optee_msg_arg;
++
+ struct thread_specific_data {
+ 	TAILQ_HEAD(, ts_session) sess_stack;
+ 	struct ts_ctx *ctx;
+@@ -340,6 +342,18 @@ struct thread_param {
+ uint32_t thread_rpc_cmd(uint32_t cmd, size_t num_params,
+ 		struct thread_param *params);
+ 
++/*
++ * Prepare execution context for an Ocall thread.
++ * @rpc_arg: Output context to be provided back to thread_rpc_ocall2_unprepare()
++ */
++TEE_Result thread_rpc_ocall2_prepare(struct optee_msg_arg **rpc_arg);
++
++/*
++ * Restore execution context when terminating an Ocall thread.
++ * @rpc_arg: Input context got from thread_rpc_ocall2_prepare()
++ */
++void thread_rpc_ocall2_unprepare(struct optee_msg_arg *rpc_arg);
++
+ /**
+  * Does an Ocall2 RPC using only 2 in/out parameters passed with CPU registers
+  * @param1: in/out first parameter
+diff --git a/core/pta/scmi.c b/core/pta/scmi.c
+index 54f822133..909142f95 100644
+--- a/core/pta/scmi.c
++++ b/core/pta/scmi.c
+@@ -254,6 +254,8 @@ static TEE_Result cmd_scmi_ocall_smt_thread(uint32_t ptypes,
+ 
+ 	uint32_t channel_id = (int)params[0].value.a;
+ 	struct scmi_msg_channel *channel = NULL;
++	struct optee_msg_arg *rpc_arg = NULL;
++	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+ 	if (ptypes != exp_ptypes)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+@@ -265,14 +267,20 @@ static TEE_Result cmd_scmi_ocall_smt_thread(uint32_t ptypes,
+ 	if (!channel)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	res = thread_rpc_ocall2_prepare(&rpc_arg);
++	if (res)
++		return res;
++
+ 	FMSG("Enter Ocall thread on channel %u"PRIu32, channel_id);
+ 	while (1) {
+ 		switch (pta_scmi_ocall(channel_id, NULL)) {
+ 		case PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL:
+ 			continue;
+ 		case PTA_SCMI_OCALL_CLOSE_THREAD:
++			thread_rpc_ocall2_unprepare(rpc_arg);
+ 			return TEE_SUCCESS;
+ 		default:
++			thread_rpc_ocall2_unprepare(rpc_arg);
+ 			return TEE_ERROR_GENERIC;
+ 		}
+ 	}
+@@ -292,6 +300,8 @@ static TEE_Result cmd_scmi_ocall_msg_thread(uint32_t ptypes,
+ 		.out_max_size = params[2].memref.size,
+ 	};
+ 	unsigned int channel_id = params[0].value.a;
++	struct optee_msg_arg *rpc_arg = NULL;
++	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+ 	if (ptypes != exp_pt || !dyn_shm.in_buf || !dyn_shm.out_buf)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+@@ -300,14 +310,20 @@ static TEE_Result cmd_scmi_ocall_msg_thread(uint32_t ptypes,
+ 	    !plat_scmi_get_channel(channel_id))
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	res = thread_rpc_ocall2_prepare(&rpc_arg);
++	if (res)
++		return res;
++
+ 	while (1) {
+ 		switch (pta_scmi_ocall(channel_id, &dyn_shm)) {
+ 		case PTA_SCMI_OCALL_PROCESS_MSG_CHANNEL:
+ 			continue;
+ 		case PTA_SCMI_OCALL_CLOSE_THREAD:
++			thread_rpc_ocall2_unprepare(rpc_arg);
+ 			params[2].memref.size =  dyn_shm.out_size;
+ 			return TEE_SUCCESS;
+ 		default:
++			thread_rpc_ocall2_unprepare(rpc_arg);
+ 			return TEE_ERROR_GENERIC;
+ 		}
+ 	}
+-- 
+2.47.2
+

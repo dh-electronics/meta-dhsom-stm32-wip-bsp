@@ -1,0 +1,75 @@
+From 0fd3bb452bdc70c302b33e801fbf57fc6f86451b Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 30 Sep 2024 14:52:15 +0200
+Subject: [PATCH 1401/1695] drivers: clk: stm32mp13: test
+ stm32_gate_rdy_disable() return value
+
+Check stm32_gate_rdy_disable() return value in STM32MP13 clock
+driver and emit a error trace message in case of timeout.
+The implementation intentionally permits such error since it
+should not cause system issues on clock disable operations.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b28f8961d44b4615f45415d0088ce22f5fe520a9 drivers: clk: stm32mp13: test stm32_gate_rdy_disable() return value]
+Change-Id: I5765d66ce79b57a91c0e58ab648cadbf43c29567
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/407765
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/clk/clk-stm32mp13.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 489798fda..dbb1a2c66 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -1930,7 +1930,9 @@ static void clk_stm32_pll_disable(struct clk *clk)
+ 	io_clrbits32(pll_base, RCC_PLLNCR_DIVPEN | RCC_PLLNCR_DIVQEN |
+ 		     RCC_PLLNCR_DIVREN);
+ 
+-	stm32_gate_rdy_disable(cfg->gate_id);
++	/* Almost silently allow timeout on PLL disabling */
++	if (stm32_gate_rdy_disable(cfg->gate_id))
++		EMSG("Disable ready timeout on %s clock", clk_get_name(clk));
+ }
+ 
+ static const struct clk_ops clk_stm32_pll_ops = {
+@@ -2089,7 +2091,9 @@ static TEE_Result clk_stm32_pll1_set_rate(struct clk *clk __maybe_unused,
+ 			return TEE_ERROR_GENERIC;
+ 
+ 		stm32_gate_disable(GATE_PLL1_DIVP);
+-		stm32_gate_rdy_disable(GATE_PLL1);
++		/* Almost silently allow timeout on PLL disabling */
++		if (stm32_gate_rdy_disable(GATE_PLL1))
++			EMSG("Disable ready timeout on PLL1 clock");
+ 		clk_stm32_pll_config_vco(priv, pll, &pll_conf->vco);
+ 	}
+ 
+@@ -2315,8 +2319,9 @@ static void clk_stm32_oscillator_disable(struct clk *clk)
+ 	if (clk->rate == 0U)
+ 		return;
+ 
++	/* Almost silently allow timeout on oscillator disabling */
+ 	if (stm32_gate_rdy_disable(cfg->gate_id))
+-		panic();
++		EMSG("Disable ready timeout on %s clock", clk_get_name(clk));
+ }
+ 
+ static bool clk_stm32_oscillator_is_enabled(struct clk *clk)
+@@ -3342,7 +3347,10 @@ static void clk_stm32_pm_restore_pll_output_status(void)
+ 			/* Stop all output */
+ 			io_clrbits32(pllxcr, RCC_PLLNCR_DIVPEN |
+ 				     RCC_PLLNCR_DIVQEN | RCC_PLLNCR_DIVREN);
+-			stm32_gate_rdy_disable(pll->gate_id);
++			/* Almost silently allow timeout on PLL disabling */
++			if (stm32_gate_rdy_disable(pll->gate_id))
++				EMSG("Disable ready timeout on PLL%u clock",
++				     pll_id + 1);
+ 		}
+ 	}
+ }
+-- 
+2.47.2
+

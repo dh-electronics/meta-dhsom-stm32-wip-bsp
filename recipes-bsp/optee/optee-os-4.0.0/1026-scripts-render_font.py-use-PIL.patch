@@ -1,0 +1,284 @@
+From 8eda974add3dfcad696709c87e3b669649c1f44c Mon Sep 17 00:00:00 2001
+From: Nicolas Toromanoff <nicolas.toromanoff@foss.st.com>
+Date: Mon, 20 Sep 2021 14:12:15 +0200
+Subject: [PATCH 1026/1695] scripts: render_font.py use PIL
+
+render_font.py script now uses 'PIL' and no more 'wand'.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d0635eb16f6f4ef20d298da79c7feab5ee6ec186 scripts: render_font.py use PIL]
+Signed-off-by: Nicolas Toromanoff <nicolas.toromanoff@foss.st.com>
+Change-Id: Iecfd3c89651ab7e32dfef16607dde1f3265dc040
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391778
+Reviewed-by: Yannick FERTRE <yannick.fertre@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Yannick FERTRE <yannick.fertre@foss.st.com>
+Domain-Review: Yannick FERTRE <yannick.fertre@foss.st.com>
+---
+ lib/libutee/tui/sub.mk |  11 +--
+ scripts/render_font.py | 182 ++++++++++++++++++++---------------------
+ 2 files changed, 94 insertions(+), 99 deletions(-)
+
+diff --git a/lib/libutee/tui/sub.mk b/lib/libutee/tui/sub.mk
+index 68c555b43..c820037d0 100644
+--- a/lib/libutee/tui/sub.mk
++++ b/lib/libutee/tui/sub.mk
+@@ -11,13 +11,15 @@ srcs-y += font.c
+ # Need to locate font.h from generated sources
+ incdirs-y += .
+ 
++render_font:=scripts/render_font.py
++
+ gensrcs-y += default_bold
+ force-gensrc-default_bold = y
+ produce-additional-default_bold = default_bold.h
+ produce-default_bold = default_bold.c
+-depends-default_bold := scripts/render_font.py \
++depends-default_bold := $(render_font) \
+ 		$(sub-dir)/fonts/amble/Amble-Bold.ttf
+-recipe-default_bold := scripts/render_font.py \
++recipe-default_bold := $(PYTHON3) $(render_font) \
+ 		--font_file $(sub-dir)/fonts/amble/Amble-Bold.ttf \
+ 		--font_size 20 --font_name default_bold \
+ 		--out_dir $(sub-dir-out)
+@@ -27,11 +29,10 @@ gensrcs-y += default_regular
+ force-gensrc-default_regular = y
+ produce-additional-default_regular = default_regular.h
+ produce-default_regular = default_regular.c
+-depends-default_regular := scripts/render_font.py \
++depends-default_regular := $(render_font) \
+ 		$(sub-dir)/fonts/amble/Amble-Regular.ttf
+-recipe-default_regular := scripts/render_font.py \
++recipe-default_regular := $(PYTHON3) $(render_font) \
+ 		--font_file $(sub-dir)/fonts/amble/Amble-Regular.ttf \
+ 		--font_size 20 --font_name default_regular \
+ 		--out_dir $(sub-dir-out)
+ cleanfiles += $(sub-dir-out)/default_regular.c $(sub-dir-out)/default_regular.h
+-
+diff --git a/scripts/render_font.py b/scripts/render_font.py
+index 7e1f07b4a..479b57c37 100755
+--- a/scripts/render_font.py
++++ b/scripts/render_font.py
+@@ -2,14 +2,12 @@
+ # SPDX-License-Identifier: BSD-2-Clause
+ #
+ # Copyright (c) 2016-2021, Linaro Limited
+-#
+ 
+-from wand.image import Image
+-from wand.drawing import Drawing
+-from wand.color import Color
++from PIL import ImageDraw
++from PIL import ImageFont
++from PIL import Image
+ import sys
+ 
+-
+ def get_args():
+     from argparse import ArgumentParser
+ 
+@@ -26,116 +24,112 @@ def get_args():
+                         help='Print informational messages')
+     return parser.parse_args()
+ 
+-
+-def c_hex_print(f, str):
+-    n = 0
+-    s = ""
+-    for x in str:
++def c_hex(bstr):
++    s = []
++    for n, x in enumerate(bstr):
+         if n % 8 == 0:
+-            s += "\t"
++            if n == 0:
++                s.append("\t")
++            else:
++                s.append("\n\t")
+         else:
+-            s += " "
+-        # Hack to satisfy both Python 2.x and 3.x. In 2.x the variable x
+-        # is string, while it in Python 3.x it's considered as a class
+-        # int.
+-        if sys.version_info > (3, 0):
+-            s += "0x%02x," % x
+-        else:
+-            s += "0x%02x," % ord(x)
+-        n = n + 1
+-        if n % 8 == 0:
+-            f.write(s + "\n")
+-            s = ""
+-    if n % 8 != 0:
+-        f.write(s + "\n")
+-        s = ""
++            s.append(" ")
++
++        s.append("0x{:02x},".format(x))
++
++    return "".join(s)
++
++header_template = """/*
++ * This file is auto generated with
++ * {cmd_line}
++ * do not edit.
++ */
++"""
++
++h_file_template = """#ifndef __{FONT_NAME}_H
++#define __{FONT_NAME}_H
++
++#include "font.h"
++
++extern const struct font font_{font_name};
+ 
++#endif /*__{FONT_NAME}_H*/
++"""
+ 
+-def write_comment(f):
+-    f.write("/*\n * This file is auto generated with\n")
+-    f.write(" *")
+-    for x in sys.argv:
+-        f.write(" " + x)
+-    f.write("\n * do not edit.\n */\n")
++letter_template = """/* {letter} */
++static const unsigned char letter_{id}[] = {{
++{c_hex}
++}};
+ 
++"""
++
++font_letter_template = """\t{{ letter_{id}, sizeof(letter_{id}), {width}}},
++"""
++
++font_template = """const struct font font_{name} = {{
++        .first = 0x{first:02x},
++        .last = 0x{last:02x},
++	.letters = letters,
++	.height = {height},
++	.max_width = {max_width},
++}};
++"""
+ 
+ def main():
+     args = get_args()
+ 
+-    draw = Drawing()
+-    draw.font = args.font_file
+-    draw.font_size = args.font_size
+-
+     font_name = args.font_name
+     out_dir = args.out_dir
+ 
+-    img_ref = Image(width=1000, height=1000)
++    range_first = 0x20
++    range_last = 0x7d
++    c_letters = {}
++
++    letters = range(range_first, range_last + 1)
++
++    font = ImageFont.truetype(args.font_file, args.font_size)
++    ascent, descent = font.getmetrics()
++    text_height = font.font.height + 2
++
++    for x in letters:
++        letter= chr(x)
++        (width, height), (offset_x, offset_y) = font.font.getsize(letter)
++        text_width = width + 2 + offset_x;
++        letter_img = Image.new("1", (text_width, text_height), 0)
++        draw = ImageDraw.Draw(letter_img)
++        draw.fontmode="1"
++        draw.text((0, 0), letter, font=font, fill=1)
++        c_letters[x] = {'img' : letter_img.tobytes(),
++                        'width' : text_width }
+ 
+     if args.verbose:
+         print("Writing " + out_dir + "/" + font_name + ".c")
+-    f = open(out_dir + "/" + font_name + ".c", 'w+')
+-    write_comment(f)
+-    f.write("#include \"font.h\"\n\n")
+ 
+-    font_height = 0
+-    range_first = 0x20
+-    range_last = 0x7d
+-    font_width = []
+-    max_width = 0
+-    for x in range(range_first, range_last + 1):
+-        letter = chr(x)
+-        metrics = draw.get_font_metrics(img_ref, letter)
+-        text_height = int(round(metrics.text_height + 2))
+-        if font_height == 0:
+-            font_height = text_height
+-        assert (font_height == text_height), "font height changed!"
+-        if max_width == 0:
+-            max_width = metrics.maximum_horizontal_advance + 2
+-        assert (max_width == metrics.maximum_horizontal_advance + 2), \
+-            "font advance width changed!"
+-        text_width = int(round(metrics.text_width + 2))
+-        font_width.append(text_width)
+-        img = Image(width=text_width, height=text_height)
+-        d = draw.clone()
+-        d.text(0, int(metrics.ascender), letter)
+-        d(img)
+-
+-        img.depth = 1
+-
+-        f.write("static const unsigned char ")
+-        f.write("letter_" + str(hex(x)[2:]) + "[] = {\n")
+-        c_hex_print(f, img.make_blob(format='A'))
++    with open(out_dir + "/" + font_name + ".c", 'w+') as f:
++        f.write(header_template.format(cmd_line=' '.join(sys.argv)))
++        f.write('#include "font.h"\n\n')
++        for x in letters:
++            f.write(letter_template.format(letter=chr(x), id="{:02x}".format(x),
++                    c_hex=c_hex(c_letters[x]['img'])))
++
++        f.write("static const struct font_letter letters[] = {\n")
++        for x in letters:
++            f.write(font_letter_template.format(id="{:02x}".format(x),
++                    width=c_letters[x]['width']))
+         f.write("};\n\n")
+-        img.close()
+-
+-    f.write("static const struct font_letter letters[] = {\n")
+-    for x in range(range_first, range_last + 1):
+-        letter_var_name = "letter_" + str(hex(x)[2:])
+-        f.write("\t{ " + letter_var_name + ", ")
+-        f.write("sizeof(" + letter_var_name + "), ")
+-        f.write(str(font_width[x - range_first]) + "},\n")
+-    f.write("};\n\n")
+-
+-    f.write("const struct font font_" + font_name + " = {\n")
+-    f.write("\t.first = " + str(hex(range_first)) + ",\n")
+-    f.write("\t.last = " + str(hex(range_last)) + ",\n")
+-    f.write("\t.letters = letters,\n")
+-    f.write("\t.height = " + str(font_height) + ",\n")
+-    f.write("\t.max_width = " + str(max_width) + ",\n")
+-    f.write("};\n")
+-    f.close()
++
++        f.write(font_template.format(name=args.font_name,
++            first=letters[0],
++            last=letters[-1],
++            height=text_height,
++            max_width=max(l['width'] for l in c_letters.values())))
+ 
+     if args.verbose:
+         print("Writing " + out_dir + "/" + font_name + ".h")
+-    f = open(out_dir + "/" + font_name + ".h", 'w+')
+-    write_comment(f)
+-    f.write("#ifndef __" + font_name.upper() + "_H\n")
+-    f.write("#define __" + font_name.upper() + "_H\n")
+-    f.write("#include \"font.h\"\n")
+-    f.write("extern const struct font font_" + font_name + ";\n")
+-    f.write("#endif /*__" + font_name.upper() + "_H*/\n")
+-    f.close()
+ 
++    with open(out_dir + "/" + font_name + ".h", 'w+') as f:
++        f.write(header_template.format(cmd_line=' '.join(sys.argv)))
++        f.write(h_file_template.format(font_name=font_name, FONT_NAME=font_name.upper()))
+ 
+ if __name__ == "__main__":
+     main()
+-- 
+2.47.2
+
