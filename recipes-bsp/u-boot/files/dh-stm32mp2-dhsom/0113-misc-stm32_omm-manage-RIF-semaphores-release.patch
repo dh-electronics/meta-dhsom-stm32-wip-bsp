@@ -1,0 +1,88 @@
+From 5e9f79f1e3eeb7de8983e0ffffef36b3ea7259f6 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 31 Mar 2025 14:48:49 +0200
+Subject: [PATCH 113/120] misc: stm32_omm: manage RIF semaphores release
+
+Manage the release of the RIF semaphore at the end of the OMM probe.
+There should be no further access after this.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 6ef733a2d5d9fd38c796b8b25649d2a6e7d18bce misc: stm32_omm: manage RIF semaphores release]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Idaced89150e5e73d34f5458976c08c2dd3940aad
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/457632
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ drivers/misc/stm32_omm.c | 20 ++++++++++++++++----
+ 1 file changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/misc/stm32_omm.c b/drivers/misc/stm32_omm.c
+index d9a1342dd61..0fe2fea7fc1 100644
+--- a/drivers/misc/stm32_omm.c
++++ b/drivers/misc/stm32_omm.c
+@@ -163,6 +163,14 @@ static int stm32_omm_enable_child_clock(struct udevice *dev, ofnode child)
+ 	return ret;
+ }
+ 
++static void stm32_omm_release_childs(ofnode *child_list, u8 nb_child)
++{
++	u8 i;
++
++	for (i = 0; i < nb_child; i++)
++		stm32_rifsc_release_access(child_list[i]);
++}
++
+ static int stm32_omm_probe(struct udevice *dev) {
+ 	struct stm32_omm_plat *plat = dev_get_plat(dev);
+ 	ofnode child_list[OMM_CHILD_NB];
+@@ -206,7 +214,7 @@ static int stm32_omm_probe(struct udevice *dev) {
+ 	/* check if OMM's ressource access is granted */
+ 	ret = stm32_rifsc_check_access(dev_ofnode(dev));
+ 	if (ret < 0 && ret != -EACCES)
+-		return ret;
++		goto end;
+ 
+ 	/* All child's access are granted ? */
+ 	if (!ret && child_access_granted == nb_child) {
+@@ -214,12 +222,12 @@ static int stm32_omm_probe(struct udevice *dev) {
+ 		for (i = 0; i < nb_child; i++) {
+ 			ret = stm32_omm_disable_child(dev, child_list[i]);
+ 			if (ret)
+-				return ret;
++				goto end;
+ 		}
+ 
+ 		ret = stm32_omm_configure(dev);
+ 		if (ret)
+-			return ret;
++			goto end;
+ 
+ 		if (plat->mux & CR_MUXEN) {
+ 			/*
+@@ -230,7 +238,7 @@ static int stm32_omm_probe(struct udevice *dev) {
+ 			for (i = 0; i < nb_child; i++) {
+ 				ret = stm32_omm_enable_child_clock(dev, child_list[i]);
+ 				if (ret)
+-					return ret;
++					goto end;
+ 			}
+ 		}
+ 	} else {
+@@ -242,6 +250,10 @@ static int stm32_omm_probe(struct udevice *dev) {
+ 		ret = stm32_omm_set_amcr(dev, false);
+ 	}
+ 
++end:
++	stm32_omm_release_childs(child_list, nb_child);
++	stm32_rifsc_release_access(dev_ofnode(dev));
++
+ 	return ret;
+ }
+ 
+-- 
+2.47.2
+

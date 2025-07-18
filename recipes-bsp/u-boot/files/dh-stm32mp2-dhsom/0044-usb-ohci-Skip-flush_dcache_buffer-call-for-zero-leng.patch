@@ -1,0 +1,39 @@
+From cbf000212b54b13841c53541e71f2f6fb91790e2 Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Wed, 22 Feb 2023 16:46:55 +0530
+Subject: [PATCH 044/120] usb: ohci: Skip flush_dcache_buffer call for
+ zero-length packet
+
+flush_dcache_buffer call for data_len=0 should be skipped since
+it causes a data abort for armv8. It is anyway preferrable to
+avoid cache flush call for empty buffer (i.e. len=0)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 8683b57f46173e8f44ffdc4c0ad9837b53450d44 usb: ohci: Skip flush_dcache_buffer call for zero-length packet]
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Change-Id: Iaba770eb86c2f80e5588e4b28621cb2f7cda2052
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/303891
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+---
+ drivers/usb/host/ohci-hcd.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/host/ohci-hcd.c b/drivers/usb/host/ohci-hcd.c
+index 234a6f3645d..d3cab85c564 100644
+--- a/drivers/usb/host/ohci-hcd.c
++++ b/drivers/usb/host/ohci-hcd.c
+@@ -935,7 +935,8 @@ static void td_submit_job(ohci_t *ohci, struct usb_device *dev,
+ 	__u32 info = 0;
+ 	unsigned int toggle = 0;
+ 
+-	flush_dcache_buffer(buffer, data_len);
++	if (data_len)
++		flush_dcache_buffer(buffer, data_len);
+ 
+ 	/* OHCI handles the DATA-toggles itself, we just use the USB-toggle
+ 	 * bits for resetting */
+-- 
+2.47.2
+

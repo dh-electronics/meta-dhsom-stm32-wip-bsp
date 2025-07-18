@@ -1,0 +1,86 @@
+From b4c4070a4101e258b04d84c13626a9763f0c8115 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 27 May 2025 15:27:50 +0200
+Subject: [PATCH 006/120] clk: scmi: manage properly the clk identifier with
+ CCF
+
+Each clock identifier needs to be unique when CCF is activated,
+and it is not respected today by SCMI clock driver.
+
+This patch supports a unique clk id by using the uclass API
+clk_get_id() / dev_clk_dm() and by activating by default
+CONFIG_CLK_AUTO_ID with CCF which adds an offset to the SCMI
+clock identifiers.
+
+After this patch, the SCMI clock driver can coexist with other
+clock provider without conflict, they can share internal identifier
+[0..N] defined in their binding and the clock ID = 0
+(reserved for dummy clock) is no more used.
+
+Upstream-Status: Backport [aa7bdc1af505c1f69e4c3e4d14afdb5632aed8bc]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Cc: Lukasz Majewski <lukma@denx.de>
+Cc: Sean Anderson <seanga2@gmail.com>
+Reviewed-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrice Chotard <patrice.chotard@foss.st.com>
+---
+ drivers/clk/Kconfig    | 1 +
+ drivers/clk/clk_scmi.c | 8 ++++----
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
+index 8dbcc35335f..ef1e5355be8 100644
+--- a/drivers/clk/Kconfig
++++ b/drivers/clk/Kconfig
+@@ -192,6 +192,7 @@ config CLK_SCMI
+ 	bool "Enable SCMI clock driver"
+ 	depends on CLK
+ 	depends on SCMI_FIRMWARE
++	select CLK_AUTO_ID if CLK_CCF
+ 	help
+ 	  Enable this option if you want to support clock devices exposed
+ 	  by a SCMI agent based on SCMI clock protocol communication
+diff --git a/drivers/clk/clk_scmi.c b/drivers/clk/clk_scmi.c
+index e323a948780..cfb372e6190 100644
+--- a/drivers/clk/clk_scmi.c
++++ b/drivers/clk/clk_scmi.c
+@@ -132,7 +132,7 @@ static int scmi_clk_get_attibute(struct udevice *dev, int clkid, char **name,
+ static int scmi_clk_gate(struct clk *clk, int enable)
+ {
+ 	struct scmi_clk_state_in in = {
+-		.clock_id = clk->id,
++		.clock_id = clk_get_id(clk),
+ 		.attributes = enable,
+ 	};
+ 	struct scmi_clk_state_out out;
+@@ -197,7 +197,7 @@ static int scmi_clk_disable(struct clk *clk)
+ static ulong scmi_clk_get_rate(struct clk *clk)
+ {
+ 	struct scmi_clk_rate_get_in in = {
+-		.clock_id = clk->id,
++		.clock_id = clk_get_id(clk),
+ 	};
+ 	struct scmi_clk_rate_get_out out;
+ 	struct scmi_msg msg = SCMI_MSG_IN(SCMI_PROTOCOL_ID_CLOCK,
+@@ -219,7 +219,7 @@ static ulong scmi_clk_get_rate(struct clk *clk)
+ static ulong __scmi_clk_set_rate(struct clk *clk, ulong rate)
+ {
+ 	struct scmi_clk_rate_set_in in = {
+-		.clock_id = clk->id,
++		.clock_id = clk_get_id(clk),
+ 		.flags = SCMI_CLK_RATE_ROUND_CLOSEST,
+ 		.rate_lsb = (u32)rate,
+ 		.rate_msb = (u32)((u64)rate >> 32),
+@@ -313,7 +313,7 @@ static int scmi_clk_probe(struct udevice *dev)
+ 				return ret;
+ 			}
+ 
+-			clk_dm(i, &clk_scmi->clk);
++			dev_clk_dm(dev, i, &clk_scmi->clk);
+ 
+ 			if (CLK_HAS_RESTRICTIONS(attributes)) {
+ 				u32 perm;
+-- 
+2.47.2
+

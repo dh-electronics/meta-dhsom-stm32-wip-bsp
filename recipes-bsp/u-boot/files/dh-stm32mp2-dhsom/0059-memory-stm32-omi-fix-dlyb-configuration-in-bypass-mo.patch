@@ -1,0 +1,62 @@
+From c0dde48bb073285612d9f88c566dcff47474d935 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Fri, 15 Sep 2023 14:43:05 +0200
+Subject: [PATCH 059/120] memory: stm32-omi: fix dlyb configuration in bypass
+ mode
+
+This patchs fixes issues in stm32_omi_dlyb_configure API when bypass
+mode is used.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git f72d667e0e477ba3db46b0c7ce2f963becd3fe52 memory: stm32-omi: fix dlyb configuration in bypass mode]
+Change-Id: I5df548a9f61bba388cbcc8b3a6ffda8854bcf762
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/327936
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/memory/stm32-omi.c | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/memory/stm32-omi.c b/drivers/memory/stm32-omi.c
+index ce8ebafcae2..ad0af22d4d5 100644
+--- a/drivers/memory/stm32-omi.c
++++ b/drivers/memory/stm32-omi.c
+@@ -235,24 +235,26 @@ int stm32_omi_dlyb_configure(struct udevice *dev,
+ 			     bool bypass_mode, u16 period_ps)
+ {
+ 	struct stm32_omi_plat *omi_plat = dev_get_plat(dev);
+-	u32 sr, mask;
++	u32 sr, mask, val;
+ 	int ret;
+ 
+ 	if (!omi_plat->regmap || !omi_plat->dlyb_base)
+ 		return -EINVAL;
+ 
+ 	if (bypass_mode) {
+-		mask = DLYBOS_BYP_EN;
+-		mask |= stm32_omi_find_byp_cmd(period_ps);
++		val = DLYBOS_BYP_EN | stm32_omi_find_byp_cmd(period_ps);
++		mask = DLYBOS_BYP_EN | DLYBOS_BYP_CMD_MASK;
+ 	} else {
++		val = DLYBOS_CR_EN;
+ 		mask = DLYBOS_CR_EN;
+ 	}
+ 
+ 	regmap_update_bits(omi_plat->regmap,
+ 			  omi_plat->dlyb_base + SYSCFG_DLYBOS_CR,
+-			  mask, mask);
++			  mask, val);
++
+ 	if (bypass_mode)
+-		return ret;
++		return 0;
+ 
+ 	/* in lock mode, wait for lock status bit */
+ 	ret = regmap_read_poll_timeout(omi_plat->regmap,
+-- 
+2.47.2
+

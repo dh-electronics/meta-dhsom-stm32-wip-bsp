@@ -1,0 +1,49 @@
+From 25b98e8871a88a70a63d42113c1905c4439f1aca Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 26 Feb 2025 14:21:45 +0100
+Subject: [PATCH 107/120] ARM: stm32mp: fix RIFSC semaphores acquition
+
+Fix RIFSC semaphores acquisition by not returning an error when the
+current CID already possess the semaphore. Also fix an incorrect mask
+for the CID value in the SEMCR register.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 2d3b74968b5d59c94c7512e7b64af9d10ab9b8b2 ARM: stm32mp: fix RIFSC semaphores acquition]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I9900d4307f24a5b720a9a38846f197dbb5205987
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/440109
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ arch/arm/mach-stm32mp/stm32mp2/rifsc.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm/mach-stm32mp/stm32mp2/rifsc.c b/arch/arm/mach-stm32mp/stm32mp2/rifsc.c
+index 50dececf77b..136ed68bba1 100644
+--- a/arch/arm/mach-stm32mp/stm32mp2/rifsc.c
++++ b/arch/arm/mach-stm32mp/stm32mp2/rifsc.c
+@@ -73,7 +73,8 @@ static int stm32_rif_acquire_semaphore(void *base, u32 id)
+ 	void *addr = base + RIFSC_RISC_PER0_SEMCR(id);
+ 
+ 	/* Check that the semaphore is available */
+-	if (!stm32_rif_is_semaphore_available(base, id))
++	if (!stm32_rif_is_semaphore_available(base, id) &&
++	    FIELD_GET(RIFSC_RISC_SCID_MASK, (readl(addr)) != RIF_CID1))
+ 		return -EACCES;
+ 
+ 	setbits_le32(addr, SEMCR_MUTEX);
+@@ -171,7 +172,7 @@ static int rifsc_check_access(void *base, u32 id)
+ 			return -EACCES;
+ 		}
+ 		if (!stm32_rif_is_semaphore_available(base, id) &&
+-		    !(FIELD_GET(RIFSC_RISC_SCID_MASK, sem_reg_value) & BIT(RIF_CID1))) {
++		    !(FIELD_GET(RIFSC_RISC_SCID_MASK, sem_reg_value) & RIF_CID1)) {
+ 			log_debug("Semaphore unavailable for peripheral %d\n", id);
+ 			return -EACCES;
+ 		}
+-- 
+2.47.2
+

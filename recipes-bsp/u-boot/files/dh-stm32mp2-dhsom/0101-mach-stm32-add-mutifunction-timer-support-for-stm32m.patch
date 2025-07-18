@@ -1,0 +1,137 @@
+From b04f5fc38b7088c3c2dd9f7023df551b9e7a1292 Mon Sep 17 00:00:00 2001
+From: Cheick Traore <cheick.traore@foss.st.com>
+Date: Mon, 28 Oct 2024 15:33:47 +0100
+Subject: [PATCH 101/120] mach-stm32: add mutifunction timer support for
+ stm32mp25
+
+Add multifunction timer support for STM32MP25 SoC.
+Identification and hardware configuration registers allow to read the
+timer version and capabilities (counter width, ...).
+So, rework the probe to avoid touching ARR register by simply read the
+counter width when available. This may avoid messing with a possibly
+running timer.
+Also add useful bit fields to stm32-timers header file.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 6043fa8799baf1894d7b5128c953f495beb67cfa mach-stm32: add mutifunction timer support for stm32mp25]
+Change-Id: I917952007601b1e83da331212bde55c03e64ccbe
+Signed-off-by: Cheick Traore <cheick.traore@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/414742
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ arch/arm/mach-stm32mp/include/mach/timers.h |  9 ++++++
+ arch/arm/mach-stm32mp/timers.c              | 35 ++++++++++++++++++++-
+ 2 files changed, 43 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm/mach-stm32mp/include/mach/timers.h b/arch/arm/mach-stm32mp/include/mach/timers.h
+index a84465bb28e..8209dd84911 100644
+--- a/arch/arm/mach-stm32mp/include/mach/timers.h
++++ b/arch/arm/mach-stm32mp/include/mach/timers.h
+@@ -29,6 +29,10 @@
+ #define TIM_DMAR	0x4C	/* DMA register for transfer */
+ #define TIM_TISEL	0x68	/* Input Selection         */
+ 
++#define TIM_HWCFGR2	0x3EC	/* hardware configuration 2 Reg (MP25)	*/
++#define TIM_HWCFGR1	0x3F0	/* hardware configuration 1 Reg (MP25)	*/
++#define TIM_IPIDR	0x3F8	/* IP identification Reg (MP25)		*/
++
+ #define TIM_CR1_CEN	BIT(0)	/* Counter Enable	   */
+ #define TIM_CR1_ARPE	BIT(7)
+ #define TIM_CCER_CCXE	(BIT(0) | BIT(4) | BIT(8) | BIT(12))
+@@ -40,11 +44,16 @@
+ #define TIM_CCMR_M1	(BIT(6) | BIT(5))  /* Channel PWM Mode 1 */
+ #define TIM_BDTR_MOE	BIT(15)	/* Main Output Enable      */
+ #define TIM_EGR_UG	BIT(0)	/* Update Generation       */
++#define TIM_HWCFGR2_CNT_WIDTH	GENMASK(15, 8)	/* Counter width */
++#define TIM_HWCFGR1_NB_OF_DT	GENMASK(7, 4)	/* Complementary outputs & dead-time generators */
+ 
+ #define MAX_TIM_PSC		0xFFFF
+ 
++#define STM32MP25_TIM_IPIDR	0x00120002
++
+ struct stm32_timers_plat {
+ 	void __iomem *base;
++	u32 ipidr;
+ };
+ 
+ struct stm32_timers_priv {
+diff --git a/arch/arm/mach-stm32mp/timers.c b/arch/arm/mach-stm32mp/timers.c
+index a3207895f40..d6c42865e0e 100644
+--- a/arch/arm/mach-stm32mp/timers.c
++++ b/arch/arm/mach-stm32mp/timers.c
+@@ -10,6 +10,7 @@
+ #include <asm/io.h>
+ #include <asm/arch/timers.h>
+ #include <dm/device_compat.h>
++#include <linux/bitfield.h>
+ 
+ static void stm32_timers_get_arr_size(struct udevice *dev)
+ {
+@@ -29,6 +30,33 @@ static void stm32_timers_get_arr_size(struct udevice *dev)
+ 	writel(arr, plat->base + TIM_ARR);
+ }
+ 
++static int stm32_timers_probe_hwcfgr(struct udevice *dev)
++{
++	struct stm32_timers_plat *plat = dev_get_plat(dev);
++	struct stm32_timers_priv *priv = dev_get_priv(dev);
++	u32 val;
++
++	if (!plat->ipidr) {
++		/* fallback to legacy method for probing counter width */
++		stm32_timers_get_arr_size(dev);
++		return 0;
++	}
++
++	val = readl(plat->base + TIM_IPIDR);
++	/* Sanity check on IP identification register */
++	if (val != plat->ipidr) {
++		dev_err(dev, "Unexpected identification: %u\n", val);
++		return -EINVAL;
++	}
++
++	val = readl(plat->base + TIM_HWCFGR2);
++	/* Counter width in bits, max reload value is BIT(width) - 1 */
++	priv->max_arr = BIT(FIELD_GET(TIM_HWCFGR2_CNT_WIDTH, val)) - 1;
++	dev_dbg(dev, "TIM width: %ld\n", FIELD_GET(TIM_HWCFGR2_CNT_WIDTH, val));
++
++	return 0;
++}
++
+ static int stm32_timers_of_to_plat(struct udevice *dev)
+ {
+ 	struct stm32_timers_plat *plat = dev_get_plat(dev);
+@@ -38,6 +66,7 @@ static int stm32_timers_of_to_plat(struct udevice *dev)
+ 		dev_err(dev, "can't get address\n");
+ 		return -ENOENT;
+ 	}
++	plat->ipidr = (u32)dev_get_driver_data(dev);
+ 
+ 	return 0;
+ }
+@@ -60,13 +89,17 @@ static int stm32_timers_probe(struct udevice *dev)
+ 
+ 	priv->rate = clk_get_rate(&clk);
+ 
+-	stm32_timers_get_arr_size(dev);
++	ret = stm32_timers_probe_hwcfgr(dev);
++
++	if (ret)
++		clk_disable(&clk);
+ 
+ 	return ret;
+ }
+ 
+ static const struct udevice_id stm32_timers_ids[] = {
+ 	{ .compatible = "st,stm32-timers" },
++	{ .compatible = "st,stm32mp25-timers", .data = STM32MP25_TIM_IPIDR },
+ 	{}
+ };
+ 
+-- 
+2.47.2
+

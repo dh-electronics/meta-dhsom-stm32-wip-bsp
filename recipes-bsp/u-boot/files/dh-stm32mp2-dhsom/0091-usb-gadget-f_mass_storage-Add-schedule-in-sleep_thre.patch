@@ -1,0 +1,36 @@
+From 2d07bcbbcf50a16d42d6797f25953ca292be2288 Mon Sep 17 00:00:00 2001
+From: Patrice Chotard <patrice.chotard@foss.st.com>
+Date: Wed, 26 Jun 2024 12:39:03 +0200
+Subject: [PATCH 091/120] usb: gadget: f_mass_storage: Add schedule() in
+ sleep_thread()
+
+In case "ums" command is used on platforms which don't implement
+g_dnl_board_usb_cable_connected() and USB cable is not connected,
+we stay inside sleep_thread() forever and watchdog is triggered.
+
+Add schedule() call to avoid this issue.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 758691c65bd9b7a609cfdb2191f8304a6732c7e1 usb: gadget: f_mass_storage: Add schedule() in sleep_thread()]
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Change-Id: I1019eea6b939dfd6e551330e79a180dfe0a14f6e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/389839
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/usb/gadget/f_mass_storage.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/usb/gadget/f_mass_storage.c b/drivers/usb/gadget/f_mass_storage.c
+index 71dc58da3f0..284ac41fa93 100644
+--- a/drivers/usb/gadget/f_mass_storage.c
++++ b/drivers/usb/gadget/f_mass_storage.c
+@@ -677,6 +677,7 @@ static int sleep_thread(struct fsg_common *common)
+ 				return -EIO;
+ 
+ 			k = 0;
++			schedule();
+ 		}
+ 
+ 		schedule();
+-- 
+2.47.2
+

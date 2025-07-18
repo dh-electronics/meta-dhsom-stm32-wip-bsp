@@ -1,0 +1,136 @@
+From 266926b9032f28191182e2674d03386473320a1f Mon Sep 17 00:00:00 2001
+From: Fabien Dessenne <fabien.dessenne@foss.st.com>
+Date: Thu, 12 May 2022 18:21:26 +0200
+Subject: [PATCH 013/120] dm: gpio: Add GPIOF_PROTECTED flag
+
+Declare the GPIOF_PROTECTED flag, to identify a GPIO which can't be used
+because it has a protected access.
+This can be used to flag a GPIO that can be accessed only from the Secure
+world.
+
+Add a test and support in the gpio sandbox.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git c34a748a668e72b748b874ee275148f336404e62 dm: gpio: Add GPIOF_PROTECTED flag]
+Signed-off-by: Fabien Dessenne <fabien.dessenne@foss.st.com>
+Change-Id: Ic990ca6a02f9cc6f9e84bd94732ea62cfbafb301
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/252039
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/270436
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Tested-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ arch/sandbox/include/asm/gpio.h |  3 ++-
+ drivers/gpio/gpio-uclass.c      |  1 +
+ drivers/gpio/sandbox.c          | 16 ++++++++++++----
+ include/asm-generic/gpio.h      |  1 +
+ test/dm/gpio.c                  |  5 +++++
+ 5 files changed, 21 insertions(+), 5 deletions(-)
+
+diff --git a/arch/sandbox/include/asm/gpio.h b/arch/sandbox/include/asm/gpio.h
+index 0dd4c7bf601..c5ff9e9cdd5 100644
+--- a/arch/sandbox/include/asm/gpio.h
++++ b/arch/sandbox/include/asm/gpio.h
+@@ -28,9 +28,10 @@
+ #define GPIOD_EXT_DRIVEN	BIT(30)	/* external source is driven */
+ #define GPIOD_EXT_PULL_UP	BIT(29)	/* GPIO has external pull-up */
+ #define GPIOD_EXT_PULL_DOWN	BIT(28)	/* GPIO has external pull-down */
++#define GPIOD_EXT_PROTECTED	BIT(27)	/* GPIO is access protected */
+ 
+ #define GPIOD_EXT_PULL		(BIT(28) | BIT(29))
+-#define GPIOD_SANDBOX_MASK	GENMASK(31, 28)
++#define GPIOD_SANDBOX_MASK	GENMASK(31, 27)
+ 
+ /**
+  * Return the simulated value of a GPIO (used only in sandbox test code)
+diff --git a/drivers/gpio/gpio-uclass.c b/drivers/gpio/gpio-uclass.c
+index 3d9f8b32b8d..d9f412fa86d 100644
+--- a/drivers/gpio/gpio-uclass.c
++++ b/drivers/gpio/gpio-uclass.c
+@@ -858,6 +858,7 @@ static const char * const gpio_function[GPIOF_COUNT] = {
+ 	"unused",
+ 	"unknown",
+ 	"func",
++	"protected",
+ };
+ 
+ static int get_function(struct udevice *dev, int offset, bool skip_unused,
+diff --git a/drivers/gpio/sandbox.c b/drivers/gpio/sandbox.c
+index f5be2781443..23277ab989f 100644
+--- a/drivers/gpio/sandbox.c
++++ b/drivers/gpio/sandbox.c
+@@ -191,6 +191,8 @@ static int sb_gpio_set_value(struct udevice *dev, unsigned offset, int value)
+ 
+ static int sb_gpio_get_function(struct udevice *dev, unsigned offset)
+ {
++	if (get_gpio_flag(dev, offset, GPIOD_EXT_PROTECTED))
++		return GPIOF_PROTECTED;
+ 	if (get_gpio_flag(dev, offset, GPIOD_IS_OUT))
+ 		return GPIOF_OUTPUT;
+ 	if (get_gpio_flag(dev, offset, GPIOD_IS_IN))
+@@ -198,7 +200,7 @@ static int sb_gpio_get_function(struct udevice *dev, unsigned offset)
+ 	if (get_gpio_flag(dev, offset, GPIOD_IS_AF))
+ 		return GPIOF_FUNC;
+ 
+-	return GPIOF_INPUT; /*GPIO is not configurated */
++	return GPIOF_INPUT; /* GPIO is not configured */
+ }
+ 
+ static int sb_gpio_xlate(struct udevice *dev, struct gpio_desc *desc,
+@@ -527,6 +529,14 @@ static int sb_pinctrl_get_pin_muxing(struct udevice *dev,
+ 	unsigned int gpio_idx;
+ 	ulong flags;
+ 	int function;
++	static const char * const gpio_function[GPIOF_COUNT] = {
++		"input",
++		"output",
++		"unused",
++		"unknown",
++		"func",
++		"protected",
++	};
+ 
+ 	/* look up for the bank which owns the requested pin */
+ 	gpio_dev = sb_pinctrl_get_gpio_dev(dev, selector, &gpio_idx);
+@@ -535,9 +545,7 @@ static int sb_pinctrl_get_pin_muxing(struct udevice *dev,
+ 	} else {
+ 		function = sb_gpio_get_function(gpio_dev, gpio_idx);
+ 		flags = *get_gpio_flags(gpio_dev, gpio_idx);
+-
+-		snprintf(buf, size, "gpio %s %s",
+-			 function == GPIOF_OUTPUT ? "output" : "input",
++		snprintf(buf, size, "gpio %s %s", gpio_function[function],
+ 			 get_flags_string(flags));
+ 	}
+ 
+diff --git a/include/asm-generic/gpio.h b/include/asm-generic/gpio.h
+index a21c606f2b8..e50ba3d3db9 100644
+--- a/include/asm-generic/gpio.h
++++ b/include/asm-generic/gpio.h
+@@ -110,6 +110,7 @@ enum gpio_func_t {
+ 	GPIOF_UNUSED,		/* Not claimed */
+ 	GPIOF_UNKNOWN,		/* Not known */
+ 	GPIOF_FUNC,		/* Not used as a GPIO */
++	GPIOF_PROTECTED,	/* Protected access */
+ 
+ 	GPIOF_COUNT,
+ };
+diff --git a/test/dm/gpio.c b/test/dm/gpio.c
+index b45946c143c..5d86889744f 100644
+--- a/test/dm/gpio.c
++++ b/test/dm/gpio.c
+@@ -112,6 +112,11 @@ static int dm_test_gpio(struct unit_test_state *uts)
+ 	ut_asserteq_str("a", name);
+ 	ut_asserteq(20, offset_count);
+ 
++	/* Flag a pin as protected, and check its status */
++	ut_assertok(gpio_lookup_name("a1", &dev, &offset, &gpio));
++	sandbox_gpio_set_flags(dev, 1, GPIOD_EXT_PROTECTED);
++	ut_asserteq(GPIOF_PROTECTED, gpio_get_raw_function(dev, 1, NULL));
++
+ 	/* add gpio hog tests */
+ 	ut_assertok(gpio_hog_lookup_name("hog_input_active_low", &desc));
+ 	ut_asserteq(GPIOD_IS_IN | GPIOD_ACTIVE_LOW, desc->flags);
+-- 
+2.47.2
+

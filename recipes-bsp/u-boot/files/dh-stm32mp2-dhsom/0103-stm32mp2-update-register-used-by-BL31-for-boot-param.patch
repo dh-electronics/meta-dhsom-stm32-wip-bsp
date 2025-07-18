@@ -1,0 +1,59 @@
+From 7c5f6e95283fe3291f8aa1c69e5a11620234b11c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 11 Dec 2024 19:05:05 +0100
+Subject: [PATCH 103/120] stm32mp2: update register used by BL31 for boot
+ parameter
+
+Use the ARM64 kernel booting register settings, defined in linux
+documentation Documentation/arch/arm64/booting.rst:
+
+ x0 = physical address of device tree blob (dtb) in system RAM.
+
+so kernel can replace U-Boot in FIP without modification of BL31.
+
+Keep x2 as fallback to be compatible with previous version of TF-A BL31.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 04a3d1d6f3f708398e822cff6df96c7acecfcad2 stm32mp2: update register used by BL31 for boot parameter]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I876db43eb2dfbbd7882ab03bc49ceaab61e912ee
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/424326
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ arch/arm/mach-stm32mp/stm32mp2/cpu.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm/mach-stm32mp/stm32mp2/cpu.c b/arch/arm/mach-stm32mp/stm32mp2/cpu.c
+index c3b87d7f981..e081dc605b8 100644
+--- a/arch/arm/mach-stm32mp/stm32mp2/cpu.c
++++ b/arch/arm/mach-stm32mp/stm32mp2/cpu.c
+@@ -92,13 +92,21 @@ uintptr_t get_stm32mp_bl2_dtb(void)
+ }
+ 
+ /*
+- * Save the FDT address provided by TF-A in r2 at boot time
++ * Save the FDT address provided by TF-A at boot time
+  * This function is called from start.S
+  */
+-void save_boot_params(unsigned long r0, unsigned long r1, unsigned long r2,
+-		      unsigned long r3)
++void save_boot_params(unsigned long x0, unsigned long x1, unsigned long x2,
++		      unsigned long x3)
+ {
+-	nt_fw_dtb = r2;
++	/* use the ARM64 kernel booting register settings:
++	 * x0 = physical address of device tree blob (dtb) in system RAM.
++	 * so kernel can replace U-Boot in FIP wihtout BL31 modification
++	 * else falback to x2 used in previous TF-A version
++	 */
++	if (x0)
++		nt_fw_dtb = x0;
++	else
++		nt_fw_dtb = x2;
+ 
+ 	save_boot_params_ret();
+ }
+-- 
+2.47.2
+

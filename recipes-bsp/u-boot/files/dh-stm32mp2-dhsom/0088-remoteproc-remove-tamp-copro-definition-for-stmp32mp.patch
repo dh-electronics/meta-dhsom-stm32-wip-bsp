@@ -1,0 +1,91 @@
+From a60dd667aae93aef45a988146e722a32a9511623 Mon Sep 17 00:00:00 2001
+From: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+Date: Tue, 19 Mar 2024 15:34:06 +0100
+Subject: [PATCH 088/120] remoteproc: remove tamp copro definition for
+ stmp32mp2
+
+The tamp copro state, tbl size and tbl address definition are only used
+on stmp32mp15, so remove it for stm32mp2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 6f94d4c9c5b28fc4079395d561b672cbb5323c72 remoteproc: remove tamp copro definition for stmp32mp2]
+Signed-off-by: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/367801
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I396205382297769c7550c4b8ac4285ba2c0804aa
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/375021
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ arch/arm/mach-stm32mp/include/mach/stm32.h |  3 ---
+ drivers/remoteproc/stm32_copro.c           | 13 +++++++++++--
+ 2 files changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm/mach-stm32mp/include/mach/stm32.h b/arch/arm/mach-stm32mp/include/mach/stm32.h
+index 9bce42fef09..99593010d02 100644
+--- a/arch/arm/mach-stm32mp/include/mach/stm32.h
++++ b/arch/arm/mach-stm32mp/include/mach/stm32.h
+@@ -177,9 +177,6 @@ enum forced_boot_mode {
+ /* TAMP registers x = 0 to 127 : hardcoded description, waiting NVMEM node in DT */
+ #define TAMP_BACKUP_REGISTER(x)		(STM32_TAMP_BASE + 0x100 + 4 * (x))
+ 
+-/* TAMP registers zone 2 RIF 2 (RO) at 72 */
+-#define TAMP_COPRO_STATE TAMP_BACKUP_REGISTER(72)
+-
+ /* TAMP registers zone 3 RIF 1 (RW) at 96*/
+ #define TAMP_BOOT_CONTEXT		TAMP_BACKUP_REGISTER(96)
+ #define TAMP_COPRO_RSC_TBL_ADDRESS	TAMP_BACKUP_REGISTER(97)
+diff --git a/drivers/remoteproc/stm32_copro.c b/drivers/remoteproc/stm32_copro.c
+index 81bc52b454c..d46b10f06b6 100644
+--- a/drivers/remoteproc/stm32_copro.c
++++ b/drivers/remoteproc/stm32_copro.c
+@@ -250,11 +250,15 @@ static int stm32_copro_start(struct udevice *dev)
+ 	}
+ 
+ 	if (proc_id == STM32MP15_M4_FW_ID) {
++#ifdef CONFIG_STM32MP15X
+ 		/* Indicates that copro is running */
+ 		writel(TAMP_COPRO_STATE_CRUN, TAMP_COPRO_STATE);
+ 
+ 		/* Store rsc_address in bkp register */
+ 		writel(priv->rsc_table_addr, TAMP_COPRO_RSC_TBL_ADDRESS);
++#else
++		return -EOPNOTSUPP;
++#endif
+ 	} else if (proc_id == STM32MP25_M33_FW_ID) {
+ 		/* Store the resource table address and size in 32-bit registers*/
+ 		ret = nvmem_cell_write(&priv->rsc_t_addr_cell, &priv->rsc_table_addr, sizeof(u32));
+@@ -312,8 +316,12 @@ static int stm32_copro_reset(struct udevice *dev)
+ 	priv->rsc_table_size = 0;
+ 
+ 	if (proc_id == STM32MP15_M4_FW_ID) {
++#ifdef CONFIG_STM32MP15X
+ 		writel(TAMP_COPRO_STATE_OFF, TAMP_COPRO_STATE);
+ 		writel(priv->rsc_table_addr, TAMP_COPRO_RSC_TBL_ADDRESS);
++#else
++		return -EOPNOTSUPP;
++#endif
+ 	} else if (proc_id == STM32MP25_M33_FW_ID) {
+ 		ret = nvmem_cell_write(&priv->rsc_t_addr_cell, &priv->rsc_table_addr, sizeof(u32));
+ 		if (ret)
+@@ -344,12 +352,13 @@ static int stm32_copro_stop(struct udevice *dev)
+  */
+ static int stm32_copro_is_running(struct udevice *dev)
+ {
++#ifdef CONFIG_STM32MP15X
+ 	unsigned int proc_id = (u32)dev_get_driver_data(dev);
+ 
+ 	if (proc_id == STM32MP15_M4_FW_ID)
+ 		return (readl(TAMP_COPRO_STATE) == TAMP_COPRO_STATE_OFF);
+-	else
+-		return -EOPNOTSUPP;
++#endif
++	return -EOPNOTSUPP;
+ }
+ 
+ static const struct dm_rproc_ops stm32_copro_ops = {
+-- 
+2.47.2
+

@@ -1,0 +1,132 @@
+From 48e16cb209b410b1617982724a51d68ee19e3ef2 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Tue, 27 May 2025 15:27:43 +0200
+Subject: [PATCH 001/120] clk: scmi: add compatibility with clock protocol 2.0
+
+Since clock protocol 2.0, SCMI specification add an option field
+"clock_enable_delay" to CLOCK_ATTRIBUTES command.
+
+scmi_read_resp_from_smt() will return an error ("Buffer too small") as
+the message length coming from the SCMI server is not the same as expected.
+
+So implement a condition to SCMI clock protocol version to change the
+length of the expected message.
+
+Upstream-Status: Backport [ae7e0330ce22d580990cf40d648c809b5093b252]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Cc: Lukasz Majewski <lukma@denx.de>
+Cc: Sean Anderson <seanga2@gmail.com>
+Reviewed-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrice Chotard <patrice.chotard@foss.st.com>
+---
+ drivers/clk/clk_scmi.c   | 54 +++++++++++++++++++++++++++++-----------
+ include/scmi_protocols.h | 15 +++++++++++
+ 2 files changed, 54 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/clk/clk_scmi.c b/drivers/clk/clk_scmi.c
+index af69850cdd8..e323a948780 100644
+--- a/drivers/clk/clk_scmi.c
++++ b/drivers/clk/clk_scmi.c
+@@ -84,26 +84,47 @@ static int scmi_clk_get_num_clock(struct udevice *dev, size_t *num_clocks)
+ static int scmi_clk_get_attibute(struct udevice *dev, int clkid, char **name,
+ 				 u32 *attr)
+ {
++	struct scmi_clock_priv *priv = dev_get_priv(dev);
+ 	struct scmi_clk_attribute_in in = {
+ 		.clock_id = clkid,
+ 	};
+-	struct scmi_clk_attribute_out out;
+-	struct scmi_msg msg = {
+-		.protocol_id = SCMI_PROTOCOL_ID_CLOCK,
+-		.message_id = SCMI_CLOCK_ATTRIBUTES,
+-		.in_msg = (u8 *)&in,
+-		.in_msg_sz = sizeof(in),
+-		.out_msg = (u8 *)&out,
+-		.out_msg_sz = sizeof(out),
+-	};
+ 	int ret;
+ 
+-	ret = devm_scmi_process_msg(dev, &msg);
+-	if (ret)
+-		return ret;
+-
+-	*name = strdup(out.clock_name);
+-	*attr = out.attributes;
++	if (priv->version >= 0x20000) {
++		struct scmi_clk_attribute_out_v2 out;
++		struct scmi_msg msg = {
++			.protocol_id = SCMI_PROTOCOL_ID_CLOCK,
++			.message_id = SCMI_CLOCK_ATTRIBUTES,
++			.in_msg = (u8 *)&in,
++			.in_msg_sz = sizeof(in),
++			.out_msg = (u8 *)&out,
++			.out_msg_sz = sizeof(out),
++		};
++
++		ret = devm_scmi_process_msg(dev, &msg);
++		if (ret)
++			return ret;
++
++		*name = strdup(out.clock_name);
++		*attr = out.attributes;
++	} else {
++		struct scmi_clk_attribute_out out;
++		struct scmi_msg msg = {
++			.protocol_id = SCMI_PROTOCOL_ID_CLOCK,
++			.message_id = SCMI_CLOCK_ATTRIBUTES,
++			.in_msg = (u8 *)&in,
++			.in_msg_sz = sizeof(in),
++			.out_msg = (u8 *)&out,
++			.out_msg_sz = sizeof(out),
++		};
++
++		ret = devm_scmi_process_msg(dev, &msg);
++		if (ret)
++			return ret;
++
++		*name = strdup(out.clock_name);
++		*attr = out.attributes;
++	}
+ 
+ 	return 0;
+ }
+@@ -257,6 +278,9 @@ static int scmi_clk_probe(struct udevice *dev)
+ 	if (!CONFIG_IS_ENABLED(CLK_CCF))
+ 		return 0;
+ 
++	ret = scmi_generic_protocol_version(dev, SCMI_PROTOCOL_ID_CLOCK,
++					    &priv->version);
++
+ 	/* register CCF children: CLK UCLASS, no probed again */
+ 	if (device_get_uclass_id(dev->parent) == UCLASS_CLK)
+ 		return 0;
+diff --git a/include/scmi_protocols.h b/include/scmi_protocols.h
+index 9046de7e3e7..762a1032c37 100644
+--- a/include/scmi_protocols.h
++++ b/include/scmi_protocols.h
+@@ -782,6 +782,21 @@ struct scmi_clk_attribute_out {
+ 	char clock_name[SCMI_CLOCK_NAME_LENGTH_MAX];
+ };
+ 
++/**
++ * struct scmi_clk_get_nb_out_v2 - Response payload for SCMI_CLOCK_ATTRIBUTES command
++ * Clock management Protocol 2.0
++ * @status:	SCMI command status
++ * @attributes:	clock attributes
++ * @clock_name:	name of the clock
++ * @clock_enable_delay: delay incurred by the platform to enable the clock
++ */
++struct scmi_clk_attribute_out_v2 {
++	s32 status;
++	u32 attributes;
++	char clock_name[SCMI_CLOCK_NAME_LENGTH_MAX];
++	u32 clock_enable_delay;
++};
++
+ /**
+  * struct scmi_clk_state_in - Message payload for CLOCK_CONFIG_SET command
+  * @clock_id:	SCMI clock ID
+-- 
+2.47.2
+

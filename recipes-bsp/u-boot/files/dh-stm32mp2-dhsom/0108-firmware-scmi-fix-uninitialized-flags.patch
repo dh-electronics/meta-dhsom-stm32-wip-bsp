@@ -1,0 +1,35 @@
+From fbbc656b0e3b952b4d3280867c6cf52d6d578cd7 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Wed, 26 Mar 2025 12:00:08 +0100
+Subject: [PATCH 108/120] firmware: scmi: fix uninitialized flags
+
+flags in shared memory is not set, this flags is now set to avoid
+a notification by server when request is completed
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git ed9ef632e8aad3a1a9e8e0aeb56a4b89f20adc07 firmware: scmi: fix uninitialized flags]
+Change-Id: Idf0a73eaf480f671f22b3693deddd9da1bada4cb
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/446887
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ drivers/firmware/scmi/smt.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/firmware/scmi/smt.c b/drivers/firmware/scmi/smt.c
+index 3253f4211d6..a5b30f88738 100644
+--- a/drivers/firmware/scmi/smt.c
++++ b/drivers/firmware/scmi/smt.c
+@@ -99,6 +99,7 @@ int scmi_write_msg_to_smt(struct udevice *dev, struct scmi_smt *smt,
+ 	/* Load message in shared memory */
+ 	hdr->channel_status &= ~SCMI_SHMEM_CHAN_STAT_CHANNEL_FREE;
+ 	hdr->length = msg->in_msg_sz + sizeof(hdr->msg_header);
++	hdr->flags = 0;
+ 	hdr->msg_header = SMT_HEADER_TOKEN(0) |
+ 			  SMT_HEADER_MESSAGE_TYPE(0) |
+ 			  SMT_HEADER_PROTOCOL_ID(msg->protocol_id) |
+-- 
+2.47.2
+

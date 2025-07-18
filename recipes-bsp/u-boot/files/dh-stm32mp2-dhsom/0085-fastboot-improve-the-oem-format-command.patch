@@ -1,0 +1,73 @@
+From 7a1c52aa88d5c729fd8f9f486e10595a48f1c789 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 8 Mar 2024 15:28:23 +0100
+Subject: [PATCH 085/120] fastboot: improve the oem format command
+
+Display the executed command 'gpt write' with the parameter (content of
+variables 'partitions') on the U-Boot console to provide
+information to user as it is done on other fastboot command
+(oem_partconf and oem_bootbus) and on command errors, provide an error
+message to fastboot tools.
+
+With the patch for example the trace for successful oem format command is
+
+STM32MP> fastboot usb 0
+Execute: gpt write mmc 0 $partitions
+  with partitions: name=u-boot0,start=1MiB,size=2MiB;name=u-boot-env0,\
+size=1MiB;name=u-boot1,size=2MiB;
+Writing GPT: success!
+
+And on error, the trace on the HOST are:
+
+$ sudo fastboot oem format
+...
+FAILED (remote: Cannot write GPT)
+finished. total time: 0.006s
+
+and on device:
+
+STM32MP> env set partitions test
+STM32MP> fastboot usb 0
+Execute: gpt write mmc 0 $partitions
+  with partitions: test
+Writing GPT: Partition list incomplete
+error!
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 3bf35ec2983b0e05c27ff66a83deb157f1ea3f3c fastboot: improve the oem format command]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I58757e23548d811c65f3dce31aa0771fbba53ded
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/364965
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Tested-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+---
+ drivers/fastboot/fb_command.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/fastboot/fb_command.c b/drivers/fastboot/fb_command.c
+index 2cdbac50ac4..18ce08a6861 100644
+--- a/drivers/fastboot/fb_command.c
++++ b/drivers/fastboot/fb_command.c
+@@ -468,13 +468,16 @@ static void __maybe_unused oem_format(char *cmd_parameter, char *response)
+ 	char cmdbuf[32];
+ 	const int mmc_dev = config_opt_enabled(CONFIG_FASTBOOT_FLASH_MMC,
+ 					       CONFIG_FASTBOOT_FLASH_MMC_DEV, -1);
++	const char *part = env_get("partitions");
+ 
+-	if (!env_get("partitions")) {
++	if (!part) {
+ 		fastboot_fail("partitions not set", response);
+ 	} else {
+ 		sprintf(cmdbuf, "gpt write mmc %x $partitions", mmc_dev);
++		printf("Execute: %s\n", cmdbuf);
++		printf("with partitions: %s\n", part);
+ 		if (run_command(cmdbuf, 0))
+-			fastboot_fail("", response);
++			fastboot_fail("Cannot write GPT", response);
+ 		else
+ 			fastboot_okay(NULL, response);
+ 	}
+-- 
+2.47.2
+

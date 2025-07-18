@@ -1,0 +1,154 @@
+From 7407c18fbf8193a721de3363f1b956092e1dabf1 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 5 Nov 2024 18:24:40 +0100
+Subject: [PATCH 102/120] stm32mp: bsec: add support for non-secure mirror
+
+If Cortex-M33 is TDCID, it creates a mirror of the OTP fuses at the
+beginning of SRAM1. This mirror is non-secure, so U-Boot can access it
+directly. Update the BSEC driver for that. If a memory-region property
+is found in bsec node then it is the non-secure OTP mirror.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git a82619574db1e06d188895bacd4652b767f05f00 stm32mp: bsec: add support for non-secure mirror]
+Change-Id: I6dd5e02ff7e8dafa0a4fb8db7bd44102b098f0e8
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/416650
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ arch/arm/mach-stm32mp/bsec.c | 69 ++++++++++++++++++++++++++++++++----
+ 1 file changed, 62 insertions(+), 7 deletions(-)
+
+diff --git a/arch/arm/mach-stm32mp/bsec.c b/arch/arm/mach-stm32mp/bsec.c
+index 9cbe6a52623..cbcb1b50bd2 100644
+--- a/arch/arm/mach-stm32mp/bsec.c
++++ b/arch/arm/mach-stm32mp/bsec.c
+@@ -15,9 +15,11 @@
+ #include <asm/arch/stm32mp1_smc.h>
+ #include <dm/device.h>
+ #include <dm/device_compat.h>
++#include <dm/read.h>
+ #include <linux/arm-smccc.h>
+ #include <linux/iopoll.h>
+ #include <linux/printk.h>
++#include <linux/ioport.h>
+ 
+ #define BSEC_OTP_UPPER_START		32
+ #define BSEC_TIMEOUT_US			10000
+@@ -102,6 +104,19 @@
+ #define FUSE_ACCESS			1
+ #define LOCK_ACCESS			2
+ 
++/* Magic use to indicated valid SHADOW = 'B' 'S' 'E' 'C' */
++#define BSEC_MAGIC			0x42534543
++#define OTP_MAX_SIZE			256
++
++struct ns_mirror {
++	u32 magic;
++	u32 state;
++	struct {
++		u32 value;
++		u32 status;
++	} otp[OTP_MAX_SIZE];
++};
++
+ /**
+  * bsec_lock() - manage lock for each type SR/SP/SW
+  * @address: address of bsec IP register
+@@ -396,6 +411,7 @@ struct stm32mp_bsec_plat {
+ 
+ struct stm32mp_bsec_priv {
+ 	struct udevice *tee;
++	struct ns_mirror *ns_mirror_base;
+ };
+ 
+ struct stm32mp_bsec_drvdata {
+@@ -631,7 +647,7 @@ static int stm32mp_bsec_read(struct udevice *dev, int offset,
+ 	if ((offs % 4) || (size % 4) || !size)
+ 		return -EINVAL;
+ 
+-	if (IS_ENABLED(CONFIG_OPTEE) && priv->tee) {
++	if (!priv->ns_mirror_base && IS_ENABLED(CONFIG_OPTEE) && priv->tee) {
+ 		cmd = FUSE_ACCESS;
+ 		if (shadow)
+ 			cmd = SHADOW_ACCESS;
+@@ -649,12 +665,22 @@ static int stm32mp_bsec_read(struct udevice *dev, int offset,
+ 	for (i = otp; i < (otp + nb_otp) && i < data->size; i++) {
+ 		u32 *addr = &((u32 *)buf)[i - otp];
+ 
+-		if (lock)
+-			ret = stm32mp_bsec_read_lock(dev, addr, i);
+-		else if (shadow)
+-			ret = stm32mp_bsec_read_shadow(dev, addr, i);
+-		else
+-			ret = stm32mp_bsec_read_otp(dev, addr, i);
++		if (priv->ns_mirror_base) {
++			if (i >= OTP_MAX_SIZE) {
++				*addr = 0;
++				ret = -EPERM;
++			} else {
++				*addr = priv->ns_mirror_base->otp[i].value;
++				ret = 0;
++			}
++		} else {
++			if (lock)
++				ret = stm32mp_bsec_read_lock(dev, addr, i);
++			else if (shadow)
++				ret = stm32mp_bsec_read_shadow(dev, addr, i);
++			else
++				ret = stm32mp_bsec_read_otp(dev, addr, i);
++		}
+ 
+ 		if (ret)
+ 			break;
+@@ -677,6 +703,9 @@ static int stm32mp_bsec_write(struct udevice *dev, int offset,
+ 	int otp, cmd;
+ 	unsigned int offs = offset;
+ 
++	if (priv->ns_mirror_base)
++		return -EPERM;
++
+ 	if (offs >= STM32_BSEC_LOCK_OFFSET) {
+ 		offs -= STM32_BSEC_LOCK_OFFSET;
+ 		lock = true;
+@@ -738,11 +767,37 @@ static int stm32mp_bsec_of_to_plat(struct udevice *dev)
+ static int stm32mp_bsec_probe(struct udevice *dev)
+ {
+ 	struct stm32mp_bsec_drvdata *data = (struct stm32mp_bsec_drvdata *)dev_get_driver_data(dev);
++	struct ofnode_phandle_args args;
+ 	int otp;
+ 	struct stm32mp_bsec_plat *plat;
+ 	struct clk_bulk clk_bulk;
+ 	int ret;
+ 
++	/*
++	 * Check if there is a memory-region property in DT. If present and
++	 * the first address read from this memory is BSEC_MAGIC, then use
++	 * BSEC non-secure mirror instead of OP-TEE BSEC PTA.
++	 */
++	ret = dev_read_phandle_with_args(dev, "memory-region", NULL, 0, 0, &args);
++	if (!ret) {
++		struct ns_mirror *mirror_base;
++		struct resource res;
++
++		ret = ofnode_read_resource(args.node, 0, &res);
++		if (ret) {
++			dev_err(dev, "Can't get bsec_miror base address(%d)\n", ret);
++			return ret;
++		}
++
++		mirror_base = (struct ns_mirror *)res.start;
++		if (mirror_base->magic == BSEC_MAGIC) {
++			struct stm32mp_bsec_priv *priv = dev_get_priv(dev);
++
++			priv->ns_mirror_base = mirror_base;
++			return 0;
++		}
++	}
++
+ 	ret = clk_get_bulk(dev, &clk_bulk);
+ 	if (!ret) {
+ 		ret = clk_enable_bulk(&clk_bulk);
+-- 
+2.47.2
+
