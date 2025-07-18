@@ -1,0 +1,65 @@
+From 47289762a07e90ccb4f7158b6aaf685ae461bc0b Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Mon, 6 Jan 2025 14:58:13 +0100
+Subject: [PATCH 118/140] remoteproc: stm32_rproc: fix pm runtime on start
+
+This commit fixes:
+- an issue where we do not return the stm32_rproc_tee_start()
+function error but the pm_runtime_put function result.
+As consequence the issue in stm32_rproc_tee_start is ignored.
+- call of pm_runtime_put in case of error in stm32_rproc_start
+
+Fixes: e53a496b5d86 ("remoteproc: stm32_rproc: Add cluster and retention PM domains")
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git 7452c175b5e05560e036f122a56b05d7315c2d2b remoteproc: stm32_rproc: fix pm runtime on start]
+Change-Id: I15f135d86b05e201b5bee9052129cecaa1b5fffe
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/426875
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Amit MITTAL <amit.mittal@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Gwenael TREUVEUR <gwenael.treuveur@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/remoteproc/stm32_rproc.c | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/remoteproc/stm32_rproc.c b/drivers/remoteproc/stm32_rproc.c
+index 09ca66a4d4edc..256db7977c5b3 100644
+--- a/drivers/remoteproc/stm32_rproc.c
++++ b/drivers/remoteproc/stm32_rproc.c
+@@ -415,7 +415,7 @@ static int stm32_rproc_tee_start(struct rproc *rproc)
+ 
+ 	err = tee_rproc_start(ddata->trproc);
+ 	if (err)
+-		return pm_runtime_put(rproc->dev.parent);
++		pm_runtime_put(rproc->dev.parent);
+ 
+ 	return err;
+ }
+@@ -730,9 +730,18 @@ static int stm32_rproc_start(struct rproc *rproc)
+ 
+ 	err = stm32_rproc_set_hold_boot(rproc, false);
+ 	if (err)
+-		return err;
++		goto disable_pm;
+ 
+-	return stm32_rproc_set_hold_boot(rproc, true);
++	err = stm32_rproc_set_hold_boot(rproc, true);
++	if (err)
++		goto disable_pm;
++
++	return 0;
++
++disable_pm:
++	pm_runtime_put(rproc->dev.parent);
++
++	return err;
+ }
+ 
+ static int stm32_rproc_attach(struct rproc *rproc)
+-- 
+2.51.0
+

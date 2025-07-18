@@ -1,0 +1,123 @@
+From 30ec417026de8e173d275a73d764968b84271514 Mon Sep 17 00:00:00 2001
+From: avishad verma <avishad.verma@infineon.com>
+Date: Tue, 22 Aug 2023 03:57:57 -0500
+Subject: [PATCH 07/95] brcmfmac: FW Header Changes to TRXv5 for H1-CP/Combo-A1
+
+Fw header is changes to Trxv5 for H1-CP.
+Changes are done to support TrxV5 Header.
+Ram start  offsets are updated for H1-A1.
+
+Fixes: SWWLAN-147338
+
+Upstream-Status: Inappropriate [Infineon downstream https://github.com/Infineon/ifx-wireless-drivers ba4df93ba255cad46a4e0bfccfc7311b66148731 brcmfmac: FW Header Changes to TRXv5 for H1-CP/Combo-A1]
+Signed-off-by: avishad verma <avishad.verma@infineon.com>
+---
+ .../broadcom/brcm80211/brcmfmac/chip.c        | 24 ++++++++++++++-----
+ .../broadcom/brcm80211/brcmfmac/sdio.c        |  7 +++++-
+ .../broadcom/brcm80211/brcmfmac/trxhdr.h      | 12 ++++++++++
+ 3 files changed, 36 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+index 71495ace4359a..24092ff248e57 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+@@ -222,7 +222,7 @@ struct sbsocramregs {
+ #define CYW55572_RAM_BASE	(0x370000 + \
+ 				 CYW55572_TCAM_SIZE + CYW55572_TRXHDR_SIZE)
+ 
+-/* 55500, Dedicated sapce for TCAM_PATCH and TRX HDR area at RAMSTART */
++/* 55500-A0, Dedicated sapce for TCAM_PATCH and TRX HDR area at RAMSTART */
+ #define CYW55500_RAM_START	(0x3a0000)
+ #define CYW55500_TCAM_SIZE	(0x800)
+ #define CYW55500_TRXHDR_SIZE	(0x2b4)
+@@ -230,6 +230,13 @@ struct sbsocramregs {
+ #define CYW55500_RAM_BASE	(CYW55500_RAM_START + CYW55500_TCAM_SIZE + \
+ 				 CYW55500_TRXHDR_SIZE)
+ 
++/* 55500-A1, Dedicated sapce for TCAM_PATCH and TRX HDR area at RAMSTART */
++#define CYW55500_A1_TCAM_SIZE	(0x1000)
++#define CYW55500_A1_TRXHDR_SIZE	(0x20)
++
++#define CYW55500_A1_RAM_BASE	(CYW55500_RAM_START + CYW55500_A1_TCAM_SIZE + \
++				 CYW55500_A1_TRXHDR_SIZE)
++
+ #define BRCMF_BLHS_POLL_INTERVAL			10	/* msec */
+ #define BRCMF_BLHS_D2H_READY_TIMEOUT			100	/* msec */
+ #define BRCMF_BLHS_D2H_TRXHDR_PARSE_DONE_TIMEOUT	50	/* msec */
+@@ -795,10 +802,10 @@ static u32 brcmf_chip_tcm_rambase(struct brcmf_chip_priv *ci)
+ 		return 0x352000;
+ 	case BRCM_CC_4387_CHIP_ID:
+ 		return 0x740000;
++	case CY_CC_55500_CHIP_ID:
++		return ((ci->pub.chiprev == 0) ? CYW55500_RAM_BASE : CYW55500_A1_RAM_BASE);
+ 	case CY_CC_55572_CHIP_ID:
+ 		return CYW55572_RAM_BASE;
+-	case CY_CC_55500_CHIP_ID:
+-		return CYW55500_RAM_BASE;
+ 	default:
+ 		brcmf_err("unknown chip: %s\n", ci->pub.name);
+ 		break;
+@@ -818,9 +825,14 @@ int brcmf_chip_get_raminfo(struct brcmf_chip *pub)
+ 		mem_core = container_of(mem, struct brcmf_core_priv, pub);
+ 		ci->pub.ramsize = brcmf_chip_tcm_ramsize(mem_core);
+ 
+-		if (ci->pub.chip == CY_CC_55500_CHIP_ID)
+-			ci->pub.ramsize -= (CYW55500_TCAM_SIZE +
+-					    CYW55500_TRXHDR_SIZE);
++		if (ci->pub.chip == CY_CC_55500_CHIP_ID) {
++			if (ci->pub.chiprev == 0)
++				ci->pub.ramsize -= (CYW55500_TCAM_SIZE +
++						CYW55500_TRXHDR_SIZE);
++			else
++				ci->pub.ramsize -= (CYW55500_A1_TCAM_SIZE +
++						CYW55500_A1_TRXHDR_SIZE);
++		}
+ 
+ 		if (ci->pub.chip == CY_CC_55572_CHIP_ID)
+ 			ci->pub.ramsize -= (CYW55572_TCAM_SIZE +
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
+index 141daecf10f1d..ba7b20fa7e152 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
+@@ -3368,11 +3368,16 @@ static int brcmf_sdio_download_code_file(struct brcmf_sdio *bus,
+ 	address = bus->ci->rambase;
+ 	fw_size = fw->size;
+ 	if (trx->magic == cpu_to_le32(TRX_MAGIC)) {
+-		address -= sizeof(struct trx_header_le);
++		if ((trx->flag_version >> 16) == TRX_VERSION5)
++			address -= sizeof(struct trxv5_header_le);
++		else
++			address -= sizeof(struct trx_header_le);
+ 		fw_size = le32_to_cpu(trx->len);
+ 	}
++
+ 	err = brcmf_sdiod_ramrw(bus->sdiodev, true, address,
+ 				(u8 *)fw->data, fw_size);
++
+ 	if (err)
+ 		brcmf_err("error %d on writing %d membytes at 0x%08x\n",
+ 			  err, (int)fw_size, address);
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/trxhdr.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/trxhdr.h
+index 0411c7c7ffb99..14c327ef856e6 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/trxhdr.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/trxhdr.h
+@@ -35,4 +35,16 @@ struct trx_header_le {
+ 	__le32 offsets[TRX_MAX_OFFSET];	/* Offsets of partitions */
+ };
+ 
++#define TRX_VERSION5	5			/* Version 5 */
++
++struct trxv5_header_le {
++	__le32 magic;		/* "HDR0" */
++	__le32 len;			/* Length of file including header */
++	__le32 crc32;		/* 32-bit CRC from flag_version to end of file */
++	__le32 flag_version;	/* 0:15 flags, 16:31 version */
++	__le32 root_cert_start_offset;	/* Start Offset IDX for Root Certificate */
++	__le32 content_cert_start_offset;	/* Start Offset IDX for Content Certificate */
++	__le32 fw_entry;	/* Firmware Entry Point for CM mode */
++	__le32 reserved;
++};
+ #endif /* BRCMFMAC_TRXHDR_H */
+-- 
+2.51.0
+

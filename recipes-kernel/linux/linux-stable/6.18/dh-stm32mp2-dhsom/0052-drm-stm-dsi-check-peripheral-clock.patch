@@ -1,0 +1,72 @@
+From b9fa894dc65add2a720f05add1b7952e799d5d8c Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Wed, 20 Nov 2024 15:14:59 +0100
+Subject: [PATCH 52/95] drm/stm: dsi: check peripheral clock
+
+The txbyte clock must enable the peripheral clock (aka pclk) in order
+to access the configuration registers. If the pclk clock is turned off
+then we can assume that the txbyte clock has already been turned off.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git e5fb710b6e235e430170052b433d419230adb6af drm/stm: dsi: check peripheral clock]
+Change-Id: Ibf945d828fef7059e9c88a83f594700c3cb364c6
+Signed-off-by: Yannick Fertre <yannick.fertre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/419794
+Domain-Review: Eric FOURMONT <eric.fourmont-ext@st.com>
+Reviewed-by: Eric FOURMONT <eric.fourmont-ext@st.com>
+Tested-by: Eric FOURMONT <eric.fourmont-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/431973
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/gpu/drm/stm/dw_mipi_dsi-stm.c | 27 +++++++++++----------------
+ 1 file changed, 11 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c b/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
+index 06a19a4c8c424..290ceb805c33f 100644
+--- a/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
++++ b/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
+@@ -475,31 +475,26 @@ dw_mipi_dsi_phy_141_get_lane_mbps(void *priv_data,
+ static void dw_mipi_dsi_clk_disable(struct clk_hw *clk)
+ {
+ 	struct dw_mipi_dsi_stm *dsi = clk_to_dw_mipi_dsi_stm(clk);
+-	int ret;
+ 
+ 	DRM_DEBUG_DRIVER("\n");
+ 
+ 	if (!dsi->probe_done)
+ 		return;
+ 
+-	ret = clk_prepare_enable(dsi->pclk);
+-	if (ret) {
+-		DRM_ERROR("%s: Failed to enable peripheral clk\n", __func__);
+-		return;
+-	}
++	if (__clk_is_enabled(dsi->pclk)) {
++		if (dsi->hw_version == HWVER_141) {
++			/* Disable the DSI PLL */
++			dsi_clear(dsi, DSI_WRPCR2, WRPCR2_PLLEN);
++		} else {
++			/* Disable the DSI PLL */
++			dsi_clear(dsi, DSI_WRPCR, WRPCR_PLLEN);
+ 
+-	if (dsi->hw_version == HWVER_141) {
+-		/* Disable the DSI PLL */
+-		dsi_clear(dsi, DSI_WRPCR2, WRPCR2_PLLEN);
++			/* Disable the regulator */
++			dsi_clear(dsi, DSI_WRPCR, WRPCR_REGEN | WRPCR_BGREN);
++		}
+ 	} else {
+-		/* Disable the DSI PLL */
+-		dsi_clear(dsi, DSI_WRPCR, WRPCR_PLLEN);
+-
+-		/* Disable the regulator */
+-		dsi_clear(dsi, DSI_WRPCR, WRPCR_REGEN | WRPCR_BGREN);
++		DRM_WARN("Warning peripheral clock was not enabled!\n");
+ 	}
+-
+-	clk_disable_unprepare(dsi->pclk);
+ }
+ 
+ static int dw_mipi_dsi_clk_enable(struct clk_hw *clk)
+-- 
+2.51.0
+

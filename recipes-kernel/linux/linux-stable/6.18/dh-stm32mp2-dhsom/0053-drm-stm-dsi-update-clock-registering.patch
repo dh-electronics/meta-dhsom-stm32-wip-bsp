@@ -1,0 +1,92 @@
+From 4ece3443de92338f9f171d1c47318c1dc5c2443d Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Thu, 6 Feb 2025 09:29:17 +0100
+Subject: [PATCH 53/95] drm/stm: dsi: update clock registering
+
+Rework clock register/unregister functions to avoid kernel crash
+while the probe/remove sequence is running.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git 81c6e63e49baf00368e5e5158e55aec008cf4907 drm/stm: dsi: update clock registering]
+Change-Id: I27603a89dbee30b1e77348ebdb467c1e9e4ddb59
+Signed-off-by: Yannick Fertre <yannick.fertre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/437319
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/gpu/drm/stm/dw_mipi_dsi-stm.c | 31 ++++++++++++++-------------
+ 1 file changed, 16 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c b/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
+index 290ceb805c33f..8f865028cca06 100644
+--- a/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
++++ b/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
+@@ -732,16 +732,6 @@ static int dw_mipi_dsi_clk_set_rate(struct clk_hw *hw, unsigned long rate,
+ 	return 0;
+ }
+ 
+-static void dw_mipi_dsi_clk_unregister(void *data)
+-{
+-	struct dw_mipi_dsi_stm *dsi = data;
+-
+-	DRM_DEBUG_DRIVER("\n");
+-
+-	of_clk_del_provider(dsi->dev->of_node);
+-	clk_hw_unregister(&dsi->txbyte_clk);
+-}
+-
+ static const struct clk_ops dw_mipi_dsi_stm_clk_ops = {
+ 	.enable = dw_mipi_dsi_clk_enable,
+ 	.disable = dw_mipi_dsi_clk_disable,
+@@ -765,10 +755,9 @@ static struct clk_init_data cdata_init_141 = {
+ 	.num_parents = 1,
+ };
+ 
+-static int dw_mipi_dsi_clk_register(struct dw_mipi_dsi_stm *dsi,
+-				    struct device *dev)
++static int dw_mipi_dsi_clk_register(struct dw_mipi_dsi_stm *dsi)
+ {
+-	struct device_node *node = dev->of_node;
++	struct device *dev = dsi->dev;
+ 	int ret;
+ 
+ 	DRM_DEBUG_DRIVER("Registering clk\n");
+@@ -786,7 +775,7 @@ static int dw_mipi_dsi_clk_register(struct dw_mipi_dsi_stm *dsi,
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = of_clk_add_hw_provider(node, of_clk_hw_simple_get,
++	ret = of_clk_add_hw_provider(dev->of_node, of_clk_hw_simple_get,
+ 				     &dsi->txbyte_clk);
+ 	if (ret)
+ 		clk_hw_unregister(&dsi->txbyte_clk);
+@@ -794,6 +783,16 @@ static int dw_mipi_dsi_clk_register(struct dw_mipi_dsi_stm *dsi,
+ 	return ret;
+ }
+ 
++static void dw_mipi_dsi_clk_unregister(struct dw_mipi_dsi_stm *dsi)
++{
++	struct device *dev = dsi->dev;
++
++	DRM_DEBUG_DRIVER("\n");
++
++	of_clk_del_provider(dev->of_node);
++	clk_hw_unregister(&dsi->txbyte_clk);
++}
++
+ static int dw_mipi_dsi_phy_init(void *priv_data)
+ {
+ 	struct dw_mipi_dsi_stm *dsi = priv_data;
+@@ -1252,7 +1251,9 @@ static int dw_mipi_dsi_stm_probe(struct platform_device *pdev)
+ 		goto err_dsi_probe;
+ 	}
+ 
+-	ret = dw_mipi_dsi_clk_register(dsi, dev);
++	dsi->dev = dev;
++
++	ret = dw_mipi_dsi_clk_register(dsi);
+ 	if (ret) {
+ 		DRM_ERROR("Failed to register DSI pixel clock: %d\n", ret);
+ 		goto err_dsi_probe;
+-- 
+2.51.0
+
