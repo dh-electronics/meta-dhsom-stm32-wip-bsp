@@ -1,0 +1,90 @@
+From ff0ed76c5481e3ece432e4ea15f56575ab9562af Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Fri, 12 Jun 2026 11:33:59 +0200
+Subject: [PATCH 775/913] plat-stm32mp: implement plat_system_reset for
+ stm32mp1 and stm32mp2
+
+implement plat_system_reset() by renaming do_reset() by with
+plat_system_reset() on stm32mp1 and stm32mp2.
+Also drop declaration of do_reset() from stm32_util.h.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d1cbfd31211a8bd49caca45199498b73c62febd3 plat-stm32mp: implement plat_system_reset for stm32mp1 and stm32mp2]
+Change-Id: I3101fb7629074a2f99a120485bab7939a220946d
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/578199
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c       | 4 +++-
+ core/arch/arm/plat-stm32mp1/stm32_util.h | 3 ---
+ core/arch/arm/plat-stm32mp2/main.c       | 2 +-
+ core/arch/arm/plat-stm32mp2/stm32_util.h | 3 ---
+ 4 files changed, 4 insertions(+), 8 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index 4acb4799d..fd09d5012 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -759,7 +759,7 @@ static void stm32mp_mask_timer(void)
+ 	write_cntv_ctl(read_cntv_ctl() | ARM_CNTXCTL_IMASK);
+ }
+ 
+-void __noreturn do_reset(const char *str __maybe_unused)
++void __noreturn plat_system_reset(const char *str __maybe_unused)
+ {
+ 	stm32mp_mask_timer();
+ 
+@@ -780,6 +780,8 @@ void __noreturn do_reset(const char *str __maybe_unused)
+ 	console_flush();
+ 	stm32_reset_system();
+ 	udelay(100);
++
++	/* Cannot occur */
+ 	panic();
+ }
+ 
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index 96054f3db..20c192718 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -109,9 +109,6 @@ static inline bool stm32mp1_ram_intersect_pager_ram(paddr_t base __unused,
+ }
+ #endif /*CFG_STM32MP15 && CFG_WITH_PAGER*/
+ 
+-/* Print a message and reset the system */
+-void __noreturn do_reset(const char *str);
+-
+ TEE_Result stm32_activate_internal_tamper(int id);
+ 
+ #endif /*__STM32_UTIL_H__*/
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 74549fe34..7f59e7354 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -298,7 +298,7 @@ static bool stm32mp_supports_second_core(void)
+ 	return true;
+ }
+ 
+-void __noreturn do_reset(const char *str __maybe_unused)
++void __noreturn plat_system_reset(const char *str __maybe_unused)
+ {
+ 	struct rstctrl *rstctrl = NULL;
+ 
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+index 5e5a42a2b..2d6dd89d4 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -17,9 +17,6 @@
+ 
+ bool stm32mp_allow_probe_shared_device(const void *fdt, int node);
+ 
+-/* Print a message and reset the system */
+-void __noreturn do_reset(const char *str);
+-
+ #ifdef CFG_STM32_CPU_OPP
+ bool stm32mp_supports_cpu_opp(uint32_t opp_id);
+ #endif /*CFG_STM32_CPU_OPP*/
+-- 
+2.53.0
+

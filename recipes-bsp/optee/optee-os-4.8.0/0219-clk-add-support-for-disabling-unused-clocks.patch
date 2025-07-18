@@ -1,0 +1,92 @@
+From a7873f81760931b7f2a8aa50d68f5e5f634ae90a Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 10 Mar 2026 14:27:00 +0100
+Subject: [PATCH 219/913] clk: add support for disabling unused clocks
+
+Add a clk_disable_unused() helper to walk the registered clock list
+and turn off clocks that have a zero enable refcount.
+Add also an clk_ops with an optional .disable_unused callback so
+providers can customize how unused clocks are disabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9da612cc289febf42029ffb28a3fc197fa69793f clk: add support for disabling unused clocks]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I9baa9207d2f2a3370af436af2460acd5ebc22b22
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/545792
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 21 +++++++++++++++++++++
+ core/include/drivers/clk.h | 12 +++++++++++-
+ 2 files changed, 32 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index 6289b3071..f6fdcb2ca 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -689,3 +689,24 @@ void clk_restore_context(void)
+ 			clk->ops->restore_context(clk);
+ 	}
+ }
++
++void clk_disable_unused(void)
++{
++	struct clk *clk = NULL;
++
++	SLIST_FOREACH(clk, &clock_list, link) {
++		if (clk_is_enabled_no_lock(clk))
++			continue;
++
++		if (clk->ops && clk->ops->is_enabled) {
++			if (clk->ops->is_enabled(clk)) {
++				DMSG("disable unused clock (%s)\n", clk->name);
++
++				if (clk->ops->disable_unused)
++					clk->ops->disable_unused(clk);
++				else
++					clk->ops->disable(clk);
++			}
++		}
++	}
++}
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index fc0d88ed7..ceb7a0827 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -94,7 +94,8 @@ struct clk_rate_request {
+  *		that should be used to provide the clock rate
+  * @save_context: Save clock registers context before entering low-power mode
+  * @restore_context: Restore clock registers context after exiting low-power mode
+- *
++ * @disable_unused: Disable the clock if it is not used anymore 
++*
+  * All clock operations are expected to execute in a interruptible thread
+  * context at the exclusion of power management sequence where non secure
+  * world is not operating (power off, suspend, resume).
+@@ -122,6 +123,7 @@ struct clk_ops {
+ 				     struct clk_rate_request *req);
+ 	TEE_Result (*save_context)(struct clk *clk);
+ 	void (*restore_context)(struct clk *clk);
++	void (*disable_unused)(struct clk *clk);
+ };
+ 
+ /**
+@@ -325,6 +327,14 @@ TEE_Result clk_save_context(void);
+  */
+ void clk_restore_context(void);
+ 
++/**
++ * clk_disable_unused - Disable unused clocks
++ *
++ * This function iterates through all registered clocks and disables those
++ * that are not currently in use.
++ */
++void clk_disable_unused(void);
++
+ #ifdef CFG_DRIVERS_CLK
+ /**
+  * clk_print_tree() - Print current clock tree summary to output console
+-- 
+2.53.0
+

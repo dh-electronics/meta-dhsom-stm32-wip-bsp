@@ -1,0 +1,137 @@
+From ec610f2aae1080ff05d13066a99f48853af206f0 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 19 Mar 2026 10:06:28 +0100
+Subject: [PATCH 166/913] clk: stm32: add support of pinctrl and clock for RCC
+ node
+
+Add a generic stm32mp clock driver to support the OP-TEE initialization of
+pinctrl and clock defined in the RCC sub-node with compatible "st,rcc".
+
+This driver is used to configure in the board device tree the required
+RCC resources as:
+- pincontrol to manage Micro-controller clock output (MCO) pins,
+  for example to provide this MCO clock on external device
+- critical clocks, not managed by other drivers in OP-TEE
+
+The configuration for this sub node is only done when the early DT drivers
+are available, the clock provider (SoC RCC driver) and the pin-controller.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 831e6eca9071a503aafa3eaf10d7222a6d6710e3 clk: stm32: add support of pinctrl and clock for RCC node]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Ia7f011082569e75ea118381de58897e9521593bd
+---
+ core/drivers/clk/clk-stm32-rcc.c | 102 +++++++++++++++++++++++++++++++
+ 1 file changed, 102 insertions(+)
+ create mode 100644 core/drivers/clk/clk-stm32-rcc.c
+
+diff --git a/core/drivers/clk/clk-stm32-rcc.c b/core/drivers/clk/clk-stm32-rcc.c
+new file mode 100644
+index 000000000..02e90561c
+--- /dev/null
++++ b/core/drivers/clk/clk-stm32-rcc.c
+@@ -0,0 +1,102 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ */
++
++#include <config.h>
++#include <drivers/clk.h>
++#include <drivers/clk_dt.h>
++#include <drivers/stm32_gpio.h>
++#include <kernel/dt.h>
++#include <kernel/pm.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <tee_api_defines_extensions.h>
++
++struct stm32mp_rcc_clock {
++	struct clk *clk;
++
++	SLIST_ENTRY(stm32mp_rcc_clock) link;
++};
++
++static SLIST_HEAD(, stm32mp_rcc_clock) stm32mp_rcc_list =
++	SLIST_HEAD_INITIALIZER(stm32mp_rcc_list);
++static struct pinctrl_state *rcc_pinctrl;
++
++static TEE_Result
++stm32mp_rcc_pm(enum pm_op op, unsigned int pm_hint __unused,
++	       const struct pm_callback_handle *pm_handle __unused)
++{
++	struct stm32mp_rcc_clock *rcc_clock = NULL;
++
++	if (op == PM_OP_RESUME && rcc_pinctrl &&
++	    pinctrl_apply_state(rcc_pinctrl))
++		panic();
++
++	SLIST_FOREACH(rcc_clock, &stm32mp_rcc_list, link) {
++		if (op == PM_OP_RESUME) {
++			if (clk_enable(rcc_clock->clk)) {
++				EMSG("Can't enable %s clock",
++				     rcc_clock->clk->name);
++				panic();
++			}
++		} else {
++			clk_disable(rcc_clock->clk);
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result stm32mp_rcc_probe(const void *fdt, int node,
++				    const void *compat_data __unused)
++{
++	TEE_Result res = TEE_SUCCESS;
++	struct clk *clk = NULL;
++	int idx = 0;
++
++	/* Apply pinctrl configuration if present */
++	res = pinctrl_get_state_by_idx(fdt, node, 0, &rcc_pinctrl);
++	if (res && res != TEE_ERROR_ITEM_NOT_FOUND) {
++		if (res == TEE_ERROR_DEFER_DRIVER_INIT)
++			return res;
++		panic("Failed to get RCC pinctrl");
++	}
++
++	if (rcc_pinctrl) {
++		res = pinctrl_apply_state(rcc_pinctrl);
++		if (res)
++			return res;
++	}
++
++	/* Enable clock(s) if present */
++	while (!clk_dt_get_by_index(fdt, node, idx++, &clk)) {
++		struct stm32mp_rcc_clock *rcc_clock = NULL;
++
++		if (clk_enable(clk))
++			panic("Can't enable RCC clock");
++
++		rcc_clock = calloc(1, sizeof(*rcc_clock));
++		if (!rcc_clock)
++			panic("Out of memory");
++
++		rcc_clock->clk = clk;
++
++		SLIST_INSERT_HEAD(&stm32mp_rcc_list, rcc_clock, link);
++	}
++
++	register_pm_core_service_cb(stm32mp_rcc_pm, NULL, "stm32mp-rcc");
++
++	return TEE_SUCCESS;
++}
++
++static const struct dt_device_match stm32mp_rcc_match_table[] = {
++	{ .compatible = "st,rcc" },
++	{ }
++};
++
++DEFINE_DT_DRIVER(stm32mp_rcc_dt_driver) = {
++	.name = "stm32mp-rcc",
++	.match_table = stm32mp_rcc_match_table,
++	.probe = stm32mp_rcc_probe,
++};
+-- 
+2.53.0
+

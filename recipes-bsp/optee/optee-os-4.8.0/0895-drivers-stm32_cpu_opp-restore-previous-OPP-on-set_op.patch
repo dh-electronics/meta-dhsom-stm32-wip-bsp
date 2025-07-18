@@ -1,0 +1,105 @@
+From 0bffbb7fb50da580c7bbb594aa1c84a1033e2fd5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 11 Aug 2026 16:20:21 +0200
+Subject: [PATCH 895/913] drivers: stm32_cpu_opp: restore previous OPP on
+ set_opp() failure
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+set_opp() (MP21/23/25) switches the CPU clock to the bypass source
+before reconfiguring PLL1. On failure of regulator_set_voltage() or
+of the final clk_set_rate(), it returned immediately, leaving the
+CPU clock stuck on bypass instead of PLL1, with no rollback.
+
+Restore the previous OPP's voltage, CA35SS margin and clock rate on
+error, panicking if the restoration itself fails, mirroring the
+existing STM32MP13/15 rollback pattern.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 18d0d9b9b7c70f78c97eca9d103c00a298a50576 drivers: stm32_cpu_opp: restore previous OPP on set_opp() failure]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ib4e53689d96c43aeaeb29047e8943203bddded8d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/598513
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_cpu_opp.c | 39 ++++++++++++++++++++++++++++++++----
+ 1 file changed, 35 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/stm32_cpu_opp.c b/core/drivers/stm32_cpu_opp.c
+index bcbfa717a..f8abfc3eb 100644
+--- a/core/drivers/stm32_cpu_opp.c
++++ b/core/drivers/stm32_cpu_opp.c
+@@ -395,11 +395,14 @@ static TEE_Result set_opp(unsigned int opp)
+ 	bool overdrive = false;
+ 	unsigned int def_freq_khz = cpu_opp.dvfs[cpu_opp.default_opp].freq_khz;
+ 	unsigned int opp_freq_khz = cpu_opp.dvfs[opp].freq_khz;
++	unsigned int cur_freq_khz = clk_get_rate(cpu_opp.clock);
+ 	int opp_volt_uv = cpu_opp.dvfs[opp].volt_uv;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	struct clk *bypass_parent = NULL;
++	struct cpu_dvfs *prev = NULL;
++	bool prev_overdrive = false;
+ 
+-	if (opp_freq_khz == clk_get_rate(cpu_opp.clock))
++	if (opp_freq_khz == cur_freq_khz)
+ 		return TEE_SUCCESS;
+ 
+ 	/* The default OPP is the OPP with nominal frequency */
+@@ -427,7 +430,7 @@ static TEE_Result set_opp(unsigned int opp)
+ 	res = regulator_set_voltage(cpu_opp.regul, opp_volt_uv);
+ 	if (res) {
+ 		EMSG("Failed to set OPP %uuV", opp_volt_uv);
+-		return res;
++		goto restore;
+ 	}
+ 
+ 	/* Change OPP/RM(overdrive) when moving OPP Nominal to Overdrive */
+@@ -435,12 +438,40 @@ static TEE_Result set_opp(unsigned int opp)
+ 		ca35ss_configure_opp(true);
+ 
+ 	/* Configure and start PLL1 */
+-	if (clk_set_rate(cpu_opp.clock, opp_freq_khz * 1000UL)) {
++	res = clk_set_rate(cpu_opp.clock, opp_freq_khz * 1000UL);
++	if (res) {
+ 		EMSG("Failed to set OPP %ukHz", opp_freq_khz);
+-		return TEE_ERROR_GENERIC;
++		goto restore;
+ 	}
+ 
+ 	return TEE_SUCCESS;
++
++restore:
++	for (opp = 0U; opp < cpu_opp.opp_count; opp++) {
++		if (cpu_opp.dvfs[opp].freq_khz == cur_freq_khz) {
++			prev = &cpu_opp.dvfs[opp];
++			break;
++		}
++	}
++	if (!prev)
++		panic("Failed to restore OPP");
++
++	prev_overdrive = prev->freq_khz > def_freq_khz;
++
++	if (!prev_overdrive)
++		ca35ss_configure_opp(false);
++
++	/* Restore previous OPP */
++	if (regulator_set_voltage(cpu_opp.regul, prev->volt_uv))
++		panic("Failed to restore voltage");
++
++	if (prev_overdrive)
++		ca35ss_configure_opp(true);
++
++	if (clk_set_rate(cpu_opp.clock, prev->freq_khz * 1000UL))
++		panic("Failed to restore clock");
++
++	return res;
+ }
+ #endif /* CFG_STM32MP21 || CFG_STM32MP23 || CFG_STM32MP25*/
+ 
+-- 
+2.53.0
+

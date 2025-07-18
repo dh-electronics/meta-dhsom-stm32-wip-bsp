@@ -1,0 +1,54 @@
+From 37c4d0b3948d22892b7b8311bfa01f5cffe85bb3 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 4 Aug 2026 14:12:43 +0200
+Subject: [PATCH 882/913] clk: stm32: keep the parent id error code signed
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+_stm32_clock_get_rate stored the int returned by
+stm32mp1_clk_get_parent in an enum stm32mp1_parent_id, an unsigned
+type, so the "p < 0" error test could never be true and the error was
+silently passed to get_clock_rate as a huge parent id.
+
+Use an int for the returned value so the error is caught.
+
+Coverity issue: CID 1201979: Logically dead code in _stm32_clock_get_rate
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3f2d03846777c8acadec0f0c8b341afee6c4b998 clk: stm32: keep the parent id error code signed]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I5639fd7868d3652b7bec71ccb217db3f2813ed08
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/597003
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/clk/stm32/clk-stm32mp15.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/clk/stm32/clk-stm32mp15.c b/core/drivers/clk/stm32/clk-stm32mp15.c
+index e18488aef..0582b01de 100644
+--- a/core/drivers/clk/stm32/clk-stm32mp15.c
++++ b/core/drivers/clk/stm32/clk-stm32mp15.c
+@@ -1225,14 +1225,14 @@ static long get_timer_rate(long parent_rate, unsigned int apb_bus)
+ 
+ static unsigned long _stm32_clock_get_rate(unsigned long id)
+ {
+-	enum stm32mp1_parent_id p = _UNKNOWN_ID;
+ 	unsigned long rate = 0;
++	int p = 0;
+ 
+ 	p = stm32mp1_clk_get_parent(id);
+ 	if (p < 0)
+ 		return 0;
+ 
+-	rate = get_clock_rate(p);
++	rate = get_clock_rate((enum stm32mp1_parent_id)p);
+ 
+ 	if ((id >= TIM2_K) && (id <= TIM14_K))
+ 		rate = get_timer_rate(rate, 1);
+-- 
+2.53.0
+

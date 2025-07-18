@@ -1,0 +1,218 @@
+From 6197d0809da73ac3126ec592b0bf39787af39660 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Mon, 10 Feb 2025 17:09:22 +0100
+Subject: [PATCH 518/913] plat-stm32mp2: scmi_server: implement dvfs protocol
+
+scmi_server_scpfw can now retrieve opp description from DT.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 48874dd22d9052b6d743062b6cdcd5e9b12cdce6 plat-stm32mp2: scmi_server: implement dvfs protocol]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I442f6baedd8cf249056524c1a4f37faf4085897d
+---
+ core/lib/scmi-server/conf-optee-stm32mp2.mk   |  9 +++
+ .../include/scmi_agent_configuration.h        | 29 +++++++++
+ core/lib/scmi-server/scmi_server_scpfw.c      | 60 +++++++++++++++++++
+ core/lib/scmi-server/sub.mk                   |  2 +-
+ 4 files changed, 99 insertions(+), 1 deletion(-)
+
+diff --git a/core/lib/scmi-server/conf-optee-stm32mp2.mk b/core/lib/scmi-server/conf-optee-stm32mp2.mk
+index 11c840750..59b238d81 100644
+--- a/core/lib/scmi-server/conf-optee-stm32mp2.mk
++++ b/core/lib/scmi-server/conf-optee-stm32mp2.mk
+@@ -1,16 +1,22 @@
+ $(call force,CFG_SCPFW_MOD_CLOCK,y)
++$(call force,CFG_SCPFW_MOD_DVFS,y)
+ $(call force,CFG_SCPFW_MOD_MSG_SMT,y)
+ $(call force,CFG_SCPFW_MOD_OPTEE_CLOCK,y)
+ $(call force,CFG_SCPFW_MOD_OPTEE_CONSOLE,y)
+ $(call force,CFG_SCPFW_MOD_OPTEE_MBX,y)
+ $(call force,CFG_SCPFW_MOD_OPTEE_RESET,y)
+ $(call force,CFG_SCPFW_MOD_OPTEE_VOLTD_REGULATOR,y)
++$(call force,CFG_SCPFW_MOD_PSU,y)
++$(call force,CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR,y)
+ $(call force,CFG_SCPFW_MOD_RESET_DOMAIN,y)
+ $(call force,CFG_SCPFW_MOD_SCMI,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_CLOCK,y)
++$(call force,CFG_SCPFW_MOD_SCMI_PERF,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_RESET_DOMAIN,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN,y)
++$(call force,CFG_SCPFW_MOD_STM32_OPP,y)
+ $(call force,CFG_SCPFW_MOD_VOLTAGE_DOMAIN,y)
++$(call force,CFG_SCPFW_SCMI_PERF_PROTOCOL_OPS,y)
+ 
+ ifeq (,$(filter 0 1 2,$(CFG_TEE_CORE_LOG_LEVEL)))
+ # For OP-TEE TRACE >= DEBUG (3), the scp-firmware Info(1) level is sufficient
+@@ -20,3 +26,6 @@ endif
+ 
+ $(call force,CFG_SCPFW_NOTIFICATION,n)
+ $(call force,CFG_SCPFW_FAST_CHANNEL,n)
++
++# Default configuration values for product specific modules
++CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR ?= n
+diff --git a/core/lib/scmi-server/include/scmi_agent_configuration.h b/core/lib/scmi-server/include/scmi_agent_configuration.h
+index 346ba8eb1..ce117101b 100644
+--- a/core/lib/scmi-server/include/scmi_agent_configuration.h
++++ b/core/lib/scmi-server/include/scmi_agent_configuration.h
+@@ -48,6 +48,31 @@ struct scmi_voltd {
+ 	bool enabled;
+ };
+ 
++/*
++ * struct scmi_perfd - DVFS/performance domain description
++ * @name: DVFS name
++ * @dvfs_opp_count: Number of cells in @dvfs_opp_khz and @dvfs_opp_mv
++ * @initial_opp: Initial operating point
++ * @dvfs_opp_khz: Operating point frequencies in Hertz
++ * @dvfs_opp_mv: Operating point voltage levels in millivolts
++ * @clk: Clock used by the DVFS service
++ * @regulator: Regulator used by the DVFS service
++ * @opp_id: OPP identifier
++ *
++ * SCP firmware configuration expects array couple @dvfs_opp_khz and
++ * @dvfs_opp_mv values are ordered by increasing performance operating points.
++ */
++struct scmi_perfd {
++	const char *name;
++	size_t dvfs_opp_count;
++	size_t initial_opp;
++	unsigned int *dvfs_opp_khz;
++	unsigned int *dvfs_opp_mv;
++	struct clk *clk;
++	struct regulator *regulator;
++	unsigned int opp_id;
++};
++
+ /*
+  * struct scpfw_channel_config - SCMI channel resources
+  * @name: Channel name
+@@ -58,6 +83,8 @@ struct scmi_voltd {
+  * @reset_count: Number of cells of @reset
+  * @voltd: Description of the regulators exposed on the channel
+  * @voltd_count: Number of cells of @voltd
++ * @perfd: Description of the DVFS/perf exposed on the channel
++ * @perfd_count: Number of cells of @perfd
+  */
+ struct scpfw_channel_config {
+ 	const char *name;
+@@ -68,6 +95,8 @@ struct scpfw_channel_config {
+ 	size_t reset_count;
+ 	struct scmi_voltd *voltd;
+ 	size_t voltd_count;
++	struct scmi_perfd *perfd;
++	size_t perfd_count;
+ };
+ 
+ /*
+diff --git a/core/lib/scmi-server/scmi_server_scpfw.c b/core/lib/scmi-server/scmi_server_scpfw.c
+index b24b359be..7547abdce 100644
+--- a/core/lib/scmi-server/scmi_server_scpfw.c
++++ b/core/lib/scmi-server/scmi_server_scpfw.c
+@@ -5,6 +5,7 @@
+ 
+ #include <assert.h>
+ #include <drivers/scmi.h>
++#include <drivers/stm32_cpu_opp.h>
+ #include <kernel/boot.h>
+ #include <kernel/dt.h>
+ #include <kernel/panic.h>
+@@ -66,11 +67,20 @@ static struct scpfw_config scpfw_cfg;
+ static void scmi_scpfw_free_agent(struct scpfw_agent_config *agent_cfg)
+ {
+ 	unsigned int j = 0;
++	unsigned int k = 0;
+ 
+ 	for (j = 0; j < agent_cfg->channel_count; j++) {
+ 		struct scpfw_channel_config *channel_cfg =
+ 			agent_cfg->channel_config + j;
+ 
++		for (k = 0; k < channel_cfg->perfd_count; k++) {
++			struct scmi_perfd *perfd = channel_cfg->perfd + k;
++
++			free(perfd->dvfs_opp_khz);
++			free(perfd->dvfs_opp_mv);
++		}
++		free(channel_cfg->perfd);
++
+ 		free(channel_cfg->voltd);
+ 		free(channel_cfg->reset);
+ 		free(channel_cfg->clock);
+@@ -214,6 +224,43 @@ optee_scmi_server_init_protocol(const void *fdt,
+ 	}
+ }
+ 
++/* Expose DVFS features with SCMI performance protocol */
++static TEE_Result optee_scmi_server_init_perf(struct scpfw_channel_config *cfg)
++{
++	unsigned int i = 0;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	cfg->perfd_count = 0U;
++	if (stm32_opp_get_count(OPP_ID_CPU) > 0U)
++		cfg->perfd_count++;
++	if (stm32_opp_get_count(OPP_ID_GPU) > 0U)
++		cfg->perfd_count++;
++	if (!cfg->perfd_count)
++		return TEE_SUCCESS;
++
++	cfg->perfd = calloc(cfg->perfd_count, sizeof(*cfg->perfd));
++	if (!cfg->perfd)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	if (stm32_opp_get_count(OPP_ID_CPU) > 0U) {
++		res = optee_scmi_server_cpu_dvfs(i++, cfg);
++		if (res) {
++			EMSG("Error during DFVS init %d", OPP_ID_CPU);
++			return res;
++		}
++	}
++
++	if (stm32_opp_get_count(OPP_ID_GPU) > 0U) {
++		res = optee_scmi_server_gpu_dvfs(i++, cfg);
++		if (res) {
++			EMSG("Error during DFVS init %d", OPP_ID_GPU);
++			return res;
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result optee_scmi_server_probe(const void *fdt, int parent_node,
+ 					  const void *compat_data __unused)
+ {
+@@ -313,6 +360,19 @@ static TEE_Result optee_scmi_server_probe(const void *fdt, int parent_node,
+ 		struct scpfw_channel_config *channel_cfg =
+ 			agent_cfg->channel_config + agent_ctx->channel_id;
+ 
++		/*
++		 * Platform currently exposes a DFVS service only to
++		 * non-secure Cortex-A running the Linux kernel
++		 * (aka agent 1/channel 0).
++		 */
++		if (agent_cfg->agent_id == 1 && channel_cfg->channel_id == 0) {
++			res = optee_scmi_server_init_perf(channel_cfg);
++			if (res) {
++				EMSG("Error for performance domains (%d)", res);
++				panic();
++			}
++		}
++
+ 		SIMPLEQ_FOREACH(protocol_ctx, &agent_ctx->protocol_list, link)
+ 			optee_scmi_server_init_protocol(fdt, protocol_ctx,
+ 							agent_cfg, channel_cfg);
+diff --git a/core/lib/scmi-server/sub.mk b/core/lib/scmi-server/sub.mk
+index a7b7af4a9..28a9ee821 100644
+--- a/core/lib/scmi-server/sub.mk
++++ b/core/lib/scmi-server/sub.mk
+@@ -26,7 +26,7 @@ srcs-$(CFG_SCMI_SCPFW_FROM_DT) += scmi_server_scpfw.c
+ srcs-$(CFG_SCMI_SERVER_CLOCK_CONSUMER) += scmi_clock_consumer.c
+ srcs-$(CFG_SCMI_SERVER_REGULATOR_CONSUMER) += scmi_regulator_consumer.c
+ srcs-$(CFG_SCMI_SERVER_RESET_CONSUMER) += scmi_reset_consumer.c
+-incdirs-y += include
++global-incdirs-y += include
+ 
+ # SCP-firmware cmake configuration generates header fwk_module_idx.h and
+ # source files fwk_module_list.c needed for scp-firmware compilation.
+-- 
+2.53.0
+

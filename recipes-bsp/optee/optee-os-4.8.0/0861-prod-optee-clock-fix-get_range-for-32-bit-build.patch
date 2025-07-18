@@ -1,0 +1,55 @@
+From b8d1a801566bb9509dafa556b4d3d36157e7c010 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 20 Aug 2026 09:22:55 +0200
+Subject: [PATCH 861/913] prod/optee/clock: fix get_range for 32-bit build
+
+clk_get_rates_array() expects an unsigned long pointer, but range->min
+and range->max are uint64_t. On aarch32 unsigned long is 32-bit,
+which triggered an incompatible pointer type error.
+Use temporary unsigned long variables and copy the result into
+the uint64_t range fields.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 34266312da869f0dcd563affd0c1e4d13a50dda5 prod/optee/clock: fix get_range for 32-bit build]
+Change-Id: I7f844404f643ed82944d6b98ff6a6fc0877340a1
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/601338
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+---
+ .../optee/common/module/clock/src/mod_optee_clock.c       | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+index 661e29d91..d8261bc54 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+@@ -179,6 +179,8 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
+     struct optee_clock_dev_ctx *ctx = elt_id_to_ctx(dev_id);
+     size_t rate_count;
+     size_t count;
++    unsigned long min_rate = 0;
++    unsigned long max_rate = 0;
+     TEE_Result res;
+ 
+     if ((ctx == NULL) || (range == NULL)) {
+@@ -227,12 +229,14 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
+     range->max = 0;
+ 
+     count = 1;
+-    res = clk_get_rates_array(ctx->clk, 0, &range->min, &count);
++    res = clk_get_rates_array(ctx->clk, 0, &min_rate, &count);
+     fwk_assert(!res && count == 1);
++    range->min = min_rate;
+ 
+     count = 1;
+-    res = clk_get_rates_array(ctx->clk, rate_count - 1, &range->max, &count);
++    res = clk_get_rates_array(ctx->clk, rate_count - 1, &max_rate, &count);
+     fwk_assert(!res && count == 1);
++    range->max = max_rate;
+ 
+     return FWK_SUCCESS;
+ }
+-- 
+2.53.0
+

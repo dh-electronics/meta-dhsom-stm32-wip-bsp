@@ -1,0 +1,357 @@
+From 3db13fd5b41470686ddac3509fafdbda8c4a0bd3 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 14 Feb 2025 17:50:35 +0100
+Subject: [PATCH 547/913] prod/optee/stm32mp2: create stm32 power domain module
+ driver
+
+Create a new module driver named mod_stm32_pd, which can handle power
+domain actions on stm32mp2 product.
+
+Add set/get for SCMI_GPU power domain.
+It will enable/disable required regulator and clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3189177e6152098127faa01359456528f61bfa91 prod/optee/stm32mp2: create stm32 power domain module driver]
+Change-Id: Ic56f24a19dd43ab51219dee1967305ade4210934
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+---
+ .../product/optee/stm32mp2/fw/CMakeLists.txt  |   1 +
+ .../product/optee/stm32mp2/fw/Firmware.cmake  |   4 +
+ .../stm32mp2/module/stm32_pd/CMakeLists.txt   |  17 ++
+ .../stm32mp2/module/stm32_pd/Module.cmake     |   9 +
+ .../module/stm32_pd/include/mod_stm32_pd.h    |  19 ++
+ .../module/stm32_pd/src/mod_stm32_pd.c        | 219 ++++++++++++++++++
+ .../product/optee/stm32mp2/sub-stm32mp2.mk    |   1 +
+ 7 files changed, 270 insertions(+)
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/CMakeLists.txt
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/Module.cmake
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/include/mod_stm32_pd.h
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt
+index a22c6fdb1..cf386082c 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt
+@@ -11,6 +11,7 @@
+ 
+ set (CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR n)
+ set (CFG_SCPFW_MOD_STM32_OPP n)
++set (CFG_SCPFW_MOD_STM32_PD n)
+ 
+ add_library(${SCP_FIRMWARE_TARGET})
+ 
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake
+index 29f3e61a3..3c6f8d5c0 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake
+@@ -39,6 +39,10 @@ if(CFG_SCPFW_MOD_STM32_OPP)
+ list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/stm32_opp")
+ endif(CFG_SCPFW_MOD_STM32_OPP)
+ 
++if(CFG_SCPFW_MOD_STM32_PD)
++list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/stm32_pd")
++endif(CFG_SCPFW_MOD_STM32_PD)
++
+ # The order of the modules in the following list is the order in which the
+ # modules are initialized, bound, started during the pre-runtime phase.
+ # any change in the order will cause firmware initialization errors.
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/CMakeLists.txt
+new file mode 100644
+index 000000000..26d47e8d7
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/CMakeLists.txt
+@@ -0,0 +1,17 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++add_library(${SCP_MODULE_TARGET} SCP_MODULE)
++
++target_include_directories(${SCP_MODULE_TARGET}
++                           PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
++                                  "${SCP_OPTEE_DIR}/core/arch/arm/plat-stm32mp2")
++
++target_sources(
++    ${SCP_MODULE_TARGET} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/mod_stm32_pd.c")
++
++target_link_libraries(${SCP_MODULE_TARGET} PUBLIC module-power-domain)
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/Module.cmake b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/Module.cmake
+new file mode 100644
+index 000000000..1c1f2dce4
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/Module.cmake
+@@ -0,0 +1,9 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++set(SCP_MODULE "stm32-pd")
++set(SCP_MODULE_TARGET "module-stm32-pd")
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/include/mod_stm32_pd.h b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/include/mod_stm32_pd.h
+new file mode 100644
+index 000000000..46cdf65dc
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/include/mod_stm32_pd.h
+@@ -0,0 +1,19 @@
++/*
++ * Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef MOD_STM32_PD_H
++#define MOD_STM32_PD_H
++
++/*!
++ * \brief Platform power domain configuration.
++ */
++struct mod_stm32_pd_config {
++    const char *name;
++    struct clk *clk;
++    struct regulator *regu;
++};
++
++#endif /* MOD_STM32_PD_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/src/mod_stm32_pd.c b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+new file mode 100644
+index 000000000..c2a9c502b
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+@@ -0,0 +1,219 @@
++/*
++ * Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <mod_power_domain.h>
++#include <mod_stm32_pd.h>
++#include <scmi_agent_configuration.h>
++#include <drivers/stm32mp_dt_bindings.h>
++
++#include <fwk_id.h>
++#include <fwk_log.h>
++#include <fwk_mm.h>
++#include <fwk_module.h>
++
++#include <arch_main.h>
++
++struct mod_stm32_pd {
++    const struct mod_stm32_pd_config *config;
++    unsigned int current_state;
++    fwk_id_t requester_id;
++    struct mod_pd_driver_input_api *pd_driver_input_api;
++};
++
++static struct mod_stm32_pd *mod_stm32_pd_ctx;
++
++static int stm32_pd_get_state(fwk_id_t pd_id, unsigned int *state)
++{
++    struct mod_stm32_pd *ctx = mod_stm32_pd_ctx + fwk_id_get_element_idx(pd_id);
++
++    *state = ctx->current_state;
++    return FWK_SUCCESS;
++}
++
++static int stm32_pd_set_state(fwk_id_t pd_id, unsigned int state)
++{
++    struct mod_stm32_pd *ctx = mod_stm32_pd_ctx + fwk_id_get_element_idx(pd_id);
++
++    ctx->current_state = state;
++    return FWK_SUCCESS;
++}
++
++static int stm32_pd_reset(fwk_id_t pd_id)
++{
++    FWK_LOG_DEBUG("Power domain %s reset not supported",
++                  fwk_module_get_element_name(pd_id));
++    return FWK_E_SUPPORT;
++}
++
++static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
++{
++    struct mod_stm32_pd *ctx = mod_stm32_pd_ctx + fwk_id_get_element_idx(pd_id);
++    struct clk *clk = ctx->config->clk;
++    struct regulator *regu = ctx->config->regu;
++    int status;
++    TEE_Result res;
++
++    fwk_assert(ctx->pd_driver_input_api != NULL);
++    fwk_assert(fwk_id_get_element_idx(pd_id) == PD_SCMI_GPU);
++
++    /* Nothing to do */
++    if (state == ctx->current_state) {
++        return FWK_SUCCESS;
++    }
++
++    switch (state) {
++        case MOD_PD_STATE_ON:
++            if (regu != NULL) {
++                res = regulator_enable(regu);
++                if (res != TEE_SUCCESS) {
++                    return scmi_tee_result_to_fwk_status(res);
++                }
++            }
++            if (clk != NULL) {
++                res = clk_enable(clk);
++                if (res != TEE_SUCCESS) {
++                    if (regu != NULL) {
++                        regulator_disable(regu);
++                    }
++                    return scmi_tee_result_to_fwk_status(res);
++                }
++            }
++            break;
++        case MOD_PD_STATE_OFF:
++            if (clk != NULL) {
++                clk_disable(clk);
++            }
++            if (regu != NULL) {
++                res = regulator_disable(regu);
++                if (res != TEE_SUCCESS) {
++                    if (clk != NULL) {
++                        clk_enable(clk);
++                    }
++                    return scmi_tee_result_to_fwk_status(res);
++                }
++            }
++            break;
++        default:
++            FWK_LOG_ERR("State %d not supported on power domain %s",
++                        state,
++                        fwk_module_get_element_name(pd_id));
++            return FWK_E_SUPPORT;
++    }
++
++    status = ctx->pd_driver_input_api->report_power_state_transition(
++        ctx->requester_id,
++        state);
++    assert(status == FWK_SUCCESS);
++
++    FWK_LOG_DEBUG("Power domain %s change state to %s",
++                  fwk_module_get_element_name(pd_id),
++                  state == MOD_PD_STATE_ON ? "ON" : "OFF");
++
++    ctx->current_state = state;
++    return FWK_SUCCESS;
++}
++
++static int stm32_pd_bind(fwk_id_t id, unsigned int round)
++{
++    struct mod_stm32_pd *ctx;
++
++    /* Nothing to do for the module */
++    if (fwk_module_is_valid_module_id(id)) {
++        return FWK_SUCCESS;
++    }
++
++    /* Element id is not valid */
++    if (!fwk_module_is_valid_element_id(id)) {
++        FWK_LOG_ERR("Cannot bind %s, element id is needed",
++                    fwk_module_get_element_name(id));
++        return FWK_E_SUPPORT;
++    }
++
++    ctx = mod_stm32_pd_ctx + fwk_id_get_element_idx(id);
++
++    /* stm32_pd_process_bind_request probably isn't been called right now */
++    if (!fwk_module_is_valid_element_id(ctx->requester_id)) {
++        FWK_LOG_ERR("stm32_pd_process_bind_request hasn't been called yet");
++        return FWK_E_ACCESS;
++    }
++
++    /* Only get an input API from power domain framework */
++    if (fwk_id_get_module_idx(ctx->requester_id) !=
++            FWK_MODULE_IDX_POWER_DOMAIN) {
++        FWK_LOG_ERR("Requester is not power domain module");
++        return FWK_E_SUPPORT;
++    }
++
++    return fwk_module_bind(ctx->requester_id,
++                           mod_pd_api_id_driver_input,
++                           &ctx->pd_driver_input_api);
++}
++
++static int stm32_pd_element_init(fwk_id_t element_id,
++                                 unsigned int unused,
++                                 const void *data)
++{
++    struct mod_stm32_pd *ctx =
++                        mod_stm32_pd_ctx + fwk_id_get_element_idx(element_id);
++
++    ctx->config = (const struct mod_stm32_pd_config *)data;
++
++    if (fwk_id_get_element_idx(element_id) == PD_SCMI_GPU) {
++        ctx->current_state = MOD_PD_STATE_OFF;
++        return FWK_SUCCESS;
++    }
++
++    ctx->current_state = MOD_PD_STATE_ON;
++    return FWK_SUCCESS;
++}
++
++static const struct mod_pd_driver_api stm32_pd_api_gpu = {
++    .set_state = stm32_pd_set_state_gpu,
++    .get_state = stm32_pd_get_state,
++    .reset = stm32_pd_reset,
++};
++
++static const struct mod_pd_driver_api stm32_pd_api = {
++    .set_state = stm32_pd_set_state,
++    .get_state = stm32_pd_get_state,
++    .reset = stm32_pd_reset,
++};
++
++static int stm32_pd_process_bind_request(fwk_id_t requester_id,
++                                         fwk_id_t target_id,
++                                         fwk_id_t api_type,
++                                         const void **api)
++{
++    struct mod_stm32_pd *ctx = NULL;
++
++    ctx = mod_stm32_pd_ctx + fwk_id_get_element_idx(target_id);
++    ctx->requester_id = requester_id;
++
++    if (fwk_id_get_element_idx(target_id) == PD_SCMI_GPU) {
++        *api = &stm32_pd_api_gpu;
++        return FWK_SUCCESS;
++    }
++
++    *api = &stm32_pd_api;
++    return FWK_SUCCESS;
++}
++
++static int stm32_pd_init(fwk_id_t module_id,
++    unsigned int element_count, const void *data)
++{
++    mod_stm32_pd_ctx = fwk_mm_calloc(element_count, sizeof(*mod_stm32_pd_ctx));
++
++    return FWK_SUCCESS;
++}
++
++const struct fwk_module module_stm32_pd = {
++    .type = FWK_MODULE_TYPE_DRIVER,
++    .api_count = 1,
++    .init = stm32_pd_init,
++    .element_init = stm32_pd_element_init,
++    .bind = stm32_pd_bind,
++    .process_bind_request = stm32_pd_process_bind_request,
++};
+\ No newline at end of file
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk
+index 45e000ed6..e60be4a62 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk
+@@ -11,3 +11,4 @@ srcs-y += $(scpfw-path)/product/optee/stm32mp2/fw/config_scmi.c
+ 
+ $(eval $(call scpfw-embed-product-module,psu_optee_regulator))
+ $(eval $(call scpfw-embed-product-module,stm32_opp))
++$(eval $(call scpfw-embed-product-module,stm32_pd))
+-- 
+2.53.0
+

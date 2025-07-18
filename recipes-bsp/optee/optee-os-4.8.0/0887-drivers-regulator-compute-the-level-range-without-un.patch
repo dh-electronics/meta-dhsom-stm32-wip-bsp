@@ -1,0 +1,70 @@
+From c87b6505568ca3a42c81b998cd446742baaf7c59 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 4 Aug 2026 14:14:08 +0200
+Subject: [PATCH 887/913] drivers: regulator: compute the level range without
+ underflow
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When the supply exposes a full list of voltages whose first level above
+the minimum constraint is already above the maximum constraint, the
+retained range is empty. The "end = i - 1" and "end - start" expressions
+were then evaluated on unsigned values that wrap around, and the only
+guard was an assert, hence unchecked in release builds.
+
+Break out of the second loop without touching "end", reject an empty
+range by comparing the two indexes, and only then derive "end". Both
+subtractions are now reached with a proven non-empty range, so neither
+"i - 1" nor "end - start" can wrap around. An empty range returns
+TEE_ERROR_NOT_SUPPORTED, so the caller falls back to the default voltage
+range as already done for incremental descriptions.
+
+Coverity issue: CID 1200021: Overflowed constant in regulator_limit_levels
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5398256a6ba0440e1bb1a6645f6149123192a725 drivers: regulator: compute the level range without underflow]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I46155feb75f1ae303534dad6111c65a5c725d895
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/597008
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/regulator/regulator.c | 16 +++++++++++-----
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/core/drivers/regulator/regulator.c b/core/drivers/regulator/regulator.c
+index cd23d8200..6776360f4 100644
+--- a/core/drivers/regulator/regulator.c
++++ b/core/drivers/regulator/regulator.c
+@@ -256,14 +256,20 @@ static TEE_Result regulator_limit_levels(struct regulator *regulator,
+ 				start = i;
+ 				break;
+ 			}
+-		/* Last level lower than maximum */
++		/* First level higher than the maximum, if any */
+ 		for (; i  <= last ; i++)
+-			if ((*levels)[i] > regulator->max_uv) {
+-				end = i - 1;
++			if ((*levels)[i] > regulator->max_uv)
+ 				break;
+-			}
++
++		/* No supported level fits both constraints */
++		if (i == start)
++			return TEE_ERROR_NOT_SUPPORTED;
++
++		/* Last level lower than maximum */
++		if (i <= last)
++			end = i - 1;
++
+ 		/* Expose only a subset of supported voltages by the supply */
+-		assert(end >= start);
+ 		if (start > 0 && end != last) {
+ 			*levels = *levels + start;
+ 			(*desc)->num_levels = end - start + 1;
+-- 
+2.53.0
+

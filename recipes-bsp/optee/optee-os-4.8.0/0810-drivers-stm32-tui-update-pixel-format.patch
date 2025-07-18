@@ -1,0 +1,158 @@
+From 889382349f9b3f038493bc407cb48e385d56bd97 Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Thu, 27 Nov 2025 10:33:31 +0100
+Subject: [PATCH 810/913] drivers: stm32: tui: update pixel format
+
+Add support for RGB pixel formats with 32-bit, 24-bit, and 16-bit depths.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ec962d9f27f8fca10ee3734c3e021e54cb1be3fe drivers: stm32: tui: update pixel format]
+Change-Id: I670d02d69a3d2fb47fa9dcba73abf298788f171c
+Signed-off-by: Yannick Fertre <yannick.fertre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/513136
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/display.c |  2 +-
+ core/arch/arm/plat-stm32mp2/display.c |  2 +-
+ core/drivers/stm32_ltdc.c             | 43 +++++++++++++++++++++------
+ core/include/drivers/frame_buffer.h   |  8 ++++-
+ core/pta/tui.c                        |  2 +-
+ lib/libutee/include/pta_tui.h         |  2 +-
+ 6 files changed, 45 insertions(+), 14 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/display.c b/core/arch/arm/plat-stm32mp1/display.c
+index abdc8d997..9117321df 100644
+--- a/core/arch/arm/plat-stm32mp1/display.c
++++ b/core/arch/arm/plat-stm32mp1/display.c
+@@ -31,7 +31,7 @@ static struct frame_buffer tui_frame_buffer = {
+ 	.height     = 272,
+ 	.width_dpi  = 160,
+ 	.height_dpi = 160,
+-	.bpp        = FB_24BPP, /* never used actually.*/
++	.bpp        = FB_ARGB_32BPP,
+ };
+ 
+ struct frame_buffer *display_get_frame_buffer(void)
+diff --git a/core/arch/arm/plat-stm32mp2/display.c b/core/arch/arm/plat-stm32mp2/display.c
+index 204fe018d..2f9486a75 100644
+--- a/core/arch/arm/plat-stm32mp2/display.c
++++ b/core/arch/arm/plat-stm32mp2/display.c
+@@ -31,7 +31,7 @@ static struct frame_buffer tui_frame_buffer = {
+ 	.height     = 272,
+ 	.width_dpi  = 160,
+ 	.height_dpi = 160,
+-	.bpp        = FB_24BPP, /* never used actually.*/
++	.bpp        = FB_ARGB_32BPP,
+ };
+ 
+ struct frame_buffer *display_get_frame_buffer(void)
+diff --git a/core/drivers/stm32_ltdc.c b/core/drivers/stm32_ltdc.c
+index 4c75cda58..6ec148565 100644
+--- a/core/drivers/stm32_ltdc.c
++++ b/core/drivers/stm32_ltdc.c
+@@ -103,13 +103,13 @@ struct ltdc_device {
+ #define LTDC_LXDCCR_DCALPHA	GENMASK_32(31, 24)
+ 
+ enum ltdc_pix_fmt {
+-	LXPFCR_PF_ARGB8888,
+-	LXPFCR_PF_ABGR8888,
+-	LXPFCR_PF_RGBA8888,
+-	LXPFCR_PF_BGRA8888,
+-	LXPFCR_PF_RGB565,
+-	LXPFCR_PF_BGR565,
+-	LXPFCR_PF_RGB888
++	LXPFCR_PF_ARGB8888,		/* ARGB [32 bits] */
++	LXPFCR_PF_ABGR8888,		/* ABGR [32 bits] */
++	LXPFCR_PF_RGBA8888,		/* RGBA [32 bits] */
++	LXPFCR_PF_BGRA8888,		/* BGRA [32 bits] */
++	LXPFCR_PF_RGB565,		/* RGB  [16 bits] */
++	LXPFCR_PF_BGR565,		/* BGR  [16 bits] */
++	LXPFCR_PF_RGB888,		/* RGB  [24 bits] */
+ };
+ 
+ /* Within mask LTDC_LXBFCR_BF1 */
+@@ -294,9 +294,34 @@ static TEE_Result stm32_ltdc_activate(void *device,
+ 	io_clrsetbits32(ldev->regs + LTDC_LXWVPCR,
+ 			LTDC_LXWVPCR_WVSTPOS | LTDC_LXWVPCR_WVSPPOS, value);
+ 
++	switch (fb->bpp) {
++	case FB_ARGB_32BPP:
++		value = LXPFCR_PF_ARGB8888;
++		break;
++	case FB_ABGR_32_BPP:
++		value = LXPFCR_PF_ABGR8888;
++		break;
++	case FB_RGBA_32_BPP:
++		value = LXPFCR_PF_RGBA8888;
++		break;
++	case FB_BGRA_32_BPP:
++		value = LXPFCR_PF_BGRA8888;
++		break;
++	case FB_RGB_24_BPP:
++		value = LXPFCR_PF_RGB888;
++		break;
++	case FB_RGB_16_BPP:
++		value = LXPFCR_PF_RGB565;
++		break;
++	case FB_BGR_16_BPP:
++		value = LXPFCR_PF_BGR565;
++		break;
++	default:
++		panic("Invalid Pixel format");
++	}
++
+ 	/* Specifies the pixel format, hard coded */
+-	io_clrsetbits32(ldev->regs + LTDC_LXPFCR, LTDC_LXPFCR_PF,
+-			LXPFCR_PF_ARGB8888);
++	io_clrsetbits32(ldev->regs + LTDC_LXPFCR, LTDC_LXPFCR_PF, value);
+ 
+ 	/* Configure the default color values, hard coded */
+ 	io_clrsetbits32(ldev->regs + LTDC_LXDCCR,
+diff --git a/core/include/drivers/frame_buffer.h b/core/include/drivers/frame_buffer.h
+index 4e504ea0d..b2a75bceb 100644
+--- a/core/include/drivers/frame_buffer.h
++++ b/core/include/drivers/frame_buffer.h
+@@ -8,7 +8,13 @@
+ #include <types_ext.h>
+ 
+ enum frame_buffer_bpp {
+-	FB_24BPP,
++	FB_ARGB_32BPP,
++	FB_RGBA_32_BPP,
++	FB_ABGR_32_BPP,
++	FB_BGRA_32_BPP,
++	FB_RGB_24_BPP,
++	FB_RGB_16_BPP,
++	FB_BGR_16_BPP,
+ };
+ 
+ struct frame_buffer {
+diff --git a/core/pta/tui.c b/core/pta/tui.c
+index 8c01be81d..59cb1dc4f 100644
+--- a/core/pta/tui.c
++++ b/core/pta/tui.c
+@@ -29,7 +29,7 @@ static TEE_Result taf_get_screen_info(struct ts_session *s __unused,
+ 	params[0].value.b = fb->height;
+ 	params[1].value.a = fb->width_dpi;
+ 	params[1].value.b = fb->height_dpi;
+-	COMPILE_TIME_ASSERT(PTA_TUI_SCREEN_24BPP == FB_24BPP);
++	COMPILE_TIME_ASSERT(PTA_TUI_SCREEN_32BPP == FB_ARGB_32BPP);
+ 	params[2].value.a = fb->bpp;
+ 	return TEE_SUCCESS;
+ }
+diff --git a/lib/libutee/include/pta_tui.h b/lib/libutee/include/pta_tui.h
+index 1efe2900e..b9fed970d 100644
+--- a/lib/libutee/include/pta_tui.h
++++ b/lib/libutee/include/pta_tui.h
+@@ -9,7 +9,7 @@
+ #define PTA_TUI_UUID	{ 0x9c199eb0, 0x4d2d, 0x41a5, { \
+ 			  0x8c, 0xe9, 0xf2, 0x08, 0x52, 0x15, 0x77, 0xd1 } }
+ 
+-#define PTA_TUI_SCREEN_24BPP	0
++#define PTA_TUI_SCREEN_32BPP	0
+ 
+ /*
+  * [out]  value[0].a:	width
+-- 
+2.53.0
+

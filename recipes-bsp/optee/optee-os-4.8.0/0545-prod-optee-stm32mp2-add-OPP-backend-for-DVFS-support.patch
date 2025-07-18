@@ -1,0 +1,428 @@
+From 09aba1ab264dca71bcb681a2ba8549b466b0305a Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 18 Jul 2025 18:13:59 +0200
+Subject: [PATCH 545/913] prod/optee/stm32mp2: add OPP backend for DVFS support
+
+Add a module STM32 OPP as backend of CPU DVFS based on SCP clock API.
+The clock API level is the minimal level to use the OP-TEE OPP driver
+with SCP DVFS module as we can't implement a specific DVFS driver
+in SCP firmware.
+
+As the voltage is managed in OP-TEE OPP driver, the PSU required for
+DVFS module is stubbed with a OP-TEE PSU with a NULL regulator.
+
+NB: the OP-TEE clock module can't be used here, based on a OP-TEE OPP
+    clock, because this module use directly the OP-TEE clock framework
+    which add too many restrictions (it is no  allowed to call clock API
+    in  clock ops).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bbde3cc83543644faffb9fdb9f046a52a4668679 prod/optee/stm32mp2: add OPP backend for DVFS support]
+Change-Id: I78693533f6392a09b9c0215ebddefcaa354462fc
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+---
+ .../product/optee/stm32mp2/fw/CMakeLists.txt  |   1 +
+ .../product/optee/stm32mp2/fw/Firmware.cmake  |   8 +
+ .../stm32mp2/module/stm32_opp/CMakeLists.txt  |  16 ++
+ .../stm32mp2/module/stm32_opp/Module.cmake    |   9 +
+ .../module/stm32_opp/include/mod_stm32_opp.h  |  31 ++
+ .../module/stm32_opp/src/mod_stm32_opp.c      | 264 ++++++++++++++++++
+ .../product/optee/stm32mp2/sub-stm32mp2.mk    |   1 +
+ 7 files changed, 330 insertions(+)
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/CMakeLists.txt
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/Module.cmake
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/include/mod_stm32_opp.h
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/src/mod_stm32_opp.c
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt
+index bc93a6188..a22c6fdb1 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt
+@@ -10,6 +10,7 @@
+ #
+ 
+ set (CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR n)
++set (CFG_SCPFW_MOD_STM32_OPP n)
+ 
+ add_library(${SCP_FIRMWARE_TARGET})
+ 
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake
+index efa346fdd..0baa78866 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake
+@@ -35,6 +35,10 @@ if(CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR)
+ list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/psu_optee_regulator")
+ endif(CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR)
+ 
++if(CFG_SCPFW_MOD_STM32_OPP)
++list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/stm32_opp")
++endif(CFG_SCPFW_MOD_STM32_OPP)
++
+ # The order of the modules in the following list is the order in which the
+ # modules are initialized, bound, started during the pre-runtime phase.
+ # any change in the order will cause firmware initialization errors.
+@@ -85,4 +89,8 @@ if(CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN)
+ list(APPEND SCP_MODULES "scmi-voltage-domain")
+ endif(CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN)
+ 
++if(CFG_SCPFW_MOD_STM32_OPP)
++list(APPEND SCP_MODULES "stm32-opp")
++endif(CFG_SCPFW_MOD_STM32_OPP)
++
+ list(APPEND SCP_MODULES "optee-console")
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/CMakeLists.txt
+new file mode 100644
+index 000000000..052ca2373
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/CMakeLists.txt
+@@ -0,0 +1,16 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2025, STMicroelectronics and the Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++add_library(${SCP_MODULE_TARGET} SCP_MODULE)
++
++target_include_directories(${SCP_MODULE_TARGET}
++                           PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
++
++target_sources(
++    ${SCP_MODULE_TARGET} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/mod_stm32_opp.c")
++
++target_link_libraries(${SCP_MODULE_TARGET} PRIVATE module-clock)
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/Module.cmake b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/Module.cmake
+new file mode 100644
+index 000000000..92997a4c9
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/Module.cmake
+@@ -0,0 +1,9 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2025, STMicroelectronics and the Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++set(SCP_MODULE "stm32-opp")
++set(SCP_MODULE_TARGET "module-stm32-opp")
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/include/mod_stm32_opp.h b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/include/mod_stm32_opp.h
+new file mode 100644
+index 000000000..da45ecb30
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/include/mod_stm32_opp.h
+@@ -0,0 +1,31 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2025, STMicroelectronics and the Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef MOD_STM32_OPP_H
++#define MOD_STM32_OPP_H
++
++#include <fwk_element.h>
++#include <fwk_macros.h>
++
++#include <stdint.h>
++#include <stdbool.h>
++
++/*
++ * the OPP identifier, used to identify the OPP instance start from 1
++ * 0 is reserved for invalid OPP identifier
++ */
++#define OPP_ID_INVALID      0
++
++/*!
++ * \brief Platform STM32 OPP configuration.
++ */
++struct mod_stm32_opp_config {
++    /*! OPP instance identifier */
++    unsigned int opp_id;
++};
++
++#endif /* MOD_STM32_OPP_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/src/mod_stm32_opp.c b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/src/mod_stm32_opp.c
+new file mode 100644
+index 000000000..e93953d03
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/src/mod_stm32_opp.c
+@@ -0,0 +1,264 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2025, STMicroelectronics and the Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ *
++ * Description:
++ *     Interface SCP-firmware clock module with OP-TEE STM32 OPP resources.
++ */
++
++#include <fwk_macros.h>
++#include <fwk_mm.h>
++#include <fwk_module.h>
++#include <fwk_log.h>
++
++#include <arch_main.h>
++
++#include <mod_clock.h>
++#include <mod_stm32_opp.h>
++
++#include <drivers/stm32_cpu_opp.h>
++
++#include <compiler.h>
++#include <tee_api_types.h>
++
++#include <stdbool.h>
++
++#define MOD_NAME "[STM32 OPP] "
++
++/* OP-TEE clock device context */
++struct stm32_opp_dev_ctx {
++    unsigned int opp_id;
++};
++
++/* OP-TEE clock module context */
++struct stm32_opp_module_ctx {
++    struct stm32_opp_dev_ctx *dev_ctx;
++    unsigned int dev_count;
++};
++
++static struct stm32_opp_module_ctx module_ctx;
++
++static struct stm32_opp_dev_ctx *elt_id_to_ctx(fwk_id_t dev_id)
++{
++    if (!fwk_module_is_valid_element_id(dev_id)) {
++        return NULL;
++    }
++
++    return module_ctx.dev_ctx + fwk_id_get_element_idx(dev_id);
++}
++
++static bool is_exposed(struct stm32_opp_dev_ctx *ctx)
++{
++    return ctx->opp_id != OPP_ID_INVALID;
++}
++
++/*
++ * Clock driver API functions
++ */
++static int get_rate(fwk_id_t dev_id, uint64_t *rate)
++{
++    struct stm32_opp_dev_ctx *ctx = elt_id_to_ctx(dev_id);
++
++    if ((ctx == NULL) || (rate == NULL)) {
++        return FWK_E_PARAM;
++    }
++
++    *rate = 0;
++
++    if (!is_exposed(ctx)) {
++        return FWK_SUCCESS;
++    }
++
++    *rate = stm32_opp_get_rate(ctx->opp_id);
++
++    return FWK_SUCCESS;
++}
++
++static int set_state(fwk_id_t dev_id, enum mod_clock_state state)
++{
++    struct stm32_opp_dev_ctx *ctx = elt_id_to_ctx(dev_id);
++
++    if (ctx == NULL) {
++        return FWK_E_PARAM;
++    }
++
++    switch (state) {
++    case MOD_CLOCK_STATE_STOPPED:
++    case MOD_CLOCK_STATE_RUNNING:
++        break;
++    default:
++        return FWK_E_PARAM;
++    }
++
++    if (!is_exposed(ctx)) {
++        if (state == MOD_CLOCK_STATE_STOPPED) {
++            return FWK_SUCCESS;
++        } else {
++            return FWK_E_ACCESS;
++        }
++    }
++
++    if (state == MOD_CLOCK_STATE_RUNNING) {
++        return FWK_SUCCESS;
++    } else {
++        return FWK_E_ACCESS;
++    }
++}
++
++static int get_state(fwk_id_t dev_id, enum mod_clock_state *state)
++{
++    struct stm32_opp_dev_ctx *ctx = elt_id_to_ctx(dev_id);
++
++    if ((ctx == NULL) || (state == NULL)) {
++        return FWK_E_PARAM;
++    }
++
++    if (!is_exposed(ctx)) {
++        *state = MOD_CLOCK_STATE_STOPPED;
++        return FWK_SUCCESS;
++    }
++
++    *state = MOD_CLOCK_STATE_RUNNING;
++
++    return FWK_SUCCESS;
++}
++
++static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
++{
++    struct stm32_opp_dev_ctx *ctx = elt_id_to_ctx(dev_id);
++    TEE_Result res;
++    unsigned int min, max, opp_nb;
++
++    if ((ctx == NULL) || (range == NULL)) {
++        return FWK_E_PARAM;
++    }
++
++    if (!is_exposed(ctx)) {
++        range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
++        range->min = 0;
++        range->max = 0;
++        range->rate_count = 1;
++
++        return FWK_SUCCESS;
++    }
++
++    opp_nb = stm32_opp_get_count(ctx->opp_id);
++    if (!opp_nb) {
++        return FWK_E_ACCESS;
++    }
++
++    res = stm32_opp_get_rate_for_level(ctx->opp_id, 0, &min);
++    if (res)
++        return scmi_tee_result_to_fwk_status(res);
++
++    res = stm32_opp_get_rate_for_level(ctx->opp_id, opp_nb - 1, &max);
++    if (res)
++        return scmi_tee_result_to_fwk_status(res);
++
++    range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
++    range->min = min;
++    range->max = max;
++    range->rate_count = opp_nb;
++
++    return FWK_SUCCESS;
++}
++
++static int set_rate(fwk_id_t dev_id, uint64_t rate,
++                    enum mod_clock_round_mode round_mode)
++{
++    struct stm32_opp_dev_ctx *ctx = elt_id_to_ctx(dev_id);
++    TEE_Result res;
++
++    if (ctx == NULL || round_mode != MOD_CLOCK_ROUND_MODE_NONE) {
++        return FWK_E_PARAM;
++    }
++
++    if (!is_exposed(ctx)) {
++        return FWK_E_ACCESS;
++    }
++
++    res = stm32_opp_set_rate(ctx->opp_id, rate);
++
++    return scmi_tee_result_to_fwk_status(res);
++}
++
++static int get_rate_from_index(fwk_id_t dev_id,
++                               unsigned int rate_index, uint64_t *rate)
++{
++    struct stm32_opp_dev_ctx *ctx = elt_id_to_ctx(dev_id);
++    unsigned int opp_rate;
++    TEE_Result res;
++
++    if ((ctx == NULL) || (rate == NULL)) {
++        return FWK_E_PARAM;
++    }
++
++    if (!is_exposed(ctx)) {
++        *rate = 0;
++        return FWK_SUCCESS;
++    }
++
++    res = stm32_opp_get_rate_for_level(ctx->opp_id, rate_index, &opp_rate);
++    if (res)
++        return scmi_tee_result_to_fwk_status(res);
++
++    *rate = opp_rate;
++
++    return FWK_SUCCESS;
++}
++
++static const struct mod_clock_drv_api api_stm32_opp = {
++    .get_rate = get_rate,
++    .set_state = set_state,
++    .get_state = get_state,
++    .get_range = get_range,
++    .get_rate_from_index = get_rate_from_index,
++    .set_rate = set_rate,
++};
++
++/*
++ * Framework handler functions
++ */
++
++static int stm32_opp_init(fwk_id_t module_id, unsigned int count,
++                            const void *data)
++{
++    if (count == 0) {
++        return FWK_SUCCESS;
++    }
++
++    module_ctx.dev_count = count;
++    module_ctx.dev_ctx = fwk_mm_calloc(count, sizeof(*module_ctx.dev_ctx));
++
++    return FWK_SUCCESS;
++}
++
++static int stm32_opp_element_init(fwk_id_t element_id, unsigned int dev_count,
++                                    const void *data)
++{
++    struct stm32_opp_dev_ctx *ctx = elt_id_to_ctx(element_id);
++    const struct mod_stm32_opp_config *config = data;
++
++    ctx->opp_id = config->opp_id;
++
++    return FWK_SUCCESS;
++}
++
++static int stm32_opp_process_bind_request(fwk_id_t requester_id, fwk_id_t id,
++                                            fwk_id_t api_type, const void **api)
++{
++    *api = &api_stm32_opp;
++
++    return FWK_SUCCESS;
++}
++
++const struct fwk_module module_stm32_opp = {
++    .type = FWK_MODULE_TYPE_DRIVER,
++    .api_count = 1,
++    .event_count = 0,
++    .init = stm32_opp_init,
++    .element_init = stm32_opp_element_init,
++    .process_bind_request = stm32_opp_process_bind_request,
++};
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk
+index 2b6ed1d9d..45e000ed6 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk
+@@ -10,3 +10,4 @@ incdirs_ext-y += $(scpfw-path)/product/optee/stm32mp2/include
+ srcs-y += $(scpfw-path)/product/optee/stm32mp2/fw/config_scmi.c
+ 
+ $(eval $(call scpfw-embed-product-module,psu_optee_regulator))
++$(eval $(call scpfw-embed-product-module,stm32_opp))
+-- 
+2.53.0
+

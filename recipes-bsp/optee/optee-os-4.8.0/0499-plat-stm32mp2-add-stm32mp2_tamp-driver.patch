@@ -1,0 +1,239 @@
+From e20471f8a96cc71f5c68e1e8df1ddffba1da2897 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Wed, 8 Jan 2025 17:58:27 +0100
+Subject: [PATCH 499/913] plat-stm32mp2: add stm32mp2_tamp driver
+
+Implement stm32mp2_tamp driver to enable plateform internal tamper
+based on the tamper id.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 76744fcf4d524740777cf621c787c35accff8327 plat-stm32mp2: add stm32mp2_tamp driver]
+Change-Id: Ia8e68926403e92b3651a1a15756d7764a83c360e
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/427743
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../arm/plat-stm32mp2/drivers/stm32mp2_tamp.c | 91 +++++++++++++++++++
+ .../arm/plat-stm32mp2/drivers/stm32mp2_tamp.h | 13 +++
+ core/arch/arm/plat-stm32mp2/drivers/sub.mk    |  1 +
+ core/arch/arm/plat-stm32mp2/main.c            | 52 -----------
+ core/arch/arm/plat-stm32mp2/stm32_util.h      |  2 -
+ core/drivers/stm32_tamp.c                     |  3 +
+ 6 files changed, 108 insertions(+), 54 deletions(-)
+ create mode 100644 core/arch/arm/plat-stm32mp2/drivers/stm32mp2_tamp.c
+ create mode 100644 core/arch/arm/plat-stm32mp2/drivers/stm32mp2_tamp.h
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_tamp.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_tamp.c
+new file mode 100644
+index 000000000..e41b4683d
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_tamp.c
+@@ -0,0 +1,91 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2025, STMicroelectronics
++ */
++
++#include <drivers/stm32_tamp.h>
++#include <drivers/stm32mp2_tamp.h>
++#include <drivers/stm32mp25_pwr.h>
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
++#include <drivers/stm32mp25_rcc.h>
++#endif
++#if defined(CFG_STM32MP21)
++#include <drivers/stm32mp21_rcc.h>
++#endif
++#include <io.h>
++#include <stm32_util.h>
++
++/* Activate the SoC resources required by internal TAMPER */
++TEE_Result stm32_activate_internal_tamper(int id)
++{
++	TEE_Result res = TEE_ERROR_NOT_SUPPORTED;
++
++	switch (id) {
++	case INT_TAMP1: /* Backup domain (V08CAP) voltage monitoring */
++	case INT_TAMP2: /* Temperature monitoring */
++		stm32mp_pwr_monitoring_enable(PWR_MON_V08CAP_TEMP);
++		res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP3: /* LSE monitoring (LSECSS) */
++		if (io_read32(stm32_rcc_base() + RCC_BDCR) & RCC_BDCR_LSECSSON)
++			res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP4: /* HSE monitoring (CSS + over frequency detection) */
++		if (io_read32(stm32_rcc_base() + RCC_OCENSETR) &
++		    RCC_OCENSETR_HSECSSON)
++			res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP7:
++		if (IS_ENABLED(CFG_STM32MP21)) {
++			/* ADC2 (adc2_awd1) analog watchdog monitoring 1 */
++			res = TEE_SUCCESS;
++			break;
++		} else if (IS_ENABLED(CFG_STM32MP23) ||
++			   IS_ENABLED(CFG_STM32MP25)) {
++			/* VDDCORE monitoring under/over voltage */
++			stm32mp_pwr_monitoring_enable(PWR_MON_VCORE);
++			res = TEE_SUCCESS;
++			break;
++		}
++		break;
++
++	case INT_TAMP12:
++		if (IS_ENABLED(CFG_STM32MP21)) {
++			/* ADC2 (adc2_awd2) analog watchdog monitoring 2 */
++			res = TEE_SUCCESS;
++			break;
++		} else if (IS_ENABLED(CFG_STM32MP23) ||
++			   IS_ENABLED(CFG_STM32MP25)) {
++			/* VDDCPU (Cortex A35) monitoring under/over voltage */
++			stm32mp_pwr_monitoring_enable(PWR_MON_VCPU);
++			res = TEE_SUCCESS;
++			break;
++		}
++		break;
++
++	case INT_TAMP13:
++	case INT_TAMP16:
++		if (IS_ENABLED(CFG_STM32MP21))
++			res = TEE_SUCCESS;
++		break;
++
++	case INT_TAMP5:
++	case INT_TAMP6:
++	case INT_TAMP8:
++	case INT_TAMP9:
++	case INT_TAMP10:
++	case INT_TAMP11:
++	case INT_TAMP14:
++	case INT_TAMP15:
++		res = TEE_SUCCESS;
++		break;
++
++	default:
++		break;
++	}
++
++	return res;
++}
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_tamp.h b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_tamp.h
+new file mode 100644
+index 000000000..1e596d3d8
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_tamp.h
+@@ -0,0 +1,13 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2025, STMicroelectronics
++ */
++
++#ifndef __STM32MP2_TAMP_H
++#define __STM32MP2_TAMP_H
++
++#include <tee_api_types.h>
++
++TEE_Result stm32_activate_internal_tamper(int id);
++
++#endif /* __STM32MP2_TAMP_H */
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/sub.mk b/core/arch/arm/plat-stm32mp2/drivers/sub.mk
+index 60fe67e9e..22097f9af 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/sub.mk
++++ b/core/arch/arm/plat-stm32mp2/drivers/sub.mk
+@@ -1,4 +1,5 @@
+ srcs-y += stm32mp25_syscfg.c
+ srcs-$(CFG_STM32_PWR) += stm32mp25_pwr.c
+ srcs-$(CFG_STM32_PWR_REGUL) += stm32mp25_pwr_regul.c
++srcs-$(CFG_STM32_TAMP) += stm32mp2_tamp.c
+ srcs-$(CFG_STPMIC2) += stm32mp2_pmic2.c
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 8e9d0e6ab..8ebaff56e 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -259,55 +259,3 @@ void __noreturn do_reset(const char *str __maybe_unused)
+ 	/* Cannot occur */
+ 	panic();
+ }
+-
+-/* Activate the SoC resources required by internal TAMPER */
+-TEE_Result stm32_activate_internal_tamper(int id)
+-{
+-	TEE_Result res = TEE_ERROR_NOT_SUPPORTED;
+-
+-	switch (id) {
+-	case INT_TAMP1: /* Backup domain (V08CAP) voltage monitoring */
+-	case INT_TAMP2: /* Temperature monitoring */
+-		stm32mp_pwr_monitoring_enable(PWR_MON_V08CAP_TEMP);
+-		res = TEE_SUCCESS;
+-		break;
+-
+-	case INT_TAMP3: /* LSE monitoring (LSECSS) */
+-		if (io_read32(stm32_rcc_base() + RCC_BDCR) & RCC_BDCR_LSECSSON)
+-			res = TEE_SUCCESS;
+-		break;
+-
+-	case INT_TAMP4: /* HSE monitoring (CSS + over frequency detection) */
+-		if (io_read32(stm32_rcc_base() + RCC_OCENSETR) &
+-		    RCC_OCENSETR_HSECSSON)
+-			res = TEE_SUCCESS;
+-		break;
+-
+-	case INT_TAMP7: /* VDDCORE monitoring under/over voltage */
+-		stm32mp_pwr_monitoring_enable(PWR_MON_VCORE);
+-		res = TEE_SUCCESS;
+-		break;
+-
+-	case INT_TAMP12: /* VDDCPU (Cortex A35) monitoring under/over voltage */
+-		stm32mp_pwr_monitoring_enable(PWR_MON_VCPU);
+-		res = TEE_SUCCESS;
+-		break;
+-
+-	case INT_TAMP5:
+-	case INT_TAMP6:
+-	case INT_TAMP8:
+-	case INT_TAMP9:
+-	case INT_TAMP10:
+-	case INT_TAMP11:
+-	case INT_TAMP13:
+-	case INT_TAMP14:
+-	case INT_TAMP15:
+-		res = TEE_SUCCESS;
+-		break;
+-
+-	default:
+-		break;
+-	}
+-
+-	return res;
+-}
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+index ce138ff99..dd1c6ad8b 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -31,6 +31,4 @@ static inline bool stm32_stpmic2_is_present(void)
+ 
+ /* Get device ID from SYSCFG registers */
+ uint32_t stm32mp_syscfg_get_chip_dev_id(void);
+-
+-TEE_Result stm32_activate_internal_tamper(int id);
+ #endif /*__STM32_UTIL_H__*/
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index 0d86fdee0..a5f088f07 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -23,6 +23,9 @@
+ #if defined(CFG_STM32MP21)
+ #include <drivers/stm32mp21_rcc.h>
+ #endif
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
++#include <drivers/stm32mp2_tamp.h>
++#endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21) */
+ #include <drivers/stm32mp_dt_bindings.h>
+ #include <io.h>
+ #include <kernel/dt.h>
+-- 
+2.53.0
+

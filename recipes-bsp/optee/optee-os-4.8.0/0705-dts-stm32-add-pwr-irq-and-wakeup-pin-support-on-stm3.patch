@@ -1,0 +1,61 @@
+From 43b79673aa53c9aa63deef8fd3ff6b6e3202635a Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 7 May 2026 11:19:02 +0200
+Subject: [PATCH 705/913] dts: stm32: add pwr irq and wakeup pin support on
+ stm32mp25
+
+Add pwr IRQ on STM32mp25 and use PWR through EXTI.
+Add wake-up pin support on stm32mp2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git dc2856316e8ff718c54108ae1cc402173d13b00a dts: stm32: add pwr irq and wakeup pin support on stm32mp25]
+Change-Id: I285868d5a32e64c430650906369507258191c12f
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp251.dtsi | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp251.dtsi b/core/arch/arm/dts/stm32mp251.dtsi
+index 98805e06e..eca5cd7d2 100644
+--- a/core/arch/arm/dts/stm32mp251.dtsi
++++ b/core/arch/arm/dts/stm32mp251.dtsi
+@@ -767,6 +767,10 @@
+ 		pwr: pwr@44210000 {
+ 			compatible = "st,stm32mp25-pwr";
+ 			reg = <0x44210000 0x400>;
++			interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
++			wakeup-gpios = <0>, <0>, <0>, <0>, <0>, <0>;
+ 			status = "disabled";
+ 
+ 			vdd33ucpd: vdd33ucpd {
+@@ -826,6 +830,7 @@
+ 
+ 		exti1: interrupt-controller@44220000 {
+ 			compatible = "st,stm32mp1-exti";
++			wakeup-parent = <&pwr>;
+ 			interrupt-controller;
+ 			#interrupt-cells = <2>;
+ 			reg = <0x44220000 0x400>;
+@@ -882,12 +887,12 @@
+ 				<&intc GIC_SPI 208 IRQ_TYPE_LEVEL_HIGH>,
+ 				<&intc GIC_SPI 210 IRQ_TYPE_LEVEL_HIGH>,	/* EXTI_50 */
+ 				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
++				<&pwr 0 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 1 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 2 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 3 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 4 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 5 IRQ_TYPE_EDGE_FALLING>,
+ 				<0>,
+ 				<&intc GIC_SPI 171 IRQ_TYPE_LEVEL_HIGH>,
+ 				<0>,						/* EXTI_60 */
+-- 
+2.53.0
+

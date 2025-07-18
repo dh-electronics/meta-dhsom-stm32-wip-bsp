@@ -1,0 +1,65 @@
+From a118403aff2b8b873527301be2e518b146e9843c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 23 Jun 2026 11:52:37 +0200
+Subject: [PATCH 753/913] plat-stm32mp1: fix shutdown support
+
+As the STPMIC drivers (STPMCI1 or STPMCI2) manage the shutdown in its
+pm sequence  with the property "system-power-controller", remove the
+STPMCI1 specific part in stm32_enter_cstop_shutdown() function.
+
+Moreover, use the correct function stm32_pm_cpu_power_down_wfi()
+to perform the last state of the shutdown sequence when OP-TEE in
+SYSRAM or call the required BL2 function and it is not the case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 885759ccd374cae981341132d64cdbc902304985 plat-stm32mp1: fix shutdown support]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Iecbe8c81662043fad25690847b3c0d8ceb4d10d5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/581304
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/pm/low_power.c | 20 ++++++++------------
+ 1 file changed, 8 insertions(+), 12 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/pm/low_power.c b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+index 6dfc78b53..fc8824f31 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/low_power.c
++++ b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+@@ -354,26 +354,22 @@ void __noreturn stm32_enter_cstop_shutdown(uint32_t mode)
+ 
+ 		interrupt_raise_sgi(itr_chip, CFG_HALT_CORES_SGI,
+ 				    TARGET_CPU1_GIC_MASK);
++
++		/* wait than other core is halted */
++		mdelay(1);
+ 	}
+ #endif
++	IMSG("Shutdown");
+ 	stm32mp_pm_shutdown_context(mode);
+ 
+ 	switch (mode) {
+ 	case STM32_PM_SHUTDOWN:
+-		/* The PMIC2 driver does not implement switch off function */
+-		if (stm32_stpmic1_is_present()) {
+-			wait_console_flushed();
+-			stm32mp_get_pmic();
+-			stpmic1_switch_off();
+-			udelay(100);
+-		}
+-		break;
+ 	case STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_OFF:
+ 		stm32_enter_cstop(mode);
+-		dsb();
+-		isb();
+-		for ( ; ; )
+-			wfi();
++#ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
++		stm32mp_pm_call_bl2_lp_entry(mode);
++#endif
++		stm32_pm_cpu_power_down_wfi();
+ 		break;
+ 	default:
+ 		break;
+-- 
+2.53.0
+

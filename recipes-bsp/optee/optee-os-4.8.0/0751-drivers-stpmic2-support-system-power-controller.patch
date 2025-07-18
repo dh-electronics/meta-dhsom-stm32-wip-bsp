@@ -1,0 +1,138 @@
+From 51e0e59bf3e1332c3ae792598d78a97ef25cf9db Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 23 Jun 2026 11:46:11 +0200
+Subject: [PATCH 751/913] drivers: stpmic2: support system-power-controller
+
+This property indicates that STPMIC managed by this driver (STPMIC1L,
+STPMIC25 or STPMIC2L) is the power supply master of the
+system. When present in the OP-TEE device tree, the PMIC driver
+performs on system shutdown request a STPMIC software switch off
+sequence.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6013c72189bfa9947539a5a3f9f75c656af8d381 drivers: stpmic2: support system-power-controller]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ib2cf316a2aa7f78023282105d4191fb24fa1da71
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/581302
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/stm32mp_pmic2.c   | 27 +++++++++++++++++++++++++++
+ core/drivers/stpmic2.c         |  7 +++++++
+ core/include/drivers/stpmic2.h |  5 +++++
+ 3 files changed, 39 insertions(+)
+
+diff --git a/core/drivers/stm32mp_pmic2.c b/core/drivers/stm32mp_pmic2.c
+index c348076a0..fcc03b587 100644
+--- a/core/drivers/stm32mp_pmic2.c
++++ b/core/drivers/stm32mp_pmic2.c
+@@ -4,11 +4,13 @@
+  */
+ 
+ #include <config.h>
++#include <console.h>
+ #include <drivers/regulator.h>
+ #include <drivers/stm32_i2c.h>
+ #include <drivers/stpmic2.h>
+ #include <keep.h>
+ #include <kernel/boot.h>
++#include <kernel/delay.h>
+ #include <kernel/dt.h>
+ #include <kernel/interrupt.h>
+ #include <kernel/notif.h>
+@@ -862,6 +864,27 @@ static TEE_Result initialize_pmic2_irq(const void *fdt, int node,
+ }
+ #endif
+ 
++static TEE_Result stpmic2_pm(enum pm_op op, uint32_t pm_hint,
++			     const struct pm_callback_handle *pm_handle)
++{
++	struct stpmic2 *pmic = pm_handle->handle;
++	unsigned int pwrlvl = PM_HINT_PLATFORM_STATE(pm_hint);
++	TEE_Result res = TEE_SUCCESS;
++
++	if (op == PM_OP_SUSPEND) {
++		if (pwrlvl == STM32_PM_SWITCH_OFF &&
++		    pmic->system_power_controller) {
++			IMSG("PMIC STPMIC2 software power off");
++			console_flush();
++			mdelay(10);
++			res = stpmic2_switch_off(pmic);
++			udelay(100);
++		}
++	}
++
++	return res;
++}
++
+ static void initialize_pmic2_i2c(const void *fdt, int node,
+ 				 struct stpmic2 *pmic, struct i2c_handle_s *i2c)
+ {
+@@ -937,6 +960,8 @@ static TEE_Result stm32_pmic2_probe(const void *fdt, int node,
+ 		panic();
+ 
+ 	pmic->compat_data = compat_data;
++	pmic->system_power_controller = dt_have_prop(fdt, node,
++						     "system-power-controller");
+ 
+ 	initialize_pmic2(fdt, node, pmic, stm32_i2c_dev->handle);
+ 
+@@ -952,6 +977,8 @@ static TEE_Result stm32_pmic2_probe(const void *fdt, int node,
+ 	if (res)
+ 		panic();
+ 
++	register_pm_core_service_cb(stpmic2_pm, pmic, "stpmic2");
++
+ 	stm32_pmic2 = true;
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/drivers/stpmic2.c b/core/drivers/stpmic2.c
+index b709a10c1..d84ad36b0 100644
+--- a/core/drivers/stpmic2.c
++++ b/core/drivers/stpmic2.c
+@@ -650,6 +650,13 @@ TEE_Result stpmic2_lp_set_voltage(struct stpmic2 *pmic, uint8_t id, uint16_t mv)
+ 				       mask << regul->volt_shift);
+ }
+ 
++/* STPMIC2 Software switch-OFF */
++TEE_Result stpmic2_switch_off(struct stpmic2 *pmic)
++{
++	return stpmic2_register_update(pmic, MAIN_CR, MAIN_CR_SWOFF,
++				       MAIN_CR_SWOFF);
++}
++
+ /*
+  *
+  * Interrupt handling
+diff --git a/core/include/drivers/stpmic2.h b/core/include/drivers/stpmic2.h
+index eecb14eab..e6763cf0d 100644
+--- a/core/include/drivers/stpmic2.h
++++ b/core/include/drivers/stpmic2.h
+@@ -188,6 +188,9 @@ enum {
+ #define MAJOR_VERSION_MASK	GENMASK_32(7, 4)
+ #define MAJOR_VERSION_SHIFT	4
+ 
++/* MAIN_CR bits definition */
++#define MAIN_CR_SWOFF		BIT(0)
++
+ /* BUCKS_MRST_CR bits definition */
+ #define BUCK1_MRST		BIT(0)
+ #define BUCK2_MRST		BIT(1)
+@@ -327,6 +330,7 @@ struct stpmic2 {
+ 	SLIST_HEAD(, pmic_it_handle_s) it_list;
+ #endif
+ 	uint8_t ref_id;
++	bool system_power_controller;
+ };
+ 
+ TEE_Result stpmic2_regulator_get_id(const char *regu_name, uint8_t *id);
+@@ -360,6 +364,7 @@ void stpmic2_dump_regulators(struct stpmic2 *pmic);
+ TEE_Result stpmic2_get_version(struct stpmic2 *pmic, uint8_t *val);
+ TEE_Result stpmic2_get_product_id(struct stpmic2 *pmic, uint8_t *val);
+ TEE_Result stpmic2_is_buck1_high_voltage(struct stpmic2 *pmic, bool *high);
++TEE_Result stpmic2_switch_off(struct stpmic2 *pmic);
+ 
+ /* Low Power handling */
+ TEE_Result stpmic2_lp_set_state(struct stpmic2 *pmic, uint8_t id, bool enable);
+-- 
+2.53.0
+

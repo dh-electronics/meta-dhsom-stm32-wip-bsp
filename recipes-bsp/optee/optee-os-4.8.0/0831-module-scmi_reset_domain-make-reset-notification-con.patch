@@ -1,0 +1,42 @@
+From 1dc5902664c1c3b0ab303b33b2b9570ea5380c5f Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Thu, 3 Jul 2025 15:55:29 +0200
+Subject: [PATCH 831/913] module: scmi_reset_domain: make reset notification
+ configurable
+
+Since reset domain notification is not required for some product,
+initialize this notificafion support only on module having data config.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f9573beb67eced154e42ed6a26cbfaea38ccdc7f module: scmi_reset_domain: make reset notification configurable]
+Change-Id: I5e656a3a37f534bca59b40bbab4cc98a3ab68f05
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/584006
+Tested-by: Valentin CARON <valentin.caron@foss.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Valentin CARON <valentin.caron@foss.st.com>
+---
+ .../module/scmi_reset_domain/src/mod_scmi_reset_domain.c    | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi_reset_domain/src/mod_scmi_reset_domain.c b/core/lib/scmi-server/SCP-firmware/module/scmi_reset_domain/src/mod_scmi_reset_domain.c
+index 6cb5b575a..48477875c 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi_reset_domain/src/mod_scmi_reset_domain.c
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi_reset_domain/src/mod_scmi_reset_domain.c
+@@ -725,6 +725,12 @@ static int scmi_reset_start(fwk_id_t id)
+     config = (struct mod_reset_domain_config*)fwk_module_get_data(
+         FWK_ID_MODULE(FWK_MODULE_IDX_RESET_DOMAIN)
+         );
++    /*
++     * Check config is present, config is required for notification
++     * without config no notification is expected from reset domain
++     */
++    if (!config)
++        return FWK_SUCCESS;
+ 
+     scmi_rd_ctx.notification_id = config->notification_id;
+ 
+-- 
+2.53.0
+

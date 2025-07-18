@@ -1,0 +1,218 @@
+From 039bf718f3816f0cc167454aa49c865ab109cc5c Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@st.com>
+Date: Mon, 2 Mar 2026 17:30:39 +0100
+Subject: [PATCH 611/913] core: allow sending an async notif from notifier
+ atomic callback
+
+Allow notifier atomic callback to request the notif driver to send an
+async notif. This is handy when we want to start some processing
+when normal world notifies it supports async notif. This change is
+needed because notifier atomic callback cannot call notif_send_async()
+since the handler is called with notifier driver spinlock already held.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2043f26cd02c23e921262929d1a2e7cfbbce882d core: allow sending an async notif from notifier atomic callback]
+Change-Id: Ie78d978eeb6f9cc4123567da4c03d3b99ee8bc50
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-vexpress/main.c |  4 +++-
+ core/drivers/stm32_dbgmcu_mbx.c    |  4 +++-
+ core/drivers/stm32mp_pmic2.c       |  4 +++-
+ core/include/kernel/notif.h        | 11 +++++++++--
+ core/kernel/notif.c                |  8 ++++++--
+ core/kernel/notif_default.c        | 11 +++++++++++
+ core/pta/tests/mbox.c              |  4 +++-
+ core/tests/notif_test_wd.c         |  4 +++-
+ 8 files changed, 41 insertions(+), 9 deletions(-)
+
+diff --git a/core/arch/arm/plat-vexpress/main.c b/core/arch/arm/plat-vexpress/main.c
+index 68de3b1ff..5c870ca2c 100644
+--- a/core/arch/arm/plat-vexpress/main.c
++++ b/core/arch/arm/plat-vexpress/main.c
+@@ -150,7 +150,7 @@ static struct itr_handler console_itr __nex_data = {
+ };
+ DECLARE_KEEP_PAGER(console_itr);
+ 
+-static void atomic_console_notif(struct notif_driver *ndrv __unused,
++static bool atomic_console_notif(struct notif_driver *ndrv __unused,
+ 				 enum notif_event ev, uint16_t vm_id)
+ {
+ 	switch (ev) {
+@@ -169,6 +169,8 @@ static void atomic_console_notif(struct notif_driver *ndrv __unused,
+ 	default:
+ 		EMSG("Unknown event %d", (int)ev);
+ 	}
++
++	return false;
+ }
+ DECLARE_KEEP_PAGER(atomic_console_notif);
+ 
+diff --git a/core/drivers/stm32_dbgmcu_mbx.c b/core/drivers/stm32_dbgmcu_mbx.c
+index 8ffb4d415..2196eb3d5 100644
+--- a/core/drivers/stm32_dbgmcu_mbx.c
++++ b/core/drivers/stm32_dbgmcu_mbx.c
+@@ -182,11 +182,13 @@ static void yielding_stm32_dbgmcu_mbx_notif(struct notif_driver *ndrv __unused,
+ 	}
+ }
+ 
+-static void atomic_stm32_dbgmcu_mbx_notif(struct notif_driver *ndrv __unused,
++static bool atomic_stm32_dbgmcu_mbx_notif(struct notif_driver *ndrv __unused,
+ 					  enum notif_event ev __maybe_unused,
+ 					  uint16_t guest_id __unused)
+ {
+ 	assert(ev == NOTIF_EVENT_STARTED);
++
++	return true;
+ }
+ DECLARE_KEEP_PAGER(atomic_stm32_dbgmcu_mbx_notif);
+ 
+diff --git a/core/drivers/stm32mp_pmic2.c b/core/drivers/stm32mp_pmic2.c
+index 4a9cea1e4..9be82bf41 100644
+--- a/core/drivers/stm32mp_pmic2.c
++++ b/core/drivers/stm32mp_pmic2.c
+@@ -725,11 +725,13 @@ static void yielding_stm32mp2_stpmic2_notif(struct notif_driver *ndrv __unused,
+ 	}
+ }
+ 
+-static void atomic_stm32mp2_stpmic2_notif(struct notif_driver *ndrv __unused,
++static bool atomic_stm32mp2_stpmic2_notif(struct notif_driver *ndrv __unused,
+ 					  enum notif_event ev __maybe_unused,
+ 					  uint16_t guest_id __unused)
+ {
+ 	assert(ev == NOTIF_EVENT_STARTED);
++
++	return true;
+ }
+ DECLARE_KEEP_PAGER(atomic_stm32mp2_stpmic2_notif);
+ 
+diff --git a/core/include/kernel/notif.h b/core/include/kernel/notif.h
+index cf56a14b6..36c5d4b8c 100644
+--- a/core/include/kernel/notif.h
++++ b/core/include/kernel/notif.h
+@@ -72,11 +72,15 @@ enum notif_event {
+ 	NOTIF_EVENT_SHUTDOWN,
+ };
+ 
++/* Forward declaration of opaque non-secure virtual guest instance */
++struct guest_partition;
++
+ /*
+  * struct notif_driver - Registration of driver notification
+  * @atomic_cb:	 A callback called in an atomic context from
+  *		 notif_deliver_atomic_event(). Currently only used to
+- *		 signal @NOTIF_EVENT_STARTED.
++ *		 signal @NOTIF_EVENT_STARTED. Return true when
++ *		 bottom half tree should be invoked, false otherwise.
+  * @yielding_cb: A callback called in a yielding context from
+  *		 notif_deliver_event(). Currently only used to signal
+  *		 @NOTIF_EVENT_DO_BOTTOM_HALF and @NOTIF_EVENT_STOPPED.
+@@ -95,7 +99,7 @@ enum notif_event {
+  * is a partition matching the guest or VM that triggered the event.
+  */
+ struct notif_driver {
+-	void (*atomic_cb)(struct notif_driver *ndrv, enum notif_event ev,
++	bool (*atomic_cb)(struct notif_driver *ndrv, enum notif_event ev,
+ 			  uint16_t guest_id);
+ 	void (*yielding_cb)(struct notif_driver *ndrv, enum notif_event ev);
+ 	SLIST_ENTRY(notif_driver) link;
+@@ -113,6 +117,9 @@ static inline bool notif_async_is_started(uint16_t guest_id __unused)
+ TEE_Result notif_alloc_async_value(uint32_t *value);
+ void notif_free_async_value(uint32_t value);
+ 
++/* Notify request for bottom half execution spinlock locked */
++void notif_bottom_half_locked(struct guest_partition *prtn);
++
+ /*
+  * Wait in normal world for a value to be sent by notif_send()
+  */
+diff --git a/core/kernel/notif.c b/core/kernel/notif.c
+index 5a3f15a89..3ed81d0d4 100644
+--- a/core/kernel/notif.c
++++ b/core/kernel/notif.c
+@@ -86,6 +86,7 @@ void notif_deliver_atomic_event(enum notif_event ev, uint16_t guest_id)
+ 	struct guest_partition *prtn = virt_get_guest(guest_id);
+ 	struct notif_data *ndata = get_notif_data(prtn);
+ 	struct notif_driver *nd = NULL;
++	bool run_bottom_half = false;
+ 	uint32_t old_itr_status = 0;
+ 
+ 	old_itr_status = cpu_spin_lock_xsave(&notif_lock);
+@@ -106,8 +107,11 @@ void notif_deliver_atomic_event(enum notif_event ev, uint16_t guest_id)
+ 	}
+ 
+ 	SLIST_FOREACH(nd, &notif_driver_head, link)
+-		if (nd->atomic_cb)
+-			nd->atomic_cb(nd, ev, guest_id);
++		if (nd->atomic_cb && nd->atomic_cb(nd, ev, guest_id))
++			run_bottom_half = true;
++
++	if (run_bottom_half)
++		notif_bottom_half_locked(prtn);
+ 
+ out:
+ 	cpu_spin_unlock_xrestore(&notif_lock, old_itr_status);
+diff --git a/core/kernel/notif_default.c b/core/kernel/notif_default.c
+index bf4d24abf..109f17d3b 100644
+--- a/core/kernel/notif_default.c
++++ b/core/kernel/notif_default.c
+@@ -278,6 +278,17 @@ out:
+ 	virt_put_guest(prtn);
+ }
+ 
++void notif_bottom_half_locked(struct guest_partition *prtn)
++{
++	struct notif_vm_bitmap *nvb = get_notif_vm_bitmap(prtn);
++
++	if (nvb) {
++		bit_set(nvb->values, NOTIF_VALUE_DO_BOTTOM_HALF);
++		interrupt_raise_pi(interrupt_get_main_chip(),
++				   CFG_CORE_ASYNC_NOTIF_GIC_INTID);
++	}
++}
++
+ void notif_send_async(uint32_t value, uint16_t guest_id)
+ {
+ 	struct guest_partition *prtn = NULL;
+diff --git a/core/pta/tests/mbox.c b/core/pta/tests/mbox.c
+index e52e7b911..53a5aee57 100644
+--- a/core/pta/tests/mbox.c
++++ b/core/pta/tests/mbox.c
+@@ -496,11 +496,13 @@ static void yielding_mbox_notif(struct notif_driver *ndrv __unused,
+ 	}
+ }
+ 
+-static void atomic_mbox_notif(struct notif_driver *ndrv __unused,
++static bool atomic_mbox_notif(struct notif_driver *ndrv __unused,
+ 			      enum notif_event ev __maybe_unused,
+ 			      uint16_t guest_id  __maybe_unused)
+ {
+ 	MSG("Asynchronous notifications started, event %d", (int)ev);
++
++	return true;
+ }
+ 
+ struct notif_driver mbox_notif = {
+diff --git a/core/tests/notif_test_wd.c b/core/tests/notif_test_wd.c
+index 7bb0ace2d..8c3b9f1db 100644
+--- a/core/tests/notif_test_wd.c
++++ b/core/tests/notif_test_wd.c
+@@ -55,7 +55,7 @@ static bool test_wd_callback(struct callout *co)
+ 	return true;
+ }
+ 
+-static void wd_ndrv_atomic_cb(struct notif_driver *ndrv __unused,
++static bool wd_ndrv_atomic_cb(struct notif_driver *ndrv __unused,
+ 			      enum notif_event ev, uint16_t guest_id)
+ {
+ 	if (ev == NOTIF_EVENT_STARTED) {
+@@ -71,6 +71,8 @@ static void wd_ndrv_atomic_cb(struct notif_driver *ndrv __unused,
+ 		}
+ 		virt_put_guest(prtn);
+ 	}
++
++	return false;
+ }
+ DECLARE_KEEP_PAGER(wd_ndrv_atomic_cb);
+ 
+-- 
+2.53.0
+

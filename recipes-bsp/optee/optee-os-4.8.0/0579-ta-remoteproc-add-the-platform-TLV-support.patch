@@ -1,0 +1,83 @@
+From 2c583e28317bb78cdd6652e9c4fb9cfb48f05ab9 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Fri, 16 Sep 2022 15:10:47 +0200
+Subject: [PATCH 579/913] ta: remoteproc: add the platform TLV support
+
+The platform TLV chunk is parsed and each TLV is sent to the platform
+PTA thanks to the PTA_REMOTEPROC_TLV_PARAM service.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git aa7ab9bd997c4fba0e5a0e0046115e497799eb35 ta: remoteproc: add the platform TLV support]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I4de04af59e6c13f947de61a24d98180bf5e7c805
+---
+ ta/remoteproc/src/remoteproc_core.c | 47 +++++++++++++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/ta/remoteproc/src/remoteproc_core.c b/ta/remoteproc/src/remoteproc_core.c
+index 177b8b9e3..bae61c0f3 100644
+--- a/ta/remoteproc/src/remoteproc_core.c
++++ b/ta/remoteproc/src/remoteproc_core.c
+@@ -522,6 +522,48 @@ static TEE_Result get_rproc_pta_capabilities(struct remoteproc_context *ctx)
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result remoteproc_set_platform_tlv(struct remoteproc_context *ctx)
++{
++	const uint32_t  exp_pt = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						 TEE_PARAM_TYPE_VALUE_INPUT,
++						 TEE_PARAM_TYPE_MEMREF_INPUT,
++						 TEE_PARAM_TYPE_NONE);
++	TEE_Param params[TEE_NUM_PARAMS] = { };
++	uint8_t *p_tlv = ctx->tlvs;
++	uint8_t *p_end_tlv = p_tlv + ctx->tlvs_sz;
++	uint16_t tlv_length = 0;
++	uint32_t tlv_type = 0;
++	uint32_t tlv_v = 0;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	params[0].value.a = ctx->rproc_id;
++
++	/* Parse the tlv area */
++	while (p_tlv < p_end_tlv) {
++		memcpy(&tlv_v, p_tlv, sizeof(tlv_v));
++		tlv_type = TEE_U32_FROM_LITTLE_ENDIAN(tlv_v);
++		memcpy(&tlv_v, p_tlv + RPROC_TLV_LENGTH_OF, sizeof(tlv_v));
++		tlv_length = TEE_U32_FROM_LITTLE_ENDIAN(tlv_v);
++
++		if (tlv_type >= RPROC_PLAT_TLV_TYPE_MIN &&
++		    tlv_type < RPROC_PLAT_TLV_TYPE_MAX) {
++			params[1].value.a  = tlv_type;
++			params[2].memref.size = tlv_length;
++			params[2].memref.buffer = &p_tlv[RPROC_TLV_VALUE_OF];
++
++			res = TEE_InvokeTACommand(pta_session,
++						  TEE_TIMEOUT_INFINITE,
++						  PTA_REMOTEPROC_TLV_PARAM,
++						  exp_pt, params, NULL);
++			if (res)
++				return res;
++		}
++		p_tlv += ROUNDUP_64(sizeof(struct remoteproc_tlv) + tlv_length);
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result get_tlv_hash_type(struct remoteproc_context *ctx)
+ {
+ 	uint8_t hash_type = REMOTEPROC_INVALID_TYPE;
+@@ -595,6 +637,11 @@ static TEE_Result remoteproc_verify_firmware(struct remoteproc_context *ctx,
+ 	if (res)
+ 		goto free_sec_cpy;
+ 
++	/* TODO:  transmit to the PTA the platform tlv chunk */
++	res = remoteproc_set_platform_tlv(ctx);
++	if (res)
++		goto free_sec_cpy;
++
+ 	/* Store location of the loadable binary in non-secure memory */
+ 	ctx->fw_img_sz = hdr->img_len;
+ 	ctx->fw_img = FW_IMG_PTR(fw_orig, hdr);
+-- 
+2.53.0
+

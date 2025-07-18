@@ -1,0 +1,50 @@
+From a558266654a628bf67b586b272764480649eaedc Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 15:22:08 +0200
+Subject: [PATCH 856/913] module: scmi_perf: fix size_t underflow in
+ find_opp_for_level
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When use_nearest is set and the for loop over opp_table->opps
+completes without finding a match, i equals opp_table->opp_count and
+is decremented to index the last (highest) OPP entry. If opp_count is
+0, this decrement underflows the unsigned size_t i to SIZE_MAX, which
+is then passed to opp_for_level_found() and used to index
+opp_table->opps[], causing a huge out-of-bounds read.
+
+Return FWK_E_RANGE when opp_count is 0 instead of underflowing i.
+
+Coverity issue: CID 1200410: Overflowed integer argument
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2cbaa37474cd6b52990756c79f3215cce3e8b721 module: scmi_perf: fix size_t underflow in find_opp_for_level]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I41265fdf2d78e5b35a31b02e104ea4934a95080d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/592829
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c         | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c b/core/lib/scmi-server/SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c
+index a7797dfdd..45615eacb 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi_perf/src/mod_scmi_perf.c
+@@ -83,6 +83,10 @@ static int find_opp_for_level(
+     opp_table = domain_ctx->opp_table;
+     limit_max = domain_ctx->level_limits.maximum;
+ 
++    if (opp_table->opp_count == 0) {
++        return FWK_E_RANGE;
++    }
++
+     for (i = 0; i < opp_table->opp_count; i++) {
+         opp_level = opp_table->opps[i].level;
+ 
+-- 
+2.53.0
+

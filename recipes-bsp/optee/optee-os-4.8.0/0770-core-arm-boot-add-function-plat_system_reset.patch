@@ -1,0 +1,52 @@
+From c7cf528d03b0cd8056e75543e53c94b29157bf9a Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Fri, 12 Jun 2026 09:48:54 +0200
+Subject: [PATCH 770/913] core: arm: boot: add function plat_system_reset
+
+Add function plat_system_reset(const char *str) that can be overridden
+for each platform. This will allow the core of OP-TEE to reset the
+platform when an error is detected.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 86d17ca0f57419afa0b131382206fde38e4de02a core: arm: boot: add function plat_system_reset]
+Change-Id: I7b84eaed84087ef3518ea78c3d5dd067e5972a70
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/578195
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/kernel/boot.c | 5 +++++
+ core/include/kernel/boot.h  | 1 +
+ 2 files changed, 6 insertions(+)
+
+diff --git a/core/arch/arm/kernel/boot.c b/core/arch/arm/kernel/boot.c
+index 1b5280736..1cce85204 100644
+--- a/core/arch/arm/kernel/boot.c
++++ b/core/arch/arm/kernel/boot.c
+@@ -123,6 +123,11 @@ __weak unsigned long plat_get_aslr_seed(void)
+ 	return 0;
+ }
+ 
++/* May be overridden in plat-$(PLATFORM)/main.c */
++__weak void plat_system_reset(const char *str __unused)
++{
++}
++
+ /*
+  * This function is called as a guard after each smc call which is not
+  * supposed to return.
+diff --git a/core/include/kernel/boot.h b/core/include/kernel/boot.h
+index c629f51fa..93db5bbbe 100644
+--- a/core/include/kernel/boot.h
++++ b/core/include/kernel/boot.h
+@@ -73,6 +73,7 @@ void plat_cpu_reset_early(void);
+ void plat_primary_init_early(void);
+ unsigned long plat_get_aslr_seed(void);
+ unsigned long plat_get_freq(void);
++void plat_system_reset(const char *str);
+ #if defined(_CFG_CORE_STACK_PROTECTOR) || defined(CFG_WITH_STACK_CANARIES)
+ /*
+  * plat_get_random_stack_canaries() - Get random values for stack canaries.
+-- 
+2.53.0
+

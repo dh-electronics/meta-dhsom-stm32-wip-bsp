@@ -1,0 +1,41 @@
+From e6c4268bb6e78a8815467aa3df38aa7003a2c97d Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Wed, 29 Apr 2026 14:08:36 +0200
+Subject: [PATCH 550/913] drivers: remoteproc: stm32: fix check core isolation
+
+The stm32_rcc_is_secure() is defined in drivers/stm32mp1_rcc.h> which
+is under CFG_STM32MP15 config. add also config dependency on the
+test.
+
+Fixes: 0cc468d19a74 ("drivers: remoteproc: stm32mp15: check Cortex-M isolation")
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1e0e4604ebf59b58f3b2ec0df6e31c8ffd9eb9bb drivers: remoteproc: stm32: fix check core isolation]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I034970569bc5d1bac35bc9491c88ccbff1eca022
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index ace3cbc9a..43f61ff20 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -405,6 +405,7 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 			goto err;
+ 	}
+ 
++#ifdef CFG_STM32MP15
+ 	if (!stm32_rcc_is_secure()) {
+ 		IMSG("WARNING: insecure rproc isolation, RCC is not secure");
+ 		if (!IS_ENABLED(CFG_INSECURE))
+@@ -412,6 +413,7 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 	} else {
+ 		stm32_rcc_set_mckprot(true);
+ 	}
++#endif
+ 
+ 	/*
+ 	 * The memory management should be enhance with firewall
+-- 
+2.53.0
+

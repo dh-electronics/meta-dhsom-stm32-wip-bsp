@@ -1,0 +1,84 @@
+From 5d0192106ff526d38728537db74d36f4c43de117 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 24 Mar 2026 08:48:29 +0100
+Subject: [PATCH 207/913] clk: stm32mp25: align RCC/TDCID ownership and
+ protection
+
+Improve STM32MP25 clock handling to respect TDCID ownership and avoid
+unauthorized RCC/SYSCFG accesses and unsafe clock reconfiguration.
+
+- Do not reset flexgen crossbar input when not TDCID, letting TDCID define
+  the default crossbar channel selection
+- Remove C1MSRD and safe reset support for M33-TD flavor, as RCC_C1MSRDCR
+  and SYSCFG_SAFERSTCR are TDCID-only registers
+- Rework RIF semaphore handling so CID filtering and semaphore acquisition
+  are separated, acquiring semaphores at probe time when CFG_STM32_CM33TDCID is set
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c8f25aefa7bb004a110629be2ba45a4207b2bbc7 clk: stm32mp25: align RCC/TDCID ownership and protection
+5a05d3274e646c6d08bd1bff9f71eb6489890f5a clk: stm32mp25: align RCC/TDCID ownership and protection]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I6ef7ccc2b880040fde1e21d8f48936e56e8b0b28
+---
+ core/drivers/clk/clk-stm32mp25.c | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index a7efb5dc6..7863db54e 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -205,7 +205,9 @@ struct stm32_clk_platdata {
+ 	uint32_t *kernelclk;
+ 	uint32_t nflexgen;
+ 	uint32_t *flexgen;
++#ifndef CFG_STM32_CM33TDCID
+ 	uint32_t c1msrd;
++#endif
+ };
+ 
+ /*
+@@ -1394,7 +1396,9 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
+ 	if (err)
+ 		return err;
+ 
++#ifndef CFG_STM32_CM33TDCID
+ 	pdata->c1msrd = fdt_read_uint32_default(fdt, node, "st,c1msrd", 0);
++#endif
+ 
+ 	pdata->rcc_base = stm32_rcc_base();
+ 
+@@ -1695,6 +1699,9 @@ static void stm32mp2_clk_xbar_on_hsi(struct clk_stm32_priv *priv)
+ 	uintptr_t xbar0cfgr = priv->base + RCC_XBAR0CFGR;
+ 	uint32_t i = 0;
+ 
++	if (IS_ENABLED(CFG_STM32_CM33TDCID))
++		return;
++
+ 	for (i = 0; i < XBAR_ROOT_CHANNEL_NB; i++)
+ 		io_clrsetbits32(xbar0cfgr + (0x4 * i),
+ 				RCC_XBAR0CFGR_XBAR0SEL_MASK, XBAR_SRC_HSI);
+@@ -4858,6 +4865,12 @@ static TEE_Result stm32mp25_clk_probe(const void *fdt, int node,
+ 		}
+ 	}
+ 
++	if (IS_ENABLED(CFG_STM32_CM33TDCID)) {
++		res = handle_available_semaphores();
++		if (res)
++			goto err;
++	}
++
+ 	rc = clk_stm32_init(priv, stm32_rcc_base());
+ 	if (rc) {
+ 		res = TEE_ERROR_GENERIC;
+@@ -4871,7 +4884,8 @@ static TEE_Result stm32mp25_clk_probe(const void *fdt, int node,
+ 
+ 	clk_stm32_init_oscillators(fdt, node);
+ 
+-	stm32mp25_syscfg_set_safe_reset(true);
++	if (!IS_ENABLED(CFG_STM32_CM33TDCID))
++		stm32mp25_syscfg_set_safe_reset(true);
+ 
+ 	stm32mp_clk_provider_probe_final(fdt, node, priv);
+ 
+-- 
+2.53.0
+

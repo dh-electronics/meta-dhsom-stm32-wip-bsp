@@ -1,0 +1,76 @@
+From 0c6d47e467f80eab408d855a142a1bec0f1fa180 Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Wed, 2 Oct 2024 11:28:03 +0200
+Subject: [PATCH 812/913] dts: stm32: add ltdc support on stm32mp21
+
+Add ltdc support on stm32mp21 platform.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 95924a1437e4c6c62d78ba1c115d39562bf2cbd7 dts: stm32: add ltdc support on stm32mp21]
+Change-Id: I4c48a7df55473cc26bfc2a5e7782503790b2cbbc
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/408339
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yannick FERTRE <yannick.fertre@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yannick FERTRE <yannick.fertre@foss.st.com>
+Tested-by: Yannick FERTRE <yannick.fertre@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/586086
+---
+ core/arch/arm/dts/stm32mp211.dtsi |  8 ++++++++
+ core/arch/arm/dts/stm32mp215.dtsi | 24 ++++++++++++++++++++++++
+ 2 files changed, 32 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp211.dtsi b/core/arch/arm/dts/stm32mp211.dtsi
+index 1dada5351..eef343da5 100644
+--- a/core/arch/arm/dts/stm32mp211.dtsi
++++ b/core/arch/arm/dts/stm32mp211.dtsi
+@@ -1078,6 +1078,14 @@
+ 		};
+ 	};
+ 
++	soc1: soc@1 {
++		compatible = "simple-bus";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		interrupt-parent = <&intc>;
++		ranges = <0x0 0x0 0x0 0x80000000>;
++	};
++
+ 	mlahb: ahb@2 {
+ 		compatible = "st,mlahb", "simple-bus";
+ 		#address-cells = <1>;
+diff --git a/core/arch/arm/dts/stm32mp215.dtsi b/core/arch/arm/dts/stm32mp215.dtsi
+index 655cf463e..8d8cc57ff 100644
+--- a/core/arch/arm/dts/stm32mp215.dtsi
++++ b/core/arch/arm/dts/stm32mp215.dtsi
+@@ -4,3 +4,27 @@
+  * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
+  */
+ #include "stm32mp213.dtsi"
++
++&soc1 {
++	ltdc: display-controller@48010000 {
++		compatible = "st,stm32-ltdc";
++		reg = <0x48010000 0x400>;
++		interrupts = <GIC_SPI 143 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 144 IRQ_TYPE_LEVEL_HIGH>;
++		clocks = <&rcc CK_BUS_LTDC>, <&rcc CK_KER_LTDC>;
++		clock-names = "bus", "lcd";
++		resets = <&rcc LTDC_R>;
++		status = "disabled";
++		access-controllers = <&rifsc STM32MP21_RIFSC_LTDC_CMN_ID>;
++		access-controller-names = "cmn";
++
++		l1l2 {
++			access-controllers = <&rifsc STM32MP21_RIFSC_LTDC_L1L2_ID>;
++			access-controller-names = "l1l2";
++		};
++		l3 {
++			access-controllers = <&rifsc STM32MP21_RIFSC_LTDC_L3_ID>;
++			access-controller-names = "l3";
++		};
++	};
++};
+-- 
+2.53.0
+

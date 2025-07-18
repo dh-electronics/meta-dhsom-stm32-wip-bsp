@@ -1,0 +1,331 @@
+From d749e4cdf59ef79e2e39de0991cea74621133bd3 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 14 Feb 2025 14:25:55 +0100
+Subject: [PATCH 544/913] prod/optee/stm32mp2: psu back end module for CPU DVFS
+
+Implements a PSU (Power Supply Unit) instance in SCP-firmware as CPU
+regulator backend driver for CPU DVFS over SCMI Performance Management
+protocol.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4e1d63f27c06acfcccbae0da30c4fc56ffa231e2 prod/optee/stm32mp2: psu back end module for CPU DVFS]
+Change-Id: I69966106f22a267a16eb247a1c34c8f7df5ba5b1
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+---
+ .../product/optee/stm32mp2/fw/CMakeLists.txt  |   3 +
+ .../product/optee/stm32mp2/fw/Firmware.cmake  |   4 +
+ .../module/psu_optee_regulator/CMakeLists.txt |  17 ++
+ .../module/psu_optee_regulator/Module.cmake   |   9 +
+ .../include/mod_psu_optee_regulator.h         |  25 +++
+ .../src/mod_psu_optee_regulator.c             | 187 ++++++++++++++++++
+ .../product/optee/stm32mp2/sub-stm32mp2.mk    |   2 +
+ 7 files changed, 247 insertions(+)
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/CMakeLists.txt
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/Module.cmake
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/include/mod_psu_optee_regulator.h
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt
+index b2869f89d..bc93a6188 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/CMakeLists.txt
+@@ -8,6 +8,9 @@
+ #
+ # Create the firmware target.
+ #
++
++set (CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR n)
++
+ add_library(${SCP_FIRMWARE_TARGET})
+ 
+ # Include common optee modules in the module list
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake
+index dc6f55bce..efa346fdd 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/Firmware.cmake
+@@ -31,6 +31,10 @@ set(SCP_ENABLE_SCMI_RESET_INIT TRUE)
+ 
+ set(SCP_ENABLE_IPO_INIT FALSE)
+ 
++if(CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR)
++list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/psu_optee_regulator")
++endif(CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR)
++
+ # The order of the modules in the following list is the order in which the
+ # modules are initialized, bound, started during the pre-runtime phase.
+ # any change in the order will cause firmware initialization errors.
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/CMakeLists.txt
+new file mode 100644
+index 000000000..77af63f25
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/CMakeLists.txt
+@@ -0,0 +1,17 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2023, Linaro Limited and Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++add_library(${SCP_MODULE_TARGET} SCP_MODULE)
++
++target_include_directories(${SCP_MODULE_TARGET}
++                           PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
++                                  "${SCP_OPTEE_DIR}/core/arch/arm/plat-stm32mp2")
++
++target_sources(
++    ${SCP_MODULE_TARGET} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/mod_psu_optee_regulator.c")
++
++target_link_libraries(${SCP_MODULE_TARGET} PUBLIC module-voltage-domain)
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/Module.cmake b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/Module.cmake
+new file mode 100644
+index 000000000..26dc706e2
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/Module.cmake
+@@ -0,0 +1,9 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2023, Linaro Limited and Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++set(SCP_MODULE "psu-optee-regulator")
++set(SCP_MODULE_TARGET "psu-optee-regulator")
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/include/mod_psu_optee_regulator.h b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/include/mod_psu_optee_regulator.h
+new file mode 100644
+index 000000000..3547b3b24
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/include/mod_psu_optee_regulator.h
+@@ -0,0 +1,25 @@
++/*
++ * Copyright (c) 2020, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2023, STMicroelectronics
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef MOD_PSU_OPTEE_REGULATOR_H
++#define MOD_PSU_OPTEE_REGULATOR_H
++
++#include <fwk_element.h>
++#include <fwk_macros.h>
++#include <stdint.h>
++#include <stdbool.h>
++
++struct regulator;
++
++/*!
++ * \brief Platform regulator configuration.
++ */
++struct mod_psu_optee_regulator_dev_config {
++    struct regulator *regulator;
++};
++
++#endif /* MOD_PSU_OPTEE_REGULATOR_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c
+new file mode 100644
+index 000000000..90968ddd2
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c
+@@ -0,0 +1,187 @@
++/*
++ * Copyright (c) 2017-2019, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2022, STMicroelectronics
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <stddef.h>
++
++#include <fwk_log.h>
++#include <fwk_macros.h>
++#include <fwk_mm.h>
++#include <fwk_module.h>
++#include <mod_psu.h>
++#include <mod_psu_optee_regulator.h>
++#include <mod_scmi_std.h>
++
++#include <arch_main.h>
++
++#include <assert.h>
++#include <config.h>
++#include <drivers/regulator.h>
++#include <io.h>
++#include <trace.h>
++
++#define DEBUG_MSG(...)	FMSG(__VA_ARGS__)
++
++/* Module context */
++struct psu_optee_regulator_ctx {
++    struct regulator *regulator;
++    struct {
++        bool enabled;
++        uint32_t voltage;
++    } fake_state;
++};
++
++/* A single instance handles all voltage regulators abstracted by regulator.h */
++static struct psu_optee_regulator_ctx *module_ctx;
++
++/*
++ * Driver functions for the PSU API
++ */
++static int psu_optee_regulator_set_enabled(fwk_id_t id, bool enabled)
++{
++    struct psu_optee_regulator_ctx *ctx =
++        module_ctx + fwk_id_get_element_idx(id);
++    TEE_Result res = TEE_ERROR_GENERIC;
++    struct regulator *regulator = ctx->regulator;
++
++    if (!regulator) {
++        ctx->fake_state.enabled = enabled;
++
++        return FWK_SUCCESS;
++    }
++
++    DEBUG_MSG("PSU set %s %s", regulator_name(regulator),
++              enabled ? "ON" : "OFF");
++
++    if (enabled) {
++        res = regulator_enable(regulator);
++    } else {
++        res = regulator_disable(regulator);
++    }
++
++    return scmi_tee_result_to_fwk_status(res);
++}
++
++static int psu_optee_regulator_get_enabled(fwk_id_t id, bool *enabled)
++{
++    struct psu_optee_regulator_ctx *ctx =
++        module_ctx + fwk_id_get_element_idx(id);
++    struct regulator *regulator = ctx->regulator;
++
++    if (enabled == NULL) {
++        return FWK_E_PARAM;
++    }
++
++    if (!regulator) {
++        *enabled = ctx->fake_state.enabled;
++
++        return FWK_SUCCESS;
++    }
++
++    *enabled = regulator_is_enabled(regulator);
++
++    DEBUG_MSG("PSU get %s state: %s", regulator_name(regulator),
++              *enabled ? "ON" : "OFF");
++
++    return FWK_SUCCESS;
++}
++
++static int psu_optee_regulator_set_voltage(fwk_id_t id, uint32_t voltage)
++{
++    struct psu_optee_regulator_ctx *ctx =
++        module_ctx + fwk_id_get_element_idx(id);
++    TEE_Result res = TEE_ERROR_GENERIC;
++    struct regulator *regulator = ctx->regulator;
++
++    if (!regulator) {
++        ctx->fake_state.voltage = voltage;
++
++        return FWK_SUCCESS;
++    }
++
++    DEBUG_MSG("PSU set regulator %s level: %u mV",
++              regulator_name(regulator), voltage);
++
++    res = regulator_set_voltage(regulator, (int)voltage * 1000);
++
++    return scmi_tee_result_to_fwk_status(res);
++}
++
++static int psu_optee_regulator_get_voltage(fwk_id_t id, uint32_t *voltage)
++{
++    struct psu_optee_regulator_ctx *ctx =
++        module_ctx + fwk_id_get_element_idx(id);
++    struct regulator *regulator = ctx->regulator;
++    int level_mv;
++
++    if (voltage == NULL) {
++        return FWK_E_PARAM;
++    }
++
++    if (!regulator) {
++        *voltage = ctx->fake_state.voltage;
++
++        return FWK_SUCCESS;
++    }
++
++    level_mv = regulator_get_voltage(regulator) / 1000;
++
++    DEBUG_MSG("PSU get regulator %s level: %d mV",
++              regulator_name(regulator), level_mv);
++
++    *voltage = (uint32_t)level_mv;
++
++    return FWK_SUCCESS;
++}
++
++static struct mod_psu_driver_api psu_driver_api = {
++    .set_enabled = psu_optee_regulator_set_enabled,
++    .get_enabled = psu_optee_regulator_get_enabled,
++    .set_voltage = psu_optee_regulator_set_voltage,
++    .get_voltage = psu_optee_regulator_get_voltage,
++};
++
++static int psu_optee_regulator_init(fwk_id_t module_id,
++                                    unsigned int element_count,
++                                    const void *data)
++{
++    module_ctx = fwk_mm_calloc(element_count, sizeof(*module_ctx));
++
++    return FWK_SUCCESS;
++}
++
++static int psu_optee_regulator_element_init(fwk_id_t element_id,
++                                            unsigned int sub_element_count,
++                                            const void *data)
++{
++    struct psu_optee_regulator_ctx *ctx =
++        module_ctx + fwk_id_get_element_idx(element_id);
++    const struct mod_psu_optee_regulator_dev_config *config = data;
++
++    fwk_assert(config != NULL);
++
++    ctx->regulator = config->regulator;
++
++    return FWK_SUCCESS;
++}
++
++static int psu_optee_regulator_process_bind_request(fwk_id_t source_id,
++                                                    fwk_id_t target_id,
++                                                    fwk_id_t api_id,
++                                                    const void **api)
++{
++    *api = &psu_driver_api;
++
++    return FWK_SUCCESS;
++}
++
++const struct fwk_module module_psu_optee_regulator = {
++    .api_count = 1,
++    .type = FWK_MODULE_TYPE_DRIVER,
++    .init = psu_optee_regulator_init,
++    .element_init = psu_optee_regulator_element_init,
++    .process_bind_request = psu_optee_regulator_process_bind_request,
++};
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk
+index 22895dec5..2b6ed1d9d 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/sub-stm32mp2.mk
+@@ -8,3 +8,5 @@
+ incdirs_ext-y += $(scpfw-path)/product/optee/stm32mp2/include
+ 
+ srcs-y += $(scpfw-path)/product/optee/stm32mp2/fw/config_scmi.c
++
++$(eval $(call scpfw-embed-product-module,psu_optee_regulator))
+-- 
+2.53.0
+

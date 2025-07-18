@@ -1,0 +1,92 @@
+From 4f05c63cb832d2ded03b8b5755807f176ba9c2e9 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Fri, 27 Feb 2026 14:22:21 +0100
+Subject: [PATCH 090/913] dts: stm32: add bsec node in stm32mp231.dtsi
+
+Add the bsec node to access OTP on stm32mp23 platforms with
+the NVMEM description needed by OP-TEE for STM32MP25x device
+- part_number_otp
+- package_otp
+- HCONF1: hardware configuration fuse
+- PKH OTP: hash of public keys hashes
+- encryption keys
+- TFM IAK
+- OEM rproc authentification public key
+- OEM rproc encryption key
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 625124cda549df880afbec23eb21d3fc95a689b9 dts: stm32: add bsec node in stm32mp231.dtsi]
+Change-Id: I2b50ef14ef2aaf38cd73464f17c6d7eff1f22a94
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp231.dtsi | 55 +++++++++++++++++++++++++++++++
+ 1 file changed, 55 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp231.dtsi b/core/arch/arm/dts/stm32mp231.dtsi
+index 79ecdc33a..4f54e3a89 100644
+--- a/core/arch/arm/dts/stm32mp231.dtsi
++++ b/core/arch/arm/dts/stm32mp231.dtsi
+@@ -332,6 +332,61 @@
+ 			status = "disabled";
+ 		};
+ 
++		bsec: efuse@44000000 {
++			compatible = "st,stm32mp25-bsec";
++			reg = <0x44000000 0x1000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			part_number_otp@24 {
++				reg = <0x24 0x4>;
++			};
++
++			package_otp@1e8 {
++				reg = <0x1e8 0x1>;
++			};
++
++			hconf1_otp: otp124@1f0 {
++				reg = <0x1f0 0x4>;
++			};
++
++			pkh_otp: otp144@240 {
++				reg = <0x240 0x20>;
++			};
++
++			oem_rproc_pkh: oem_rproc_pkh@2c0 {
++				/* 0x2C0 -> otp176 */
++				reg = <0x2C0 0x20>;
++				st,non-secure-otp-provisioning;
++			};
++
++			oem_fip_enc_key: otp260@410 {
++				reg = <0x410 0x20>;
++				st,non-secure-otp-provisioning;
++			};
++
++			oem_rproc_enc_key: oem_rproc_enc_key@540 {
++				/* 0x540 -> otp336 */
++				reg = <0x540 0x20>;
++				st,non-secure-otp-provisioning;
++			};
++
++			tfm_iak: otp352@580 {
++				reg = <0x580 0x20>;
++				st,non-secure-otp-provisioning;
++			};
++
++			oem_enc_key_2: otp360@5a0 {
++				reg = <0x5a0 0x10>;
++				st,non-secure-otp-provisioning;
++			};
++
++			oem_enc_key_1: otp364@5b0 {
++				reg = <0x5b0 0x10>;
++				st,non-secure-otp-provisioning;
++			};
++		};
++
+ 		serc: serc@44080000 {
+ 			compatible = "st,stm32mp25-serc";
+ 			reg = <0x44080000 0x1000>;
+-- 
+2.53.0
+

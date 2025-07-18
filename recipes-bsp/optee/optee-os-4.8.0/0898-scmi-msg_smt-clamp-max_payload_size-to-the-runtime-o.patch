@@ -1,0 +1,121 @@
+From d5660a6a497eb70dc125982ae3f4652e6d1531dc Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 31 Jul 2026 13:38:11 +0200
+Subject: [PATCH 898/913] scmi: msg_smt: clamp max_payload_size to the runtime
+ output buffer
+
+The static initialisation in msg_channel_init() derives max_payload_size
+from config->mailbox_size (128 bytes on STM32MP2).
+The Linux OP-TEE transport, however, allocates the TEE shared-memory
+buffer at SCMI_SHMEM_MAX_PAYLOAD_SIZE (104 bytes), so the effective
+writable payload is only 100 bytes
+(104 - sizeof(struct mod_msg_smt_memory)).
+
+Keeping the static value as the bound would allow smt_write_payload()
+to write up to 124 bytes into a 104-byte buffer.
+
+Remove the static max_payload_size field from smt_channel_ctx and
+introduce smt_get_effective_max_payload(), which derives the limit from
+the per-message out_len capped by config->mailbox_size.
+Both smt_get_max_payload_size() and smt_write_payload() call this helper
+so the limit always reflects the real buffer the agent handed to us.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 703a1199b42fc28ee0501c9d5cd597a032aa0528 scmi: msg_smt: clamp max_payload_size to the runtime output buffer]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Assisted-by: GitHub Copilot (Claude Sonnet 4.6)
+Change-Id: If01e158b39fc26911b30320e576bc8df3a21ee1c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/590604
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../module/msg_smt/src/mod_msg_smt.c          | 41 ++++++++++++++-----
+ 1 file changed, 30 insertions(+), 11 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/msg_smt/src/mod_msg_smt.c b/core/lib/scmi-server/SCP-firmware/module/msg_smt/src/mod_msg_smt.c
+index 853fe66b8..f4528ae7f 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/msg_smt/src/mod_msg_smt.c
++++ b/core/lib/scmi-server/SCP-firmware/module/msg_smt/src/mod_msg_smt.c
+@@ -43,9 +43,6 @@ struct smt_channel_ctx {
+     /* Message processing in progrees flag */
+     volatile bool locked;
+ 
+-    /* Maximum payload size of the channel */
+-    size_t max_payload_size;
+-
+     /* Driver entity identifier */
+     fwk_id_t driver_id;
+ 
+@@ -88,6 +85,28 @@ static int smt_get_secure(fwk_id_t channel_id, bool *secure)
+     return FWK_SUCCESS;
+ }
+ 
++/*
++ * Compute the maximum SCMI payload size for the message being processed.
++ *
++ * The MSG shared memory buffer is provided by the agent on a per-message basis,
++ * so its size (out_len) may be smaller than the mailbox size declared in the
++ * channel configuration. Honor the size actually provided by the agent, capped
++ * by the configured mailbox size, so the SCMI server never emits a response
++ * larger than the buffer the agent will read back (and never overflows it).
++ */
++static size_t smt_get_effective_max_payload(struct smt_channel_ctx *channel_ctx)
++{
++    size_t buf_size = channel_ctx->out_len;
++
++    fwk_assert(buf_size >= sizeof(struct mod_msg_smt_memory));
++
++    if (buf_size > channel_ctx->config->mailbox_size) {
++        buf_size = channel_ctx->config->mailbox_size;
++    }
++
++    return buf_size - sizeof(struct mod_msg_smt_memory);
++}
++
+ static int smt_get_max_payload_size(fwk_id_t channel_id, size_t *size)
+ {
+     struct smt_channel_ctx *channel_ctx;
+@@ -100,7 +119,7 @@ static int smt_get_max_payload_size(fwk_id_t channel_id, size_t *size)
+     channel_ctx =
+         &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
+ 
+-    *size = channel_ctx->max_payload_size;
++    *size = smt_get_effective_max_payload(channel_ctx);
+ 
+     return FWK_SUCCESS;
+ }
+@@ -159,14 +178,17 @@ static int smt_write_payload(fwk_id_t channel_id,
+                              size_t size)
+ {
+     struct smt_channel_ctx *channel_ctx;
++    size_t max_payload_size;
+ 
+     channel_ctx =
+         &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
+ 
+-    if ((payload == NULL)                         ||
+-        (offset  > channel_ctx->max_payload_size) ||
+-        (size > channel_ctx->max_payload_size)    ||
+-        ((offset + size) > channel_ctx->max_payload_size)) {
++    max_payload_size = smt_get_effective_max_payload(channel_ctx);
++
++    if ((payload == NULL)                ||
++        (offset  > max_payload_size)     ||
++        (size > max_payload_size)        ||
++        ((offset + size) > max_payload_size)) {
+ 
+         fwk_assert(false);
+         return FWK_E_PARAM;
+@@ -360,9 +382,6 @@ static int msg_channel_init(fwk_id_t channel_id, unsigned int slot_count,
+     channel_ctx->out = NULL;
+     channel_ctx->out_len = 0;
+ 
+-    channel_ctx->max_payload_size = channel_ctx->config->mailbox_size -
+-        sizeof(struct mod_msg_smt_memory);
+-
+     channel_ctx->msg_smt_mailbox_ready = true;
+ 
+     return FWK_SUCCESS;
+-- 
+2.53.0
+

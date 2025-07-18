@@ -1,0 +1,67 @@
+From adbcde635c88fd9a34797c4a9420ecf91d437cc1 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Tue, 28 Apr 2026 00:03:38 +0200
+Subject: [PATCH 372/913] drivers: stm32_risaf: do not enable/disable clock on
+ upon an IAC event
+
+In order to align with upstream, remove clock gating in
+stm32_risaf_print_erroneous_data() and
+stm32_risaf_clear_illegal_access_flags() as it won't be possible to enable
+a clock under interrupt context.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7b920df779e08b2156e870d2944ff825a0d3bad3 drivers: stm32_risaf: do not enable/disable clock on upon an IAC event]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Icfd1119536ac88199f0cf260b40aab1ffe13f1a6
+---
+ core/drivers/firewall/stm32_risaf.c | 15 ++++-----------
+ 1 file changed, 4 insertions(+), 11 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index 3c188dac9..cb72407d1 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -363,14 +363,12 @@ void stm32_risaf_clear_illegal_access_flags(void)
+ 	SLIST_FOREACH(risaf, &risaf_list, link) {
+ 		vaddr_t base = io_pa_or_va_secure(&risaf->pdata.base, 1);
+ 
+-		if (clk_enable(risaf->pdata.clock))
+-			panic("Can't enable RISAF clock");
++		if (!clk_is_enabled(risaf->pdata.clock))
++			continue;
+ 
+ 		if (io_read32(base + _RISAF_IASR))
+ 			io_write32(base + _RISAF_IACR, _RISAF_IACR_CAEF |
+ 				   _RISAF_IACR_IAEF0 | _RISAF_IACR_IAEF1);
+-
+-		clk_disable(risaf->pdata.clock);
+ 	}
+ }
+ 
+@@ -384,14 +382,10 @@ void stm32_risaf_print_erroneous_data(void)
+ 	SLIST_FOREACH(risaf, &risaf_list, link) {
+ 		vaddr_t base = io_pa_or_va_secure(&risaf->pdata.base, 1);
+ 
+-		if (clk_enable(risaf->pdata.clock))
+-			panic("Can't enable RISAF clock");
+-
+ 		/* Check if faulty address on this RISAF */
+-		if (!io_read32(base + _RISAF_IASR)) {
+-			clk_disable(risaf->pdata.clock);
++		if (!clk_is_enabled(risaf->pdata.clock) ||
++		    !io_read32(base + _RISAF_IASR))
+ 			continue;
+-		}
+ 
+ 		IMSG("\n\nDUMPING DATA FOR %s\n\n", risaf->pdata.risaf_name);
+ 		IMSG("=====================================================");
+@@ -425,7 +419,6 @@ void stm32_risaf_print_erroneous_data(void)
+ 		}
+ 
+ 		IMSG("=====================================================\n");
+-		clk_disable(risaf->pdata.clock);
+ 	};
+ }
+ 
+-- 
+2.53.0
+

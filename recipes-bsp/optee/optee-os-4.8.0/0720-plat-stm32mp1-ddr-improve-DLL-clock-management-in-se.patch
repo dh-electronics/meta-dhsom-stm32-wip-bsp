@@ -1,0 +1,97 @@
+From b16c7240459c9017d22ac8e2c363ee2a4da640f9 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Thu, 23 Apr 2026 11:27:29 +0200
+Subject: [PATCH 720/913] plat-stm32mp1: ddr: improve DLL clock management in
+ self refresh sequence
+
+- Switch off DDRPHY clock before disabling the DLLs
+  and after enabling GSKP (glitch skipper)
+- Keep GSKP enabled during CStop
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8383ae4f5ba81f269976e4ef7ce76abf7f813193 plat-stm32mp1: ddr: improve DLL clock management in self refresh sequence]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I5a2885d15df7dc92a2d99f549a8988beb90f6947
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/560752
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c | 21 +++++++++++--------
+ 1 file changed, 12 insertions(+), 9 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c
+index f11c3bafe..9f93190b2 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c
+@@ -244,7 +244,6 @@ static void ddr_enable_clock(void)
+ 	io_setbits32(rcc_base + RCC_DDRITFCR,
+ 		     RCC_DDRITFCR_DDRC1EN |
+ 		     RCC_DDRITFCR_DDRC2EN |
+-		     RCC_DDRITFCR_DDRPHYCEN |
+ 		     RCC_DDRITFCR_DDRPHYCAPBEN |
+ 		     RCC_DDRITFCR_DDRCAPBEN);
+ }
+@@ -358,6 +357,9 @@ static int ddr_sw_self_refresh_in(void)
+ 	/* Switch controller clocks (uMCTL2/PUBL) to DLL ref clock */
+ 	io_setbits32(rcc_base + RCC_DDRITFCR, RCC_DDRITFCR_GSKPCTRL);
+ 
++	/* Deactivate DDRPHY clock */
++	io_clrbits32(rcc_base + RCC_DDRITFCR, RCC_DDRITFCR_DDRPHYCEN);
++
+ 	/* Disable all DLLs: GLITCH window */
+ 	io_setbits32(ddrphy_base + DDRPHYC_ACDLLCR, DDRPHYC_ACDLLCR_DLLDIS);
+ 	io_setbits32(ddrphy_base + DDRPHYC_DX0DLLCR, DDRPHYC_DXNDLLCR_DLLDIS);
+@@ -365,10 +367,7 @@ static int ddr_sw_self_refresh_in(void)
+ 	io_setbits32(ddrphy_base + DDRPHYC_DX2DLLCR, DDRPHYC_DXNDLLCR_DLLDIS);
+ 	io_setbits32(ddrphy_base + DDRPHYC_DX3DLLCR, DDRPHYC_DXNDLLCR_DLLDIS);
+ 
+-	/* Switch controller clocks (uMCTL2/PUBL) to DLL output clock */
+-	io_clrbits32(rcc_base + RCC_DDRITFCR, RCC_DDRITFCR_GSKPCTRL);
+-
+-	/* Disable all clocks */
++	/* Disable all other DDR clocks */
+ 	ddr_disable_clock();
+ 
+ 	return 0;
+@@ -392,7 +391,7 @@ static int ddr_sw_self_refresh_exit(void)
+ 	vaddr_t ddrctrl_base = get_ddrctrl_base();
+ 	vaddr_t ddrphy_base = get_ddrphy_base();
+ 
+-	/* Enable all clocks */
++	/* Enable all clocks except DDRPHY */
+ 	ddr_enable_clock();
+ 
+ 	do_sw_handshake();
+@@ -403,9 +402,6 @@ static int ddr_sw_self_refresh_exit(void)
+ 
+ 	do_sw_ack();
+ 
+-	/* Switch controller clocks (uMCTL2/PUBL) to DLL ref clock */
+-	io_setbits32(rcc_base + RCC_DDRITFCR, RCC_DDRITFCR_GSKPCTRL);
+-
+ 	/* Enable all DLLs: GLITCH window */
+ 	io_clrbits32(ddrphy_base + DDRPHYC_ACDLLCR, DDRPHYC_ACDLLCR_DLLDIS);
+ 	io_clrbits32(ddrphy_base + DDRPHYC_DX0DLLCR, DDRPHYC_DXNDLLCR_DLLDIS);
+@@ -418,8 +414,15 @@ static int ddr_sw_self_refresh_exit(void)
+ 
+ 	/* Switch controller clocks (uMCTL2/PUBL) to DLL ref clock */
+ 	io_clrbits32(rcc_base + RCC_DDRITFCR, RCC_DDRITFCR_GSKPCTRL);
++
++	/* Assert DLL soft reset */
+ 	io_clrbits32(ddrphy_base + DDRPHYC_ACDLLCR, DDRPHYC_ACDLLCR_DLLSRST);
+ 	udelay(10);
++
++	/* Enable DDRPHY clock */
++	io_setbits32(rcc_base + RCC_DDRITFCR, RCC_DDRITFCR_DDRPHYCEN);
++
++	/* Release DLL soft reset */
+ 	io_setbits32(ddrphy_base + DDRPHYC_ACDLLCR, DDRPHYC_ACDLLCR_DLLSRST);
+ 
+ 	/* PHY partial init: (DLL lock and ITM reset) */
+-- 
+2.53.0
+

@@ -1,0 +1,51 @@
+From f7698d31efea808be414c0e270dff5e3812303c9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Wed, 5 Aug 2026 10:25:41 +0200
+Subject: [PATCH 883/913] clk: stm32: reject a null input frequency for the
+ PLL1 settings
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+clk_get_pll1_settings passes the rate returned by _stm32_clock_get_rate
+straight to clk_compute_pll1_settings, which uses it as a divisor when
+deriving divn and the fractional part. Nothing rejects a null rate, so an
+unavailable HSI or HSE source lets a zero divisor reach the computation.
+
+Reject a null input frequency in the entry guard of the computation, next
+to the existing index check. The observable behaviour is unchanged, since
+a null rate already made every candidate divider fall below POST_DIVM_MIN
+and the function return an error, but the divisor is now checked before
+it is used.
+
+Coverity issue: CID 1211939: Division or modulo by zero in clk_get_pll1_settings
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0eb4758f9fb4cecd6a8a1f48fc93b43ac929ed4b clk: stm32: reject a null input frequency for the PLL1 settings]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I8525bf4c5c7b16cb4c3eeda94acf6b21c1db2d67
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/597004
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/clk/stm32/clk-stm32mp15.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/stm32/clk-stm32mp15.c b/core/drivers/clk/stm32/clk-stm32mp15.c
+index 0582b01de..1cf3a97df 100644
+--- a/core/drivers/clk/stm32/clk-stm32mp15.c
++++ b/core/drivers/clk/stm32/clk-stm32mp15.c
+@@ -1380,7 +1380,7 @@ static int clk_compute_pll1_settings(unsigned long input_freq, unsigned int idx)
+ 	unsigned int diff = 0;
+ 	unsigned int best_diff = UINT_MAX;
+ 
+-	if (idx >= MAX_OPP)
++	if (!input_freq || idx >= MAX_OPP)
+ 		return -1;
+ 
+ 	output_freq = (unsigned long long)pll1_settings.freq[idx] * 1000U;
+-- 
+2.53.0
+

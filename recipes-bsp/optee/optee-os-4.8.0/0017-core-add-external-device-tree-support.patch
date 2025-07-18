@@ -1,0 +1,53 @@
+From f556d50b1ff8d24fc386209fa23f8c9bf01e54fe Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 5 May 2023 10:38:30 +0200
+Subject: [PATCH 017/913] core: add external device tree support
+
+Add support for an external repository for device tree source files.
+
+To manage device-tree compilation, the dts folder is given as an include
+argument of the dts pre-processing command.
+
+Implement support of dts-source-path makefile variable that should
+be overridden at platform level with the external device tree source
+file path.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ce7ac186499cef0a692c8387e660b33022579ca3 core: add external device tree support]
+Change-Id: I3d35cdb42075dd936a07742a1d965deab6e3ab9b
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+---
+ core/sub.mk   | 3 ++-
+ mk/compile.mk | 3 ++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/core/sub.mk b/core/sub.mk
+index 958524f51..1ce6609a2 100644
+--- a/core/sub.mk
++++ b/core/sub.mk
+@@ -51,7 +51,8 @@ endef
+ $(foreach f, $(SP_PATHS), $(eval $(call process_secure_partition,$(f))))
+ 
+ ifeq ($(CFG_EMBED_DTB),y)
+-core-embed-fdt-dts = $(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE)
++dts-source-path = $(arch-dir)/dts
++core-embed-fdt-dts = $(dts-source-path)/$(CFG_EMBED_DTB_SOURCE_FILE)
+ core-embed-fdt-dtb = $(out-dir)/$(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE:.dts=.dtb)
+ core-embed-fdt-c = $(out-dir)/$(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE:.dts=.c)
+ gensrcs-y += embedded_secure_dtb
+diff --git a/mk/compile.mk b/mk/compile.mk
+index 331aba3c9..7f2ad05c0 100644
+--- a/mk/compile.mk
++++ b/mk/compile.mk
+@@ -269,7 +269,8 @@ cleanfiles := $$(cleanfiles) $2 \
+ 		$$(dtb-predts-$2) $$(dtb-predep-$2) \
+ 		$$(dtb-dep-$2) $$(dtb-cmd-file-$2)
+ 
+-dtb-cppflags-$2 := -Icore/include/ -x assembler-with-cpp -undef -D__DTS__ \
++dtb-cppflags-$2 := -Icore/include/ -I$(arch-dir)/dts -x assembler-with-cpp \
++		   -undef -D__DTS__ \
+ 		   -E -ffreestanding $$(CPPFLAGS) \
+ 		   -MD -MF $$(dtb-predep-$2) -MP -MT $$(dtb-predts-$2)
+ 
+-- 
+2.53.0
+

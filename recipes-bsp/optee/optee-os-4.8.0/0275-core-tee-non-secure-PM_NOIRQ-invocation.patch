@@ -1,0 +1,252 @@
+From 42eeb68c6fa54c497862dedae54ff69273d91538 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 28 May 2025 12:00:09 +0200
+Subject: [PATCH 275/913] core: tee: non-secure PM_NOIRQ invocation
+
+Implement non-secure PM_NOIRQ in support. Non-secure world can
+invoke OPTEE_SMC_CALL_*_NSEC_NOIRQ SCM function IDs during its
+power management (PM) no-irq sequence that is when it has masked
+its interrupts. This sequence can be used by the Linux kernel during
+this suspend/resume sequence when it may, for example, enable/disable
+clock using the SCMI PTA service. OP-TEE shall keep the foreign
+interrupts masked during execution of the invocation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4e9d832daba9e09f0c26a84e58bbc2fe09e9ec39 core: tee: non-secure PM_NOIRQ invocation]
+Change-Id: I87aa1c2e01045db136fad234c9138fbd9196dddd
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/include/sm/optee_smc.h    | 27 +++++++++++++++
+ core/arch/arm/kernel/thread_optee_smc.c | 16 +++++++++
+ core/arch/arm/tee/entry_fast.c          |  2 ++
+ core/include/kernel/thread.h            | 24 +++++++++++++
+ core/kernel/thread.c                    | 46 +++++++++++++++++++++++++
+ core/tee/entry_std.c                    |  8 +++--
+ 6 files changed, 121 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/include/sm/optee_smc.h b/core/arch/arm/include/sm/optee_smc.h
+index b91a537d0..30c166120 100644
+--- a/core/arch/arm/include/sm/optee_smc.h
++++ b/core/arch/arm/include/sm/optee_smc.h
+@@ -319,6 +319,9 @@
+ /* Secure world supports probing for RPMB device if needed */
+ #define OPTEE_SMC_SEC_CAP_RPMB_PROBE		BIT(7)
+ 
++/* Non-standard capabilities not yet in mainline OP-TEE driver */
++#define OPTEE_SMC_SEC_CAP_PM_NOIRQ		BIT(15)
++
+ #define OPTEE_SMC_FUNCID_EXCHANGE_CAPABILITIES	U(9)
+ #define OPTEE_SMC_EXCHANGE_CAPABILITIES \
+ 	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_EXCHANGE_CAPABILITIES)
+@@ -595,6 +598,30 @@
+ 
+ #define OPTEE_SMC_RPC_VAL(func)		((func) | OPTEE_SMC_RETURN_RPC_PREFIX)
+ 
++/*
++ * OPTEE_SMC_CALL_WITH_ARG_NSEC_NOIRQ
++ * Equivaent to OPTEE_SMC_CALL_WITH_ARG but with foreign interrupts masked.
++ */
++#define OPTEE_SMC_FUNCID_CALL_WITH_ARG_NSEC_NOIRQ	U(56)
++#define OPTEE_SMC_CALL_WITH_ARG_NSEC_NOIRQ \
++	OPTEE_SMC_STD_CALL_VAL(OPTEE_SMC_FUNCID_CALL_WITH_ARG_NSEC_NOIRQ)
++
++/*
++ * OPTEE_SMC_CALL_WITH_RPC_ARG_NSEC_NOIRQ
++ * Equivaent to OPTEE_SMC_CALL_WITH_RPC_ARG but with foreign interrupts masked.
++ */
++#define OPTEE_SMC_FUNCID_CALL_WITH_RPC_ARG_NSEC_NOIRQ	U(57)
++#define OPTEE_SMC_CALL_WITH_RPC_ARG_NSEC_NOIRQ \
++	OPTEE_SMC_STD_CALL_VAL(OPTEE_SMC_FUNCID_CALL_WITH_RPC_ARG_NSEC_NOIRQ)
++
++/*
++ * OPTEE_SMC_CALL_WITH_REGD_ARG_NSEC_NOIRQ
++ * Equivaent to OPTEE_SMC_CALL_WITH_REGD_ARG but with foreign interrupts masked.
++ */
++#define OPTEE_SMC_FUNCID_CALL_WITH_REGD_ARG_NSEC_NOIRQ	U(58)
++#define OPTEE_SMC_CALL_WITH_REGD_ARG_NSEC_NOIRQ \
++	OPTEE_SMC_STD_CALL_VAL(OPTEE_SMC_FUNCID_CALL_WITH_REGD_ARG_NSEC_NOIRQ)
++
+ /*
+  * Allocate memory for RPC parameter passing. The memory is used to hold a
+  * struct optee_msg_arg.
+diff --git a/core/arch/arm/kernel/thread_optee_smc.c b/core/arch/arm/kernel/thread_optee_smc.c
+index 0eea4abdf..6026c843d 100644
+--- a/core/arch/arm/kernel/thread_optee_smc.c
++++ b/core/arch/arm/kernel/thread_optee_smc.c
+@@ -270,13 +270,29 @@ static uint32_t std_smc_entry(uint32_t a0, uint32_t a1, uint32_t a2,
+ {
+ 	const bool with_rpc_arg = true;
+ 
++	/*
++	 * Specific function IDs for when non-secure world executes
++	 * with interrupts masked and invokes an OP-TEE thread context.
++	 * In which case OP-TEE should not unmask foreign interrupt unless
++	 * what the system will deadlock if an enabled non-secure interrupt
++	 * is pending.
++	 */
+ 	switch (a0) {
++	case OPTEE_SMC_CALL_WITH_ARG_NSEC_NOIRQ:
++		thread_enable_nsec_noirq();
++		fallthrough;
+ 	case OPTEE_SMC_CALL_WITH_ARG:
+ 		return std_entry_with_parg(reg_pair_to_64(a1, a2),
+ 					   !with_rpc_arg);
++	case OPTEE_SMC_CALL_WITH_RPC_ARG_NSEC_NOIRQ:
++		thread_enable_nsec_noirq();
++		fallthrough;
+ 	case OPTEE_SMC_CALL_WITH_RPC_ARG:
+ 		return std_entry_with_parg(reg_pair_to_64(a1, a2),
+ 					   with_rpc_arg);
++	case OPTEE_SMC_CALL_WITH_REGD_ARG_NSEC_NOIRQ:
++		thread_enable_nsec_noirq();
++		fallthrough;
+ 	case OPTEE_SMC_CALL_WITH_REGD_ARG:
+ 		return std_entry_with_regd_arg(reg_pair_to_64(a1, a2), a3);
+ 	default:
+diff --git a/core/arch/arm/tee/entry_fast.c b/core/arch/arm/tee/entry_fast.c
+index 0304013ef..a9498adca 100644
+--- a/core/arch/arm/tee/entry_fast.c
++++ b/core/arch/arm/tee/entry_fast.c
+@@ -115,6 +115,8 @@ static void tee_entry_exchange_capabilities(struct thread_smc_args *args)
+ 	IMSG("Asynchronous notifications are %sabled",
+ 	     IS_ENABLED(CFG_CORE_ASYNC_NOTIF) ? "en" : "dis");
+ 
++	args->a1 |= OPTEE_SMC_SEC_CAP_PM_NOIRQ;
++
+ 	args->a1 |= OPTEE_SMC_SEC_CAP_RPC_ARG;
+ 	args->a3 = THREAD_RPC_MAX_NUM_PARAMS;
+ 
+diff --git a/core/include/kernel/thread.h b/core/include/kernel/thread.h
+index 9ef7ec265..10e2091b3 100644
+--- a/core/include/kernel/thread.h
++++ b/core/include/kernel/thread.h
+@@ -21,6 +21,9 @@
+ #define THREAD_FLAGS_EXIT_ON_FOREIGN_INTR	BIT(2)
+ #define THREAD_FLAGS_FFA_ONLY			BIT(3)
+ 
++/* Thread context for non-secure no-irq sequence */
++#define THREAD_FLAGS_NSEC_NOIRQ			BIT(5)
++
+ #define THREAD_ID_0		0
+ #define THREAD_ID_INVALID	-1
+ 
+@@ -117,6 +120,13 @@ short int thread_get_id(void);
+  */
+ short int thread_get_id_may_fail(void);
+ 
++/*
++ * Returns true if the thread is for used for non-secure no-irq
++ * sequence (that is when non-secure world executes with its
++ * interrupts masked), false otherwise.
++ */
++bool thread_is_for_nsec_noirq(void);
++
+ /* Returns Thread Specific Data (TSD) pointer. */
+ struct thread_specific_data *thread_get_tsd(void);
+ 
+@@ -135,6 +145,20 @@ void thread_set_foreign_intr(bool enable);
+  */
+ void thread_restore_foreign_intr(void);
+ 
++/*
++ * Set current thread in NOIRQ mode that is foreign interrupt should never be
++ * unmasked since non-secure world for current CPU executes with its interrupts
++ * masked.
++ * Must only be called from an active thread context.
++ */
++void thread_enable_nsec_noirq(void);
++
++/*
++ * Exit NOIRQ mode for the current thread and unmask foreign interrupts.
++ * Must only be called from an active thread context.
++ */
++void thread_disable_nsec_noirq(void);
++
+ /*
+  * thread_get_exceptions() - return current exception mask
+  */
+diff --git a/core/kernel/thread.c b/core/kernel/thread.c
+index 2dbcbf3af..ec9b584ce 100644
+--- a/core/kernel/thread.c
++++ b/core/kernel/thread.c
+@@ -493,6 +493,22 @@ short int __noprof thread_get_id_may_fail(void)
+ 	return ct;
+ }
+ 
++bool __noprof thread_is_for_nsec_noirq(void)
++{
++	/*
++	 * thread_get_core_local() requires foreign interrupts to be disabled
++	 */
++	uint32_t exceptions = thread_mask_exceptions(THREAD_EXCP_FOREIGN_INTR);
++	struct thread_core_local *l = thread_get_core_local();
++	short int ct = l->curr_thread;
++	bool rc = false;
++
++	rc = threads[ct].flags & THREAD_FLAGS_NSEC_NOIRQ;
++
++	thread_unmask_exceptions(exceptions);
++	return rc;
++}
++
+ short int __noprof thread_get_id(void)
+ {
+ 	short int ct = thread_get_id_may_fail();
+@@ -700,6 +716,36 @@ struct thread_ctx_regs * __nostackcheck thread_get_ctx_regs(void)
+ 	return &threads[l->curr_thread].regs;
+ }
+ 
++void thread_enable_nsec_noirq(void)
++{
++	struct thread_core_local *l = NULL;
++
++	thread_set_exceptions(thread_get_exceptions() |
++			      THREAD_EXCP_FOREIGN_INTR);
++
++	l = thread_get_core_local();
++	assert(l->curr_thread != THREAD_ID_INVALID);
++	threads[l->curr_thread].flags |= THREAD_FLAGS_NSEC_NOIRQ;
++}
++
++void thread_disable_nsec_noirq(void)
++{
++	struct thread_core_local *l = NULL;
++
++	if (!thread_is_for_nsec_noirq())
++		return;
++
++	assert(thread_get_exceptions() & THREAD_EXCP_FOREIGN_INTR);
++
++	l = thread_get_core_local();
++
++	assert(l->curr_thread != THREAD_ID_INVALID);
++
++	threads[l->curr_thread].flags &= ~THREAD_FLAGS_NSEC_NOIRQ;
++	thread_set_exceptions(thread_get_exceptions() &
++			      ~THREAD_EXCP_FOREIGN_INTR);
++}
++
+ void thread_set_foreign_intr(bool enable)
+ {
+ 	/* thread_get_core_local() requires foreign interrupts to be disabled */
+diff --git a/core/tee/entry_std.c b/core/tee/entry_std.c
+index 607ebd4b5..cdc05b421 100644
+--- a/core/tee/entry_std.c
++++ b/core/tee/entry_std.c
+@@ -534,8 +534,12 @@ TEE_Result __tee_entry_std(struct optee_msg_arg *arg, uint32_t num_params)
+ {
+ 	TEE_Result res = TEE_SUCCESS;
+ 
+-	/* Enable foreign interrupts for STD calls */
+-	thread_set_foreign_intr(true);
++	/*
++	 * Enable foreign interrupts for STD calls if not under
++	 * specific NSEC NOIRQ context.
++	 */
++	if (!thread_is_for_nsec_noirq())
++		thread_set_foreign_intr(true);
+ 	switch (arg->cmd) {
+ 	case OPTEE_MSG_CMD_OPEN_SESSION:
+ 		entry_open_session(arg, num_params);
+-- 
+2.53.0
+

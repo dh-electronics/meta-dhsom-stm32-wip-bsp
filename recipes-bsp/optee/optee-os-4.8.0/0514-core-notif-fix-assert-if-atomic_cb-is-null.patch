@@ -1,0 +1,34 @@
+From a1ed6102076425c1679f5a164f53757a5f5a6533 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Mon, 25 May 2026 17:35:58 +0200
+Subject: [PATCH 514/913] core: notif: fix assert if atomic_cb is null
+
+Atomic callback is not mandatory. And then ndrv->atomic_cb will be null
+and is_unpaged will always return false.
+
+Do "is_unpaged" check only is ndrv->atomic_cb is not null.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a57132d81414f2caf574f39d0a107c243ea4c8d3 core: notif: fix assert if atomic_cb is null]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: Ib5f07561ef14411b58862a76a221dbf38a0a0d65
+---
+ core/kernel/notif.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/core/kernel/notif.c b/core/kernel/notif.c
+index fa879e11d..5a3f15a89 100644
+--- a/core/kernel/notif.c
++++ b/core/kernel/notif.c
+@@ -60,7 +60,8 @@ void notif_register_driver(struct notif_driver *ndrv)
+ {
+ 	uint32_t old_itr_status = 0;
+ 
+-	assert(is_nexus(ndrv) && is_unpaged(ndrv->atomic_cb));
++	assert(is_nexus(ndrv));
++	assert(ndrv->atomic_cb ? is_unpaged(ndrv->atomic_cb) : true);
+ 
+ 	old_itr_status = cpu_spin_lock_xsave(&notif_lock);
+ 
+-- 
+2.53.0
+

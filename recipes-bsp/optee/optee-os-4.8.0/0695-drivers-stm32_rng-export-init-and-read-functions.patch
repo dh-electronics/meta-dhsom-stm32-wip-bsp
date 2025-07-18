@@ -1,0 +1,96 @@
+From dbb4bf25990507d93d783eb2c75d01cab60a3c2b Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 12 Mar 2024 17:15:47 +0100
+Subject: [PATCH 695/913] drivers: stm32_rng: export init and read functions()
+
+Export stm32_rng_read() and init_rng() (renamed stm32_rng_init())
+functions for stm32mp15 power management to operate when STM32 RNG
+resource is assigned to non-secure world and core cannot rely on
+software RNG implementation which requires many changes in rng_fortuna.c
+for unpaged and mutex constraints when executing in a non thread context
+as the PM suspend/resume sequences are.
+
+As a consequence, stm32_rng_init() function now includes the RNG reset
+cycle and clock gating instructions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9bf06e4bdfa0358b205ef4c5774b6afe6f5fdf24 drivers: stm32_rng: export init and read functions()]
+Change-Id: Ie342ee59c182f7af56f34e66a1f483ffd0cd8322
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/362894
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_rng.c         |  7 ++++---
+ core/include/drivers/stm32_rng.h | 19 +++++++++++++++++++
+ 2 files changed, 23 insertions(+), 3 deletions(-)
+ create mode 100644 core/include/drivers/stm32_rng.h
+
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index 12904f620..86ea6ea3a 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -7,6 +7,7 @@
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+ #include <drivers/rstctrl.h>
++#include <drivers/stm32_rng.h>
+ #include <io.h>
+ #include <keep.h>
+ #include <kernel/delay.h>
+@@ -307,7 +308,7 @@ static void disable_rng_clock(void)
+ 		clk_disable(stm32_rng->bus_clock);
+ }
+ 
+-static TEE_Result stm32_rng_init(void)
++TEE_Result stm32_rng_init(void)
+ {
+ 	uint32_t entropy_mask = stm32_rng_get_entropy_mask();
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+@@ -395,7 +396,7 @@ static TEE_Result stm32_rng_init(void)
+ 				   RNG_READY_TIMEOUT_US))
+ 		return TEE_ERROR_BAD_STATE;
+ 
+-	res =  TEE_SUCCESS;
++	res = TEE_SUCCESS;
+ 
+ out:
+ 	disable_rng_clock();
+@@ -403,7 +404,7 @@ out:
+ 	return res;
+ }
+ 
+-static TEE_Result stm32_rng_read(uint8_t *out, size_t size)
++TEE_Result stm32_rng_read(uint8_t *out, size_t size)
+ {
+ 	TEE_Result rc = TEE_ERROR_GENERIC;
+ 	bool burst_timeout = false;
+diff --git a/core/include/drivers/stm32_rng.h b/core/include/drivers/stm32_rng.h
+new file mode 100644
+index 000000000..56549010e
+--- /dev/null
++++ b/core/include/drivers/stm32_rng.h
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2024, STMicroelectronics
++ */
++
++#ifndef __DRIVERS_STM32_RNG_H
++#define __DRIVERS_STM32_RNG_H
++
++#include <stdint.h>
++#include <stddef.h>
++#include <tee_api_types.h>
++
++/* Initialize STM32 RNG peripheral */
++TEE_Result stm32_rng_init(void);
++
++/* Read @size random byte to @out from STM32 RNG peripheral */
++TEE_Result stm32_rng_read(uint8_t *out, size_t size);
++
++#endif /* __DRIVERS_STM32_RNG_H */
+-- 
+2.53.0
+

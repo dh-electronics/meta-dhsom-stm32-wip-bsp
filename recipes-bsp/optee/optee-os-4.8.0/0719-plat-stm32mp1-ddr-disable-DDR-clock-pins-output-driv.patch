@@ -1,0 +1,71 @@
+From 9fd84e5c12e0c63ac47a62c29233aa48ab09d40b Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Wed, 22 Apr 2026 18:02:38 +0200
+Subject: [PATCH 719/913] plat-stm32mp1: ddr: disable DDR clock pins output
+ driver in self-refresh
+
+This reduces DDR sub-system consumption during self-refresh.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9b1df4ec7cfda77dd76cec62e52c492ffdc1f2df plat-stm32mp1: ddr: disable DDR clock pins output driver in self-refresh]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I99a2471925c3266b0a8cd4ac8edebeeaab5ceb3e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/560751
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ .../arch/arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c
+index b9a08cf87..f11c3bafe 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_ddrc.c
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: BSD-3-Clause
+ /*
+- * Copyright (c) 2017-2021, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2017-2026, STMicroelectronics - All Rights Reserved
+  */
+ 
+ #include <arm32.h>
+@@ -192,6 +192,7 @@
+ #define DDRPHYC_DSGCR_ODTPDD_MASK		GENMASK_32(23, 20)
+ #define DDRPHYC_DSGCR_ODTPDD_0			BIT(20)
+ #define DDRPHYC_DSGCR_NL2PD			BIT(24)
++#define DDRPHYC_DSGCR_CKOE			BIT(28)
+ 
+ #define DDRPHYC_ZQ0CRN_ZDATA_MASK		GENMASK_32(27, 0)
+ #define DDRPHYC_ZQ0CRN_ZDATA_SHIFT		0
+@@ -345,6 +346,12 @@ static int ddr_sw_self_refresh_in(void)
+ 	/* Disable PZQ cell (PUBL register) */
+ 	io_setbits32(ddrphy_base + DDRPHYC_ZQ0CR0, DDRPHYC_ZQ0CRN_ZQPD);
+ 
++	/* Set latch */
++	io_clrbits32(ddrphy_base + DDRPHYC_DSGCR, DDRPHYC_DSGCR_CKOE);
++
++	/* Additional delay to avoid early latch */
++	udelay(10);
++
+ 	/* Activate sw retention in PWRCTRL */
+ 	io_setbits32(pwr_base + PWR_CR3_OFF, PWR_CR3_DDRRETEN);
+ 
+@@ -449,6 +456,11 @@ static int ddr_sw_self_refresh_exit(void)
+ 	io_clrbits32(ddrphy_base + DDRPHYC_ACIOCR, DDRPHYC_ACIOCR_CSPDD_MASK);
+ 	io_clrbits32(ddrphy_base + DDRPHYC_DXCCR, DDRPHYC_DXCCR_DXPDD);
+ 	io_clrbits32(ddrphy_base + DDRPHYC_DXCCR, DDRPHYC_DXCCR_DXPDR);
++
++	/* Release latch */
++	io_setbits32(ddrphy_base + DDRPHYC_DSGCR, DDRPHYC_DSGCR_CKOE);
++
++	/* Finalize pad drivers enabling */
+ 	io_clrbits32(ddrphy_base + DDRPHYC_DSGCR, DDRPHYC_DSGCR_ODTPDD_MASK);
+ 	io_clrbits32(ddrphy_base + DDRPHYC_DSGCR, DDRPHYC_DSGCR_NL2PD);
+ 	io_clrbits32(ddrphy_base + DDRPHYC_DSGCR, DDRPHYC_DSGCR_CKEPDD_MASK);
+-- 
+2.53.0
+

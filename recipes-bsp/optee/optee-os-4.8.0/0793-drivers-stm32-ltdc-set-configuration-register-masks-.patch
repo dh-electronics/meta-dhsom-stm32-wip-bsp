@@ -1,0 +1,64 @@
+From d6b90c7190b64f954560c98f79baae93bc615ad5 Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Mon, 17 Mar 2025 13:43:53 +0100
+Subject: [PATCH 793/913] drivers: stm32: ltdc: set configuration register
+ masks to 12 bits
+
+The display configuration registers controlling height settings are
+12-bits based (not 11 bits).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c789862b7d285329fb145613ddbde074f0a70dc7 drivers: stm32: ltdc: set configuration register masks to 12 bits]
+Change-Id: I32a3e716329b6f75bec2828bf8233b15889ea903
+Signed-off-by: Yannick Fertre <yannick.fertre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/444567
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_ltdc.c | 16 +++++++++++-----
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/core/drivers/stm32_ltdc.c b/core/drivers/stm32_ltdc.c
+index 8d18b3fd3..4c75cda58 100644
+--- a/core/drivers/stm32_ltdc.c
++++ b/core/drivers/stm32_ltdc.c
+@@ -80,7 +80,11 @@ struct ltdc_device {
+ #define ID_HWVER_40101		0x040101
+ #define GCR_LTDCEN		BIT(0)
+ #define LTDC_BPCR_AHBP		GENMASK_32(27, 16)
+-#define LTDC_BPCR_AVBP		GENMASK_32(10, 0)
++#define LTDC_BPCR_AVBP		GENMASK_32(11, 0)
++#define LTDC_AWCR_AAW		GENMASK_32(27, 16)
++#define LTDC_AWCR_AAH		GENMASK_32(11, 0)
++#define LTDC_TWCR_TOTALW	GENMASK_32(27, 16)
++#define LTDC_TWCR_TOTALH	GENMASK_32(11, 0)
+ #define LTDC_LCR_LNBR		GENMASK_32(7, 0)
+ #define LTDC_LXWHPCR_WHSTPOS	GENMASK_32(11, 0)
+ #define LTDC_LXWHPCR_WHSPPOS	GENMASK_32(31, 16)
+@@ -264,8 +268,9 @@ static TEE_Result stm32_ltdc_activate(void *device,
+ 	awcr = io_read32(ldev->regs + LTDC_AWCR);
+ 	bpcr = io_read32(ldev->regs + LTDC_BPCR);
+ 
+-	height_crtc = (awcr & 0xffff) - (bpcr & 0xffff);
+-	width_crtc = (awcr >> 16) - (bpcr >> 16);
++	height_crtc = (awcr & LTDC_AWCR_AAH) - (bpcr & LTDC_BPCR_AVBP);
++	width_crtc = ((awcr & LTDC_AWCR_AAW) >> 16) -
++		     ((bpcr & LTDC_BPCR_AHBP) >> 16);
+ 
+ 	if (fb->height > height_crtc || fb->width > width_crtc || !fb->base) {
+ 		ret = TEE_ERROR_GENERIC;
+@@ -367,8 +372,9 @@ static TEE_Result stm32_ltdc_get_display_size(void *device,
+ 	awcr = io_read32(ldev->regs + LTDC_AWCR);
+ 	bpcr = io_read32(ldev->regs + LTDC_BPCR);
+ 
+-	*height = (awcr & 0xffff) - (bpcr & 0xffff);
+-	*width = (awcr >> 16) - (bpcr >> 16);
++	*height = (awcr & LTDC_AWCR_AAH) - (bpcr & LTDC_BPCR_AVBP);
++	*width = ((awcr & LTDC_AWCR_AAW) >> 16) -
++		 ((bpcr & LTDC_BPCR_AHBP) >> 16);
+ out:
+ 	clk_disable(ldev->clock);
+ 
+-- 
+2.53.0
+

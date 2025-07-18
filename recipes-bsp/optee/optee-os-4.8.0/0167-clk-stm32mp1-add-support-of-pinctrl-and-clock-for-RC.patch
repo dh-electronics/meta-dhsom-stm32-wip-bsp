@@ -1,0 +1,105 @@
+From f18a4814cf90babd20ebbedbb54e4bb206767d9f Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 20 Mar 2026 12:38:17 +0100
+Subject: [PATCH 167/913] clk: stm32mp1: add support of pinctrl and clock for
+ RCC node
+
+Add a generic stm32mp clock driver to support the OP-TEE initialization of
+pinctrl and clock defined in the RCC sub-node with compatible "st,rcc".
+
+This driver is used to configure in the board device tree the required
+RCC resources as:
+- pincontrol to manage Micro-controller clock output (MCO) pins,
+  for example to provide this MCO clock on external device
+- critical clocks, not managed by other drivers in OP-TEE
+
+This sub-node is optional and avoids to manage the OP-TEE specific
+compatibles "st,stm32mp13-rcc-mco" and "st,stm32mp15-rcc-mco",
+with a more acceptable binding.
+
+The configuration for this sub node is only done when the early DT drivers
+are available, the clock provider (SoC RCC driver) and the pin-controller.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2d36b1ccfcd7a8eb7d7c4f2c3af0fac556a3f693 clk: stm32mp1: add support of pinctrl and clock for RCC node]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: If12db71bd894fb3d4d223181256f22c3cb603856
+---
+ core/drivers/clk/clk-stm32mp13.c | 10 ++++++++++
+ core/drivers/clk/clk-stm32mp15.c | 10 ++++++++++
+ core/drivers/clk/sub.mk          |  4 ++--
+ 3 files changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 2e9692332..d24c2abcb 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -3482,6 +3482,7 @@ static TEE_Result stm32mp13_clk_probe(const void *fdt, int node,
+ 	int rc = 0;
+ 	struct clk_stm32_priv *priv = &stm32mp13_clock_data;
+ 	struct stm32_clk_platdata *pdata = &stm32mp13_clock_pdata;
++	int subnode = 0;
+ 
+ 	fdt_rc = stm32_clk_parse_fdt(fdt, node, pdata);
+ 	if (fdt_rc) {
+@@ -3489,6 +3490,15 @@ static TEE_Result stm32mp13_clk_probe(const void *fdt, int node,
+ 		return TEE_ERROR_GENERIC;
+ 	}
+ 
++	fdt_for_each_subnode(subnode, fdt, node) {
++		res = dt_driver_maybe_add_probe_node(fdt, subnode);
++		if (res) {
++			EMSG("Failed on node %s with %#"PRIx32,
++			     fdt_get_name(fdt, subnode, NULL), res);
++			return res;
++		}
++	}
++
+ 	res = clk_stm32_init(priv, stm32_rcc_base());
+ 	if (res)
+ 		return res;
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index 800b59124..cb39ca3c5 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -3421,6 +3421,7 @@ static TEE_Result stm32mp1_clock_provider_probe(const void *fdt, int offs,
+ 	struct clk_stm32_priv *priv = &stm32mp15_clock_data;
+ 	struct stm32_clk_platdata *pdata = &stm32mp15_clock_pdata;
+ 	int rc = 0;
++	int subnode = 0;
+ 
+ 	if (compat_data == &non_secure_rcc)
+ 		disable_rcc_tzen();
+@@ -3439,6 +3440,15 @@ static TEE_Result stm32mp1_clock_provider_probe(const void *fdt, int offs,
+ 		return TEE_ERROR_GENERIC;
+ 	}
+ 
++	fdt_for_each_subnode(subnode, fdt, offs) {
++		res = dt_driver_maybe_add_probe_node(fdt, subnode);
++		if (res) {
++			EMSG("Failed on node %s with %#"PRIx32,
++			     fdt_get_name(fdt, subnode, NULL), res);
++			return res;
++		}
++	}
++
+ 	res = clk_stm32_init(priv, stm32_rcc_base());
+ 	if (res)
+ 		return res;
+diff --git a/core/drivers/clk/sub.mk b/core/drivers/clk/sub.mk
+index 16ccd26e6..a2855ab2b 100644
+--- a/core/drivers/clk/sub.mk
++++ b/core/drivers/clk/sub.mk
+@@ -2,8 +2,8 @@ srcs-y += clk.c
+ srcs-$(CFG_DRIVERS_CLK_DT) += clk_dt.c
+ srcs-$(CFG_DRIVERS_CLK_FIXED) += fixed_clk.c
+ srcs-$(CFG_STM32MP_CLK_CORE) += clk-stm32-core.c
+-srcs-$(CFG_STM32MP13_CLK) += clk-stm32mp13.c
+-srcs-$(CFG_STM32MP15_CLK) += clk-stm32mp15.c
++srcs-$(CFG_STM32MP13_CLK) += clk-stm32mp13.c clk-stm32-rcc.c
++srcs-$(CFG_STM32MP15_CLK) += clk-stm32mp15.c clk-stm32-rcc.c
+ srcs-$(CFG_STM32MP21_CLK) += clk-stm32mp21.c
+ srcs-$(CFG_STM32MP25_CLK) += clk-stm32mp25.c
+ 
+-- 
+2.53.0
+

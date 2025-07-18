@@ -1,0 +1,114 @@
+From 0cf0bce6cc95ce552b0658290be7cd4b4cbeed8e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 15:28:41 +0200
+Subject: [PATCH 868/913] clk: stm32: fix unchecked array index bound checks
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+clk_to_clock_id() derived gate_index/on_index from a clk pointer.
+Bounding gate_index only against ARRAY_SIZE(stm32mp1_clk) (the size of
+the combined array) is not sufficient: a gate_index within
+[ARRAY_SIZE(stm32mp1_clk_gate), ARRAY_SIZE(stm32mp1_clk)) passes that
+check but still overruns stm32mp1_clk_gate[] (53 entries) when
+clk_is_gate() is true, and on_index could similarly overrun
+stm32mp1_clk_on[] (18 entries). Add a bound check against
+ARRAY_SIZE(stm32mp1_clk_gate) before the gate array access, and
+against ARRAY_SIZE(stm32mp1_clk_on) before the on-index array access.
+
+clk_to_gate_ref() relied on 'assert(clk_is_gate(clk));' to guarantee
+gate_index stays within stm32mp1_clk_gate[]; assert() is a no-op when
+NDEBUG is defined, meaning clk_is_gate(clk) is not even called in
+release builds, so gate_index could index stm32mp1_clk_gate[] out of
+bounds with zero validation. Replace the assert() with an explicit
+bound check against ARRAY_SIZE(stm32mp1_clk_gate), consistent with
+clk_to_clock_id().
+
+clk_compute_pll1_settings() indexed pll1_settings.freq[]/cfg[] with
+its idx parameter without validating it against MAX_OPP. Add an
+explicit bound check.
+
+Coverity issue: CID 1201972: CERT-C Characters and Strings
+Coverity issue: CID 1201973: CERT-C Characters and Strings
+Coverity issue: CID 1202036: CERT-C Characters and Strings
+Coverity issue: CID 1208218: Out-of-bounds read
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2decb0c446f0076dcdb481dfd711006629641ffb clk: stm32: fix unchecked array index bound checks]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I56ef2e6c39414a1a2ff6d2c81990d0c14c540bae
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/592844
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/clk/stm32/clk-stm32mp15.c | 23 +++++++++++++++++++----
+ 1 file changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/clk/stm32/clk-stm32mp15.c b/core/drivers/clk/stm32/clk-stm32mp15.c
+index 431ccfa1e..e18488aef 100644
+--- a/core/drivers/clk/stm32/clk-stm32mp15.c
++++ b/core/drivers/clk/stm32/clk-stm32mp15.c
+@@ -1366,7 +1366,7 @@ static int get_all_opp_freqvolt_from_dt(const void *fdt, int node,
+ 	return 0;
+ }
+ 
+-static int clk_compute_pll1_settings(unsigned long input_freq, int idx)
++static int clk_compute_pll1_settings(unsigned long input_freq, unsigned int idx)
+ {
+ 	unsigned long post_divm = 0;
+ 	unsigned long long output_freq = 0;
+@@ -1380,6 +1380,9 @@ static int clk_compute_pll1_settings(unsigned long input_freq, int idx)
+ 	unsigned int diff = 0;
+ 	unsigned int best_diff = UINT_MAX;
+ 
++	if (idx >= MAX_OPP)
++		return -1;
++
+ 	output_freq = (unsigned long long)pll1_settings.freq[idx] * 1000U;
+ 
+ 	/* Following parameters have always the same value */
+@@ -1453,7 +1456,7 @@ static int clk_compute_pll1_settings(unsigned long input_freq, int idx)
+ 	return 0;
+ }
+ 
+-static int clk_get_pll1_settings(uint32_t clksrc, int index)
++static int clk_get_pll1_settings(uint32_t clksrc, unsigned int index)
+ {
+ 	unsigned long input_freq = 0;
+ 	unsigned int i = 0;
+@@ -1630,8 +1633,19 @@ static unsigned long clk_to_clock_id(struct clk *clk)
+ 	int gate_index = clk - stm32mp1_clk;
+ 	int on_index = gate_index - CLK_ON_INDEX_OFFSET;
+ 
+-	if (clk_is_gate(clk))
++	if (gate_index < 0 || gate_index >= (int)ARRAY_SIZE(stm32mp1_clk))
++		panic();
++
++	/* Negative on_index means clk is a gate */
++	if (on_index < 0) {
++		if (gate_index >= (int)ARRAY_SIZE(stm32mp1_clk_gate))
++			panic("clk_to_clock_id: gate_index overlow");
++
+ 		return stm32mp1_clk_gate[gate_index].clock_id;
++	}
++
++	if (on_index >= (int)ARRAY_SIZE(stm32mp1_clk_on))
++		panic("clk_to_clock_id: on_index overlow");
+ 
+ 	return stm32mp1_clk_on[on_index];
+ }
+@@ -1640,7 +1654,8 @@ static const struct stm32mp1_clk_gate *clk_to_gate_ref(struct clk *clk)
+ {
+ 	int gate_index = clk - stm32mp1_clk;
+ 
+-	assert(clk_is_gate(clk));
++	if (gate_index < 0 || gate_index >= (int)ARRAY_SIZE(stm32mp1_clk_gate))
++		panic("clk_to_gate_ref: gate_index overlow");
+ 
+ 	return stm32mp1_clk_gate + gate_index;
+ }
+-- 
+2.53.0
+

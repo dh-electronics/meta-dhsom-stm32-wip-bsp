@@ -1,0 +1,49 @@
+From 249ef1f412ca1e09a15dd42b32cad3a87d21f6fc Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Fri, 17 Sep 2021 09:15:25 +0200
+Subject: [PATCH 100/913] plat-stm32mp1: enable stm32mp_nvmem early TA
+
+Enable by default the NVMEM TA for provisioning
+management. It offers the possibility to program OTP
+using the STM32 programmer.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 38a9a839934375bd147343fc86b4155ebdd7a356 plat-stm32mp1: enable stm32mp_nvmem early TA]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Ic05b9fae87686eb86da00272e544e9823e3ad97f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/220133
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/316264
+---
+ core/arch/arm/plat-stm32mp1/conf.mk | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index d06ab0d99..0964a2d82 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -363,7 +363,7 @@ endif
+ # Enable BSEC PTA for fuses access management
+ CFG_STM32_BSEC_PTA ?= y
+ ifeq ($(CFG_STM32_BSEC_PTA),y)
+-$(call force,CFG_STM32_BSEC,y,Mandated by CFG_BSEC_PTA)
++$(call force,CFG_STM32_BSEC,y,Required by CFG_STM32_BSEC_PTA)
+ endif
+ 
+ # Default disable CPU OPP support
+@@ -395,6 +395,13 @@ CFG_SCMI_MSG_SMT_THREAD_ENTRY ?= y
+ $(call force,CFG_SCMI_MSG_VOLTAGE_DOMAIN,y)
+ endif
+ 
++# Enable Early TA NVMEM for provisioning management
++CFG_TA_STM32MP_NVMEM ?= y
++ifeq ($(CFG_TA_STM32MP_NVMEM),y)
++$(call force,CFG_STM32_BSEC_PTA,y,Required by CFG_TA_STM32MP_NVMEM)
++CFG_IN_TREE_EARLY_TAS += stm32mp_nvmem/1a8342cc-81a5-4512-99fe-9e2b3e37d626
++endif
++
+ ifneq ($(CFG_WITH_SOFTWARE_PRNG),y)
+ CFG_HWRNG_PTA ?= y
+ endif
+-- 
+2.53.0
+

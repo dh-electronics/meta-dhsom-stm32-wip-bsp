@@ -1,0 +1,161 @@
+From cb8680695fec769c0c3786509252d86c26bc8b21 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 23 Apr 2024 17:53:52 +0200
+Subject: [PATCH 049/913] plat-stm32mp1: add OP-TEE resource manager
+ configuration profile
+
+Add CFG_STM32MP_PROFILE. Can be set either to secure_and_system_services
+or to system_services. In the later case, secure services are disabled
+in OP-TEE OS configuration.
+
+On STM32MP15, CFG_STM32MP1_OPTEE_IN_SYSRAM=n is equivalent to
+CFG_STM32MP_PROFILE=system_services and is the default STM32MP15
+configuration. Still on STM32MP15, CFG_STM32MP1_OPTEE_IN_SYSRAM=y
+is equivalent to CFG_STM32MP_PROFILE=secure_and_system_services.
+
+With system_services profile may provide RNG, RTC and watchdog service.
+The platform Device Tree defines which drivers are probed and how the
+access controllers (RIF etc...) are configured.
+
+CFG_STM32_ADC is default disabled in system_resource service.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1a7afe5e183c150fd0bf71384a9008cbe2683f64 plat-stm32mp1: add OP-TEE resource manager configuration profile]
+Change-Id: I86f5f3845ea122e4d68a37a638ac0bcf9f6ecd26
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/376015
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../conf.disable-secure-services.mk           | 45 +++++++++++++++++++
+ core/arch/arm/plat-stm32mp1/conf.mk           | 40 ++++++++++++++---
+ 2 files changed, 79 insertions(+), 6 deletions(-)
+ create mode 100644 core/arch/arm/plat-stm32mp1/conf.disable-secure-services.mk
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.disable-secure-services.mk b/core/arch/arm/plat-stm32mp1/conf.disable-secure-services.mk
+new file mode 100644
+index 000000000..e5bc9c487
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/conf.disable-secure-services.mk
+@@ -0,0 +1,45 @@
++# Deactivate TA support
++$(call force,CFG_ARM32_ldelf,n)
++$(call force,CFG_ARM32_ta_arm32,n)
++$(call force,CFG_EARLY_TA,n)
++$(call force,CFG_PKCS11_TA,n)
++$(call force,CFG_SECURE_DATA_PATH,n)
++$(call force,CFG_TA_GPROF_SUPPORT,n)
++$(call force,CFG_TA_STM32MP_NVMEM,n)
++$(call force,CFG_TEE_BENCHMARK,n)
++$(call force,CFG_WITH_TUI,n)
++$(call force,CFG_WITH_USER_TA,n)
++
++# Deactivate remote processor support
++$(call force,CFG_STM32MP_REMOTEPROC,n)
++
++# Deactivate crypto support
++$(call force,CFG_CRYPTO,n)
++$(call force,CFG_STM32_CRYP,n)
++$(call force,CFG_STM32_HASH,n)
++$(call force,CFG_STM32_PKA,n)
++$(call force,CFG_STM32_SAES,n)
++$(call force,CFG_WITH_SOFTWARE_PRNG,n)
++
++# Deactivate all PTAs support except BSEC and SCMI PTAs
++$(call force,CFG_APDU_PTA,n)
++$(call force,CFG_ATTESTATION_PTA,n)
++$(call force,CFG_REMOTEPROC_PTA,n)
++$(call force,CFG_SCP03_PTA,n)
++$(call force,CFG_SECSTOR_TA_MGMT_PTA,n)
++$(call force,CFG_SYSTEM_PTA,n)
++
++# Deactivate secure storage support
++$(call force,CFG_REE_FS,n)
++$(call force,CFG_REE_FS_TA,n)
++$(call force,CFG_RPMB_FS,n)
++
++# Deactivate secure service based on BSEC OTP fuses
++$(call force,CFG_STM32MP15_HUK,n)
++
++# Default deactivate services related to security configuration
++CFG_STM32MP_PANIC_ON_TZC_PERM_VIOLATION ?= n
++CFG_STM32MP1_OPTEE_IN_SYSRAM ?= n
++
++# Default disable some service usually bound to service features
++CFG_STM32_ADC ?= n
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 99ecd58b0..d06ab0d99 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -108,7 +108,6 @@ $(call force,CFG_WITH_SOFTWARE_PRNG,y)
+ endif
+ 
+ ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-MP15-HUK-DT)),)
+-CFG_STM32MP15_HUK ?= y
+ CFG_STM32_HUK_FROM_DT ?= y
+ endif
+ 
+@@ -143,6 +142,39 @@ ifeq ($(call cfg-all-enabled,CFG_STM32MP15 CFG_STM32MP13),y)
+ $(error Only one of CFG_STM32MP15 CFG_STM32MP13 must be enabled)
+ endif
+ 
++# CFG_STM32MP_PROFILE selects the profile of the services embedded
++# in OP-TEE.
++
++ifeq ($(CFG_STM32MP13),y)
++# STM32MP13: default select secure_and_system_services.
++# Alternate system_services is supported.
++CFG_STM32MP_PROFILE ?= secure_and_system_services
++endif #CFG_STM32MP13
++
++ifeq ($(CFG_STM32MP15),y)
++# STM32MP15: default select system_services, OP-TEE executes in DDR
++# (i.e. CFG_STM32MP1_OPTEE_IN_SYSRAM=n).
++# Alternate secure_and_system_services executes in SRAM
++# (i.e. CFG_STM32MP1_OPTEE_IN_SYSRAM=y).
++ifeq ($(CFG_STM32MP1_OPTEE_IN_SYSRAM),y)
++$(call force,CFG_STM32MP_PROFILE,secure_and_system_services)
++endif
++CFG_STM32MP_PROFILE ?= system_services
++ifeq ($(CFG_STM32MP_PROFILE),secure_and_system_services)
++$(call force,CFG_STM32MP1_OPTEE_IN_SYSRAM,y,Required by secure_and_system_services profile)
++else
++$(call force,CFG_STM32MP1_OPTEE_IN_SYSRAM,n,Required by system_services profile)
++endif
++endif #CFG_STM32MP15
++
++ifeq ($(filter $(CFG_STM32MP_PROFILE),system_services secure_and_system_services),)
++$(error CFG_STM32MP_PROFILE shall be one of system_services or secure_and_system_services)
++endif
++
++ifeq ($(CFG_STM32MP_PROFILE),system_services)
++include $(platform-dir)/conf.disable-secure-services.mk
++endif
++
+ # Force this mode to keep performance on RSA key operations
+ CFG_CORE_UNSAFE_MODEXP ?= y
+ 
+@@ -182,6 +214,7 @@ CFG_STM32_CPU_OPP ?= y
+ CFG_STM32MP_OPP_COUNT ?= 3
+ # Measured latency on STM32MP13 is around 650uS so set 1mS
+ CFG_STM32MP_OPP_LATENCY_US ?= 1000
++CFG_STM32_ADC ?= y
+ CFG_WITH_PAGER ?= n
+ endif # CFG_STM32MP13
+ 
+@@ -204,11 +237,6 @@ CFG_STM32MP1_OPTEE_IN_SYSRAM ?= n
+ ifeq ($(CFG_STM32MP1_OPTEE_IN_SYSRAM),y)
+ $(call force,CFG_WITH_PAGER,y)
+ CFG_STM32MP15_HUK ?= y
+-CFG_WITH_USER_TA ?= y
+-else
+-CFG_STM32MP15_HUK ?= n
+-CFG_WITH_PAGER ?= n
+-CFG_WITH_USER_TA ?= n
+ endif
+ endif # CFG_STM32MP15
+ 
+-- 
+2.53.0
+

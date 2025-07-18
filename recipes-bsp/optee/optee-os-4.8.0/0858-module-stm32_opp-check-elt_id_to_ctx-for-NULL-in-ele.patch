@@ -1,0 +1,47 @@
+From 31dc8991e0f1bbdc4004fbf82a33903a977e23c9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 15:40:21 +0200
+Subject: [PATCH 858/913] module: stm32_opp: check elt_id_to_ctx() for NULL in
+ element_init
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+stm32_opp_element_init() dereferenced the result of elt_id_to_ctx()
+without checking for NULL, unlike every other call site in this
+file, causing a NULL pointer dereference for an invalid element_id.
+
+Return FWK_E_PARAM when ctx is NULL.
+
+Coverity issue: CID 1200596: CERT-C Expression
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git dfc9ca8fa40ce59dfbfa770137118ae783fc003a module: stm32_opp: check elt_id_to_ctx() for NULL in element_init]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ib5224bce2f84f2585315e9a5584a7e1688ee19dd
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/592833
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+---
+ .../optee/stm32mp2/module/stm32_opp/src/mod_stm32_opp.c       | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/src/mod_stm32_opp.c b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/src/mod_stm32_opp.c
+index e93953d03..3636763f0 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/src/mod_stm32_opp.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_opp/src/mod_stm32_opp.c
+@@ -241,6 +241,10 @@ static int stm32_opp_element_init(fwk_id_t element_id, unsigned int dev_count,
+     struct stm32_opp_dev_ctx *ctx = elt_id_to_ctx(element_id);
+     const struct mod_stm32_opp_config *config = data;
+ 
++    if (ctx == NULL) {
++        return FWK_E_PARAM;
++    }
++
+     ctx->opp_id = config->opp_id;
+ 
+     return FWK_SUCCESS;
+-- 
+2.53.0
+

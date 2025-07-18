@@ -1,0 +1,74 @@
+From c9d8ce768750de8ab3a43a873ce54ee29bd3efe7 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Fri, 22 May 2026 13:48:28 +0200
+Subject: [PATCH 470/913] clk: stm32mp25: add helper to query DDRPERFM access
+ from NS
+
+On STM32MP23 and STM32MP25 the NS can access to DDRPERFM peripheral
+only when RCC RIF resource 104 is accessible for NS.
+
+Add an helper to query the access right.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 30b173300a02c4c9b95dfc54285f9b751c6c658d clk: stm32mp25: add helper to query DDRPERFM access from NS]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Ia89c88d20cdcdb84ae8fccba84401f2e5b8e680c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/570739
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c         | 18 ++++++++++++++++++
+ core/include/drivers/stm32mp2_rcc_util.h | 10 ++++++++++
+ 2 files changed, 28 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index fdfe1ab72..ce6f2616c 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -874,6 +874,24 @@ static bool stm32_rcc_has_access_by_id(int id)
+ 	return true;
+ }
+ 
++static bool stm32_rcc_is_secure_by_id(int id)
++{
++	struct clk_stm32_priv *priv = clk_stm32_get_priv();
++	uintptr_t rcc_base = priv->base;
++	unsigned int index = id / 32;
++
++	return io_read32(rcc_base + RCC_SECCFGR(index)) & BIT(id % 32);
++}
++
++/*
++ * Return true if DDRPERFM debug is enabled.
++ */
++bool stm32_rcc_ddrperfm_is_enabled(void)
++{
++	return stm32_rcc_has_access_by_id(RCC_RIF_DDR_PLL2) &&
++		!stm32_rcc_is_secure_by_id(RCC_RIF_DDR_PLL2);
++}
++
+ static struct clk_oscillator_data *clk_oscillator_get_data(unsigned int osc_id)
+ {
+ 	assert(osc_id < ARRAY_SIZE(stm32mp25_osc_data));
+diff --git a/core/include/drivers/stm32mp2_rcc_util.h b/core/include/drivers/stm32mp2_rcc_util.h
+index 1b5aab352..7319480cf 100644
+--- a/core/include/drivers/stm32mp2_rcc_util.h
++++ b/core/include/drivers/stm32mp2_rcc_util.h
+@@ -19,4 +19,14 @@ struct clk *stm32mp_rcc_clock_id_to_clk(unsigned long clock_id);
+ /* Return rstctrl instance related to RCC reset controller DT binding ID */
+ struct rstctrl *stm32mp_rcc_reset_id_to_rstctrl(unsigned int binding_id);
+ 
++/* Return true if DDRPERFM debug is enabled */
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
++bool stm32_rcc_ddrperfm_is_enabled(void);
++#else
++static inline bool stm32_rcc_ddrperfm_is_enabled(void)
++{
++	return true;
++}
++#endif
++
+ #endif /*__DRIVERS_STM32MP2_RCC_UTIL_H__*/
+-- 
+2.53.0
+

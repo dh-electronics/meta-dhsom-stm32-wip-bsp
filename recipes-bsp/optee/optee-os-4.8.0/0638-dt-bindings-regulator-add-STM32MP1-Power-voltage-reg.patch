@@ -1,0 +1,131 @@
+From 6e3871db8065c2672dbd3e7e5453747c58be005a Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 5 May 2026 15:59:40 +0200
+Subject: [PATCH 638/913] dt-bindings: regulator: add STM32MP1 Power voltage
+ regulators
+
+Implement Power voltage regulators for STM32MP1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9cbb3eea09cd043aadcee2643f1481b563874751 dt-bindings: regulator: add STM32MP1 Power voltage regulators]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Ifd62649212a5cef4cbb57a86ebd0a6efdf8c6379
+---
+ .../regulator/st,stm32mp1-pwr-reg.yaml        | 63 +++++++++++++++----
+ 1 file changed, 51 insertions(+), 12 deletions(-)
+
+diff --git a/documentation/devicetree/bindings/regulator/st,stm32mp1-pwr-reg.yaml b/documentation/devicetree/bindings/regulator/st,stm32mp1-pwr-reg.yaml
+index 442dfe671..226dc851f 100644
+--- a/documentation/devicetree/bindings/regulator/st,stm32mp1-pwr-reg.yaml
++++ b/documentation/devicetree/bindings/regulator/st,stm32mp1-pwr-reg.yaml
+@@ -7,17 +7,43 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
+ title: STM32MP1 PWR voltage regulators
+ 
+ maintainers:
+-  - Pascal Paillet <p.paillet@foss.st.com>
++  - Pascal Paillet <p.paillet@st.com>
+ 
+ properties:
+   compatible:
+-    oneOf:
+-      - items:
+-          - const: st,stm32mp1,pwr-reg
++    const: st,stm32mp1-pwr-reg
+ 
+   reg:
+     maxItems: 1
+ 
++  st,tzcr:
++    description: |
++      Phandle to the RCC node to control the RCC status
++      secure or non secure with the register address and bit.
++    minItems: 1
++    $ref: "/schemas/types.yaml#/definitions/uint32-array"
++
++  system_suspend_supported_soc_modes:
++    description: |
++      List of supported low power SOC modes for system suspend,
++      from the least to the most deep state. The possible values are:
++        STM32_PM_CSLEEP_RUN : wfi
++        STM32_PM_CSTOP_ALLOW_STOP : cstop
++        STM32_PM_CSTOP_ALLOW_LP_STOP : cstop allowing lp-stop
++        STM32_PM_CSTOP_ALLOW_LPLV_STOP : cstop allowing lplv-stop
++        STM32_PM_CSTANDBY_ALLOW_LPLV_STOP2 : cstandby allowing lp-stop2 for STM32MP13
++        STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_SR : cstandby allowing standby with DDR in self-refresh
++    $ref: "/schemas/types.yaml#/definitions/uint32"
++
++  system_off_soc_mode:
++    description: |
++      Mode used for shutdown. The possible values are
++        STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_OFF: standby with DDR off
++        STM32_PM_SHUTDOWN: pmic swith off
++    minItems: 1
++    maxItems: 8
++    $ref: "/schemas/types.yaml#/definitions/uint32"
++
+   vdd-supply:
+     description: Input supply phandle(s) for vdd input
+ 
+@@ -27,39 +53,52 @@ properties:
+ patternProperties:
+   "^(reg11|reg18|usb33)$":
+     type: object
+-    $ref: regulator.yaml#
+-    unevaluatedProperties: false
++
++    $ref: "regulator.yaml#"
+ 
+ required:
+   - compatible
+   - reg
++  - system_suspend_supported_soc_modes
+ 
+ additionalProperties: false
+ 
+ examples:
+   - |
+-    pwr@50001000 {
++    //At SOC level:
++    pwr_regulators: pwr@50001000 {
+       compatible = "st,stm32mp1-pwr-reg";
+       reg = <0x50001000 0x10>;
+-      vdd-supply = <&vdd>;
+-      vdd_3v3_usbfs-supply = <&vdd_usb>;
++      st,tzcr = <&rcc 0x0 0x1>;
+ 
+-      reg11 {
++      reg11: reg11 {
+         regulator-name = "reg11";
+         regulator-min-microvolt = <1100000>;
+         regulator-max-microvolt = <1100000>;
+       };
+ 
+-      reg18 {
++      reg18: reg18 {
+         regulator-name = "reg18";
+         regulator-min-microvolt = <1800000>;
+         regulator-max-microvolt = <1800000>;
+       };
+ 
+-      usb33 {
++      usb33: usb33 {
+         regulator-name = "usb33";
+         regulator-min-microvolt = <3300000>;
+         regulator-max-microvolt = <3300000>;
+       };
+     };
++
++    //At board level:
++    &pwr_regulators {
++      system_suspend_supported_soc_modes = <
++        STM32_PM_CSLEEP_RUN
++        STM32_PM_CSTOP_ALLOW_LP_STOP
++        STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_SR
++      >;
++      system_off_soc_mode = <STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_OFF>;
++      vdd-supply = <&vdd>;
++      vdd_3v3_usbfs-supply = <&vdd_usb>;
++    };
+ ...
+-- 
+2.53.0
+

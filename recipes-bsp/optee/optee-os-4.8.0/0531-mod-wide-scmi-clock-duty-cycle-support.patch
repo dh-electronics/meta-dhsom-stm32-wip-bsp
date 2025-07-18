@@ -1,0 +1,290 @@
+From 843dfbfc35c3b2495d0337eb7841676fb9bab618 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 10 Jul 2023 19:35:44 +0200
+Subject: [PATCH 531/913] mod/wide: scmi clock duty cycle support
+
+Implements a clock protocol extension to return a clock duty cycle.
+Layers returns a balance 1:1 (50%) duty cycle information when it's not
+supported by callee layer.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6d09e8a99e3834df5503fc2d648c51e35eb37b93 mod/wide: scmi clock duty cycle support]
+Change-Id: I7135a1627ccaaef26f70fd9eefb430d03114a3ab
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ .../module/clock/include/mod_clock.h          | 30 +++++++++
+ .../SCP-firmware/module/clock/src/mod_clock.c | 15 +++++
+ .../module/scmi/include/mod_scmi_std.h        |  1 +
+ .../scmi_clock/include/internal/scmi_clock.h  | 14 +++++
+ .../module/scmi_clock/src/mod_scmi_clock.c    | 61 +++++++++++++++++++
+ .../common/module/clock/src/mod_optee_clock.c | 39 ++++++++++++
+ 6 files changed, 160 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/clock/include/mod_clock.h b/core/lib/scmi-server/SCP-firmware/module/clock/include/mod_clock.h
+index a077bc5cc..f52a7c761 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/clock/include/mod_clock.h
++++ b/core/lib/scmi-server/SCP-firmware/module/clock/include/mod_clock.h
+@@ -455,6 +455,21 @@ struct mod_clock_drv_api {
+         fwk_id_t clock_id,
+         uint64_t in_rate,
+         uint64_t *out_rate);
++
++    /*!
++     * \brief Get the clock duty cycle.
++     *
++     * \param clock_id Clock device identifier.
++     *
++     * \param[out] num Numerator of the clock duty cycle.
++     *
++     * \param[out] den Denominator of the clock duty cycle.
++     *
++     * \retval ::FWK_SUCCESS The operation succeeded.
++     * \return One of the standard framework error codes.
++     */
++    int (*get_duty_cycle)(fwk_id_t clock_id, uint32_t *num, uint32_t *den);
++
+ };
+ 
+ /*!
+@@ -574,6 +589,21 @@ struct mod_clock_api {
+      * \return One of the standard framework error codes.
+      */
+     int (*get_info)(fwk_id_t clock_id, struct mod_clock_info *info);
++
++    /*!
++     * \brief Get the clock duty cycle.
++     *
++     * \param clock_id Clock device identifier.
++     *
++     * \param[out] num Numerator of the clock duty cycle.
++     *
++     * \param[out] den Denominator of the clock duty cycle.
++     *
++     * \retval ::FWK_SUCCESS The operation succeeded.
++     * \return One of the standard framework error codes.
++     */
++    int (*get_duty_cycle)(fwk_id_t clock_id, uint32_t *num, uint32_t *den);
++
+ };
+ 
+ /*!
+diff --git a/core/lib/scmi-server/SCP-firmware/module/clock/src/mod_clock.c b/core/lib/scmi-server/SCP-firmware/module/clock/src/mod_clock.c
+index 2c743ee3d..181b48d09 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/clock/src/mod_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/module/clock/src/mod_clock.c
+@@ -459,6 +459,20 @@ static int clock_get_info(fwk_id_t clock_id, struct mod_clock_info *info)
+     return FWK_SUCCESS;
+ }
+ 
++static int clock_get_duty_cycle(fwk_id_t clock_id, uint32_t *num, uint32_t *den)
++{
++    struct clock_dev_ctx *ctx;
++
++    clock_get_ctx(clock_id, &ctx);
++
++    if (!ctx->api->get_duty_cycle) {
++        return FWK_E_SUPPORT;
++    }
++
++    return ctx->api->get_duty_cycle(ctx->config->driver_id, num, den);
++}
++
++
+ static const struct mod_clock_api clock_api = {
+     .set_rate = clock_set_rate,
+     .get_rate = clock_get_rate,
+@@ -466,6 +480,7 @@ static const struct mod_clock_api clock_api = {
+     .set_state = clock_set_state,
+     .get_state = clock_get_state,
+     .get_info = clock_get_info,
++    .get_duty_cycle = clock_get_duty_cycle,
+ };
+ 
+ /*
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi/include/mod_scmi_std.h b/core/lib/scmi-server/SCP-firmware/module/scmi/include/mod_scmi_std.h
+index 417f227f6..249067e10 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi/include/mod_scmi_std.h
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi/include/mod_scmi_std.h
+@@ -171,6 +171,7 @@ enum scmi_clock_command_id {
+     MOD_SCMI_CLOCK_NAME_GET = 0x008,
+     MOD_SCMI_CLOCK_RATE_NOTIFY = 0x009,
+     MOD_SCMI_CLOCK_RATE_CHANGE_REQUESTED_NOTIFY = 0x00A,
++    MOD_SCMI_CLOCK_DUTY_CYCLE_GET = 0x00B,
+     MOD_SCMI_CLOCK_COMMAND_COUNT,
+ };
+ 
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/include/internal/scmi_clock.h b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/include/internal/scmi_clock.h
+index 93128cf4b..8d685f85e 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/include/internal/scmi_clock.h
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/include/internal/scmi_clock.h
+@@ -303,4 +303,18 @@ struct scmi_clock_rate_notification_message_p2a {
+     uint32_t rate[2];
+ };
+ 
++/*
++ * Clock get duty cycle
++ */
++
++struct scmi_clock_duty_cycle_get_a2p {
++    uint32_t clock_id;
++};
++
++struct scmi_clock_duty_cycle_get_p2a {
++    int32_t status;
++    uint32_t numerator;
++    uint32_t denominator;
++};
++
+ #endif /* INTERNAL_SCMI_CLOCK_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c
+index 528f39532..0d995d8eb 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi_clock/src/mod_scmi_clock.c
+@@ -150,6 +150,8 @@ static int scmi_clock_rate_change_requested_notify_handler(
+     fwk_id_t service_id,
+     const uint32_t *payload);
+ #endif
++static int scmi_clock_duty_cycle_get_handler(fwk_id_t service_id,
++    const uint32_t *payload);
+ 
+ /*
+  * Internal variables.
+@@ -172,6 +174,7 @@ static handler_table_t handler_table[MOD_SCMI_CLOCK_COMMAND_COUNT] = {
+     [MOD_SCMI_CLOCK_RATE_CHANGE_REQUESTED_NOTIFY] =
+         scmi_clock_rate_change_requested_notify_handler,
+ #endif
++    [MOD_SCMI_CLOCK_DUTY_CYCLE_GET] = scmi_clock_duty_cycle_get_handler,
+ };
+ 
+ static const size_t payload_size_table[MOD_SCMI_CLOCK_COMMAND_COUNT] = {
+@@ -197,6 +200,8 @@ static const size_t payload_size_table[MOD_SCMI_CLOCK_COMMAND_COUNT] = {
+     [MOD_SCMI_CLOCK_RATE_CHANGE_REQUESTED_NOTIFY] =
+         (unsigned int)sizeof(struct scmi_clock_rate_notify_a2p),
+ #endif
++    [MOD_SCMI_CLOCK_DUTY_CYCLE_GET] =
++        (unsigned int)sizeof(struct scmi_clock_duty_cycle_get_a2p),
+ };
+ 
+ /*
+@@ -1717,6 +1722,62 @@ static int scmi_clock_rate_change_requested_notify_handler(
+ };
+ #endif
+ 
++static int scmi_clock_duty_cycle_get_handler(fwk_id_t service_id,
++    const uint32_t *payload)
++
++{
++    const struct scmi_clock_duty_cycle_get_a2p *parameters;
++    struct scmi_clock_duty_cycle_get_p2a return_values = {
++        .status = (int32_t)SCMI_SUCCESS
++    };
++    const struct mod_scmi_clock_device *clock_device;
++    unsigned int agent_id;
++    size_t response_size;
++    int status;
++
++    parameters = (const struct scmi_clock_duty_cycle_get_a2p*)payload;
++
++    status = scmi_clock_ctx.scmi_api->get_agent_id(service_id, &agent_id);
++    if (status != FWK_SUCCESS) {
++        goto exit;
++    }
++
++    status = scmi_clock_get_clock_device_entry(
++        agent_id, parameters->clock_id, &clock_device);
++    if (status != FWK_SUCCESS) {
++        return_values.status = (int32_t)SCMI_NOT_FOUND;
++        goto exit;
++    }
++
++#ifdef BUILD_HAS_MOD_RESOURCE_PERMS
++    /* Test SET_RATE permission until we have a DUTY_CYCLE permission flag */
++    status = scmi_clock_permissions_handler(
++        parameters->clock_id,
++        agent_id,
++        (unsigned int)MOD_SCMI_CLOCK_RATE_SET);
++    if (status != FWK_SUCCESS) {
++        return_values.status = (int32_t)SCMI_DENIED;
++        goto exit;
++    }
++#endif
++
++    status = scmi_clock_ctx.clock_api->get_duty_cycle(clock_device->element_id,
++                                                      &return_values.numerator,
++                                                      &return_values.denominator);
++
++    if (status == FWK_E_SUPPORT) {
++        return_values.status = (int32_t)SCMI_NOT_SUPPORTED;
++    } else if (status != FWK_SUCCESS) {
++        return_values.status = (int32_t)SCMI_GENERIC_ERROR;
++    }
++
++exit:
++    response_size = (return_values.status == SCMI_SUCCESS) ?
++        sizeof(return_values) : sizeof(return_values.status);
++    return scmi_clock_ctx.scmi_api->respond(
++        service_id, &return_values, response_size);
++}
++
+ /*
+  * SCMI module -> SCMI clock module interface
+  */
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+index 92bf5579e..7e4a26743 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+@@ -322,6 +322,44 @@ static int get_rate_from_index(
+     return FWK_SUCCESS;
+ }
+ 
++static int get_duty_cycle(fwk_id_t dev_id, uint32_t *num, uint32_t *den)
++{
++    struct optee_clock_dev_ctx *ctx = elt_id_to_ctx(dev_id);
++    struct clk_duty_cycle duty = { 0 };
++    TEE_Result res;
++
++    if (ctx == NULL) {
++        return FWK_E_PARAM;
++    }
++
++    if (!is_exposed(ctx)) {
++        /* Return a dummy value to prevent an error trace */
++        *num = 1;
++        *den = 2;
++        return FWK_SUCCESS;
++    }
++
++    res = clk_get_duty_cycle(ctx->clk, &duty);
++
++    FWK_LOG_DEBUG(
++        MOD_NAME "SCMI optee_clock (%u/\"%s\"): %" PRIx32,
++        fwk_id_get_element_idx(dev_id),
++        clk_get_name(ctx->clk),
++        res);
++
++    if (res == TEE_ERROR_NOT_SUPPORTED) {
++        /* Assume a 50% duty cycle */
++        duty = (struct clk_duty_cycle){ .num = 1, .den = 2 };
++    } else if (res != TEE_SUCCESS) {
++        return FWK_E_DEVICE;
++    }
++
++    *num = duty.num;
++    *den = duty.den;
++
++    return FWK_SUCCESS;
++}
++
+ static int stub_process_power_transition(fwk_id_t dev_id, unsigned int state)
+ {
+     return FWK_E_SUPPORT;
+@@ -342,6 +380,7 @@ static const struct mod_clock_drv_api api_optee_clock = {
+     .get_range = get_range,
+     .get_rate_from_index = get_rate_from_index,
+     .set_rate = set_rate,
++    .get_duty_cycle = get_duty_cycle,
+     /* Not supported */
+     .process_power_transition = stub_process_power_transition,
+     .process_pending_power_transition = stub_pending_power_transition,
+-- 
+2.53.0
+

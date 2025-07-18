@@ -1,0 +1,96 @@
+From abf0cc4933b55c344c5d5c901c8a84accd3cf607 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 27 Mar 2026 18:49:15 +0100
+Subject: [PATCH 693/913] plat-stm32mp1: stm32mp1_pwr: check supported mode for
+ stm32_pwr_domain_suspend
+
+Check is the system low power mode requested by a PSCI CPU SUSPEND,
+treated in __psci_cpu_suspend() and in stm32_pwr_domain_suspend(),
+is supported before to perform the associated low power sequence.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7afafd1723e3fe5faef359add3e8627140db70e3 plat-stm32mp1: stm32mp1_pwr: check supported mode for stm32_pwr_domain_suspend]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ic68928097f4a523b25760c7e60898eebb7720d37
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/551492
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/pm/context.h      |  1 +
+ core/arch/arm/plat-stm32mp1/pm/power_config.c | 12 ++++++------
+ core/arch/arm/plat-stm32mp1/pm/psci.c         |  3 +++
+ 3 files changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.h b/core/arch/arm/plat-stm32mp1/pm/context.h
+index 43a538976..7eb95f1eb 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/context.h
++++ b/core/arch/arm/plat-stm32mp1/pm/context.h
+@@ -94,6 +94,7 @@ TEE_Result stm32mp_pm_call_bl2_lp_entry(unsigned int soc_mode);
+ int stm32mp1_set_pm_domain_state(enum stm32mp1_pm_domain domain, bool status);
+ #endif
+ 
++bool stm32mp1_lp_soc_mode_is_supported(uint32_t soc_mode);
+ uint32_t stm32mp1_get_lp_soc_mode(uint32_t psci_mode);
+ int stm32mp1_set_lp_deepest_soc_mode(uint32_t psci_mode, uint32_t soc_mode);
+ 
+diff --git a/core/arch/arm/plat-stm32mp1/pm/power_config.c b/core/arch/arm/plat-stm32mp1/pm/power_config.c
+index c3b885d9d..091578e66 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/power_config.c
++++ b/core/arch/arm/plat-stm32mp1/pm/power_config.c
+@@ -286,7 +286,7 @@ static void save_supported_mode(void *fdt, int pwr_node)
+ }
+ #endif
+ 
+-static bool is_supported_mode(uint32_t soc_mode)
++bool stm32mp1_lp_soc_mode_is_supported(uint32_t soc_mode)
+ {
+ 	assert(soc_mode < ARRAY_SIZE(stm32mp1_supported_soc_modes));
+ 	return stm32mp1_supported_soc_modes[soc_mode] == 1;
+@@ -307,26 +307,26 @@ uint32_t stm32mp1_get_lp_soc_mode(uint32_t psci_mode)
+ 	/* if PD_CORE_RET is in use don't allow deeper than Standby */
+ 	if (mode == STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_SR &&
+ 	    (!get_pm_domain_state(STM32MP1_PD_CORE_RET) ||
+-	     !is_supported_mode(mode)))
++	     !stm32mp1_lp_soc_mode_is_supported(mode)))
+ 		mode = STM32_PM_CSTANDBY_ALLOW_LPLV_STOP2;
+ 
+ 	/* if PD_CORE is in use don't allow deeper than LPLV-Stop */
+ 	if (mode == STM32_PM_CSTANDBY_ALLOW_LPLV_STOP2 &&
+ 	    (!get_pm_domain_state(STM32MP1_PD_CORE) ||
+-	     !is_supported_mode(mode)))
++	     !stm32mp1_lp_soc_mode_is_supported(mode)))
+ 		mode = STM32_PM_CSTOP_ALLOW_LPLV_STOP;
+ 
+ 	if (mode == STM32_PM_CSTOP_ALLOW_LPLV_STOP &&
+ 	    (!get_pm_domain_state(STM32MP1_PD_CORE) ||
+-	     !is_supported_mode(mode)))
++	     !stm32mp1_lp_soc_mode_is_supported(mode)))
+ 		mode = STM32_PM_CSTOP_ALLOW_LP_STOP;
+ 
+ 	if (mode == STM32_PM_CSTOP_ALLOW_LP_STOP &&
+-	    !is_supported_mode(mode))
++	    !stm32mp1_lp_soc_mode_is_supported(mode))
+ 		mode = STM32_PM_CSTOP_ALLOW_STOP;
+ 
+ 	if (mode == STM32_PM_CSTOP_ALLOW_STOP &&
+-	    !is_supported_mode(mode))
++	    !stm32mp1_lp_soc_mode_is_supported(mode))
+ 		mode = STM32_PM_CSLEEP_RUN;
+ 
+ 	return mode;
+diff --git a/core/arch/arm/plat-stm32mp1/pm/psci.c b/core/arch/arm/plat-stm32mp1/pm/psci.c
+index 808ca7aeb..43a2c2d8c 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/psci.c
++++ b/core/arch/arm/plat-stm32mp1/pm/psci.c
+@@ -606,6 +606,9 @@ static int stm32_pwr_domain_suspend(unsigned int soc_mode)
+ 	uint32_t scr = 0;
+ 	int rc = 1;
+ 
++	if (!stm32mp1_lp_soc_mode_is_supported(soc_mode))
++		return PSCI_RET_INVALID_PARAMETERS;
++
+ 	exceptions = may_spin_lock(&cstop_lock);
+ 
+ 	/* If we are already handling a low power request */
+-- 
+2.53.0
+

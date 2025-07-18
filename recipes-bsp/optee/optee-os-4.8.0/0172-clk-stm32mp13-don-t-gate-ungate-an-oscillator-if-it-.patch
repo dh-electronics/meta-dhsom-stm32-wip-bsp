@@ -1,0 +1,48 @@
+From dc90c6d0ae1d2059e7e132bb387fad5e5b2d7d3d Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Mon, 23 Mar 2026 18:03:01 +0100
+Subject: [PATCH 172/913] clk: stm32mp13: don't gate/ungate an oscillator if it
+ is not wired
+
+If an oscillator is not wired we shouldn't gate it to avoid a panic.
+Example to disable lse:
++&clk_lse {
++	status = "disabled";
++};
++
+&rcc {
++	clocks = <&clk_hse>, <&clk_hsi>, <&clk_lsi>, <&clk_csi>, <&clk_i2sin>;
++	clock-names = "clk-hse", "clk-hsi", "clk-lsi", "clk-csi", "clk-i2sin";
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c461a66a0c1905b0066e00c0d06d823a1a3b57ef clk: stm32mp13: don't gate/ungate an oscillator if it is not wired]
+Change-Id: Ib343a3ee71fc3521122c28d30d3c3d811bebddb9
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp13.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index bef141c30..c2129bf8c 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -2342,9 +2342,17 @@ static void clk_stm32_oscillator_disable(struct clk *clk)
+ 		EMSG("Disable ready timeout on %s clock", clk_get_name(clk));
+ }
+ 
++static bool clk_stm32_oscillator_is_enabled(struct clk *clk)
++{
++	struct clk_stm32_gate_cfg *cfg = clk->priv;
++
++	return stm32_gate_is_enabled(cfg->gate_id);
++}
++
+ static const struct clk_ops clk_stm32_oscillator_ops = {
+ 	.enable		= clk_stm32_oscillator_enable,
+ 	.disable	= clk_stm32_oscillator_disable,
++	.is_enabled	= clk_stm32_oscillator_is_enabled,
+ };
+ 
+ /*
+-- 
+2.53.0
+

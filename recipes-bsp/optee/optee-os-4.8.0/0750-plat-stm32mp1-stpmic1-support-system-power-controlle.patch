@@ -1,0 +1,73 @@
+From 57eed5f4ee46c498f4efac3162d2bea80f6a2e49 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 9 Jun 2026 15:23:32 +0200
+Subject: [PATCH 750/913] plat-stm32mp1: stpmic1: support
+ system-power-controller
+
+This property indicates that STPMIC1 is the power supply master of the
+system. When present in the OP-TEE device tree, the PMIC driver
+performs on system shutdown request a STPMIC software switch off
+sequence.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4b428ca2ef135bd40df4f6a0ab571df5f788e4df plat-stm32mp1: stpmic1: support system-power-controller]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I87be26595460ee2d8d88e6f9b03b89b3815f435c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/577549
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+index bbf8547cd..ce80e48a5 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <assert.h>
++#include <console.h>
+ #include <drivers/i2c.h>
+ #include <drivers/regulator.h>
+ #include <drivers/stm32_i2c.h>
+@@ -65,6 +66,7 @@ struct pmic_regulator_data {
+ static struct i2c_handle_s *i2c_handle;
+ static uint32_t pmic_i2c_addr;
+ static int pmic_status = -1;
++bool stpmic1_system_power_controller;
+ 
+ struct pmic_it_handle_s {
+ 	uint8_t pmic_reg;
+@@ -268,8 +270,18 @@ static void stm32mp_pmic_apply_lp_config(unsigned int lp_state_id)
+ 				panic();
+ 		}
+ 	}
+-	stm32mp_put_pmic();
+ 
++	if (lp_state_id == STM32_PM_SWITCH_OFF &&
++	    stpmic1_system_power_controller) {
++		IMSG("PMIC STPMIC1 software power off");
++		console_flush();
++		mdelay(10);
++		if (stpmic1_switch_off())
++			panic();
++		udelay(100);
++	}
++
++	stm32mp_put_pmic();
+ }
+ 
+ /* Return a libfdt compliant status value */
+@@ -1002,6 +1014,8 @@ static TEE_Result stm32_pmic_probe(const void *fdt, int node,
+ 
+ 	stm32_i2c_dev = container_of(i2c_dev, struct stm32_i2c_dev, i2c_dev);
+ 	i2c_handle = stm32_i2c_dev->handle;
++	stpmic1_system_power_controller =
++		dt_have_prop(fdt, node, "system-power-controller");
+ 
+ 	res = initialize_pmic(fdt, node);
+ 	if (res) {
+-- 
+2.53.0
+

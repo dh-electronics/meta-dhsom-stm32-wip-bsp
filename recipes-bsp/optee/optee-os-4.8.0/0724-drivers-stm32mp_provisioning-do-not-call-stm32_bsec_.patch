@@ -1,0 +1,42 @@
+From 7b243fdd7e160df71ccdf7e50768e21829826b81 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Wed, 18 Mar 2026 14:42:29 +0100
+Subject: [PATCH 724/913] drivers: stm32mp_provisioning: do not call
+ stm32_bsec_shadow_read_otp()
+
+stm32_bsec_shadow_read_otp() takes about 37us to execute, and in the case
+that we don't print debug trace this time is lost for no reason.
+
+Move stm32_bsec_shadow_read_otp() under TRACE_LEVEL condition.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 04ff6fb6bf3e7edd335f5dfb59f44aaf08f77e5f drivers: stm32mp_provisioning: do not call stm32_bsec_shadow_read_otp()]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I451bc5eb439925f671d08fdf7f9128aa13ff4a4e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/534181
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32mp_provisioning.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/core/drivers/stm32mp_provisioning.c b/core/drivers/stm32mp_provisioning.c
+index 8586bbcdf..e25f234cb 100644
+--- a/core/drivers/stm32mp_provisioning.c
++++ b/core/drivers/stm32mp_provisioning.c
+@@ -97,9 +97,11 @@ static void provision(struct shadow_otp *shadow_otp, size_t index)
+ 		break;
+ 	}
+ 
++#if TRACE_LEVEL >= TRACE_DEBUG
+ 	if (stm32_bsec_shadow_read_otp(&otp_val, otp_id))
+ 		panic();
+ 	DMSG("Read SHADOW %#"PRIx32, otp_val);
++#endif
+ }
+ 
+ static void load_provisioning(void)
+-- 
+2.53.0
+

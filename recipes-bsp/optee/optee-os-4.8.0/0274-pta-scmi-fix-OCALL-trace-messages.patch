@@ -1,0 +1,71 @@
+From ced5e3064f8e6db9347e29e3d432c03cc54b2dd2 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 10 Jun 2025 19:54:04 +0200
+Subject: [PATCH 274/913] pta: scmi: fix OCALL trace messages
+
+Fix format of OCALL trace messages.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ca3a38ae1a9a8605f851372aacfaf6d140a7e4e5 pta: scmi: fix OCALL trace messages]
+Change-Id: I9d05fedfb936ea5fb7789756db438278bedd8ca8
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/pta/scmi.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/core/pta/scmi.c b/core/pta/scmi.c
+index 909142f95..5bc2a17f6 100644
+--- a/core/pta/scmi.c
++++ b/core/pta/scmi.c
+@@ -191,20 +191,20 @@ static enum optee_scmi_ocall_reply pta_scmi_ocall(uint32_t channel_id,
+ 		ocall2_params[1] = dyn_shm->out_size;
+ 
+ 	if (thread_rpc_ocall2_cmd(ocall2_params)) {
+-		DMSG("Error on channel %u"PRIu32, channel_id);
++		DMSG("Error on channel %"PRIu32, channel_id);
+ 		return PTA_SCMI_OCALL_ERROR;
+ 	}
+ 
+ 	switch (ocall2_params[0]) {
+ 	case PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL:
+-		FMSG("Posting SMT message on channel %u"PRIu32, channel_id);
++		FMSG("Posting SMT message on channel %"PRIu32, channel_id);
+ 		if (!IS_ENABLED(CFG_SCMI_MSG_SMT) || dyn_shm)
+ 			return PTA_SCMI_OCALL_ERROR;
+ 
+ 		scmi_smt_threaded_entry(channel_id);
+ 		break;
+ 	case PTA_SCMI_OCALL_PROCESS_MSG_CHANNEL:
+-		FMSG("Posting MSG message on channel %u"PRIu32, channel_id);
++		FMSG("Posting MSG message on channel %"PRIu32, channel_id);
+ 		if (!dyn_shm)
+ 			return PTA_SCMI_OCALL_ERROR;
+ 
+@@ -230,13 +230,13 @@ static enum optee_scmi_ocall_reply pta_scmi_ocall(uint32_t channel_id,
+ 
+ 		break;
+ 	case PTA_SCMI_OCALL_CLOSE_THREAD:
+-		FMSG("Closing channel %u"PRIu32, channel_id);
++		FMSG("Closing channel %"PRIu32, channel_id);
+ 		break;
+ 	case PTA_SCMI_OCALL_ERROR:
+-		FMSG("Error on channel %u"PRIu32, channel_id);
++		FMSG("Error on channel %"PRIu32, channel_id);
+ 		break;
+ 	default:
+-		DMSG("Invalid Ocall cmd %#x on channel %u"PRIu32,
++		DMSG("Invalid Ocall cmd %#x on channel %"PRIu32,
+ 		     ocall2_params[1], channel_id);
+ 		return PTA_SCMI_OCALL_ERROR;
+ 	}
+@@ -271,7 +271,7 @@ static TEE_Result cmd_scmi_ocall_smt_thread(uint32_t ptypes,
+ 	if (res)
+ 		return res;
+ 
+-	FMSG("Enter Ocall thread on channel %u"PRIu32, channel_id);
++	FMSG("Enter Ocall thread on channel %"PRIu32, channel_id);
+ 	while (1) {
+ 		switch (pta_scmi_ocall(channel_id, NULL)) {
+ 		case PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL:
+-- 
+2.53.0
+

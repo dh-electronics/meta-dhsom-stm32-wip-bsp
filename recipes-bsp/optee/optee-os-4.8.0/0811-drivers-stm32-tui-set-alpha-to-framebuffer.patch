@@ -1,0 +1,76 @@
+From 5f79ca70846453080e26a85423d31c7a4894cd60 Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Thu, 27 Nov 2025 09:50:54 +0100
+Subject: [PATCH 811/913] drivers: stm32: tui: set alpha to framebuffer
+
+Add the alpha parameter to control the transparency of the plane.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8fbad7e26d2e59b2f65a59b79b51dfc1899161c9 drivers: stm32: tui: set alpha to framebuffer]
+Change-Id: I500cbf187dc5cbbae2da97ff8628ebc96170cb6e
+Signed-off-by: Yannick Fertre <yannick.fertre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/513137
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/display.c | 1 +
+ core/arch/arm/plat-stm32mp2/display.c | 1 +
+ core/drivers/stm32_ltdc.c             | 5 +++--
+ core/include/drivers/frame_buffer.h   | 1 +
+ 4 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/display.c b/core/arch/arm/plat-stm32mp1/display.c
+index 9117321df..1b5e60125 100644
+--- a/core/arch/arm/plat-stm32mp1/display.c
++++ b/core/arch/arm/plat-stm32mp1/display.c
+@@ -32,6 +32,7 @@ static struct frame_buffer tui_frame_buffer = {
+ 	.width_dpi  = 160,
+ 	.height_dpi = 160,
+ 	.bpp        = FB_ARGB_32BPP,
++	.alpha      = 0xFF,
+ };
+ 
+ struct frame_buffer *display_get_frame_buffer(void)
+diff --git a/core/arch/arm/plat-stm32mp2/display.c b/core/arch/arm/plat-stm32mp2/display.c
+index 2f9486a75..2aea1ff6a 100644
+--- a/core/arch/arm/plat-stm32mp2/display.c
++++ b/core/arch/arm/plat-stm32mp2/display.c
+@@ -32,6 +32,7 @@ static struct frame_buffer tui_frame_buffer = {
+ 	.width_dpi  = 160,
+ 	.height_dpi = 160,
+ 	.bpp        = FB_ARGB_32BPP,
++	.alpha      = 0xFF,
+ };
+ 
+ struct frame_buffer *display_get_frame_buffer(void)
+diff --git a/core/drivers/stm32_ltdc.c b/core/drivers/stm32_ltdc.c
+index 6ec148565..97a1b6e8a 100644
+--- a/core/drivers/stm32_ltdc.c
++++ b/core/drivers/stm32_ltdc.c
+@@ -329,8 +329,9 @@ static TEE_Result stm32_ltdc_activate(void *device,
+ 			LTDC_LXDCCR_DCRED | LTDC_LXDCCR_DCALPHA,
+ 			0x00FFFFFF);
+ 
+-	/* Specifies the constant alpha value, hard coded. */
+-	io_clrsetbits32(ldev->regs + LTDC_LXCACR, LTDC_LXCACR_CONSTA, 0xFF);
++	/* Specifies the constant alpha value. */
++	io_clrsetbits32(ldev->regs + LTDC_LXCACR, LTDC_LXCACR_CONSTA,
++			fb->alpha);
+ 
+ 	/* Specifies the blending factors, hard coded. */
+ 	io_clrsetbits32(ldev->regs + LTDC_LXBFCR, LXBFCR_BF2 | LXBFCR_BF1,
+diff --git a/core/include/drivers/frame_buffer.h b/core/include/drivers/frame_buffer.h
+index b2a75bceb..f624fc613 100644
+--- a/core/include/drivers/frame_buffer.h
++++ b/core/include/drivers/frame_buffer.h
+@@ -22,6 +22,7 @@ struct frame_buffer {
+ 	size_t height;
+ 	size_t width_dpi;
+ 	size_t height_dpi;
++	uint8_t alpha;
+ 	enum frame_buffer_bpp bpp;
+ 	void *base;
+ };
+-- 
+2.53.0
+

@@ -1,0 +1,67 @@
+From 7de3a6740d543c4a809065ad18b6dc52bc3a4fd1 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Tue, 7 Oct 2025 15:25:25 +0200
+Subject: [PATCH 378/913] lib: libmbedtls: fix warning redundant-decls in
+ mbedtls 3.6.4
+
+Fix warning redundant-decls in mbedtls 3.6.4 introduce by moving
+the inclusion of crypto_sizes.h and crypto_struct.h in crypto to fix the
+build of MbedTLS with MSVC.
+This patch revert the fix of the issue [1].
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6fe59c1c8cda11125db974ecdadc9052ab9137d3 lib: libmbedtls: fix warning redundant-decls in mbedtls 3.6.4]
+Link: [1] https://github.com/Mbed-TLS/mbedtls/issues/7087
+Change-Id: I7da71d73253052bb82184f1072ca2a05f33ed538
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/497346
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ lib/libmbedtls/mbedtls/include/psa/crypto.h | 24 ++++++++++-----------
+ 1 file changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/lib/libmbedtls/mbedtls/include/psa/crypto.h b/lib/libmbedtls/mbedtls/include/psa/crypto.h
+index 2fe9f35ec..2bbcea3ee 100644
+--- a/lib/libmbedtls/mbedtls/include/psa/crypto.h
++++ b/lib/libmbedtls/mbedtls/include/psa/crypto.h
+@@ -59,18 +59,6 @@ extern "C" {
+  * of integral types defined in "crypto_types.h". */
+ #include "crypto_values.h"
+ 
+-/* The file "crypto_sizes.h" contains definitions for size calculation
+- * macros whose definitions are implementation-specific. */
+-#include "crypto_sizes.h"
+-
+-/* The file "crypto_struct.h" contains definitions for
+- * implementation-specific structs that are declared above. */
+-#if defined(MBEDTLS_PSA_CRYPTO_STRUCT_FILE)
+-#include MBEDTLS_PSA_CRYPTO_STRUCT_FILE
+-#else
+-#include "crypto_struct.h"
+-#endif
+-
+ /** \defgroup initialization Library initialization
+  * @{
+  */
+@@ -4970,6 +4958,18 @@ psa_status_t psa_verify_hash_abort(
+ }
+ #endif
+ 
++/* The file "crypto_sizes.h" contains definitions for size calculation
++ * macros whose definitions are implementation-specific. */
++#include "crypto_sizes.h"
++
++/* The file "crypto_struct.h" contains definitions for
++ * implementation-specific structs that are declared above. */
++#if defined(MBEDTLS_PSA_CRYPTO_STRUCT_FILE)
++#include MBEDTLS_PSA_CRYPTO_STRUCT_FILE
++#else
++#include "crypto_struct.h"
++#endif
++
+ /* The file "crypto_extra.h" contains vendor-specific definitions. This
+  * can include vendor-defined algorithms, extra functions, etc. */
+ #include "crypto_extra.h"
+-- 
+2.53.0
+

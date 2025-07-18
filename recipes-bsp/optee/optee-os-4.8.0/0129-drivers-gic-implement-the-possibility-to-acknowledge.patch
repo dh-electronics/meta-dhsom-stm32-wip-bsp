@@ -1,0 +1,161 @@
+From 2458ecc38a6432e6c1830bd2f7222821638d15b7 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 13 Jun 2025 17:12:47 +0200
+Subject: [PATCH 129/913] drivers: gic: implement the possibility to
+ acknowledge a SGI
+
+Driver already got a function to raise an SGI: gic_op_raise_sgi.
+
+gic_op_ack_sgi is able to clear a pending software interrupt coming
+from a specific CPU.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2aaf191cd54f4bda9eea4257b80b938adc464a3c drivers: gic: implement the possibility to acknowledge a SGI]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: Ic29d03f76ab52c16a36a739a111ef43f5d3ff7ee
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/501257
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/gic.c              | 31 +++++++++++++++++++++++++++++++
+ core/include/kernel/interrupt.h | 25 +++++++++++++++++++++++++
+ 2 files changed, 56 insertions(+)
+
+diff --git a/core/drivers/gic.c b/core/drivers/gic.c
+index 5650a6e49..f683890e6 100644
+--- a/core/drivers/gic.c
++++ b/core/drivers/gic.c
+@@ -53,6 +53,7 @@
+ #define GICD_IGROUPMODR(n)	(0xd00 + (n) * 4)
+ #define GICD_ICFGR(n)		(0xc00 + (n) * 4)
+ #define GICD_SGIR		(0xF00)
++#define GICD_CPENDSGIR(n)	(0xf10 + (n) * 4)
+ 
+ #ifdef CFG_ARM_GICV3
+ #define GICD_PIDR2		(0xFFE8)
+@@ -138,6 +139,8 @@
+ #define GICD_ICFGR_NUM_INTS_PER_REG	(NUM_INTS_PER_REG / \
+ 					 GICD_ICFGR_FIELD_BITS)
+ 
++#define GICD_CPENDSGIR_SHIFT(n)		((n) * 0x8)
++
+ /*
+  * Save/restore interrupts registered from the gic_op_add_it() handler
+  * during low power sequences. This is used on platforms using OP-TEE
+@@ -196,6 +199,8 @@ static void gic_op_disable(struct itr_chip *chip, size_t it);
+ static void gic_op_raise_pi(struct itr_chip *chip, size_t it);
+ static void gic_op_raise_sgi(struct itr_chip *chip, size_t it,
+ 			     uint32_t cpu_mask);
++static void gic_op_ack_sgi(struct itr_chip *chip, size_t it,
++			   uint8_t cpu_mask);
+ static void gic_op_set_affinity(struct itr_chip *chip, size_t it,
+ 			uint8_t cpu_mask);
+ 
+@@ -220,6 +225,7 @@ static const struct itr_ops gic_ops = {
+ 	.disable = gic_op_disable,
+ 	.raise_pi = gic_op_raise_pi,
+ 	.raise_sgi = gic_op_raise_sgi,
++	.ack_sgi = gic_op_ack_sgi,
+ 	.set_affinity = gic_op_set_affinity,
+ };
+ DECLARE_KEEP_PAGER(gic_ops);
+@@ -933,6 +939,15 @@ static void gic_it_raise_sgi(struct gic_data *gd __maybe_unused, size_t it,
+ #endif
+ }
+ 
++static void gic_it_ack_sgi(struct gic_data *gd, size_t it, uint8_t cpu_mask)
++{
++	uint32_t mask_id = it & GICD_SGIR_SIGINTID_MASK;
++
++	/* Clear the interrupt */
++	io_write32(gd->gicd_base + GICD_CPENDSGIR(mask_id / 4),
++		   cpu_mask << GICD_CPENDSGIR_SHIFT(mask_id % 4));
++}
++
+ static uint32_t gic_read_iar(struct gic_data *gd __maybe_unused)
+ {
+ 	assert(gd == &gic_data);
+@@ -1201,6 +1216,22 @@ static void gic_op_raise_sgi(struct itr_chip *chip, size_t it,
+ 	gic_it_raise_sgi(gd, it, cpu_mask, ns);
+ }
+ 
++static void gic_op_ack_sgi(struct itr_chip *chip, size_t it,
++			   uint8_t cpu_mask)
++{
++	struct gic_data *gd = container_of(chip, struct gic_data, chip);
++
++	assert(gd == &gic_data);
++
++	/* Should be Software Generated Interrupt */
++	assert(it < NUM_SGI);
++
++	if (it > gd->max_it)
++		panic();
++
++	gic_it_ack_sgi(gd, it, cpu_mask);
++}
++
+ static void gic_op_set_affinity(struct itr_chip *chip, size_t it,
+ 			uint8_t cpu_mask)
+ {
+diff --git a/core/include/kernel/interrupt.h b/core/include/kernel/interrupt.h
+index 57979c052..c24e0d31e 100644
+--- a/core/include/kernel/interrupt.h
++++ b/core/include/kernel/interrupt.h
+@@ -61,6 +61,7 @@ struct itr_chip {
+  * @unmask	Unmask an interrupt, may be called from an interrupt context
+  * @raise_pi	Raise per-cpu interrupt or NULL if not applicable
+  * @raise_sgi	Raise a SGI or NULL if not applicable to that controller
++ * @ack_sgi	Acknowledge a SGI or NULL if not applicable to that controller
+  * @set_affinity Set interrupt/cpu affinity or NULL if not applicable
+  * @set_wake	Enable/disable power-management wake-on of an interrupt or NULL
+  *		if not applicable
+@@ -85,6 +86,8 @@ struct itr_ops {
+ 	void (*raise_pi)(struct itr_chip *chip, size_t it);
+ 	void (*raise_sgi)(struct itr_chip *chip, size_t it,
+ 			  uint32_t cpu_mask);
++	void (*ack_sgi)(struct itr_chip *chip, size_t it,
++			uint8_t cpu_mask);
+ 	void (*set_affinity)(struct itr_chip *chip, size_t it,
+ 		uint8_t cpu_mask);
+ 	void (*set_wake)(struct itr_chip *chip, size_t it, bool on);
+@@ -270,6 +273,15 @@ static inline bool interrupt_can_raise_sgi(struct itr_chip *chip)
+ 	return chip->ops->raise_sgi;
+ }
+ 
++/*
++ * interrupt_can_ack_sgi() - Return whether controller embeds ack_sgi
++ * @chip	Interrupt controller
++ */
++static inline bool interrupt_can_ack_sgi(struct itr_chip *chip)
++{
++	return chip->ops->ack_sgi;
++}
++
+ /*
+  * interrupt_can_set_affinity() - Return whether controller embeds set_affinity
+  * @chip	Interrupt controller
+@@ -314,6 +326,19 @@ static inline void interrupt_raise_sgi(struct itr_chip *chip, size_t itr_num,
+ 	chip->ops->raise_sgi(chip, itr_num, cpu_mask);
+ }
+ 
++/*
++ * interrupt_raise_sgi() - Acknowledge a software generated interrupt
++ * @chip	Interrupt controller
++ * @itr_num	Interrupt number to raise
++ * @cpu_mask:	A bitfield of CPUs indicating the source of the interrupt.
++ */
++static inline void interrupt_ack_sgi(struct itr_chip *chip, size_t itr_num,
++				     uint8_t cpu_mask)
++{
++	assert(interrupt_can_ack_sgi(chip));
++	chip->ops->ack_sgi(chip, itr_num, cpu_mask);
++}
++
+ /*
+  * interrupt_set_affinity() - Set CPU affinity for a controller interrupt
+  * @chip	Interrupt controller
+-- 
+2.53.0
+

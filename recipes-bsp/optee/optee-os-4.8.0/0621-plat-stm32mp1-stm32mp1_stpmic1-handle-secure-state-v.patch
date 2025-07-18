@@ -1,0 +1,114 @@
+From 710c6b416281f9f9255b2d2eea1a6b5b1429f859 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Mon, 4 May 2026 15:02:38 +0200
+Subject: [PATCH 621/913] plat-stm32mp1: stm32mp1_stpmic1: handle secure state
+ via firewall
+
+Handle PMIC secure state via the firewall configuration.
+Non secure I2C can be used by the non secure world, so it is
+needed to save and restore non secure configuration each time
+it is used.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5ef97125878233cf6b3a1d55e3c9f455daa6b33c plat-stm32mp1: stm32mp1_stpmic1: handle secure state via firewall]
+Change-Id: I36ed23106f7e0dd1ddffaf2660aa743067113df4
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+---
+ .../plat-stm32mp1/drivers/stm32mp1_stpmic1.c  | 43 ++++++++++++++-----
+ 1 file changed, 33 insertions(+), 10 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+index 61a3c224b..45814854e 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+@@ -6,6 +6,7 @@
+ #include <assert.h>
+ #include <drivers/i2c.h>
+ #include <drivers/regulator.h>
++#include <drivers/stm32_firewall.h>
+ #include <drivers/stm32_i2c.h>
+ #include <drivers/stm32mp1_stpmic1.h>
+ #include <drivers/stpmic1.h>
+@@ -79,19 +80,21 @@ static SLIST_HEAD(pmic_it_handle_head, pmic_it_handle_s) pmic_it_handle_list =
+ /* CPU voltage supplier if found */
+ static char cpu_supply_name[PMIC_REGU_SUPPLY_NAME_LEN];
+ 
+-bool stm32mp_with_pmic(void)
++static bool pmic_is_secure(void)
+ {
+-	return pmic_status > 0;
++	assert(pmic_status != -1);
++
++	return pmic_status == DT_STATUS_OK_SEC;
+ }
+ 
+-static void init_pmic_state(const void *fdt, int pmic_node)
++bool stm32mp_with_pmic(void)
+ {
+-	pmic_status = fdt_get_status(fdt, pmic_node);
++	return pmic_status != -1;
+ }
+ 
+-static bool dt_pmic_is_secure(void)
++static void init_pmic_state(const void *fdt, int pmic_node)
+ {
+-	return stm32mp_with_pmic() && i2c_is_secure(i2c_handle);
++	pmic_status = fdt_get_status(fdt, pmic_node);
+ }
+ 
+ static void priv_dt_properties(const void *fdt, int regu_node,
+@@ -677,12 +680,31 @@ DECLARE_KEEP_PAGER(pmic_pm);
+ /* stm32mp_get/put_pmic allows secure atomic sequences to use non secure PMIC */
+ void stm32mp_get_pmic(void)
+ {
+-	stm32_i2c_resume(i2c_handle);
++	if (!pmic_is_secure())
++		stm32_i2c_resume(i2c_handle);
+ }
+ 
+ void stm32mp_put_pmic(void)
+ {
+-	stm32_i2c_suspend(i2c_handle);
++	if (!pmic_is_secure())
++		stm32_i2c_suspend(i2c_handle);
++}
++
++static void init_pmic_secure_state(void)
++{
++	TEE_Result res = TEE_SUCCESS;
++	const struct stm32_firewall_cfg sec_cfg[] = {
++		{ FWLL_SEC_RW | FWLL_MASTER(0) },
++		{ }, /* Null terminated */
++	};
++
++	res = stm32_firewall_check_access(i2c_handle->base.pa,
++					  0, sec_cfg);
++
++	if (!res)
++		pmic_status = DT_STATUS_OK_SEC;
++	else
++		pmic_status = DT_STATUS_OK_NSEC;
+ }
+ 
+ static TEE_Result initialize_pmic(const void *fdt, int pmic_node)
+@@ -691,6 +713,8 @@ static TEE_Result initialize_pmic(const void *fdt, int pmic_node)
+ 
+ 	init_pmic_state(fdt, pmic_node);
+ 
++	init_pmic_secure_state();
++
+ 	initialize_pmic_i2c(fdt, pmic_node);
+ 
+ 	stm32mp_get_pmic();
+@@ -701,8 +725,7 @@ static TEE_Result initialize_pmic(const void *fdt, int pmic_node)
+ 	DMSG("PMIC version = 0x%02lx", pmic_version);
+ 	stm32mp_put_pmic();
+ 
+-	if (dt_pmic_is_secure())
+-		register_pm_driver_cb(pmic_pm, NULL, "stm32mp1-pmic");
++	register_pm_driver_cb(pmic_pm, NULL, "stm32mp1-pmic");
+ 
+ 	parse_regulator_fdt_nodes(fdt, pmic_node);
+ 
+-- 
+2.53.0
+

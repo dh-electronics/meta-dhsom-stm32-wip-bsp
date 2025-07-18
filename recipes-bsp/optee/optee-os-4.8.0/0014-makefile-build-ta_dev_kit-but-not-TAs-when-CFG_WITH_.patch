@@ -1,0 +1,41 @@
+From 22e76bdeb9ae7035336721e6c728506e1a94a952 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@linaro.org>
+Date: Thu, 30 Mar 2023 17:58:11 +0200
+Subject: [PATCH 014/913] makefile: build ta_dev_kit but not TAs when
+ CFG_WITH_USER_TA is disabled
+
+Changes makefile target ta_dev_kit to build the exported TA devkit even
+when CFG_WITH_USER_TA is disabled. This prevents integration issues when
+a unique TA devkit is generated for several platform variants/flavors
+where some do support user TAs and other don't.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8d72d29f177f7abff44577e725d31fc45a3c6cd4 makefile: build ta_dev_kit but not TAs when CFG_WITH_USER_TA is disabled]
+Change-Id: I50014c4f6ccd2e570dd52a794bede5a10c845cfe
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+---
+ Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index 8908849d5..9b82834b0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -82,7 +82,6 @@ include core/core.mk
+ ta-targets ?= invalid
+ $(call force,default-user-ta-target,$(firstword $(ta-targets)))
+ 
+-ifeq ($(CFG_WITH_USER_TA),y)
+ include ldelf/ldelf.mk
+ define build-ta-target
+ ta-target := $(1)
+@@ -90,6 +89,7 @@ include ta/ta.mk
+ endef
+ $(foreach t, $(ta-targets), $(eval $(call build-ta-target, $(t))))
+ 
++ifeq ($(CFG_WITH_USER_TA),y)
+ # Build user TAs included in this git
+ ifeq ($(CFG_BUILD_IN_TREE_TA),y)
+ define build-user-ta
+-- 
+2.53.0
+

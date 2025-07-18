@@ -1,0 +1,105 @@
+From c246ffd0fe738bdfd15079df3e26179e4383f932 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Thu, 15 Feb 2024 19:15:54 +0100
+Subject: [PATCH 576/913] ta: remoteproc: Add PTA call to get access right to
+ the memories
+
+Get access to the memories used by the remote processor to be able to
+load the firmware images.
+
+The memories are released after the load
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ac1d9126b4f44c686a403c3d252245fe9db8b3fa ta: remoteproc: Add PTA call to get access right to the memories]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I1d64f78eab9f693b614b7c901e82ccfa28b05437
+---
+ ta/remoteproc/src/remoteproc_core.c | 48 +++++++++++++++++++++++++++--
+ 1 file changed, 46 insertions(+), 2 deletions(-)
+
+diff --git a/ta/remoteproc/src/remoteproc_core.c b/ta/remoteproc/src/remoteproc_core.c
+index d015d8d14..3afcc525b 100644
+--- a/ta/remoteproc/src/remoteproc_core.c
++++ b/ta/remoteproc/src/remoteproc_core.c
+@@ -740,6 +740,36 @@ static int remoteproc_clean_resources(struct remoteproc_context *ctx)
+ 	return res;
+ }
+ 
++static TEE_Result remoteproc_get_mems(struct remoteproc_context *ctx)
++{
++	uint32_t param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++					       TEE_PARAM_TYPE_NONE,
++					       TEE_PARAM_TYPE_NONE,
++					       TEE_PARAM_TYPE_NONE);
++	TEE_Param params[TEE_NUM_PARAMS] = { };
++
++	params[0].value.a = ctx->rproc_id;
++
++	return TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
++				  PTA_REMOTEPROC_GET_MEM, param_types,
++				  params, NULL);
++}
++
++static TEE_Result remoteproc_release_mems(struct remoteproc_context *ctx)
++{
++	uint32_t param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++					       TEE_PARAM_TYPE_NONE,
++					       TEE_PARAM_TYPE_NONE,
++					       TEE_PARAM_TYPE_NONE);
++	TEE_Param params[TEE_NUM_PARAMS] = { };
++
++	params[0].value.a = ctx->rproc_id;
++
++	return TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
++				  PTA_REMOTEPROC_RELEASE_MEM, param_types,
++				  params, NULL);
++}
++
+ static TEE_Result remoteproc_load_segment(uint8_t *src, uint32_t size,
+ 					  uint32_t da, uint32_t mem_size,
+ 					  void *priv)
+@@ -915,6 +945,7 @@ static TEE_Result remoteproc_load_fw(uint32_t pt,
+ 	struct remoteproc_context *ctx = NULL;
+ 	uint32_t rproc_id = params[0].value.a;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
++	TEE_Result res2 = TEE_ERROR_GENERIC;
+ 
+ 	if (pt != exp_pt)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+@@ -938,19 +969,32 @@ static TEE_Result remoteproc_load_fw(uint32_t pt,
+ 	DMSG("Got base addr: %p size %#zx", params[1].memref.buffer,
+ 	     params[1].memref.size);
+ 
++	res = remoteproc_get_mems(ctx);
++	if (res) {
++		EMSG("Can't get access right to memories");
++		goto out;
++	}
++
+ 	res = remoteproc_verify_firmware(ctx, params[1].memref.buffer,
+ 					 params[1].memref.size);
+ 	if (res) {
+ 		EMSG("Can't Authenticate the firmware (res = %#"PRIx32")", res);
+-		goto out;
++		goto put_mems;
+ 	}
+ 
+ 	res = remoteproc_load_elf(ctx);
+ 	if (res)
+-		goto out;
++		goto put_mems;
+ 
+ 	ctx->state = REMOTEPROC_LOADED;
+ 
++put_mems:
++	res2 = remoteproc_release_mems(ctx);
++	if (res2 && ctx->state == REMOTEPROC_LOADED) {
++		remoteproc_clean_resources(ctx);
++		ctx->state = REMOTEPROC_OFF;
++		res = res2;
++	}
+ out:
+ 	/* Clear reference to firmware image from shared memory */
+ 	ctx->fw_img = NULL;
+-- 
+2.53.0
+

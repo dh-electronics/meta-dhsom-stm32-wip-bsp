@@ -1,0 +1,316 @@
+From 4ca80ed558f109552178798a1b603fe525d3d1c8 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 30 Mar 2026 16:01:34 +0200
+Subject: [PATCH 636/913] plat-stm32mp1: stpmic1: avoid alternate configuration
+ during pm sequence
+
+Reduce the number of I2C access during pm sequence:
+- init ALTERNATE register with MAIN control register during probe
+- always update the ALTERNATE register with MAIN control modification
+  (remove the need of REGU_LP_FLAG_LOAD_PWRCTRL)
+- read/write the STPMIC registers only when a regulator must be forced
+  in low power modes by using the cached values of main and alternate
+  registers
+
+For example for LP-Stop, only the DDR VTT is managed and required a I2C
+access.
+
+This patch allows to reduce the latency issue for PSCI OSI mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c22b0314d8ab3973dcae1a2ccc5af9f683345e85 plat-stm32mp1: stpmic1: avoid alternate configuration during pm sequence]
+Change-Id: If23827763fa913de909ce677bfc87a19e807d120
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/552465
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../plat-stm32mp1/drivers/stm32mp1_stpmic1.c  | 45 +++++++--
+ core/drivers/stpmic1.c                        | 94 +++++++++++++++----
+ core/include/drivers/stpmic1.h                |  8 +-
+ 3 files changed, 119 insertions(+), 28 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+index f7c8dad32..8ffe37b12 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+@@ -122,7 +122,6 @@ struct regu_lp_config {
+ 	struct stpmic1_lp_cfg cfg;
+ };
+ 
+-#define REGU_LP_FLAG_LOAD_PWRCTRL	BIT(0)
+ #define REGU_LP_FLAG_ON_IN_SUSPEND	BIT(1)
+ #define REGU_LP_FLAG_OFF_IN_SUSPEND	BIT(2)
+ #define REGU_LP_FLAG_SET_VOLTAGE	BIT(3)
+@@ -177,13 +176,11 @@ static void dt_get_regu_low_power_config(const void *fdt, const char *regu_name,
+ 	}
+ 
+ 	/*
+-	 * Always copy active configuration (Control register)
+-	 * to PWRCTRL Control register, even if regu_state_node
+-	 * does not exist.
++	 * For modification on active configuration (Control register) is also
++	 * done in ALTERNATE register, only need to manage forced values
+ 	 */
+-	regu_cfg->flags |= REGU_LP_FLAG_LOAD_PWRCTRL;
+ 
+-	/* Parse regulator stte node if any */
++	/* Parse regulator sub-node if any */
+ 	regu_state_node = fdt_subnode_offset(fdt, regu_node, lp_name);
+ 	if (regu_state_node <= 0)
+ 		return;
+@@ -237,9 +234,11 @@ static void stm32mp_pmic_apply_lp_config(unsigned int lp_state_id)
+ 	for (i = 0; i < state->cfg_count; i++) {
+ 		struct stpmic1_lp_cfg *cfg = &state->cfg[i].cfg;
+ 
+-		if ((state->cfg[i].flags & REGU_LP_FLAG_LOAD_PWRCTRL) &&
+-		    stpmic1_lp_load_unpg(cfg))
+-			panic();
++		/*
++		 * Init the values in cfg used by stpmic1_lp_write_unpg()
++		 * or stpmic1_lp_load_unpg()
++		 */
++		stpmic1_lp_get_unpg(cfg);
+ 
+ 		if ((state->cfg[i].flags & REGU_LP_FLAG_ON_IN_SUSPEND) &&
+ 		    stpmic1_lp_on_off_unpg(cfg, 1))
+@@ -256,6 +255,17 @@ static void stm32mp_pmic_apply_lp_config(unsigned int lp_state_id)
+ 		if ((state->cfg[i].flags & REGU_LP_FLAG_MODE_STANDBY) &&
+ 		    stpmic1_lp_mode_unpg(cfg, 1))
+ 			panic();
++
++		/* Write updated value in ALTERNATE control register */
++		if (pmic_is_secure()) {
++			/* Use cached values to update ALTERNATE if needed */
++			if (stpmic1_lp_write_unpg(cfg))
++				panic();
++		} else {
++			/* Read MAIN register and write in ALTERNATE */
++			if (stpmic1_lp_load_unpg(cfg))
++				panic();
++		}
+ 	}
+ 	stm32mp_put_pmic();
+ 
+@@ -730,6 +740,8 @@ static void init_pmic_secure_state(void)
+ static TEE_Result initialize_pmic(const void *fdt, int pmic_node)
+ {
+ 	unsigned long pmic_version = 0;
++	struct regu_lp_state *state;
++	size_t i = 0;
+ 
+ 	init_pmic_state(fdt, pmic_node);
+ 
+@@ -747,6 +759,21 @@ static TEE_Result initialize_pmic(const void *fdt, int pmic_node)
+ 
+ 	parse_regulator_fdt_nodes(fdt, pmic_node);
+ 
++	if (pmic_is_secure()) {
++		/*
++		 * Copy the power control from MAIN to ALTERNATE.
++		 * In ST PMIC1 driver, a modification on active configuration
++		 * (Control register) is also done in ALTERNATE register and
++		 * these registers values are cached.
++		 */
++		state = &regu_lp_state[0];
++		for (i = 0; i < state->cfg_count; i++) {
++			stpmic1_lp_get_unpg(&state->cfg[i].cfg);
++			if (stpmic1_lp_load_unpg(&state->cfg[i].cfg))
++				panic();
++		}
++	}
++
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/core/drivers/stpmic1.c b/core/drivers/stpmic1.c
+index 7d7bbbe6a..a5f22f3c2 100644
+--- a/core/drivers/stpmic1.c
++++ b/core/drivers/stpmic1.c
+@@ -658,21 +658,32 @@ int stpmic1_switch_off(void)
+ 				       SOFTWARE_SWITCH_OFF_ENABLED);
+ }
+ 
+-int stpmic1_regulator_enable(const char *name)
++static int stpmic1_regulator_set_enable(const char *name, bool enable)
+ {
+ 	const struct regul_struct *regul = get_regulator_data(name);
++	uint8_t bit_mask = BIT(regul->enable_pos);
++	uint8_t bit_enable = enable ? bit_mask : 0;
++	int status = 0;
++
++	if (regul->low_power_reg) {
++		status = stpmic1_register_update(regul->low_power_reg,
++						 bit_enable, bit_mask);
++		if (status)
++			return status;
++	}
+ 
+ 	return stpmic1_register_update(regul->control_reg,
+-				       BIT(regul->enable_pos),
+-				       BIT(regul->enable_pos));
++				       bit_enable, bit_mask);
+ }
+ 
+-int stpmic1_regulator_disable(const char *name)
++int stpmic1_regulator_enable(const char *name)
+ {
+-	const struct regul_struct *regul = get_regulator_data(name);
++	return stpmic1_regulator_set_enable(name, true);
++}
+ 
+-	return stpmic1_register_update(regul->control_reg, 0,
+-				       BIT(regul->enable_pos));
++int stpmic1_regulator_disable(const char *name)
++{
++	return stpmic1_regulator_set_enable(name, false);
+ }
+ 
+ bool stpmic1_is_regulator_enabled(const char *name)
+@@ -703,17 +714,25 @@ int stpmic1_regulator_voltage_set(const char *name, uint16_t millivolts)
+ 	size_t voltage_index = voltage_to_index(name, millivolts);
+ 	const struct regul_struct *regul = get_regulator_data(name);
+ 	uint8_t mask = 0;
++	uint8_t value = 0;
++	int status = 0;
+ 
+ 	if (voltage_index == VOLTAGE_INDEX_INVALID)
+ 		return -1;
+ 
++	value = voltage_index << LDO_BUCK_VOLTAGE_SHIFT;
+ 	mask = find_plat_mask(name);
+ 	if (!mask)
+ 		return 0;
+ 
+-	return stpmic1_register_update(regul->control_reg,
+-				       voltage_index << LDO_BUCK_VOLTAGE_SHIFT,
+-				       mask);
++	if (regul->low_power_reg) {
++		status = stpmic1_register_update(regul->low_power_reg, value,
++						 mask);
++		if (status)
++			return status;
++	}
++
++	return stpmic1_register_update(regul->control_reg, value, mask);
+ }
+ 
+ int stpmic1_regulator_mask_reset_set(const char *name)
+@@ -876,13 +895,47 @@ int stpmic1_lp_cfg(const char *name, struct stpmic1_lp_cfg *cfg)
+ int stpmic1_lp_load_unpg(struct stpmic1_lp_cfg *cfg)
+ {
+ 	uint8_t val = 0;
++	uint8_t lp_val = 0;
+ 	int status = 0;
+ 
+ 	assert(cfg->lp_reg);
+ 
+ 	status = stpmic1_register_read(cfg->ctrl_reg, &val);
++	lp_val =  (val & ~cfg->lp_mask) | cfg->lp_value;
+ 	if (!status)
+-		status = stpmic1_register_write(cfg->lp_reg, val);
++		status = stpmic1_register_write(cfg->lp_reg, lp_val);
++
++	return status;
++}
++
++void stpmic1_lp_get_unpg(struct stpmic1_lp_cfg *cfg)
++{
++	assert(cfg->lp_reg);
++
++	cfg->lp_value = 0;
++	cfg->lp_mask = 0;
++}
++
++int stpmic1_lp_write_unpg(struct stpmic1_lp_cfg *cfg)
++{
++	uint8_t ctrl_val = 0;
++	uint8_t lp_val = 0;
++	uint8_t new_lp_val = 0;
++	int status = 0;
++
++	assert(cfg->lp_reg);
++
++	status = stpmic1_cache_get(cfg->ctrl_reg, &ctrl_val);
++	if (status)
++		return status;
++
++	status = stpmic1_cache_get(cfg->lp_reg, &lp_val);
++	if (status)
++		return status;
++
++	new_lp_val =  (ctrl_val & ~cfg->lp_mask) | cfg->lp_value;
++	if (new_lp_val != lp_val)
++		status = stpmic1_register_write(cfg->lp_reg, new_lp_val);
+ 
+ 	return status;
+ }
+@@ -891,16 +944,20 @@ int stpmic1_lp_on_off_unpg(struct stpmic1_lp_cfg *cfg, int enable)
+ {
+ 	assert(cfg->lp_reg && (enable == 0 || enable == 1));
+ 
+-	return stpmic1_register_update(cfg->lp_reg, enable,
+-				       LDO_BUCK_ENABLE_MASK);
++	cfg->lp_mask |= LDO_BUCK_ENABLE_MASK;
++	cfg->lp_value |= enable;
++
++	return 0;
+ }
+ 
+ int stpmic1_lp_mode_unpg(struct stpmic1_lp_cfg *cfg, unsigned int mode)
+ {
+ 	assert(cfg->lp_reg && (mode == 0 || mode == 1));
+-	return stpmic1_register_update(cfg->lp_reg,
+-				       mode << LDO_BUCK_HPLP_POS,
+-				       BIT(LDO_BUCK_HPLP_POS));
++
++	cfg->lp_mask |= BIT(LDO_BUCK_HPLP_POS);
++	cfg->lp_value |= mode << LDO_BUCK_HPLP_POS;
++
++	return 0;
+ }
+ 
+ /* Returns 1 if no configuration are expected applied at runtime, 0 otherwise */
+@@ -928,7 +985,10 @@ int stpmic1_lp_voltage_unpg(struct stpmic1_lp_cfg *cfg)
+ {
+ 	assert(cfg->lp_reg);
+ 
+-	return stpmic1_register_update(cfg->lp_reg, cfg->value,	cfg->mask);
++	cfg->lp_mask |= cfg->mask;
++	cfg->lp_value |= cfg->value;
++
++	return 0;
+ }
+ 
+ int stpmic1_register_read(uint8_t register_id,  uint8_t *value)
+diff --git a/core/include/drivers/stpmic1.h b/core/include/drivers/stpmic1.h
+index b2217e547..0ec4a4fd2 100644
+--- a/core/include/drivers/stpmic1.h
++++ b/core/include/drivers/stpmic1.h
+@@ -208,6 +208,8 @@ struct stpmic1_bo_cfg {
+ struct stpmic1_lp_cfg {
+ 	uint8_t ctrl_reg;
+ 	uint8_t lp_reg;
++	uint8_t lp_value;
++	uint8_t lp_mask;
+ 	uint8_t value;
+ 	uint8_t mask;
+ };
+@@ -225,12 +227,14 @@ int stpmic1_bo_pull_down_unpg(struct stpmic1_bo_cfg *cfg);
+ int stpmic1_bo_mask_reset_cfg(const char *name, struct stpmic1_bo_cfg *cfg);
+ int stpmic1_bo_mask_reset_unpg(struct stpmic1_bo_cfg *cfg);
+ 
++/* API for low power configuration of regulators driven from STPMIC1 device */
+ bool stpmic1_regu_has_lp_cfg(const char *name);
+ int stpmic1_lp_cfg(const char *name, struct stpmic1_lp_cfg *cfg);
++void stpmic1_lp_get_unpg(struct stpmic1_lp_cfg *cfg);
++int stpmic1_lp_write_unpg(struct stpmic1_lp_cfg *cfg);
+ int stpmic1_lp_load_unpg(struct stpmic1_lp_cfg *cfg);
+ int stpmic1_lp_on_off_unpg(struct stpmic1_lp_cfg *cfg, int enable);
+-int stpmic1_lp_mode_unpg(struct stpmic1_lp_cfg *cfg,
+-			 unsigned int mode);
++int stpmic1_lp_mode_unpg(struct stpmic1_lp_cfg *cfg, unsigned int mode);
+ int stpmic1_lp_voltage_cfg(const char *name, uint16_t millivolts,
+ 			   struct stpmic1_lp_cfg *cfg);
+ int stpmic1_lp_voltage_unpg(struct stpmic1_lp_cfg *cfg);
+-- 
+2.53.0
+

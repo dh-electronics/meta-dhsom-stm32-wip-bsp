@@ -1,0 +1,72 @@
+From c8bffa4250a378dd3b819a8820fe774a4783fca7 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Fri, 25 Sep 2026 17:27:19 +0200
+Subject: [PATCH 910/913] prod/optee/stm32mp2: add define to use variable only
+ when OP-TEE module are enabled
+
+Some properties of the structure scpfw_resource_counter are not yet
+defined at upstream. To be able to compile OP-TEE without some part of
+the structure defined only update the scpfw_resource_counter based on
+the module enabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 85ac40f3ca7b02ec40637a84df507565287b2491 prod/optee/stm32mp2: add define to use variable only when OP-TEE module are enabled]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: Ib0e154c841ab4dfb0a51948e731d5d326f3d7084
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/617670
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+---
+ .../product/optee/stm32mp2/fw/config_scmi.c      | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/config_scmi.c b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/config_scmi.c
+index b74bb88ad..e206c175c 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/config_scmi.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/fw/config_scmi.c
+@@ -449,19 +449,31 @@ static void count_resources(struct scpfw_config *cfg)
+             struct scpfw_channel_config *channel_cfg =
+                 agent_cfg->channel_config + j;
+ 
++#ifdef CFG_SCPFW_MOD_CLOCK
+             /* Clocks for scmi_clock optee/clock and for DVFS */
+             scpfw_resource_counter.clock_count += channel_cfg->clock_count;
+-            scpfw_resource_counter.clock_count += channel_cfg->perfd_count;
+             scpfw_resource_counter.optee_clock_count += channel_cfg->clock_count;
++#ifdef CFG_SCPFW_MOD_DVFS
++            scpfw_resource_counter.clock_count += channel_cfg->perfd_count;
++#endif
++#endif
++#ifdef CFG_SCPFW_MOD_RESET_DOMAIN
+             /* Reset for scmi_reset only */
+             scpfw_resource_counter.reset_count += channel_cfg->reset_count;
++#endif
++#ifdef CFG_SCPFW_MOD_VOLTAGE_DOMAIN
+             /* Regulators for smci_voltage_domain only */
+             scpfw_resource_counter.regu_count += channel_cfg->voltd_count;
++#endif
++#ifdef CFG_SCPFW_MOD_DVFS
+             /* DVFS and PSU DVFS only */
+             scpfw_resource_counter.dvfs_count += channel_cfg->perfd_count;
+             scpfw_resource_counter.psu_count += channel_cfg->perfd_count;
++#endif
++#ifdef CFG_SCPFW_MOD_POWER_DOMAIN
+             /* Power domains */
+             scpfw_resource_counter.pd_count += channel_cfg->pd_count;
++#endif
+         }
+     }
+ 
+@@ -702,7 +714,9 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+             assert(agent_index < SCMI_AGENT_ID_COUNT);
+ 
+             /* Make sure mailbox_idx stored in OPTEE is the same than SCP */
++#if defined(CFG_SCPFW_MOD_OPTEE_SMT)
+             assert(channel_index == channel_cfg->mailbox_idx);
++#endif
+ 
+             switch (module_idx_smt_table[agent_index]) {
+ #if defined(CFG_SCPFW_MOD_MSG_SMT)
+-- 
+2.53.0
+

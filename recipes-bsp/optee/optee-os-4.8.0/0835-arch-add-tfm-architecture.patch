@@ -1,0 +1,526 @@
+From 3379a4ee2acb60a076a4b5eb4c4847a39abd1ed8 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Fri, 19 Apr 2024 10:36:53 +0200
+Subject: [PATCH 835/913] arch: add tfm architecture
+
+Since scp partition is run within a secure partition, the scp is built
+as a library. This support is only planned for stm32mp2 platform.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 68a1eedd29c7ebbfba85c17af8fdf975d167bfc3 arch: add tfm architecture]
+Change-Id: I5a0d3da9ada2262fd343d64715f74bd52a6003df
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/584010
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+---
+ .../scmi-server/SCP-firmware/CMakeLists.txt   |   4 +
+ .../SCP-firmware/arch/CMakeLists.txt          |   1 +
+ .../arch/none/tfm/Architecture.cmake          |  10 ++
+ .../SCP-firmware/arch/none/tfm/CMakeLists.txt |  59 ++++++++
+ .../arch/none/tfm/include/arch_helpers.h      |  18 +++
+ .../arch/none/tfm/include/arch_interrupt.h    |  37 +++++
+ .../arch/none/tfm/include/arch_main.h         |  66 +++++++++
+ .../arch/none/tfm/src/arch_interrupt.c        | 103 ++++++++++++++
+ .../arch/none/tfm/src/arch_main.c             | 127 ++++++++++++++++++
+ 9 files changed, 425 insertions(+)
+ create mode 100644 core/lib/scmi-server/SCP-firmware/arch/none/tfm/Architecture.cmake
+ create mode 100644 core/lib/scmi-server/SCP-firmware/arch/none/tfm/CMakeLists.txt
+ create mode 100644 core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_helpers.h
+ create mode 100644 core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_interrupt.h
+ create mode 100644 core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_main.h
+ create mode 100644 core/lib/scmi-server/SCP-firmware/arch/none/tfm/src/arch_interrupt.c
+ create mode 100644 core/lib/scmi-server/SCP-firmware/arch/none/tfm/src/arch_main.c
+
+diff --git a/core/lib/scmi-server/SCP-firmware/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/CMakeLists.txt
+index 0b99593d6..b23b0e856 100644
+--- a/core/lib/scmi-server/SCP-firmware/CMakeLists.txt
++++ b/core/lib/scmi-server/SCP-firmware/CMakeLists.txt
+@@ -252,6 +252,10 @@ if(SCP_ARCHITECTURE STREQUAL "optee")
+     set(SCP_ENABLE_SUB_SYSTEM_MODE_INIT TRUE)
+ endif()
+ 
++if(SCP_ARCHITECTURE STREQUAL "tfm")
++    set(SCP_ENABLE_SUB_SYSTEM_MODE_INIT TRUE)
++endif()
++
+ set(SCP_ENABLE_OVERRIDE_FIRMWARE_NAME
+     ${SCP_ENABLE_OVERRIDE_FIRMWARE_NAME_INIT}
+     CACHE STRING "Override firmware binary name")
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/arch/CMakeLists.txt
+index 9bcb3a545..9aefe8c03 100644
+--- a/core/lib/scmi-server/SCP-firmware/arch/CMakeLists.txt
++++ b/core/lib/scmi-server/SCP-firmware/arch/CMakeLists.txt
+@@ -10,6 +10,7 @@ list(APPEND SCP_ARCHITECTURE_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/arm/arm-m")
+ list(APPEND SCP_ARCHITECTURE_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/none/host")
+ list(APPEND SCP_ARCHITECTURE_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/none/optee")
+ list(APPEND SCP_ARCHITECTURE_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/none/posix")
++list(APPEND SCP_ARCHITECTURE_PATHS "${CMAKE_CURRENT_SOURCE_DIR}/none/tfm")
+ 
+ set(SCP_ARCHITECTURE_ "${SCP_ARCHITECTURE}")
+ 
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/tfm/Architecture.cmake b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/Architecture.cmake
+new file mode 100644
+index 000000000..8bb925721
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/Architecture.cmake
+@@ -0,0 +1,10 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2022, Linaro Limited and Contributors. All rights reserved.
++# Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++set(SCP_ARCHITECTURE "tfm")
++set(SCP_ARCHITECTURE_TARGET "arch-tfm")
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/tfm/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/CMakeLists.txt
+new file mode 100644
+index 000000000..e5bac1834
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/CMakeLists.txt
+@@ -0,0 +1,59 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2022, Linaro Limited and Contributors. All rights reserved.
++# Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++add_library(arch-tfm)
++
++# TF-M CMake_switches
++set (CFG_SCPFW_MOD_DVFS n)
++set (CFG_SCPFW_MOD_CLOCK n)
++set (CFG_SCPFW_MOD_MOCK_CLOCK n)
++set (CFG_SCPFW_MOD_MOCK_PPU n)
++set (CFG_SCPFW_MOD_MOCK_PSU n)
++set (CFG_SCPFW_MOD_MSG_SMT n)
++set (CFG_SCPFW_MOD_POWER_DOMAIN n)
++set (CFG_SCPFW_MOD_PSU n)
++set (CFG_SCPFW_MOD_REG_SENSOR n)
++set (CFG_SCPFW_MOD_RESET_DOMAIN n)
++set (CFG_SCPFW_MOD_SCMI n)
++set (CFG_SCPFW_MOD_SCMI_APCORE n)
++set (CFG_SCPFW_MOD_SCMI_CLOCK n)
++set (CFG_SCPFW_MOD_SCMI_PERF n)
++set (CFG_SCPFW_MOD_SCMI_POWER_DOMAIN n)
++set (CFG_SCPFW_MOD_SCMI_RESET_DOMAIN n)
++set (CFG_SCPFW_MOD_SCMI_SENSOR n)
++set (CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN n)
++set (CFG_SCPFW_MOD_SENSOR n)
++set (CFG_SCPFW_MOD_SYSTEM_PLL n)
++set (CFG_SCPFW_MOD_VOLTAGE_DOMAIN n)
++set (CFG_SCPFW_MOD_TFM_SMT n)
++
++if(NOT SCP_TFM_PLAT_DIR)
++        message(FATAL_ERROR
++            "Insufficient firmware metadata provided.\n"
++            "For tfm arch, you must set SCP_TFM_PLAT_DIR")
++endif()
++
++if(NOT SCP_TFM_DIR)
++        message(FATAL_ERROR
++            "Insufficient firmware metadata provided.\n"
++            "For tfm arch, you must set SCP_TFM_DIR")
++endif()
++
++
++target_include_directories(arch-tfm
++    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
++
++target_link_libraries(arch-tfm
++    PRIVATE tfm_sprt
++    PUBLIC module-tfm-mbx
++)
++
++target_sources(
++    arch-tfm
++    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/arch_interrupt.c"
++            "${CMAKE_CURRENT_SOURCE_DIR}/src/arch_main.c")
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_helpers.h b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_helpers.h
+new file mode 100644
+index 000000000..fea2a9fde
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_helpers.h
+@@ -0,0 +1,18 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2022, Linaro Limited and Contributors. All rights reserved.
++ * Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef ARCH_HELPERS_H
++#define ARCH_HELPERS_H
++
++/*!
++ * \brief Architecture panic function.
++ *
++ */
++void panic(void);
++
++#endif /* ARCH_HELPERS_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_interrupt.h b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_interrupt.h
+new file mode 100644
+index 000000000..298279338
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_interrupt.h
+@@ -0,0 +1,37 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2022-2025, Linaro Limited and Contributors. All rights
++ * reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef ARCH_INTERRUPT_H
++#define ARCH_INTERRUPT_H
++
++/*!
++ * \brief Enables global CPU interrupts. (stub)
++ *
++ */
++static inline void arch_interrupt_global_enable(unsigned int not_used)
++{
++}
++
++/*!
++ * \brief Disables global CPU interrupts. (stub)
++ *
++ */
++static inline unsigned int arch_interrupt_global_disable(void)
++{
++    return 0;
++}
++
++/*!
++ * \brief Suspend execution of current CPU.
++ *
++ */
++static inline void arch_suspend(void)
++{
++}
++
++#endif /* ARCH_INTERRUPT_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_main.h b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_main.h
+new file mode 100644
+index 000000000..03499d695
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/include/arch_main.h
+@@ -0,0 +1,66 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2022, Linaro Limited and Contributors. All rights reserved.
++ * Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef ARCH_MAIN_H
++#define ARCH_MAIN_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++/*!
++ * \brief Initialize the architecture.
++ *
++ */
++int scmi_arch_init(void);
++
++/*!
++ * \brief Stop the architecture.
++ *
++ */
++int scmi_arch_deinit(void);
++
++/*!
++ * \brief Get number of channels.
++ *
++ */
++extern int scmi_get_devices_count(void);
++
++/*!
++ * \brief Get the id of a channel.
++ *
++ */
++extern int scmi_get_device(unsigned int id);
++
++/*!
++ * \brief Reset the channel on the channel id.
++ *
++ */
++extern void scmi_process_reset_smt(unsigned int id);
++
++/*!
++ * \brief Add new event to process on the channel id.
++ *
++ */
++extern void scmi_process_mbx_smt(unsigned int id);
++
++/*!
++ * \brief Provide message to a completer channel
++ *
++ */
++extern void scmi_process_mbx_msg(unsigned int id, void *in_buf, size_t in_size,
++                                 void *out_buf, size_t *out_size);
++
++/*!
++ * \brief Provide message to a p2a channel for scmi notification support
++ *
++ */
++extern void scmi_provide_mbx_msg(unsigned int id,  void *out_buf,
++                                 size_t *out_size);
++
++#endif /* ARCH_MAIN_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/tfm/src/arch_interrupt.c b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/src/arch_interrupt.c
+new file mode 100644
+index 000000000..cd094a8f5
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/src/arch_interrupt.c
+@@ -0,0 +1,103 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2015-2022, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ *
++ * Description:
++ *     Interrupt management.
++ */
++
++#include <fwk_arch.h>
++#include <fwk_status.h>
++
++#include <arch_interrupt.h>
++
++#include <stdbool.h>
++#include <stdint.h>
++
++int arch_interrupt_is_enabled(unsigned int interrupt, bool *state)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_enable(unsigned int interrupt)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_disable(unsigned int interrupt)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_is_pending(unsigned int interrupt, bool *state)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_configure(unsigned int interrupt, unsigned int cfg)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_set_pending(unsigned int interrupt)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_set_priority(unsigned int interrupt, unsigned int val)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_clear_pending(unsigned int interrupt)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_set_isr_irq(unsigned int interrupt, void (*isr)(void))
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_set_isr_irq_param(
++    unsigned int interrupt,
++    void (*isr)(uintptr_t param),
++    uintptr_t parameter)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_set_isr_nmi(void (*isr)(void))
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_set_isr_nmi_param(
++    void (*isr)(uintptr_t param),
++    uintptr_t parameter)
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_set_isr_fault(void (*isr)(void))
++{
++    return FWK_E_SUPPORT;
++}
++
++int arch_interrupt_get_current(unsigned int *interrupt)
++{
++    return FWK_E_SUPPORT;
++}
++
++bool arch_interrupt_is_interrupt_context(void)
++{
++    return false;
++}
++
++int arch_interrupt_init(void)
++{
++    return FWK_SUCCESS;
++}
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/tfm/src/arch_main.c b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/src/arch_main.c
+new file mode 100644
+index 000000000..5f22859c3
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/tfm/src/arch_main.c
+@@ -0,0 +1,127 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2022-2023, Linaro Limited and Contributors. All rights reserved.
++ * Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <fwk_arch.h>
++#include <fwk_core.h>
++#include <fwk_id.h>
++#include <fwk_log.h>
++#include <fwk_noreturn.h>
++#include <fwk_status.h>
++#include <internal/fwk_context.h>
++
++#include <arch_helpers.h>
++#include <arch_interrupt.h>
++#include <arch_main.h>
++
++#include <malloc.h>
++#include <stddef.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++
++#include <mod_tfm_mbx.h>
++
++#include "psa/service.h"
++
++void panic(void)
++{
++    psa_panic();
++}
++
++int scmi_arch_init(void)
++{
++    int status;
++
++    status = fwk_arch_init();
++
++    fwk_log_flush();
++
++    return status;
++}
++
++int scmi_arch_deinit(void)
++{
++    return fwk_arch_deinit();
++}
++
++int scmi_get_devices_count(void)
++{
++    return tfm_mbx_get_devices_count();
++}
++
++int scmi_get_device(unsigned int id)
++{
++    fwk_id_t device_id;
++
++    device_id = tfm_mbx_get_device(id);
++
++    if (fwk_id_is_type(device_id, FWK_ID_TYPE_NONE)) {
++        return -1;
++    }
++
++    return (int)device_id.value;
++}
++
++void scmi_process_mbx_smt(unsigned int fwk_id)
++{
++#ifdef BUILD_HAS_MOD_TFM_SMT
++    fwk_id_t device_id;
++
++    device_id.value = fwk_id;
++
++    tfm_mbx_signal_smt_message(device_id);
++
++    fwk_process_event_queue();
++
++    fwk_log_flush();
++#endif
++}
++
++void scmi_provide_mbx_msg(unsigned int fwk_id, void *out_buf, size_t *out_size)
++{
++#ifdef BUILD_HAS_MOD_MSG_SMT
++    fwk_id_t device_id;
++
++    device_id.value = fwk_id;
++
++    tfm_mbx_signal_msg_message(device_id, NULL, 0, out_buf, out_size);
++
++    fwk_log_flush();
++#endif
++}
++
++void scmi_process_mbx_msg(unsigned int fwk_id, void *in_buf, size_t in_size,
++                          void *out_buf, size_t *out_size)
++{
++#ifdef BUILD_HAS_MOD_MSG_SMT
++    fwk_id_t device_id;
++
++    device_id.value = fwk_id;
++
++    tfm_mbx_signal_msg_message(device_id, in_buf, in_size, out_buf, out_size);
++
++    fwk_process_event_queue();
++
++    fwk_log_flush();
++#endif
++}
++
++void scmi_process_reset_smt(unsigned int fwk_id)
++{
++#ifdef BUILD_HAS_MOD_MSG_SMT
++    fwk_id_t device_id;
++
++    device_id.value = fwk_id;
++
++    tfm_mbx_signal_smt_reset(device_id);
++
++    fwk_process_event_queue();
++
++    fwk_log_flush();
++#endif
++}
+-- 
+2.53.0
+

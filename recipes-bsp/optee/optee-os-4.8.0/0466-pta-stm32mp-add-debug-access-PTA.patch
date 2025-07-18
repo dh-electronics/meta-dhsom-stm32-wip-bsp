@@ -1,0 +1,227 @@
+From bbb080075ffea8a4925d225a9d5e2ec2ec5d2111 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 24 Sep 2025 17:07:42 +0200
+Subject: [PATCH 466/913] pta: stm32mp: add debug access PTA
+
+Add the debug access PTA that is responsible of validating whether
+a given debug profile is configured or not. This basically means that
+the debug configuration should allow (at least!) access to the debug
+peripherals requiring the debug profile being checked.
+
+For now, as it is specific to BSEC, only embed the PTA if the BSEC support
+is embedded as well.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d7174e7a4ad58b09d42a8322a44b2ec9b9557355 pta: stm32mp: add debug access PTA]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-by: Etienne Carriere <etienne.carriere@st.com>
+(cherry picked from commit e339d8f54c627956f107cc1c8bc66c0e8606cd86)
+Signed-off-by: Antonio Borneo <borneo.antonio@gmail.com>
+Change-Id: I466941937b15eab6bdd062768d9500fc099cb0c6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/570790
+Tested-by: Antonio Maria BORNEO <antonio.borneo@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Antonio Maria BORNEO <antonio.borneo@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/stm32_bsec.c                     | 28 +++----
+ core/include/drivers/stm32_bsec.h             |  2 +-
+ core/pta/stm32mp/debug_access_pta.c           | 76 +++++++++++++++++++
+ core/pta/stm32mp/sub.mk                       |  1 +
+ .../include/pta_stm32mp_debug_access.h        | 33 ++++++++
+ 5 files changed, 125 insertions(+), 15 deletions(-)
+ create mode 100644 core/pta/stm32mp/debug_access_pta.c
+ create mode 100644 lib/libutee/include/pta_stm32mp_debug_access.h
+
+diff --git a/core/drivers/stm32_bsec.c b/core/drivers/stm32_bsec.c
+index 100f0a777..ec3668f89 100644
+--- a/core/drivers/stm32_bsec.c
++++ b/core/drivers/stm32_bsec.c
+@@ -599,20 +599,6 @@ bool stm32_bsec_self_hosted_debug_is_enabled(void)
+ 	return io_read32(bsec_base() + BSEC_DEN_OFF) & BSEC_DENR_DBGSWEN;
+ }
+ 
+-bool stm32_bsec_hdp_is_enabled(void)
+-{
+-	return io_read32(bsec_base() + BSEC_DEN_OFF) & BSEC_DENR_HDPEN;
+-}
+-
+-bool stm32_bsec_coresight_is_enabled(void)
+-{
+-	uint32_t denr = io_read32(bsec_base() + BSEC_DEN_OFF);
+-	uint32_t coresight_mask = BSEC_DENR_DBGEN | BSEC_DENR_DEVICEEN |
+-				  BSEC_DENR_DBGSWEN;
+-
+-	return (denr & coresight_mask) == coresight_mask;
+-}
+-
+ static TEE_Result set_bsec_lock(uint32_t otp_id, size_t lock_offset)
+ {
+ 	uint32_t bank = otp_bank_offset(otp_id);
+@@ -819,6 +805,20 @@ TEE_Result stm32_bsec_get_state(enum stm32_bsec_sec_state *state)
+ 	return TEE_SUCCESS;
+ }
+ 
++bool stm32_bsec_hdp_is_enabled(void)
++{
++	return io_read32(bsec_base() + BSEC_DEN_OFF) & BSEC_DENR_HDPEN;
++}
++
++bool stm32_bsec_coresight_is_enabled(void)
++{
++	uint32_t denr = io_read32(bsec_base() + BSEC_DEN_OFF);
++	uint32_t coresight_mask = BSEC_DENR_DBGEN | BSEC_DENR_DEVICEEN |
++				  BSEC_DENR_DBGSWEN;
++
++	return (denr & coresight_mask) == coresight_mask;
++}
++
+ static void enable_nsec_access(unsigned int otp_id)
+ {
+ 	unsigned int idx = (otp_id - otp_upper_base()) / BSEC_BITS_PER_WORD;
+diff --git a/core/include/drivers/stm32_bsec.h b/core/include/drivers/stm32_bsec.h
+index a327ae5a1..ab8089f6a 100644
+--- a/core/include/drivers/stm32_bsec.h
++++ b/core/include/drivers/stm32_bsec.h
+@@ -229,7 +229,7 @@ bool stm32_bsec_nsec_can_access_otp(uint32_t otp_id);
+ bool stm32_bsec_self_hosted_debug_is_enabled(void);
+ 
+ /*
+- * Return true if HDP is enabled.
++ * Return true if Hardware Debug Port (HDP) is enabled.
+  */
+ bool stm32_bsec_hdp_is_enabled(void);
+ 
+diff --git a/core/pta/stm32mp/debug_access_pta.c b/core/pta/stm32mp/debug_access_pta.c
+new file mode 100644
+index 000000000..75b442963
+--- /dev/null
++++ b/core/pta/stm32mp/debug_access_pta.c
+@@ -0,0 +1,76 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (C) 2026, STMicroelectronics - All Rights Reserved
++ */
++
++#include <drivers/stm32_bsec.h>
++#include <kernel/pseudo_ta.h>
++#include <kernel/user_ta.h>
++#include <pta_stm32mp_debug_access.h>
++
++#define PTA_NAME	"debug_access.pta"
++
++static_assert(IS_ENABLED(CFG_STM32_BSEC));
++
++static TEE_Result pta_dbg_grant_dbg_access(uint32_t param_types,
++					   TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t ext_param = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						   TEE_PARAM_TYPE_NONE,
++						   TEE_PARAM_TYPE_NONE,
++						   TEE_PARAM_TYPE_NONE);
++	unsigned int dbg_profile = params[0].value.a;
++
++	if (param_types != ext_param)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	switch (dbg_profile) {
++	case PTA_STM32_DEBUG_HDP_DBG_PROFILE:
++		if (!stm32_bsec_hdp_is_enabled())
++			return TEE_ERROR_ACCESS_DENIED;
++		break;
++	case PTA_STM32_DEBUG_PERIPHERAL_DBG_PROFILE:
++		if (!stm32_bsec_coresight_is_enabled())
++			return TEE_ERROR_ACCESS_DENIED;
++		break;
++	default:
++		return TEE_ERROR_NOT_SUPPORTED;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result pta_dbg_access_invoke_cmd(void *pSessionContext __unused,
++					    uint32_t cmd_id,
++					    uint32_t param_types,
++					    TEE_Param params[TEE_NUM_PARAMS])
++{
++	FMSG(PTA_NAME" command %#"PRIx32" ptypes %#"PRIx32,
++	     cmd_id, param_types);
++
++	switch (cmd_id) {
++	case PTA_STM32_DEBUG_CMD_GRANT_DBG_ACCESS:
++		return pta_dbg_grant_dbg_access(param_types, params);
++	default:
++		return TEE_ERROR_NOT_SUPPORTED;
++	}
++}
++
++static TEE_Result
++pta_dbg_access_open_session(uint32_t ptypes __unused,
++			    TEE_Param par[TEE_NUM_PARAMS] __unused,
++			    void **session __unused)
++{
++	uint32_t login = to_ta_session(ts_get_current_session())->clnt_id.login;
++
++	if (login == TEE_LOGIN_REE_KERNEL)
++		return TEE_SUCCESS;
++
++	return TEE_ERROR_ACCESS_DENIED;
++}
++
++pseudo_ta_register(.uuid = PTA_STM32_DBG_ACCESS_UUID, .name = PTA_NAME,
++		   .flags = PTA_DEFAULT_FLAGS | TA_FLAG_CONCURRENT |
++			    TA_FLAG_DEVICE_ENUM,
++		   .open_session_entry_point = pta_dbg_access_open_session,
++		   .invoke_command_entry_point = pta_dbg_access_invoke_cmd);
+diff --git a/core/pta/stm32mp/sub.mk b/core/pta/stm32mp/sub.mk
+index 53a738d6b..41805250b 100644
+--- a/core/pta/stm32mp/sub.mk
++++ b/core/pta/stm32mp/sub.mk
+@@ -1,2 +1,3 @@
+ srcs-$(CFG_STM32_BSEC_PTA) += bsec_pta.c
++srcs-$(CFG_STM32_DEBUG_ACCESS_PTA) += debug_access_pta.c
+ srcs-$(CFG_REMOTEPROC_PTA) += remoteproc_pta.c
+diff --git a/lib/libutee/include/pta_stm32mp_debug_access.h b/lib/libutee/include/pta_stm32mp_debug_access.h
+new file mode 100644
+index 000000000..262340eab
+--- /dev/null
++++ b/lib/libutee/include/pta_stm32mp_debug_access.h
+@@ -0,0 +1,33 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (C) 2026, STMicroelectronics - All Rights Reserved
++ */
++
++#ifndef __PTA_STM32MP_DEBUG_ACCESS_H
++#define __PTA_STM32MP_DEBUG_ACCESS_H
++
++#define PTA_STM32_DBG_ACCESS_UUID \
++	{ 0xdd05bc8b, 0x9f3b, 0x49f0, \
++	 { 0xb6, 0x49, 0x01, 0xaa, 0x10, 0xc1, 0xc2, 0x10 } }
++
++enum stm32_pta_dbg_profile {
++	/* Embedded debug peripherals support */
++	PTA_STM32_DEBUG_PERIPHERAL_DBG_PROFILE = 0,
++	/* Hardware Debug Port (HDP) support (internal signals observation) */
++	PTA_STM32_DEBUG_HDP_DBG_PROFILE = 1,
++};
++
++/**
++ * PTA_STM32_DEBUG_CMD_GRANT_DBG_ACCESS
++ *
++ * [in]		value[0].a	Debug configuration to grant access to.
++ *				See enum stm32_pta_dbg_profile.
++ *
++ * Return codes:
++ * TEE_SUCCESS - Invoke command success
++ * TEE_ERROR_BAD_PARAMETERS - Incorrect input param
++ * TEE_ERROR_ACCESS_DENIED - Debug services access not granted
++ */
++#define PTA_STM32_DEBUG_CMD_GRANT_DBG_ACCESS	0x0
++
++#endif /* __PTA_STM32MP_DEBUG_ACCESS_H */
+-- 
+2.53.0
+

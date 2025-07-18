@@ -1,0 +1,72 @@
+From fb507bfb730d997935aac8797d134f649c6954a7 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 11 May 2023 19:42:04 +0200
+Subject: [PATCH 143/913] clk: stm32mp1: add dsb in clock driver
+
+Add memory barriers in RCC clock driver to ensure the system is in the
+expected state when requests are proceeded by RCC. No pending register
+operation before disabling the clocks and return to caller only when
+clock is enabled, so before any accesses to the clocked devices.
+
+As the registers are mapped as device memory (shareable, bufferable),
+the order of operation is guarantee only at outer shareable limit
+and not on each device, for example when they are not on the same bus.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 92194689d3b765ade668fd3ed6e0b073770bd2cd clk: stm32mp1: add dsb in clock driver]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I4ec28cc6e190af6fc7b2c6bc92d7b1557dd51f48
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/305819
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373109
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp13.c | 3 +++
+ core/drivers/clk/clk-stm32mp15.c | 7 +++++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 9ed98b950..2c203b310 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -2749,5 +2749,8 @@ void stm32_reset_system(void)
+ {
+ 	vaddr_t rcc = stm32_rcc_base();
+ 
++	/* Make sure the pending operation are visible */
++	dsb();
++
+ 	io_write32(rcc + RCC_MP_GRSTCSETR, RCC_MP_GRSTCSETR_MPSYSRST);
+ }
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index 97f9faf28..0c4a746d5 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -1873,9 +1873,13 @@ static TEE_Result stm32_clock_pm(enum pm_op op, unsigned int pm_hint __unused,
+ 				 const struct pm_callback_handle *hdl __unused)
+ {
+ 	if (op == PM_OP_SUSPEND) {
++		/* Make sure the pending operations are visible */
++		dsb();
+ 		stm32_clock_suspend();
+ 	} else {
+ 		stm32_clock_resume();
++		/* Make sure the clock are restored */
++		dsb();
+ 	}
+ 
+ 	return TEE_SUCCESS;
+@@ -1886,5 +1890,8 @@ void stm32_reset_system(void)
+ {
+ 	vaddr_t rcc = stm32_rcc_base();
+ 
++	/* Make sure the pending operations are visible */
++	dsb();
++
+ 	io_write32(rcc + RCC_MP_GRSTCSETR, RCC_MP_GRSTCSETR_MPSYSRST);
+ }
+-- 
+2.53.0
+

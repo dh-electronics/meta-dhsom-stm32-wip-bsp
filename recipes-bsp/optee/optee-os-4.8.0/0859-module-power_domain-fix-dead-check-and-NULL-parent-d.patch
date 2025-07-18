@@ -1,0 +1,71 @@
+From 6ec1944268d7af550576de31d8a71fe1a257ead5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 4 Aug 2026 17:03:04 +0200
+Subject: [PATCH 859/913] module: power_domain: fix dead check and NULL parent
+ dereference
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+connect_pd_tree() tested the pointer returned by taking the address of a
+power domain table entry against NULL, which can never be true, so the
+error path was dead code. Drop the test.
+
+In process_set_state_request(), the loop walking the power domain tree
+downwards dereferences pd->parent without checking it, while the root
+power domain has a NULL parent. Stop the walk on a NULL parent and abort
+the request instead of dereferencing NULL.
+
+Coverity issue: CID 1200499: Logically dead code in connect_pd_tree
+Coverity issue: CID 1200386: Dereference of potentially null field in process_set_state_request
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 31b978deaf91edb91a6178209ca62e9a76f472ef module: power_domain: fix dead check and NULL parent dereference]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I0dd30c8b83274cb5ac7d561fd926fca869452f62
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/596851
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../module/power_domain/src/mod_power_domain.c       | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/power_domain/src/mod_power_domain.c b/core/lib/scmi-server/SCP-firmware/module/power_domain/src/mod_power_domain.c
+index ec4402cec..17e336517 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/power_domain/src/mod_power_domain.c
++++ b/core/lib/scmi-server/SCP-firmware/module/power_domain/src/mod_power_domain.c
+@@ -99,9 +99,6 @@ static int connect_pd_tree(void)
+         }
+ 
+         parent = pd->parent = &mod_pd_ctx.pd_ctx_table[pd->config->parent_idx];
+-        if (parent == NULL) {
+-            return FWK_E_DATA;
+-        }
+         fwk_list_push_tail(&parent->children_list, &pd->child_node);
+     }
+ 
+@@ -252,12 +249,19 @@ static void process_set_state_request(
+              * next power domain to process as well as its level.
+              */
+             pd = lowest_pd;
+-            for (level = lowest_level; level < (highest_level - pd_index);
++            for (level = lowest_level;
++                 (level < (highest_level - pd_index)) && (pd != NULL);
+                  level++) {
+                 pd = pd->parent;
+             }
+         }
+ 
++        /* The tree is shallower than the requested level */
++        if (pd == NULL) {
++            status = FWK_E_PARAM;
++            break;
++        }
++
+         if (composite_state_operation) {
+             state = get_level_state_from_composite_state(
+                 state_mask_table, composite_state, (int)level);
+-- 
+2.53.0
+

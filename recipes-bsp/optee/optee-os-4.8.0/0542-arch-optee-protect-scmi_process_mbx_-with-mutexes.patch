@@ -1,0 +1,70 @@
+From 97074c0cae74d2c693c4ab7a03fef65dce2f1b3d Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 14 Feb 2025 18:26:13 +0100
+Subject: [PATCH 542/913] arch/optee: protect scmi_process_mbx_* with mutexes
+
+These functions can be called at the same time by two different CPUs.
+As they are not multi-thread safe, protect them with a mutex.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f32f71e4c9af4addccd589eda8d906b2a33b5934 arch/optee: protect scmi_process_mbx_* with mutexes]
+Change-Id: I6f6d7192e16cc22e64d43e14f920a31499fd7290
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+---
+ .../SCP-firmware/arch/none/optee/src/arch_main.c     | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c b/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c
+index 5565983ef..574cc85e5 100644
+--- a/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c
++++ b/core/lib/scmi-server/SCP-firmware/arch/none/optee/src/arch_main.c
+@@ -20,11 +20,15 @@
+ #include <arch_interrupt.h>
+ #include <arch_main.h>
+ 
++#include <kernel/mutex.h>
+ #include <malloc.h>
+ #include <stddef.h>
+ #include <stdint.h>
+ #include <stdio.h>
+ #include <stdlib.h>
++
++static struct mutex process_lock = MUTEX_INITIALIZER;
++
+ int scmi_arch_init(void)
+ {
+     int status;
+@@ -66,11 +70,15 @@ void scmi_process_mbx_smt(unsigned int fwk_id)
+ 
+     device_id.value = fwk_id;
+ 
++    mutex_lock(&process_lock);
++
+     optee_mbx_signal_smt_message(device_id);
+ 
+     fwk_process_event_queue();
+ 
+     fwk_log_flush();
++
++    mutex_unlock(&process_lock);
+ #endif
+ }
+ 
+@@ -82,11 +90,15 @@ void scmi_process_mbx_msg(unsigned int fwk_id, void *in_buf, size_t in_size,
+ 
+     device_id.value = fwk_id;
+ 
++    mutex_lock(&process_lock);
++
+     optee_mbx_signal_msg_message(device_id, in_buf, in_size, out_buf, out_size);
+ 
+     fwk_process_event_queue();
+ 
+     fwk_log_flush();
++
++    mutex_unlock(&process_lock);
+ #endif
+ }
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,115 @@
+From 08c83a080b7ffa47e4c0eeffbff2c9a56d846494 Mon Sep 17 00:00:00 2001
+From: Jens Wiklander <jens.wiklander@linaro.org>
+Date: Wed, 18 Mar 2026 08:44:47 +0100
+Subject: [PATCH 738/913] core: aes-gcm: fix 512 MiB overflow and enforce NIST
+ limits
+
+Fix an integer overflow in `ghash_update_lengths()` where calculating
+the bit-length of payloads or AADs larger than 512 MiB would overflow
+the 32-bit integer, resulting in an invalid authentication tag.
+
+Additionally, update the internal AES-GCM state to track AAD and payload
+lengths using 64-bit integers, and introduce strict upper-bound checks
+to comply with NIST SP 800-38D requirements. That is, limit AAD to a
+maximum of 2^61 - 1 bytes, and payload to a maximum of 2^32 - 2 AES
+blocks.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git eb8c104bb4d45fc15181b788edc23ae936c1d9f6 core: aes-gcm: fix 512 MiB overflow and enforce NIST limits]
+Fixes: 1fca7e269b13 ("core: crypto: add new AES-GCM implementation")
+Change-Id: Ife7b06dc2f302cd1d9c0e72d8ebedeb5967cc2c7
+Signed-off-by: Jens Wiklander <jens.wiklander@linaro.org>
+Reviewed-by: Jerome Forissier <jerome.forissier@arm.com>
+(cherry picked from commit 72139c5556772cf9049c6b5ea45860c1618a54e6)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/581783
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/crypto/aes-gcm.c                  | 23 ++++++++++++++++++-----
+ core/include/crypto/internal_aes-gcm.h |  4 ++--
+ 2 files changed, 20 insertions(+), 7 deletions(-)
+
+diff --git a/core/crypto/aes-gcm.c b/core/crypto/aes-gcm.c
+index 2f0cb5048..1387a2b0e 100644
+--- a/core/crypto/aes-gcm.c
++++ b/core/crypto/aes-gcm.c
+@@ -55,7 +55,7 @@ static void ghash_update_pad_zero(struct internal_aes_gcm_state *state,
+ }
+ 
+ static void ghash_update_lengths(struct internal_aes_gcm_state *state,
+-				 uint32_t l1, uint32_t l2)
++				 uint64_t l1, uint64_t l2)
+ {
+ 	uint64_t len_fields[2] = {
+ 		TEE_U64_TO_BIG_ENDIAN(l1 * 8),
+@@ -143,12 +143,16 @@ static TEE_Result __gcm_update_aad(struct internal_aes_gcm_state *state,
+ 	const uint8_t *d = data;
+ 	size_t l = len;
+ 	const uint8_t *head = NULL;
+-	size_t n;
++	uint64_t nab = 0;
++	size_t n = 0;
+ 
+ 	if (state->payload_bytes)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	state->aad_bytes += len;
++	/* We can process at most 2^61 - 1 bytes, see ghash_update_lengths() */
++	if (ADD_OVERFLOW(state->aad_bytes, len, &nab) || nab > UINT64_MAX / 8)
++		return TEE_ERROR_BAD_PARAMETERS;
++	state->aad_bytes = nab;
+ 
+ 	while (l) {
+ 		if (state->buf_pos ||
+@@ -192,10 +196,11 @@ __gcm_update_payload(struct internal_aes_gcm_state *state,
+ 		     TEE_OperationMode mode, const void *src,
+ 		     size_t len, void *dst)
+ {
+-	size_t n;
+ 	const uint8_t *s = src;
+ 	uint8_t *d = dst;
++	uint64_t npb = 0;
+ 	size_t l = len;
++	size_t n = 0;
+ 
+ 	if (!state->payload_bytes && state->buf_pos) {
+ 		/* AAD part done, finish up the last bits. */
+@@ -205,7 +210,15 @@ __gcm_update_payload(struct internal_aes_gcm_state *state,
+ 		state->buf_pos = 0;
+ 	}
+ 
+-	state->payload_bytes += len;
++	/*
++	 * We can process at most 2^32 - 2 blocks (64 GiB - 32 bytes)
++	 * to guarantee the 32-bit counter never exhausts its state
++	 * space and reuses a previous counter block.
++	 */
++	if (ADD_OVERFLOW(state->payload_bytes, len, &npb) ||
++	    npb > (uint64_t)(UINT32_MAX - 1) * TEE_AES_BLOCK_SIZE)
++		return TEE_ERROR_BAD_PARAMETERS;
++	state->payload_bytes = npb;
+ 
+ 	while (l) {
+ 		if (state->buf_pos || l < TEE_AES_BLOCK_SIZE) {
+diff --git a/core/include/crypto/internal_aes-gcm.h b/core/include/crypto/internal_aes-gcm.h
+index d8e8ec90a..cbe31fa3a 100644
+--- a/core/include/crypto/internal_aes-gcm.h
++++ b/core/include/crypto/internal_aes-gcm.h
+@@ -41,9 +41,9 @@ struct internal_aes_gcm_state {
+ 	uint8_t buf_hash[TEE_AES_BLOCK_SIZE];
+ 	uint8_t buf_cryp[TEE_AES_BLOCK_SIZE];
+ 
++	uint64_t aad_bytes;
++	uint64_t payload_bytes;
+ 	unsigned int tag_len;
+-	unsigned int aad_bytes;
+-	unsigned int payload_bytes;
+ 	unsigned int buf_pos;
+ };
+ 
+-- 
+2.53.0
+

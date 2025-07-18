@@ -1,0 +1,87 @@
+From 5e943454d53e79d9a117b313915dffd7583c8be8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 4 Aug 2026 14:17:02 +0200
+Subject: [PATCH 891/913] drivers: stpmic2: bound the regulator id instead of a
+ dead NULL test
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+stpmic2_regulator_levels_mv tested the address of a table entry against
+NULL, which can never be true, so an out of range regulator id was
+accepted and used to read past regul_table.
+
+Check the identifier against the table size instead.
+
+Coverity issue: CID 1200186: Logically dead code in stpmic2_regulator_levels_mv
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 00af04e5f2ae3f943831ffc441a499a1ba0af928 drivers: stpmic2: bound the regulator id instead of a dead NULL test]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Iccbb5be26d510321975448f24be86cf6bda28939
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/597012
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stpmic2.c | 20 ++++++++++++++++----
+ 1 file changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/stpmic2.c b/core/drivers/stpmic2.c
+index d84ad36b0..b656020df 100644
+--- a/core/drivers/stpmic2.c
++++ b/core/drivers/stpmic2.c
+@@ -312,10 +312,15 @@ TEE_Result stpmic2_regulator_set_state(struct stpmic2 *pmic, uint8_t id,
+ TEE_Result stpmic2_regulator_get_state(struct stpmic2 *pmic,
+ 				       uint8_t id, bool *enabled)
+ {
+-	const struct regul_struct *regul = regul_table + id;
++	const struct regul_struct *regul = NULL;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	uint8_t val = 0;
+ 
++	if (id >= ARRAY_SIZE(regul_table))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	regul = regul_table + id;
++
+ 	res = stpmic2_register_read(pmic, regul->en_cr, &val);
+ 	if (res)
+ 		return res;
+@@ -329,11 +334,13 @@ TEE_Result stpmic2_regulator_levels_mv(struct stpmic2 *pmic __unused,
+ 				       uint8_t id, const uint16_t **levels,
+ 				       size_t *levels_count)
+ {
+-	const struct regul_struct *regul = regul_table + id;
++	const struct regul_struct *regul = NULL;
+ 
+-	if (!regul)
++	if (id >= ARRAY_SIZE(regul_table))
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	regul = regul_table + id;
++
+ 	if (levels_count)
+ 		*levels_count = regul->volt_table_size;
+ 	if (levels)
+@@ -345,10 +352,15 @@ TEE_Result stpmic2_regulator_levels_mv(struct stpmic2 *pmic __unused,
+ TEE_Result stpmic2_regulator_get_voltage(struct stpmic2 *pmic, uint8_t id,
+ 					 uint16_t *val)
+ {
+-	const struct regul_struct *regul = regul_table + id;
++	const struct regul_struct *regul = NULL;
+ 	uint8_t value = 0;
+ 	uint8_t mask = 0;
+ 
++	if (id >= ARRAY_SIZE(regul_table))
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	regul = regul_table + id;
++
+ 	if (!regul->volt_table_size)
+ 		return TEE_ERROR_GENERIC;
+ 
+-- 
+2.53.0
+

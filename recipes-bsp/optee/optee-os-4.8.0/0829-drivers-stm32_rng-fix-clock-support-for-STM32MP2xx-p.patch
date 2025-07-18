@@ -1,0 +1,112 @@
+From 35d5867ed79ece0659a6316fc29022db0c066caf Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 2 Jul 2026 18:16:44 +0200
+Subject: [PATCH 829/913] drivers: stm32_rng: fix clock support for STM32MP2xx
+ platforms
+
+Use the same and generic clock name for rng nodes: "core" and "bus"
+as it is expected in Linux yaml for compatible "st,stm32mp21-rng" and "st,stm32mp25-rng" .
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 009503f7b67c24160ce3e1dcdedeae9acf8f32a0 drivers: stm32_rng: fix clock support for STM32MP2xx platforms]
+Fixes: d4741dacb140 ("dt-bindings: stm32_rng: add RNG support for STM32MP21")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I862e90d0abf7badda7570a0274eb407be367af89
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/584299
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/dts/stm32mp211.dtsi                       | 4 ++--
+ core/arch/arm/dts/stm32mp231.dtsi                       | 2 +-
+ core/arch/arm/dts/stm32mp251.dtsi                       | 2 +-
+ core/drivers/stm32_rng.c                                | 4 ++--
+ documentation/devicetree/bindings/rng/st,stm32-rng.yaml | 5 -----
+ 5 files changed, 6 insertions(+), 11 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp211.dtsi b/core/arch/arm/dts/stm32mp211.dtsi
+index eef343da5..5278b353c 100644
+--- a/core/arch/arm/dts/stm32mp211.dtsi
++++ b/core/arch/arm/dts/stm32mp211.dtsi
+@@ -333,7 +333,7 @@
+ 				compatible = "st,stm32mp21-rng";
+ 				reg = <0x42020000 0x400>;
+ 				clocks = <&clk_rcbsec>, <&rcc CK_BUS_RNG2>;
+-				clock-names = "rng_clk", "rng_hclk";
++				clock-names = "core", "bus";
+ 				access-controllers = <&rifsc STM32MP21_RIFSC_RNG2_ID>;
+ 				resets = <&rcc RNG2_R>;
+ 			};
+@@ -352,7 +352,7 @@
+ 				compatible = "st,stm32mp21-rng";
+ 				reg = <0x42030800 0x400>;
+ 				clocks = <&clk_rcbsec>, <&rcc CK_BUS_RNG1>;
+-				clock-names = "rng_clk", "rng_hclk";
++				clock-names = "core", "bus";
+ 				resets = <&rcc RNG1_R>;
+ 				access-controllers = <&rifsc STM32MP21_RIFSC_RNG1_ID>;
+ 				status = "disabled";
+diff --git a/core/arch/arm/dts/stm32mp231.dtsi b/core/arch/arm/dts/stm32mp231.dtsi
+index 876fa59f2..bf3cf31c2 100644
+--- a/core/arch/arm/dts/stm32mp231.dtsi
++++ b/core/arch/arm/dts/stm32mp231.dtsi
+@@ -375,7 +375,7 @@
+ 				compatible = "st,stm32mp25-rng";
+ 				reg = <0x42020000 0x400>;
+ 				clocks = <&clk_rcbsec>, <&rcc CK_BUS_RNG>;
+-				clock-names = "rng_clk", "rng_hclk";
++				clock-names = "core", "bus";
+ 				resets = <&rcc RNG_R>;
+ 				access-controllers = <&rifsc STM32MP25_RIFSC_RNG_ID>;
+ 			};
+diff --git a/core/arch/arm/dts/stm32mp251.dtsi b/core/arch/arm/dts/stm32mp251.dtsi
+index 43fd26ce0..5806864ae 100644
+--- a/core/arch/arm/dts/stm32mp251.dtsi
++++ b/core/arch/arm/dts/stm32mp251.dtsi
+@@ -437,7 +437,7 @@
+ 				compatible = "st,stm32mp25-rng";
+ 				reg = <0x42020000 0x400>;
+ 				clocks = <&clk_rcbsec>, <&rcc CK_BUS_RNG>;
+-				clock-names = "rng_clk", "rng_hclk";
++				clock-names = "core", "bus";
+ 				resets = <&rcc RNG_R>;
+ 				access-controllers = <&rifsc STM32MP25_RIFSC_RNG_ID>;
+ 			};
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index 86ea6ea3a..e9e9dbf1b 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -623,12 +623,12 @@ static TEE_Result stm32_rng_parse_fdt(const void *fdt, int node)
+ 		return res;
+ 
+ 	if (stm32_rng->ddata->nb_clock > 1) {
+-		res = clk_dt_get_by_name(fdt, node, "rng_clk",
++		res = clk_dt_get_by_name(fdt, node, "core",
+ 					 &stm32_rng->clock);
+ 		if (res)
+ 			return res;
+ 
+-		res = clk_dt_get_by_name(fdt, node, "rng_hclk",
++		res = clk_dt_get_by_name(fdt, node, "bus",
+ 					 &stm32_rng->bus_clock);
+ 		if (res)
+ 			return res;
+diff --git a/documentation/devicetree/bindings/rng/st,stm32-rng.yaml b/documentation/devicetree/bindings/rng/st,stm32-rng.yaml
+index b6c1ced3c..e968f4d66 100644
+--- a/documentation/devicetree/bindings/rng/st,stm32-rng.yaml
++++ b/documentation/devicetree/bindings/rng/st,stm32-rng.yaml
+@@ -81,11 +81,6 @@ allOf:
+         clocks:
+           minItems: 2
+ 
+-        clock-names:
+-          items:
+-            - const: rng_clk  # RNG kernel clock
+-            - const: rng_hclk # RNG bus clock
+-
+       required:
+         - clock-names
+ 
+-- 
+2.53.0
+

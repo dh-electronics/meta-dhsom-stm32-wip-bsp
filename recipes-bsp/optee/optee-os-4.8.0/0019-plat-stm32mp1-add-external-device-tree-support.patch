@@ -1,0 +1,72 @@
+From 23b9081caffec612b9c4da392e450c255032daad Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 5 May 2023 16:57:05 +0200
+Subject: [PATCH 019/913] plat-stm32mp1: add external device tree support
+
+Adds the possibility to use and external repository for device tree source
+files for this platform. By default, this external path is set to
+external-dt/optee.
+
+If a device tree is not found in OP-TEE source code, search it in the
+external repository, if any.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 90a220cb562dace07706ab30a68ba3ce0cd59d7c plat-stm32mp1: add external device tree support]
+Change-Id: I4a8905b2211494057f63281e3e95f90d6f53fce1
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk | 18 ++++++++++++++++--
+ 1 file changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index e3405e40c..bfbb5b5d6 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -61,6 +61,19 @@ flavorlist-MP13 = $(flavor_dts_file-135F_DK)
+ flavorlist-dh-platforms = $(flavor_dts_file-157A_DHCOR_AVENGER96) \
+ 			  $(flavor_dts_file-157C_DHCOM_PDK2)
+ 
++# Check if device-tree exist in OP-TEE source code, else search it in external
++# device tree repository
++ifeq ($(wildcard $(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE)),)
++# External device tree default path
++CFG_EXT_DTS ?= $(arch-dir)/dts/external-dt/optee
++ifneq ($(wildcard $(CFG_EXT_DTS)/$(CFG_EMBED_DTB_SOURCE_FILE)),)
++override dts-source-path := $(CFG_EXT_DTS)
++-include $(CFG_EXT_DTS)/conf.mk
++else
++$(error Cannot find DTS file $(CFG_EXT_DTS)/$(CFG_EMBED_DTB_SOURCE_FILE))
++endif
++endif
++
+ ifneq ($(PLATFORM_FLAVOR),)
+ ifeq ($(flavor_dts_file-$(PLATFORM_FLAVOR)),)
+ $(error Invalid platform flavor $(PLATFORM_FLAVOR))
+@@ -96,6 +109,9 @@ ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-dh-platforms)),)
+ CFG_STM32_ALLOW_UNSAFE_PROBE ?= y
+ endif
+ 
++# Default do not access external DT passed to non-secure boot stage
++CFG_EXTERNAL_DT ?= n
++
+ # CFG_STM32MP1x switches are exclusive.
+ # - CFG_STM32MP15 is enabled for STM32MP15x-* targets (default)
+ # - CFG_STM32MP13 is enabled for STM32MP13x-* targets
+@@ -144,7 +160,6 @@ $(call force,CFG_STM32MP13_CLK,y)
+ $(call force,CFG_STM32MP13_REGULATOR_IOD,y)
+ $(call force,CFG_TEE_CORE_NB_CORE,1)
+ $(call force,CFG_WITH_NSEC_GPIOS,n)
+-CFG_EXTERNAL_DT ?= n
+ CFG_STM32_CPU_OPP ?= y
+ CFG_STM32MP_OPP_COUNT ?= 3
+ # Measured latency on STM32MP13 is around 650uS so set 1mS
+@@ -164,7 +179,6 @@ $(call force,CFG_STM32MP1_RSTCTRL,y)
+ $(call force,CFG_STM32MP15_CLK,y)
+ CFG_CORE_RESERVED_SHM ?= n
+ CFG_MULTI_CORE_HALTING ?= y
+-CFG_EXTERNAL_DT ?= y
+ CFG_STM32_BSEC_SIP ?= y
+ CFG_TEE_CORE_NB_CORE ?= 2
+ CFG_WITH_SOFTWARE_PRNG ?= y
+-- 
+2.53.0
+

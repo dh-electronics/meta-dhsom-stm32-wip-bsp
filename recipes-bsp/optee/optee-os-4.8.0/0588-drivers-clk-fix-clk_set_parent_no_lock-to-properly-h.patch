@@ -1,0 +1,96 @@
+From bd72e48c5e791c1d2d4a0217756f328200841af1 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Tue, 26 May 2026 17:27:36 +0200
+Subject: [PATCH 588/913] drivers: clk: fix clk_set_parent_no_lock to properly
+ handle parent refcount
+
+Do not use clk_disable_no_lock(clk) to handle the refcount of the
+parent. If the counter of clk is different from 1, the counter of the
+parent will not be decreased.
+So directly handle the refcount of the parent by calling
+clk_xxx_no_lock() on the previous and futur parent of the clock.
+Also enable both parent when the flag CLK_SET_PARENT_PRE_ENABLE is
+register for a clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a206500c1020d9000eaa28aff69b5bad8521c6ad drivers: clk: fix clk_set_parent_no_lock to properly handle parent refcount]
+Fixes: 8baaac1ce3ac ("drivers: clk: pre-enable new parent on clock re-parent")
+Fixes: 2305544b3b9b ("drivers: clk: add generic clock framework")
+Change-Id: I7c99f2e7ed66c70039309c84e2607b4760647a53
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/571659
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/clk/clk.c | 36 +++++++++++++++++++++---------------
+ 1 file changed, 21 insertions(+), 15 deletions(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index f6fdcb2ca..e206def76 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -366,6 +366,7 @@ TEE_Result clk_get_parent_idx(struct clk *clk, struct clk *parent, size_t *pidx)
+ static TEE_Result clk_set_parent_no_lock(struct clk *clk, struct clk *parent,
+ 					 size_t pidx)
+ {
++	struct clk *old_parent = clk->parent;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	bool was_enabled = false;
+ 
+@@ -374,15 +375,15 @@ static TEE_Result clk_set_parent_no_lock(struct clk *clk, struct clk *parent,
+ 		return TEE_SUCCESS;
+ 
+ 	was_enabled = clk_is_enabled_no_lock(clk);
+-	/* Call is needed to decrement refcount on current parent tree */
+-	if (was_enabled) {
+-		if (clk->flags & CLK_SET_PARENT_PRE_ENABLE) {
+-			res = clk_enable_no_lock(parent);
+-			if (res)
+-				return res;
+-		}
+ 
+-		clk_disable_no_lock(clk);
++	if (clk->flags & CLK_SET_PARENT_PRE_ENABLE) {
++		res = clk_enable_no_lock(parent);
++		if (res)
++			panic("Failed to enable clock parent");
++
++		res = clk_enable_no_lock(old_parent);
++		if (res)
++			panic("Failed to enable old clock parent");
+ 	}
+ 
+ 	res = clk->ops->set_parent(clk, pidx);
+@@ -394,17 +395,22 @@ static TEE_Result clk_set_parent_no_lock(struct clk *clk, struct clk *parent,
+ 	/* The parent changed and the rate might also have changed */
+ 	clk_compute_rate_no_lock(clk);
+ 
+-out:
+-	/* Call is needed to increment refcount on the new parent tree */
++	/*
++	 * Call is needed to :
++	 *  - increment refcount on current parent tree
++	 *  - decrement refcount of previous parent tree
++	 */
+ 	if (was_enabled) {
+-		res = clk_enable_no_lock(clk);
++		res = clk_enable_no_lock(parent);
+ 		if (res)
+ 			panic("Failed to re-enable clock after setting parent");
+ 
+-		if (clk->flags & CLK_SET_PARENT_PRE_ENABLE) {
+-			/* Balance refcount when new parent was pre-enabled */
+-			clk_disable_no_lock(parent);
+-		}
++		clk_disable_no_lock(old_parent);
++	}
++out:
++	if (clk->flags & CLK_SET_PARENT_PRE_ENABLE) {
++		clk_disable_no_lock(old_parent);
++		clk_disable_no_lock(parent);
+ 	}
+ 
+ 	return res;
+-- 
+2.53.0
+

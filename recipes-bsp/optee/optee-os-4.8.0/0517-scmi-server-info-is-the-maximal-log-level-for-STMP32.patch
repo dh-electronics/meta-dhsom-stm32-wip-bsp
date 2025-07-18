@@ -1,0 +1,48 @@
+From 6fcd3c0c4fad7993a4769bc7fb68dea1e11ff885 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 26 Jun 2025 12:14:11 +0200
+Subject: [PATCH 517/913] scmi-server: info is the maximal log level for STMP32
+ platform the default
+
+For OP-TEE TRACE LOG LEVEL greater than DEBUG(3), the scp-firmware
+Info level is sufficient (STM32 platform not activate the SCP level
+DEBUG by default) and for lower mode, the default value is defined in
+generic OP-TEE file scmi-server/conf.mk, with the generic rules:
+* 3 = SCP error for TRACE_MIN and TRACE_ERROR
+* 1 = SCP info for TRACE_INFO
+* 0 = SCP trace/verbose for TRACE_DEBUG and TRACE_FLOW
+      (but not used for STM32)
+
+This patch avoids SCP info trace when OP-TEE log level is TRACE_INFO.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 038ff6e1581d8b79df6484d140c57d50daaace1c scmi-server: info is the maximal log level for STMP32 platform the default]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I95fecd1bc49d9627da06c85067f9f9833a835ea2
+---
+ core/lib/scmi-server/conf-optee-stm32mp2.mk | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/core/lib/scmi-server/conf-optee-stm32mp2.mk b/core/lib/scmi-server/conf-optee-stm32mp2.mk
+index 5c31beed9..11c840750 100644
+--- a/core/lib/scmi-server/conf-optee-stm32mp2.mk
++++ b/core/lib/scmi-server/conf-optee-stm32mp2.mk
+@@ -10,10 +10,13 @@ $(call force,CFG_SCPFW_MOD_SCMI,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_CLOCK,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_RESET_DOMAIN,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN,y)
+-# Info level is sufficient for scp-firmware
+-CFG_SCPFW_LOG_LEVEL ?= 1
+-
+ $(call force,CFG_SCPFW_MOD_VOLTAGE_DOMAIN,y)
+ 
++ifeq (,$(filter 0 1 2,$(CFG_TEE_CORE_LOG_LEVEL)))
++# For OP-TEE TRACE >= DEBUG (3), the scp-firmware Info(1) level is sufficient
++# and for lower mode, the default value is defined in scmi-server/conf.mk
++CFG_SCPFW_LOG_LEVEL ?= 1
++endif
++
+ $(call force,CFG_SCPFW_NOTIFICATION,n)
+ $(call force,CFG_SCPFW_FAST_CHANNEL,n)
+-- 
+2.53.0
+

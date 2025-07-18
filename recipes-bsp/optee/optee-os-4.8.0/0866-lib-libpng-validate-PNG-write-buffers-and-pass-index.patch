@@ -1,0 +1,80 @@
+From 3a7c39e4a2652dc041654fc05f0204f28b1aa87b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 14:10:12 +0200
+Subject: [PATCH 866/913] lib: libpng: validate PNG write buffers and pass
+ index bounds
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fix buffer pointer/length consistency checks in pngwutil.c and add a
+lower-bound validation for the signed interlace pass index to prevent
+undefined behavior and out-of-bounds access in PNG write paths.
+
+- png_compress_IDAT: validate that the input buffer pointer and length
+  are consistent before calling deflate(), preventing undefined behavior
+  when input is NULL with a non-zero length or vice versa
+- png_text_compress: validate that comp->input and comp->input_len are
+  consistent before calling deflate(), preventing undefined behavior
+  from mismatched buffer pointer and size
+- png_do_write_interlace: validate the signed 'pass' parameter before
+  array indexing to prevent out-of-bounds access when pass is negative
+
+Coverity issue: CID 888134, CID 889860, CID 1207780, CID 1207782,
+CID 1207825, CID 1207879
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d809ab374bdc04ccc0cdb074563e3b732814710d lib: libpng: validate PNG write buffers and pass index bounds]
+Assisted-by: GitHub-Copilot:Claude-Haiku-4.5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Iff75d856ac4330ef37fac1bdd222f4c99947ad07
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/592842
+Reviewed-by: Philippe CORNU <philippe.cornu@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yannick FERTRE <yannick.fertre@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ lib/libpng/pngwutil.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/lib/libpng/pngwutil.c b/lib/libpng/pngwutil.c
+index 16345e4c0..6cad4ee07 100644
+--- a/lib/libpng/pngwutil.c
++++ b/lib/libpng/pngwutil.c
+@@ -505,6 +505,12 @@ png_text_compress(png_structrp png_ptr, png_uint_32 chunk_name,
+    if (ret != Z_OK)
+       return ret;
+ 
++   /* NULL input with a length of 0 is valid (no data to compress); any
++    * other combination is an internal inconsistency.
++    */
++   if ((comp->input == NULL) != (comp->input_len == 0))
++      return Z_STREAM_ERROR;
++
+    /* Set up the compression buffers, we need a loop here to avoid overflowing a
+     * uInt.  Use ZLIB_IO_MAX to limit the input.  The output is always limited
+     * by the output buffer size, so there is no need to check that.  Since this
+@@ -963,6 +969,11 @@ png_compress_IDAT(png_structrp png_ptr, png_const_bytep input,
+     * terminates the operation.  The _out values are maintained across calls to
+     * this function, but the input must be reset each time.
+     */
++   /* NULL input with a length of 0 is valid (no data to compress); any
++    * other combination is an internal inconsistency.
++    */
++   if ((input == NULL) != (input_len == 0))
++      return;
+    png_ptr->zstream.next_in = PNGZ_INPUT_CAST(input);
+    png_ptr->zstream.avail_in = 0; /* set below */
+    for (;;)
+@@ -2106,7 +2117,7 @@ png_do_write_interlace(png_row_infop row_info, png_bytep row, int pass)
+    png_debug(1, "in png_do_write_interlace");
+ 
+    /* We don't have to do anything on the last pass (6) */
+-   if (pass < 6)
++   if (pass >= 0 && pass < 6)
+    {
+       /* Each pixel depth is handled separately */
+       switch (row_info->pixel_depth)
+-- 
+2.53.0
+

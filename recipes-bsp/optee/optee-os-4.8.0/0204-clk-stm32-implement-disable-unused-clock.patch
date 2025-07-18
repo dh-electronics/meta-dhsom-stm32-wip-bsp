@@ -1,0 +1,288 @@
+From c2eaf02679bceeac5421422156f8f30e5c6b6c8a Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 10 Mar 2026 14:42:10 +0100
+Subject: [PATCH 204/913] clk: stm32: implement disable unused clock
+
+Use disable_unused clock ops to disable unused clocks which have a
+common gate.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b60bbb5fd99008c494b28ceb3d4b6523e8eed2d2 clk: stm32: implement disable unused clock]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I05eeb746f438045ca176d5e686968e361de2af47
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/545793
+---
+ core/drivers/clk/clk-stm32-core.c | 35 +++++++++++++++++++++++++++++++
+ core/drivers/clk/clk-stm32-core.h |  3 +++
+ core/drivers/clk/clk-stm32mp13.c  |  2 ++
+ core/drivers/clk/clk-stm32mp21.c  | 25 ++++++++++++++++++++++
+ core/drivers/clk/clk-stm32mp25.c  | 25 ++++++++++++++++++++++
+ 5 files changed, 90 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32-core.c b/core/drivers/clk/clk-stm32-core.c
+index fac037ce0..a0b4635c8 100644
+--- a/core/drivers/clk/clk-stm32-core.c
++++ b/core/drivers/clk/clk-stm32-core.c
+@@ -126,6 +126,15 @@ bool stm32_gate_is_enabled(uint16_t gate_id)
+ 	return (io_read32(addr) & BIT(gate->bit_idx)) != 0U;
+ }
+ 
++void stm32_gate_disable_unused(uint16_t gate_id)
++{
++	struct clk_stm32_priv *priv = clk_stm32_get_priv();
++	uint8_t *gate_cpt = priv->gate_cpt;
++
++	if (gate_cpt[gate_id] == 0)
++		stm32_gate_endisable(gate_id, false);
++}
++
+ TEE_Result stm32_gate_wait_ready(uint16_t gate_id, bool ready_on)
+ {
+ 	struct clk_stm32_priv *priv = clk_stm32_get_priv();
+@@ -392,10 +401,18 @@ static bool clk_stm32_gate_is_enabled(struct clk *clk)
+ 	return stm32_gate_is_enabled(cfg->gate_id);
+ }
+ 
++static void clk_stm32_gate_disable_unused(struct clk *clk)
++{
++	struct clk_stm32_gate_cfg *cfg = clk->priv;
++
++	stm32_gate_disable_unused(cfg->gate_id);
++}
++
+ const struct clk_ops clk_stm32_gate_ops = {
+ 	.enable		= clk_stm32_gate_enable,
+ 	.disable	= clk_stm32_gate_disable,
+ 	.is_enabled	= clk_stm32_gate_is_enabled,
++	.disable_unused = clk_stm32_gate_disable_unused,
+ };
+ 
+ static void clk_stm32_gate_pm_restore(struct clk *clk)
+@@ -410,6 +427,7 @@ const struct clk_ops clk_stm32_gate_pm_ops = {
+ 	.enable		= clk_stm32_gate_enable,
+ 	.disable	= clk_stm32_gate_disable,
+ 	.is_enabled	= clk_stm32_gate_is_enabled,
++	.disable_unused = clk_stm32_gate_disable_unused,
+ 	.restore_context = clk_stm32_gate_pm_restore,
+ };
+ 
+@@ -518,6 +536,13 @@ void clk_stm32_composite_gate_disable(struct clk *clk)
+ 	stm32_gate_disable(cfg->gate_id);
+ }
+ 
++void clk_stm32_composite_gate_disable_unused(struct clk *clk)
++{
++	struct clk_stm32_composite_cfg *cfg = clk->priv;
++
++	stm32_gate_disable_unused(cfg->gate_id);
++}
++
+ bool clk_stm32_composite_gate_is_enabled(struct clk *clk)
+ {
+ 	struct clk_stm32_composite_cfg *cfg = clk->priv;
+@@ -533,6 +558,7 @@ const struct clk_ops clk_stm32_composite_ops = {
+ 	.enable		= clk_stm32_composite_gate_enable,
+ 	.disable	= clk_stm32_composite_gate_disable,
+ 	.is_enabled	= clk_stm32_composite_gate_is_enabled,
++	.disable_unused = clk_stm32_composite_gate_disable_unused,
+ };
+ 
+ TEE_Result clk_stm32_set_parent_by_index(struct clk *clk, size_t pidx)
+@@ -679,3 +705,12 @@ void stm32mp_clk_provider_probe_final(const void *fdt, int node,
+ 	if (res)
+ 		panic("Couldn't register clock provider");
+ }
++
++static TEE_Result clk_stm32_disable_unused(void)
++{
++	if(IS_ENABLED(CFG_STM32_CLK_DISABLE_UNUSED))
++		clk_disable_unused();
++
++	return TEE_SUCCESS;
++}
++release_init_resource(clk_stm32_disable_unused);
+diff --git a/core/drivers/clk/clk-stm32-core.h b/core/drivers/clk/clk-stm32-core.h
+index 4ddc6d2e7..3eeb98d88 100644
+--- a/core/drivers/clk/clk-stm32-core.h
++++ b/core/drivers/clk/clk-stm32-core.h
+@@ -116,6 +116,8 @@ void stm32_gate_endisable(uint16_t gate_id, bool enable);
+ void stm32_gate_enable(uint16_t gate_id);
+ void stm32_gate_disable(uint16_t gate_id);
+ bool stm32_gate_is_enabled(uint16_t gate_id);
++void stm32_gate_disable_unused(uint16_t gate_id);
++
+ TEE_Result stm32_gate_wait_ready(uint16_t gate_id, bool ready_on);
+ TEE_Result stm32_gate_rdy_enable(uint16_t gate_id);
+ TEE_Result stm32_gate_rdy_disable(uint16_t gate_id);
+@@ -156,6 +158,7 @@ TEE_Result clk_stm32_composite_set_rate(struct clk *clk, unsigned long rate,
+ TEE_Result clk_stm32_composite_gate_enable(struct clk *clk);
+ void clk_stm32_composite_gate_disable(struct clk *clk);
+ bool clk_stm32_composite_gate_is_enabled(struct clk *clk);
++void clk_stm32_composite_gate_disable_unused(struct clk *clk);
+ 
+ TEE_Result clk_stm32_set_parent_by_index(struct clk *clk, size_t pidx);
+ 
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index bf68977ef..57b86b78a 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -2044,6 +2044,7 @@ static const struct clk_ops clk_stm32_composite_duty_cycle_ops = {
+ 	.enable		= clk_stm32_composite_gate_enable,
+ 	.disable	= clk_stm32_composite_gate_disable,
+ 	.is_enabled	= clk_stm32_composite_gate_is_enabled,
++	.disable_unused	= clk_stm32_composite_gate_disable_unused,
+ 	.round_rate	= clk_stm32_composite_round_rate,
+ 	.get_duty_cycle	= clk_stm32_composite_get_duty_cycle,
+ };
+@@ -2132,6 +2133,7 @@ static const struct clk_ops clk_stm32_pll1p_ops = {
+ 	.enable		= clk_stm32_composite_gate_enable,
+ 	.disable	= clk_stm32_composite_gate_disable,
+ 	.is_enabled	= clk_stm32_composite_gate_is_enabled,
++	.disable_unused	= clk_stm32_composite_gate_disable_unused,
+ };
+ 
+ static TEE_Result clk_stm32_mpu_determine_rate(struct clk *clk,
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index 2bd879d2e..8cccf6318 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -2379,6 +2379,12 @@ static bool clk_stm32_hsediv2_is_enabled(struct clk *clk)
+ 	return clk_stm32_gate_ops.is_enabled(clk);
+ }
+ 
++static void clk_stm32_hsediv2_disable_unused(struct clk *clk)
++{
++	if (stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
++		clk_stm32_gate_ops.disable_unused(clk);
++}
++
+ static unsigned long clk_stm32_hsediv2_get_rate(struct clk *clk __unused,
+ 						unsigned long prate)
+ {
+@@ -2406,6 +2412,7 @@ static const struct clk_ops clk_hsediv2_ops = {
+ 	.enable = clk_stm32_hsediv2_enable,
+ 	.disable = clk_stm32_hsediv2_disable,
+ 	.is_enabled = clk_stm32_hsediv2_is_enabled,
++	.disable_unused = clk_stm32_hsediv2_disable_unused,
+ 	.get_rate = clk_stm32_hsediv2_get_rate,
+ 	.restore_context = clk_stm32_hsediv2_pm_restore,
+ };
+@@ -3040,6 +3047,14 @@ static void clk_stm32_rif_gate_disable(struct clk *clk)
+ 		stm32_gate_disable(cfg->gate_id);
+ }
+ 
++static void clk_stm32_rif_gate_disable_unused(struct clk *clk)
++{
++	struct clk_stm32_rif_gate_cfg *cfg = clk->priv;
++
++	if (stm32_rcc_has_access_by_id(cfg->sec_id))
++		stm32_gate_disable_unused(cfg->gate_id);
++}
++
+ static bool clk_stm32_rif_gate_is_enabled(struct clk *clk)
+ {
+ 	struct clk_stm32_rif_gate_cfg *cfg = clk->priv;
+@@ -3062,6 +3077,7 @@ static const struct clk_ops clk_stm32_rif_gate_ops = {
+ 	.enable		= clk_stm32_rif_gate_enable,
+ 	.disable	= clk_stm32_rif_gate_disable,
+ 	.is_enabled	= clk_stm32_rif_gate_is_enabled,
++	.disable_unused = clk_stm32_rif_gate_disable_unused,
+ 	.restore_context = clk_stm32_rif_gate_pm_restore,
+ };
+ 
+@@ -3140,6 +3156,14 @@ static void clk_stm32_rif_composite_gate_disable(struct clk *clk)
+ 		stm32_gate_disable(cfg->gate_id);
+ }
+ 
++static void clk_stm32_rif_composite_gate_disable_unused(struct clk *clk)
++{
++	struct clk_stm32_rif_composite_cfg *cfg = clk->priv;
++
++	if (stm32_rcc_has_access_by_id(cfg->sec_id))
++		stm32_gate_disable_unused(cfg->gate_id);
++}
++
+ static bool clk_stm32_rif_composite_gate_is_enabled(struct clk *clk)
+ {
+ 	struct clk_stm32_rif_composite_cfg *cfg = clk->priv;
+@@ -3179,6 +3203,7 @@ static const struct clk_ops clk_stm32_rif_composite_ops = {
+ 	.enable		= clk_stm32_rif_composite_gate_enable,
+ 	.disable	= clk_stm32_rif_composite_gate_disable,
+ 	.is_enabled	= clk_stm32_rif_composite_gate_is_enabled,
++	.disable_unused = clk_stm32_rif_composite_gate_disable_unused,
+ 	.save_context	= clk_stm32_pm_save_rate,
+ 	.restore_context = clk_stm32_rif_composite_pm_restore,
+ };
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 93913e961..af1f851f9 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -2550,6 +2550,12 @@ static void clk_stm32_hsediv2_disable(struct clk *clk)
+ 		clk_stm32_gate_ops.disable(clk);
+ }
+ 
++static void clk_stm32_hsediv2_disable_unused(struct clk *clk)
++{
++	if (stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS))
++		clk_stm32_gate_ops.disable_unused(clk);
++}
++
+ static bool clk_stm32_hsediv2_is_enabled(struct clk *clk)
+ {
+ 	return clk_stm32_gate_ops.is_enabled(clk);
+@@ -2582,6 +2588,7 @@ static const struct clk_ops clk_hsediv2_ops = {
+ 	.enable = clk_stm32_hsediv2_enable,
+ 	.disable = clk_stm32_hsediv2_disable,
+ 	.is_enabled = clk_stm32_hsediv2_is_enabled,
++	.disable_unused = clk_stm32_hsediv2_disable_unused,
+ 	.get_rate = clk_stm32_hsediv2_get_rate,
+ 	.restore_context = clk_stm32_hsediv2_pm_restore,
+ };
+@@ -3297,6 +3304,14 @@ static void clk_stm32_rif_gate_disable(struct clk *clk)
+ 		stm32_gate_disable(cfg->gate_id);
+ }
+ 
++static void clk_stm32_rif_gate_disable_unused(struct clk *clk)
++{
++	struct clk_stm32_rif_gate_cfg *cfg = clk->priv;
++
++	if (stm32_rcc_has_access_by_id(cfg->sec_id))
++		stm32_gate_disable_unused(cfg->gate_id);
++}
++
+ static bool clk_stm32_rif_gate_is_enabled(struct clk *clk)
+ {
+ 	struct clk_stm32_rif_gate_cfg *cfg = clk->priv;
+@@ -3319,6 +3334,7 @@ static const struct clk_ops clk_stm32_rif_gate_ops = {
+ 	.enable		= clk_stm32_rif_gate_enable,
+ 	.disable	= clk_stm32_rif_gate_disable,
+ 	.is_enabled	= clk_stm32_rif_gate_is_enabled,
++	.disable_unused = clk_stm32_rif_gate_disable_unused,
+ 	.restore_context = clk_stm32_rif_gate_pm_restore,
+ };
+ 
+@@ -3397,6 +3413,14 @@ static void clk_stm32_rif_composite_gate_disable(struct clk *clk)
+ 		stm32_gate_disable(cfg->gate_id);
+ }
+ 
++static void clk_stm32_rif_composite_gate_disable_unused(struct clk *clk)
++{
++	struct clk_stm32_rif_composite_cfg *cfg = clk->priv;
++
++	if (stm32_rcc_has_access_by_id(cfg->sec_id))
++		stm32_gate_disable_unused(cfg->gate_id);
++}
++
+ static bool clk_stm32_rif_composite_gate_is_enabled(struct clk *clk)
+ {
+ 	struct clk_stm32_rif_composite_cfg *cfg = clk->priv;
+@@ -3436,6 +3460,7 @@ static const struct clk_ops clk_stm32_rif_composite_ops = {
+ 	.enable		= clk_stm32_rif_composite_gate_enable,
+ 	.disable	= clk_stm32_rif_composite_gate_disable,
+ 	.is_enabled	= clk_stm32_rif_composite_gate_is_enabled,
++	.disable_unused = clk_stm32_rif_composite_gate_disable_unused,
+ 	.save_context	= clk_stm32_pm_save_rate,
+ 	.restore_context = clk_stm32_rif_composite_pm_restore,
+ };
+-- 
+2.53.0
+

@@ -1,0 +1,40 @@
+From 3a1d625cb0ca05e697bcb818e74b455872a64593 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Mon, 11 May 2026 14:27:11 +0200
+Subject: [PATCH 452/913] drivers: stm32_tamp: validate OUT_TAMP id from DT
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Reject missing or out-of-range OUT_TAMP IDs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7ef122b285e7c2b90679d8f3b40768306f211e43 drivers: stm32_tamp: validate OUT_TAMP id from DT]
+Change-Id: I6130b36483a6d70d8f78d1fc0ff0b51112659daf
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+---
+ core/drivers/stm32_tamp.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index 7125e6a38..0d86fdee0 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -1699,8 +1699,15 @@ stm32_tamp_configure_pin_from_dt(const void *fdt, int node,
+ 
+ 	if (res != TEE_ERROR_ITEM_NOT_FOUND) {
+ 		active = true;
++		if (!out_tamp_id) {
++			EMSG("OUT_TAMP ID can't be 0");
++			gpio_put(gpio_out);
++			return TEE_ERROR_BAD_PARAMETERS;
++		}
++
+ 		out_id = OUT_TAMP1 + out_tamp_id - 1;
+ 		if (out_tamp_id > pdata->compat->ext_tamp_size) {
++			EMSG("OUT_TAMP ID out of range");
+ 			gpio_put(gpio_out);
+ 			return TEE_ERROR_BAD_PARAMETERS;
+ 		}
+-- 
+2.53.0
+

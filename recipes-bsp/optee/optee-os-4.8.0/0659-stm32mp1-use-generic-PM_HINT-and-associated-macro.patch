@@ -1,0 +1,142 @@
+From 138253e38ef1916e1d7ba21e7edc3f8e212b24e7 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 5 May 2026 11:42:11 +0200
+Subject: [PATCH 659/913] stm32mp1: use generic PM_HINT and associated macro
+
+Update stm32mp1 low power function to handle the generic
+PM_HINT_.*_STATE and macros PM_HINT_IS_STATE() PM_HINT_PLATFORM_STATE()
+for STM32MP13 and STM32MP15 with STPMIC1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 066c80b35b4cd5099767f0cefe8384f6adc78950 stm32mp1: use generic PM_HINT and associated macro]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: If1f765386dd0370fffbb6e6581721cd402280fea
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/358953
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-stm32mp1/pm/context.c   | 38 ++++++++++++++++++++--
+ core/arch/arm/plat-stm32mp1/pm/context.h   |  2 +-
+ core/arch/arm/plat-stm32mp1/pm/low_power.c |  2 +-
+ core/arch/arm/plat-stm32mp1/pm/psci.c      |  3 --
+ 4 files changed, 37 insertions(+), 8 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.c b/core/arch/arm/plat-stm32mp1/pm/context.c
+index 1ee104cd1..13e4f9454 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/context.c
++++ b/core/arch/arm/plat-stm32mp1/pm/context.c
+@@ -524,6 +524,35 @@ static void gate_pm_context_clocks(bool enable)
+ 	}
+ }
+ 
++static uint32_t get_pm_hint(unsigned int soc_mode)
++{
++	uint32_t pm_hint = 0U;
++
++	assert(soc_mode < STM32_PM_MAX_SOC_MODE);
++
++	switch (soc_mode) {
++	case STM32_PM_CSLEEP_RUN:
++	case STM32_PM_CSTOP_ALLOW_STOP:
++	case STM32_PM_CSTOP_ALLOW_LP_STOP:
++	case STM32_PM_CSTOP_ALLOW_LPLV_STOP:
++	case STM32_PM_CSTANDBY_ALLOW_LPLV_STOP2:
++		pm_hint = PM_HINT_CLOCK_STATE;
++		break;
++
++	default:
++	case STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_SR:
++	case STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_OFF:
++	case STM32_PM_SHUTDOWN:
++		pm_hint = PM_HINT_CONTEXT_STATE;
++		break;
++	};
++
++	pm_hint |= ((soc_mode << PM_HINT_PLATFORM_STATE_SHIFT) &
++		    PM_HINT_PLATFORM_STATE_MASK);
++
++	return pm_hint;
++}
++
+ /*
+  * Context (TEE RAM content + peripherals) must be restored
+  * only if system may reach STANDBY state.
+@@ -534,7 +563,7 @@ TEE_Result stm32mp_pm_save_context(unsigned int soc_mode)
+ 
+ 	save_time();
+ 
+-	res = pm_change_state(PM_OP_SUSPEND, soc_mode);
++	res = pm_change_state(PM_OP_SUSPEND, get_pm_hint(soc_mode));
+ 	if (res)
+ 		return res;
+ 
+@@ -567,14 +596,17 @@ void stm32mp_pm_restore_context(unsigned int soc_mode)
+ 		stm32mp1_clk_restore_context_for_stop();
+ #endif
+ 
+-	if (pm_change_state(PM_OP_RESUME, 0))
++	if (pm_change_state(PM_OP_RESUME, get_pm_hint(soc_mode)))
+ 		panic();
+ 
+ 	restore_time();
+ }
+ 
+-void stm32mp_pm_shutdown_context(void)
++void stm32mp_pm_shutdown_context(unsigned int soc_mode)
+ {
++	if (pm_change_state(PM_OP_SUSPEND, get_pm_hint(soc_mode)))
++		panic();
++
+ 	gate_pm_context_clocks(true);
+ 	load_earlyboot_pm_mailbox();
+ 	enable_pm_mailbox(0);
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.h b/core/arch/arm/plat-stm32mp1/pm/context.h
+index a71ac95ec..8fc34af94 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/context.h
++++ b/core/arch/arm/plat-stm32mp1/pm/context.h
+@@ -83,7 +83,7 @@ void stm32mp_cpu_reset_state(void);
+ 
+ TEE_Result stm32mp_pm_save_context(unsigned int soc_mode);
+ void stm32mp_pm_restore_context(unsigned int soc_mode);
+-void stm32mp_pm_shutdown_context(void);
++void stm32mp_pm_shutdown_context(unsigned int soc_mode);
+ void stm32mp_pm_wipe_context(void);
+ 
+ #ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
+diff --git a/core/arch/arm/plat-stm32mp1/pm/low_power.c b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+index b06f6951e..653edeea8 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/low_power.c
++++ b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+@@ -363,6 +363,7 @@ void __noreturn stm32_enter_cstop_shutdown(uint32_t mode)
+ 				    TARGET_CPU1_GIC_MASK);
+ 	}
+ #endif
++	stm32mp_pm_shutdown_context(mode);
+ 
+ 	switch (mode) {
+ 	case STM32_PM_SHUTDOWN:
+@@ -375,7 +376,6 @@ void __noreturn stm32_enter_cstop_shutdown(uint32_t mode)
+ 		}
+ 		break;
+ 	case STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_OFF:
+-		stm32mp_pm_shutdown_context();
+ 		stm32_enter_cstop(mode);
+ 		dsb();
+ 		isb();
+diff --git a/core/arch/arm/plat-stm32mp1/pm/psci.c b/core/arch/arm/plat-stm32mp1/pm/psci.c
+index 10cc6b9ad..2d7c0b3c1 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/psci.c
++++ b/core/arch/arm/plat-stm32mp1/pm/psci.c
+@@ -401,9 +401,6 @@ void __noreturn psci_system_off(void)
+ 
+ 	DMSG("core %u", get_core_pos());
+ 
+-	if (pm_change_state(PM_OP_SUSPEND, soc_mode))
+-		panic();
+-
+ 	stm32_enter_cstop_shutdown(soc_mode);
+ }
+ 
+-- 
+2.53.0
+

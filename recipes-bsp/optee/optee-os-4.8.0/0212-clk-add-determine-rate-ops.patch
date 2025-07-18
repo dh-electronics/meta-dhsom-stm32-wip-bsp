@@ -1,0 +1,202 @@
+From bdb4ef188366a22bd95ef1af99bae039b7c5b828 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 18 Mar 2026 17:44:16 +0100
+Subject: [PATCH 212/913] clk: add determine rate ops
+
+Determine rate ops is useful for doing a set_rate and a parent change
+at the same time.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b34b7a0fad3152839251dc97bb5b61305f817a60 clk: add determine rate ops]
+Change-Id: I27c512df5ee49b31f993a8d6a19426fc8d7eaee9
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+
+# Conflicts:
+#	core/drivers/clk/clk.c
+#	core/include/drivers/clk.h
+---
+ core/drivers/clk/clk.c     | 73 +++++++++++++++++++++++++++++++++-----
+ core/include/drivers/clk.h | 32 +++++++++++++++++
+ 2 files changed, 96 insertions(+), 9 deletions(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index 0ba28665c..5ee0b0e77 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -21,6 +21,10 @@ static struct mutex_pm_aware mu = MUTEX_PM_AWARE_INITIALIZER;
+ static SLIST_HEAD(, clk) clock_list = SLIST_HEAD_INITIALIZER(clock_list);
+ #endif
+ 
++
++static TEE_Result clk_set_parent_no_lock(struct clk *clk, struct clk *parent,
++					 size_t pidx);
++
+ static void lock_clk(void)
+ {
+ 	mutex_pm_aware_lock(&mu);
+@@ -209,22 +213,74 @@ unsigned long clk_get_rate(struct clk *clk)
+ 	return clk->rate;
+ }
+ 
++static void clk_init_rate_req(struct clk *clk,
++			      struct clk_rate_request *req)
++{
++	struct clk *parent = clk->parent;
++
++	if (parent) {
++		req->best_parent = parent;
++		req->best_parent_rate = parent->rate;
++	} else {
++		req->best_parent = NULL;
++		req->best_parent_rate = 0;
++	}
++}
++
+ static TEE_Result clk_set_rate_no_lock(struct clk *clk, unsigned long rate)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	unsigned long parent_rate = 0;
++	unsigned long new_rate = rate;
++	struct clk *parent = clk->parent;
+ 
+-	if (clk->parent)
++	if (parent)
+ 		parent_rate = clk_get_rate(clk->parent);
+ 
+-	assert(!(clk->flags & CLK_SET_RATE_PARENT) || clk->parent);
+-	if (clk->flags & CLK_SET_RATE_PARENT) {
+-		res = clk_set_rate_no_lock(clk->parent, rate);
++	/* find the closest rate and parent clk/rate */
++	if (clk->ops->determine_rate) {
++		struct clk_rate_request req = { };
++		struct clk *old_parent = clk->parent;
++
++		req.rate = rate;
++
++		clk_init_rate_req(clk, &req);
++
++		res = clk->ops->determine_rate(clk, &req);
++		if (res)
++			return res;
++
++		parent_rate = req.best_parent_rate;
++		new_rate = req.rate;
++		parent = req.best_parent;
++
++		res = clk_set_rate_no_lock(parent, parent_rate);
+ 		if (res)
+ 			return res;
+-		rate = clk_get_rate(clk->parent);
+-	}
+ 
++		if (parent && parent != old_parent) {
++			if (parent && clk->num_parents > 1) {
++				size_t pidx = 0;
++
++				if (clk_get_parent_idx(clk, parent, &pidx))
++					return TEE_ERROR_BAD_PARAMETERS;
++
++				res = clk_set_parent_no_lock(clk, parent, pidx);
++				if (res)
++					return res;
++				clk->parent = parent;
++			}
++		}
++	} else if (!parent || !(clk->flags & CLK_SET_RATE_PARENT)) {
++		/* pass-through clock without adjustable parent */
++		new_rate  = rate;
++	} else {
++		/* pass-through clock with adjustable parent */
++		res = clk_set_rate_no_lock(parent, rate);
++		if (res)
++			return res;
++		new_rate = parent->rate;
++	}
+ 	if (clk->ops->set_rate) {
+ 		if (clk->flags & CLK_SET_RATE_UNGATE) {
+ 			res = clk_enable_no_lock(clk);
+@@ -232,7 +288,7 @@ static TEE_Result clk_set_rate_no_lock(struct clk *clk, unsigned long rate)
+ 				return res;
+ 		}
+ 
+-		res = clk->ops->set_rate(clk, rate, parent_rate);
++		res = clk->ops->set_rate(clk, new_rate, parent_rate);
+ 
+ 		if (clk->flags & CLK_SET_RATE_UNGATE)
+ 			clk_disable_no_lock(clk);
+@@ -267,8 +323,7 @@ struct clk *clk_get_parent(struct clk *clk)
+ 	return clk->parent;
+ }
+ 
+-static TEE_Result clk_get_parent_idx(struct clk *clk, struct clk *parent,
+-				     size_t *pidx)
++TEE_Result clk_get_parent_idx(struct clk *clk, struct clk *parent, size_t *pidx)
+ {
+ 	size_t i = 0;
+ 
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index b1343f2e8..18c3351d5 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -59,6 +59,23 @@ struct clk_duty_cycle {
+ 	unsigned int den;
+ };
+ 
++/**
++ * struct clk_rate_request
++ *
++ * @rate:		Requested clock rate. This field will be adjusted by
++ *			clock drivers according to hardware capabilities.
++ * @best_parent_rate:	The best parent rate a parent can provide to fulfill the
++ *			requested constraints.
++ * @best_parent:	The most appropriate parent clock that fulfills the
++ *			requested constraints.
++ *
++ */
++struct clk_rate_request {
++	unsigned long rate;
++	unsigned long best_parent_rate;
++	struct clk *best_parent;
++};
++
+ /**
+  * struct clk_ops - Clock operations
+  *
+@@ -73,6 +90,9 @@ struct clk_duty_cycle {
+  * @get_rates_steps: Get support clock rates by min/max/step representation
+  * @get_duty_cycle: Get duty cytcle of the clock
+  * @round_rate: Get the closest supported clock rate to a requested rate
++ * @determine_rate: Given a target rate as input, returns the closest rate
++ *		actually supported by the clock, and optionally the parent clock
++ *		that should be used to provide the clock rate
+  *
+  * All clock operations are expected to execute in a interruptible thread
+  * context at the exclusion of power management sequence where non secure
+@@ -97,6 +117,8 @@ struct clk_ops {
+ 	unsigned long (*round_rate)(struct clk *clk,
+ 				    unsigned long rate,
+ 				    unsigned long parent_rate);
++	TEE_Result (*determine_rate)(struct clk *clk,
++				     struct clk_rate_request *req);
+ };
+ 
+ /**
+@@ -208,6 +230,16 @@ static inline size_t clk_get_num_parents(struct clk *clk)
+  */
+ struct clk *clk_get_parent_by_index(struct clk *clk, size_t pidx);
+ 
++/**
++ * clk_get_parent_idx - Get index of clock parent
++ *
++ * @clk: Clock which contains parent clocks
++ * @parent: Parent clock for which you want to known the index
++ * Return a TEE_Result compliant value and set index of the parent clock
++ */
++TEE_Result clk_get_parent_idx(struct clk *clk, struct clk *parent,
++			      size_t *pidx);
++
+ /**
+  * clk_set_parent() - Set the current clock parent
+  *
+-- 
+2.53.0
+

@@ -1,0 +1,129 @@
+From 2f6977ae4026d8b84686a9a509055fc8c65c3b37 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 5 May 2026 13:08:30 +0200
+Subject: [PATCH 629/913] plat-stm32mp1: allow STM32MP1 to use STPMIC2
+
+Allow STM32MP1 to use STPMIC2.
+Compile stm32mp_pmic2 common driver file for STM32MP1.
+Low power modes names are handled in platform files as
+the low power node names and numbers are different.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2330ea775fe967de90aa06f43a107f12b3ff9a52 plat-stm32mp1: allow STM32MP1 to use STPMIC2]
+Change-Id: I2c893a3544315eeb4dce06cc48e3a24c55506e33
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/378251
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk           |  1 +
+ .../plat-stm32mp1/drivers/stm32mp1_stpmic2.c  | 49 +++++++++++++++++++
+ core/arch/arm/plat-stm32mp1/drivers/sub.mk    |  1 +
+ core/arch/arm/plat-stm32mp1/stm32_util.h      | 11 ++++-
+ 4 files changed, 61 insertions(+), 1 deletion(-)
+ create mode 100644 core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 67cda2adb..5f4bcbd60 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -323,6 +323,7 @@ CFG_STM32_TIM ?= y
+ CFG_STM32_UART ?= y
+ CFG_STM32MP_PROVISIONING ?= y
+ CFG_STPMIC1 ?= y
++CFG_STPMIC2 ?= y
+ CFG_TZC400 ?= y
+ 
+ # Default RTC accuracy, higher accuracy means higher power consumption
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c
+new file mode 100644
+index 000000000..602ba6ec6
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c
+@@ -0,0 +1,49 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2024, STMicroelectronics
++ */
++
++#include <config.h>
++#include <drivers/regulator.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stpmic2.h>
++#include <keep.h>
++#include <kernel/pm.h>
++#include <platform_config.h>
++#include <trace.h>
++
++#include "pm/power.h"
++
++size_t plat_pmic2_get_lp_mode_count(void)
++{
++	return STM32_PM_MAX_SOC_MODE;
++}
++
++const char *plat_pmic2_get_lp_mode_name(int mode)
++{
++	return plat_get_lp_mode_name(mode);
++}
++
++static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint,
++			       const struct pm_callback_handle *pm_handle)
++{
++	struct regulator *regulator = pm_handle->handle;
++	unsigned int pwrlvl = PM_HINT_PLATFORM_STATE(pm_hint);
++
++	if (op == PM_OP_SUSPEND)
++		return stm32_pmic2_apply_pm_state(regulator, pwrlvl);
++	else if (op == PM_OP_RESUME)
++		return stm32_pmic2_resume_regulator(regulator);
++
++	return TEE_SUCCESS;
++}
++
++DECLARE_KEEP_PAGER_PM(pmic_regu_pm);
++
++TEE_Result plat_pmic2_supplied_init(struct regulator *regulator)
++{
++	register_pm_core_service_cb(pmic_regu_pm, regulator,
++				    regulator_name(regulator));
++
++	return TEE_SUCCESS;
++}
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/sub.mk b/core/arch/arm/plat-stm32mp1/drivers/sub.mk
+index 6df84b2cb..c3f2f82ca 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/sub.mk
++++ b/core/arch/arm/plat-stm32mp1/drivers/sub.mk
+@@ -1,3 +1,4 @@
+ srcs-$(CFG_STPMIC1) += stm32mp1_stpmic1.c
++srcs-$(CFG_STPMIC2) += stm32mp1_stpmic2.c
+ srcs-y 	+= stm32mp1_pwr.c
+ srcs-y 	+= stm32mp1_syscfg.c
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index b8f103b97..00398f04a 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -53,9 +53,18 @@ static inline bool stm32_stpmic1_is_present(void)
+ }
+ #endif
+ 
++#ifdef CFG_STPMIC2
++bool stm32_stpmic2_is_present(void);
++#else
++static inline bool stm32_stpmic2_is_present(void)
++{
++	return false;
++}
++#endif
++
+ static inline bool stm32mp_with_pmic(void)
+ {
+-	return stm32_stpmic1_is_present();
++	return stm32_stpmic1_is_present() || stm32_stpmic2_is_present();
+ }
+ 
+ /* Power management service */
+-- 
+2.53.0
+

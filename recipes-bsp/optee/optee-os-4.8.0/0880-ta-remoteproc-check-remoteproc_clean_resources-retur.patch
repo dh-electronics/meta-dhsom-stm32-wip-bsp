@@ -1,0 +1,103 @@
+From 70b4da0e136da5437535b968d227d3b9dd3bc784 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 4 Aug 2026 13:59:10 +0200
+Subject: [PATCH 880/913] ta: remoteproc: check remoteproc_clean_resources
+ return value
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+remoteproc_clean_resources wraps a PTA invocation that can fail, but
+several call sites ignored its return value, so a failure to release the
+remote processor resources went unnoticed.
+
+Check the returned status at every call site: log an error message when
+another error is already being reported, and propagate it in the stop
+path where the status would otherwise be TEE_SUCCESS. Also change the
+function return type from int to TEE_Result, as it returns a TEE_Result.
+
+Coverity issue: CID 1200190: Unchecked return value from library in remoteproc_load_elf
+Coverity issue: CID 1200081: Unchecked return value from library in remoteproc_load_fw
+Coverity issue: CID 1199938: Unchecked return value from library in remoteproc_start_fw
+Coverity issue: CID 1200567: Unchecked return value from library in remoteproc_stop_fw
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8a4da04029572678dc88d88a9d3cc1ae47932ca8 ta: remoteproc: check remoteproc_clean_resources return value]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Id955e858364e11438ec30185da10224c6b21c815
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/597001
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ ta/remoteproc/src/remoteproc_core.c | 18 ++++++++++--------
+ 1 file changed, 10 insertions(+), 8 deletions(-)
+
+diff --git a/ta/remoteproc/src/remoteproc_core.c b/ta/remoteproc/src/remoteproc_core.c
+index a59d00bd9..495e9b79e 100644
+--- a/ta/remoteproc/src/remoteproc_core.c
++++ b/ta/remoteproc/src/remoteproc_core.c
+@@ -963,7 +963,7 @@ static TEE_Result get_enc_seg_info(struct remoteproc_context *ctx, uint8_t *src,
+ 	return TEE_ERROR_NO_DATA;
+ }
+ 
+-static int remoteproc_clean_resources(struct remoteproc_context *ctx)
++static TEE_Result remoteproc_clean_resources(struct remoteproc_context *ctx)
+ {
+ 	uint32_t param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
+ 					       TEE_PARAM_TYPE_NONE,
+@@ -1205,8 +1205,8 @@ static TEE_Result remoteproc_load_elf(struct remoteproc_context *ctx)
+ 
+ out:
+ 	/* Clean the resources in case of fail */
+-	if (res)
+-		remoteproc_clean_resources(ctx);
++	if (res && remoteproc_clean_resources(ctx))
++		EMSG("Failed to release the remoteproc resources");
+ 	TEE_Free(ctx->hash_table);
+ 	ctx->hash_table = NULL;
+ 	TEE_Free(ctx->enc_table);
+@@ -1271,7 +1271,8 @@ static TEE_Result remoteproc_load_fw(uint32_t pt,
+ put_mems:
+ 	res2 = remoteproc_release_mems(ctx);
+ 	if (res2 && ctx->state == REMOTEPROC_LOADED) {
+-		remoteproc_clean_resources(ctx);
++		if (remoteproc_clean_resources(ctx))
++			EMSG("Failed to release the remoteproc resources");
+ 		ctx->state = REMOTEPROC_OFF;
+ 		res = res2;
+ 	}
+@@ -1319,8 +1320,8 @@ static TEE_Result remoteproc_start_fw(uint32_t pt,
+ 					  pt, params, NULL);
+ 		if (res == TEE_SUCCESS)
+ 			ctx->state = REMOTEPROC_STARTED;
+-		else
+-			remoteproc_clean_resources(ctx);
++		else if (remoteproc_clean_resources(ctx))
++			EMSG("Failed to release the remoteproc resources");
+ 		break;
+ 	default:
+ 		res = TEE_ERROR_BAD_STATE;
+@@ -1349,7 +1350,8 @@ static TEE_Result remoteproc_stop_fw(uint32_t pt,
+ 
+ 	switch (ctx->state) {
+ 	case REMOTEPROC_LOADED:
+-		remoteproc_clean_resources(ctx);
++		if (remoteproc_clean_resources(ctx))
++			EMSG("Failed to release the remoteproc resources");
+ 		ctx->state = REMOTEPROC_OFF;
+ 		res = TEE_ERROR_BAD_STATE;
+ 		break;
+@@ -1361,7 +1363,7 @@ static TEE_Result remoteproc_stop_fw(uint32_t pt,
+ 					  PTA_RPROC_FIRMWARE_STOP,
+ 					  pt, params, NULL);
+ 		if (res == TEE_SUCCESS) {
+-			remoteproc_clean_resources(ctx);
++			res = remoteproc_clean_resources(ctx);
+ 			ctx->state = REMOTEPROC_OFF;
+ 		}
+ 		break;
+-- 
+2.53.0
+

@@ -1,0 +1,300 @@
+From c93c405460ce999402d42a485f8285812634657e Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Mon, 10 Feb 2025 17:20:38 +0100
+Subject: [PATCH 519/913] plat-stm32mp2: scmi_server: implement power domain
+ protocol
+
+scmi_server_scpfw can now retrieve power domains description from DT.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a3f04bb8063e35f472dfe79b011d7335ddecd750 plat-stm32mp2: scmi_server: implement power domain protocol]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I58cdf7fc79d3fea1a7ed9a778fa8317ac26affe4
+---
+ core/arch/arm/plat-stm32mp2/conf.mk           |   2 +
+ core/lib/scmi-server/conf-optee-stm32mp2.mk   |   8 ++
+ .../include/scmi_agent_configuration.h        |  16 +++
+ .../scmi-server/include/scmi_pd_consumer.h    |  30 +++++
+ core/lib/scmi-server/scmi_pd_consumer.c       | 104 ++++++++++++++++++
+ core/lib/scmi-server/scmi_server_scpfw.c      |   7 ++
+ core/lib/scmi-server/sub.mk                   |   1 +
+ 7 files changed, 168 insertions(+)
+ create mode 100644 core/lib/scmi-server/include/scmi_pd_consumer.h
+ create mode 100644 core/lib/scmi-server/scmi_pd_consumer.c
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index de523bf8f..38f2442d4 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -88,6 +88,7 @@ $(call force,CFG_SCMI_MSG_DRIVERS,n)
+ $(call force,CFG_SCMI_PTA,n)
+ $(call force,CFG_SCMI_SCPFW,n)
+ $(call force,CFG_SCMI_SERVER_CLOCK_CONSUMER,n)
++$(call force,CFG_SCMI_SERVER_PD_CONSUMER,n)
+ $(call force,CFG_SCMI_SERVER_REGULATOR_CONSUMER,n)
+ $(call force,CFG_SCMI_SERVER_RESET_CONSUMER,n)
+ $(call force,CFG_STM32_BSEC_WRITE,n)
+@@ -207,6 +208,7 @@ CFG_SCMI_PTA ?= y
+ CFG_SCMI_SCPFW ?= y
+ CFG_SCMI_SCPFW_FROM_DT ?= y
+ CFG_SCMI_SERVER_CLOCK_CONSUMER ?= y
++CFG_SCMI_SERVER_PD_CONSUMER ?= y
+ CFG_SCMI_SERVER_REGULATOR_CONSUMER ?= y
+ CFG_SCMI_SERVER_RESET_CONSUMER ?= y
+ # Default enable some test facitilites
+diff --git a/core/lib/scmi-server/conf-optee-stm32mp2.mk b/core/lib/scmi-server/conf-optee-stm32mp2.mk
+index 59b238d81..c2894fd9c 100644
+--- a/core/lib/scmi-server/conf-optee-stm32mp2.mk
++++ b/core/lib/scmi-server/conf-optee-stm32mp2.mk
+@@ -15,6 +15,13 @@ $(call force,CFG_SCPFW_MOD_SCMI_PERF,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_RESET_DOMAIN,y)
+ $(call force,CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN,y)
+ $(call force,CFG_SCPFW_MOD_STM32_OPP,y)
++
++ifeq ($(call cfg-one-enabled, CFG_STM32MP23 CFG_STM32MP25),y)
++$(call force,CFG_SCPFW_MOD_POWER_DOMAIN,y)
++$(call force,CFG_SCPFW_MOD_SCMI_POWER_DOMAIN,y)
++$(call force,CFG_SCPFW_MOD_STM32_PD,y)
++endif
++
+ $(call force,CFG_SCPFW_MOD_VOLTAGE_DOMAIN,y)
+ $(call force,CFG_SCPFW_SCMI_PERF_PROTOCOL_OPS,y)
+ 
+@@ -29,3 +36,4 @@ $(call force,CFG_SCPFW_FAST_CHANNEL,n)
+ 
+ # Default configuration values for product specific modules
+ CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR ?= n
++CFG_SCPFW_MOD_STM32_PD ?= n
+diff --git a/core/lib/scmi-server/include/scmi_agent_configuration.h b/core/lib/scmi-server/include/scmi_agent_configuration.h
+index ce117101b..19cd7d06f 100644
+--- a/core/lib/scmi-server/include/scmi_agent_configuration.h
++++ b/core/lib/scmi-server/include/scmi_agent_configuration.h
+@@ -73,6 +73,18 @@ struct scmi_perfd {
+ 	unsigned int opp_id;
+ };
+ 
++/*
++ * struct scmi_pd - Description of a power domain resource
++ * @name: Domain name
++ * @clk: Clock controlled by the power domain or NULL
++ * @regu: Voltage regulator controlled by the power domain or NULL
++ */
++struct scmi_pd {
++	const char *name;
++	struct clk *clk;
++	struct regulator *regu;
++};
++
+ /*
+  * struct scpfw_channel_config - SCMI channel resources
+  * @name: Channel name
+@@ -85,6 +97,8 @@ struct scmi_perfd {
+  * @voltd_count: Number of cells of @voltd
+  * @perfd: Description of the DVFS/perf exposed on the channel
+  * @perfd_count: Number of cells of @perfd
++ * @pd: Description of the power domain exposed on the channel
++ * @pd_count: Number of cells of @pd
+  */
+ struct scpfw_channel_config {
+ 	const char *name;
+@@ -97,6 +111,8 @@ struct scpfw_channel_config {
+ 	size_t voltd_count;
+ 	struct scmi_perfd *perfd;
+ 	size_t perfd_count;
++	struct scmi_pd *pd;
++	size_t pd_count;
+ };
+ 
+ /*
+diff --git a/core/lib/scmi-server/include/scmi_pd_consumer.h b/core/lib/scmi-server/include/scmi_pd_consumer.h
+new file mode 100644
+index 000000000..1bd358f2f
+--- /dev/null
++++ b/core/lib/scmi-server/include/scmi_pd_consumer.h
+@@ -0,0 +1,30 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2024, STMicroelectronics
++ */
++
++#ifndef SCMI_SERVER_PD_CONSUMER_H
++#define SCMI_SERVER_PD_CONSUMER_H
++
++#include <stdint.h>
++#include <tee_api_types.h>
++#include <scmi_agent_configuration.h>
++
++#ifdef CFG_SCMI_SERVER_PD_CONSUMER
++/*
++ * Initialize SCMI power domain from power domain consumer information from DT.
++ * Returns a TEE_Result compliant value
++ */
++TEE_Result optee_scmi_server_init_pd(const void *fdt, int node,
++				     struct scpfw_agent_config *agent_cfg,
++				     struct scpfw_channel_config *channel_cfg);
++#else
++static inline TEE_Result
++optee_scmi_server_init_pd(const void *fdt __unused, int node __unused,
++			  struct scpfw_agent_config *agent_cfg __unused,
++			  struct scpfw_channel_config *channel_cfg __unused)
++{
++	return TEE_SUCCESS;
++}
++#endif /* CFG_SCMI_SERVER_PD_CONSUMER */
++#endif /* SCMI_SERVER_PD_CONSUMER_H */
+diff --git a/core/lib/scmi-server/scmi_pd_consumer.c b/core/lib/scmi-server/scmi_pd_consumer.c
+new file mode 100644
+index 000000000..7930aded9
+--- /dev/null
++++ b/core/lib/scmi-server/scmi_pd_consumer.c
+@@ -0,0 +1,104 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2024, STMicroelectronics
++ */
++
++#include <assert.h>
++#include <drivers/clk.h>
++#include <drivers/clk_dt.h>
++#include <drivers/regulator.h>
++#include <kernel/dt.h>
++#include <kernel/panic.h>
++#include <libfdt.h>
++#include <malloc.h>
++#include <scmi_agent_configuration.h>
++#include <scmi_pd_consumer.h>
++#include <tee_api_defines_extensions.h>
++#include <trace.h>
++
++TEE_Result optee_scmi_server_init_pd(const void *fdt, int node,
++				     struct scpfw_agent_config *agent_cfg,
++				     struct scpfw_channel_config *channel_cfg)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	int item_node = 0;
++	int subnode = 0;
++	bool have_subnodes = false;
++
++	item_node = fdt_subnode_offset(fdt, node, "power-domains");
++	if (item_node < 0)
++		return TEE_SUCCESS;
++
++	/* Compute the number of domains to allocate */
++	fdt_for_each_subnode(subnode, fdt, item_node) {
++		paddr_t reg = fdt_reg_base_address(fdt, subnode);
++
++		assert(reg != DT_INFO_INVALID_REG);
++		if (reg > channel_cfg->pd_count)
++			channel_cfg->pd_count = reg;
++
++		have_subnodes = true;
++	}
++
++	if (!have_subnodes)
++		return TEE_SUCCESS;
++
++	/* Number of SCMI power domains is the max domain ID + 1 */
++	channel_cfg->pd_count++;
++	channel_cfg->pd = calloc(channel_cfg->pd_count,
++				 sizeof(*channel_cfg->pd));
++	if (!channel_cfg->pd)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	fdt_for_each_subnode(subnode, fdt, item_node) {
++		struct regulator *regulator = NULL;
++		const char *domain_name = NULL;
++		const fdt32_t *cuint = NULL;
++		struct clk *clock = NULL;
++		uint32_t domain_id = 0;
++
++		res = regulator_dt_get_supply(fdt, subnode, "voltd",
++					      &regulator);
++		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
++			panic("Unexpected init deferral");
++		} else if (res) {
++			EMSG("Can't get regulator for power domain %s " \
++			     "(%#"PRIx32"), skipped",
++			     fdt_get_name(fdt, subnode, NULL), res);
++			continue;
++		}
++
++		res = clk_dt_get_by_index(fdt, subnode, 0, &clock);
++		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
++			panic("Unexpected init deferral");
++		} else if (res) {
++			EMSG("Can't get clock for power domain %s " \
++			     "(%#"PRIx32"), skipped",
++			     fdt_get_name(fdt, subnode, NULL), res);
++			continue;
++		}
++
++		domain_id = fdt_reg_base_address(fdt, subnode);
++
++		cuint = fdt_getprop(fdt, subnode, "domain-name", NULL);
++		if (cuint)
++			domain_name = (char *)cuint;
++		else
++			domain_name = fdt_get_name(fdt, subnode, NULL);
++
++		domain_name = strdup(domain_name);
++		if (!domain_name)
++			panic();
++
++		channel_cfg->pd[domain_id] = (struct scmi_pd){
++			.name = domain_name,
++			.regu = regulator,
++			.clk = clock,
++		};
++
++		DMSG("scmi power domain shares %s on domain ID %"PRIu32,
++		     channel_cfg->pd->name, domain_id);
++	}
++
++	return TEE_SUCCESS;
++}
+diff --git a/core/lib/scmi-server/scmi_server_scpfw.c b/core/lib/scmi-server/scmi_server_scpfw.c
+index 7547abdce..d644f49d3 100644
+--- a/core/lib/scmi-server/scmi_server_scpfw.c
++++ b/core/lib/scmi-server/scmi_server_scpfw.c
+@@ -12,6 +12,7 @@
+ #include <libfdt.h>
+ #include <scmi_agent_configuration.h>
+ #include <scmi_clock_consumer.h>
++#include <scmi_pd_consumer.h>
+ #include <scmi_regulator_consumer.h>
+ #include <scmi_reset_consumer.h>
+ #include <stdlib.h>
+@@ -81,6 +82,7 @@ static void scmi_scpfw_free_agent(struct scpfw_agent_config *agent_cfg)
+ 		}
+ 		free(channel_cfg->perfd);
+ 
++		free(channel_cfg->pd);
+ 		free(channel_cfg->voltd);
+ 		free(channel_cfg->reset);
+ 		free(channel_cfg->clock);
+@@ -201,6 +203,11 @@ optee_scmi_server_init_protocol(const void *fdt,
+ 				struct scpfw_channel_config *channel_cfg)
+ {
+ 	switch (protocol_ctx->protocol_id) {
++	case SCMI_PROTOCOL_ID_POWER_DOMAIN:
++		if (optee_scmi_server_init_pd(fdt, protocol_ctx->dt_node,
++					      agent_cfg, channel_cfg))
++			panic("Error during power domains init");
++		break;
+ 	case SCMI_PROTOCOL_ID_CLOCK:
+ 		if (optee_scmi_server_init_clocks(fdt, protocol_ctx->dt_node,
+ 						  agent_cfg, channel_cfg))
+diff --git a/core/lib/scmi-server/sub.mk b/core/lib/scmi-server/sub.mk
+index 28a9ee821..cc7f6a796 100644
+--- a/core/lib/scmi-server/sub.mk
++++ b/core/lib/scmi-server/sub.mk
+@@ -24,6 +24,7 @@ scpfw-integ-version = $(scpfw-integ-version-maj).$(scpfw-integ-version-min).$(sc
+ srcs-y += scmi_server.c
+ srcs-$(CFG_SCMI_SCPFW_FROM_DT) += scmi_server_scpfw.c
+ srcs-$(CFG_SCMI_SERVER_CLOCK_CONSUMER) += scmi_clock_consumer.c
++srcs-$(CFG_SCMI_SERVER_PD_CONSUMER) += scmi_pd_consumer.c
+ srcs-$(CFG_SCMI_SERVER_REGULATOR_CONSUMER) += scmi_regulator_consumer.c
+ srcs-$(CFG_SCMI_SERVER_RESET_CONSUMER) += scmi_reset_consumer.c
+ global-incdirs-y += include
+-- 
+2.53.0
+

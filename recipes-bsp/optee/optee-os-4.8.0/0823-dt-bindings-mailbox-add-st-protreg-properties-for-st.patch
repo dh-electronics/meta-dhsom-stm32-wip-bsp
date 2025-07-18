@@ -1,0 +1,103 @@
+From a4d52fa5c5c5b200ae1f9c9e84613ccd22fc0e01 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 2 Jul 2026 19:09:16 +0200
+Subject: [PATCH 823/913] dt-bindings: mailbox: add st,protreg properties for
+ stm32mp-ipcc
+
+Add description of the properties "st,protreg" for the firewall
+configuration for compatible "st,stm32mp25-ipcc".
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3e8af847ec1a34f326bb498d8a4d87a97236320a dt-bindings: mailbox: add st,protreg properties for stm32mp-ipcc]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I24e89ba698f4c69ee73fe57836e969c6f4ac0114
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/584311
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../bindings/mailbox/st,stm32-ipcc.yaml       | 61 ++++++++++++++++++-
+ 1 file changed, 60 insertions(+), 1 deletion(-)
+
+diff --git a/documentation/devicetree/bindings/mailbox/st,stm32-ipcc.yaml b/documentation/devicetree/bindings/mailbox/st,stm32-ipcc.yaml
+index 134fd223a..afc17f1c7 100644
+--- a/documentation/devicetree/bindings/mailbox/st,stm32-ipcc.yaml
++++ b/documentation/devicetree/bindings/mailbox/st,stm32-ipcc.yaml
+@@ -18,7 +18,9 @@ maintainers:
+ 
+ properties:
+   compatible:
+-    const: st,stm32mp1-ipcc
++    enum:
++      - st,stm32mp1-ipcc
++      - st,stm32mp25-ipcc
+ 
+   reg:
+     maxItems: 1
+@@ -46,6 +48,63 @@ properties:
+     $ref: /schemas/types.yaml#/definitions/uint32
+     enum: [0, 1]
+ 
++  st,protreg:
++    minItems: 1
++    maxItems: 16
++    $ref: "/schemas/types.yaml#/definitions/uint32-array"
++    description:
++      Describes the firewall hardware configuration to apply for a given
++      channel.
++
++      RIFPROT(ipcc_chan_id, sem_list, lock, sec, priv, scid, sem_en, cfen)
++
++      When a field isn't effective, it should be filled with RIF_UNUSED.
++
++        "ipcc_chan_id" The tamp channel number.
++
++        "sem_list" This peripheral does not support semaphores.
++                  This field must be set to RIF_UNUSED.
++
++        "lock" This peripheral does not support configuration locking.
++              This field must be set to RIF_UNUSED.
++
++        "sec" Configures secure-only access to the channel.
++          RIF_SEC, only secure access is granted to the channel
++          RIF_NSEC, secure/non-secure access is granted to the
++                    channel
++
++        "priv" Configures the privilege level needed to access this
++              channel.
++          RIF_PRIV, only privileged access is granted to the channel
++          RIF_NPRIV, privileged/Unprivileged access is granted to the
++                    channel
++
++        "scid" Configures the static CID that is allowed to access the
++              channel. Note that the static CID configuration is
++              ineffective if the semaphore mode is enabled. Mandates CID
++              filtering enabled to be effective.
++          RIF_CID1 allows CID 1 to access the channel
++          RIF_CID2 allows CID 2 to access the channel ...
++
++        "sem_en" This peripheral does not support semaphores.
++                This field must be set to RIF_UNUSED.
++
++        "cfen" Enable/disable the CID filtering for this channel.
++          RIF_CFEN, enables the CID filtering
++          RIF_CFDIS, disables the CID filtering
++
++allOf:
++  - if:
++      not:
++        properties:
++          compatible:
++            contains:
++              const: st,stm32mp25-ipcc
++
++    then:
++      properties:
++        st,protreg: false
++
+ required:
+   - compatible
+   - reg
+-- 
+2.53.0
+

@@ -1,0 +1,38 @@
+From e125918c8c2d3ebfc9c4170d7c2c4983e09dfae8 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Wed, 18 Mar 2026 14:42:29 +0100
+Subject: [PATCH 725/913] drivers: stm32_etzpc: don't reconfigure ETZPC if pm
+ hint is not context
+
+ETZPC context is not lost during LPSTOP low power sequence, so we could
+avoid to reconfigure it at resume.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f0108213481e0cb10a8701c507daae39b69b821f drivers: stm32_etzpc: don't reconfigure ETZPC if pm hint is not context]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I0fa1fa782e76984738a66324b6486a858d2dc8ef
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/534182
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/firewall/stm32_etzpc.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/core/drivers/firewall/stm32_etzpc.c b/core/drivers/firewall/stm32_etzpc.c
+index 7af8635da..4112bf03a 100644
+--- a/core/drivers/firewall/stm32_etzpc.c
++++ b/core/drivers/firewall/stm32_etzpc.c
+@@ -326,6 +326,9 @@ static TEE_Result etzpc_pm(enum pm_op op, unsigned int pm_hint __unused,
+ 	struct stm32_etzpc_platdata *pdata = &etzpc_device->pdata;
+ 	unsigned int n = 0;
+ 
++	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
++		return TEE_SUCCESS;
++
+ 	if (op == PM_OP_SUSPEND) {
+ 		for (n = 0; n < ddata->num_per_sec; n++) {
+ 			pdata->periph_cfg[n] =
+-- 
+2.53.0
+

@@ -1,0 +1,176 @@
+From e77b93df1c3f075c98ae400a6d7653dec45ed83e Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 1 Jul 2026 17:47:53 +0200
+Subject: [PATCH 838/913] stm32mp1: remove PLL1 settings from context
+
+Since commit c85210c51bdd ("drivers: clk: stm32mp15: apply full clock tree
+in OP-TEE"), OPP PLL1 settings are no longer computed by OP-TEE but read
+from the device tree. As a result, they no longer need to be saved in the
+context, since they are no longer used during warm boot.
+
+Keep pll1_settings[] in the context structure for backward compatibility
+with TF-A BL2.
+
+This change removes the dependency between the context size and the number
+of OPP supported by OP-TEE through struct stm32mp1_pll_settings in
+clk-stm32mp15.c.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git fbe1070ff1b45c4f3d3d5670bffe139247b84bf1 stm32mp1: remove PLL1 settings from context]
+Fixes: ac2783a9817a ("drivers: clk: stm32mp15: use CFG_STM32MP_OPP_COUNT to define the number of operationg points")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I86e3dbfc36222de2e4dbfd1a035c93840063503f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/583925
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/platform_config.h |  4 ---
+ core/arch/arm/plat-stm32mp1/pm/context.c      | 24 +++----------
+ core/drivers/clk/stm32/clk-stm32mp15.c        | 34 +++++--------------
+ core/include/drivers/stm32mp1_rcc_util.h      |  3 --
+ 4 files changed, 14 insertions(+), 51 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/platform_config.h b/core/arch/arm/plat-stm32mp1/platform_config.h
+index 43fe786e9..5d7b32649 100644
+--- a/core/arch/arm/plat-stm32mp1/platform_config.h
++++ b/core/arch/arm/plat-stm32mp1/platform_config.h
+@@ -394,8 +394,4 @@
+ 
+ #define STM32MP1_CHIP_DEFAULT_VERSION	U(0)
+ 
+-/* OPP */
+-#define PLAT_MAX_OPP_NB			2U
+-#define PLAT_MAX_PLLCFG_NB		6U
+-
+ #endif /*PLATFORM_CONFIG_H*/
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.c b/core/arch/arm/plat-stm32mp1/pm/context.c
+index 343ee5e14..f08a92fd1 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/context.c
++++ b/core/arch/arm/plat-stm32mp1/pm/context.c
+@@ -60,6 +60,10 @@
+ #define MAGIC_VERSION(magic)		((magic) >> 16)
+ #define MAGIC_AREA_SIZE(magic)		((magic) & GENMASK_32(15, 0))
+ 
++/* Fixed Value used by previous version of context, no more used */
++#define PLAT_MAX_OPP_NB			U(2)
++#define PLAT_MAX_PLLCFG_NB		U(6)
++
+ /* pll_settings structure size definitions (reference to clock driver) */
+ #define PLL1_SETTINGS_SIZE		(((PLAT_MAX_OPP_NB * \
+ 					  (PLAT_MAX_PLLCFG_NB + 3)) + 1) * \
+@@ -114,6 +118,7 @@ static struct pm_clocks pm_clocks;
+  * @magic: magic value read by early boot stage for consistency
+  * @zq0cr0_zdata: DDRPHY configuration to be restored.
+  * @ddr_training_backup: DDR area saved at suspend and backed up at resume
++ * @pll1_settings: no more used as PLL1 setting are defined in DT
+  * @size: struct size, used for CRC32 check
+  * @crc_32: CRC32 of this struct, computed on @size with @crc_32 = 0
+  */
+@@ -295,23 +300,6 @@ __maybe_unused static void save_ddr_training_area(void)
+ 	memcpy(&mailbox->ddr_training_backup[0], va, size);
+ }
+ 
+-/*
+- * When returning from STANDBY, warm boot boot stage needs to access to PLL1
+- * settings. This avoids to re-compute them and optimizes performances. This
+- * structure must then be saved before going to STANDBY in the PM mailbox
+- * shared with the warm boot boot stage.
+- */
+-#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
+-static void save_pll1_settings(void)
+-{
+-	struct pm_mailbox *mailbox = get_pm_mailbox();
+-	size_t size = sizeof(mailbox->pll1_settings);
+-	uint8_t *data = &mailbox->pll1_settings[0];
+-
+-	stm32mp1_clk_lp_save_opp_pll1_settings(data, size);
+-}
+-#endif /* CFG_STM32MP1_OPTEE_IN_SYSRAM */
+-
+ static void load_earlyboot_pm_mailbox(void)
+ {
+ 	struct pm_mailbox *mailbox __maybe_unused = get_pm_mailbox();
+@@ -325,8 +313,6 @@ static void load_earlyboot_pm_mailbox(void)
+ 	memset(mailbox, 0, sizeof(*mailbox));
+ 
+ 	mailbox->zq0cr0_zdata = get_ddrphy_calibration();
+-
+-	save_pll1_settings();
+ #endif /* CFG_STM32MP1_OPTEE_IN_SYSRAM */
+ 
+ 	if (MAGIC_VERSION(optee_magic) >= 4)
+diff --git a/core/drivers/clk/stm32/clk-stm32mp15.c b/core/drivers/clk/stm32/clk-stm32mp15.c
+index f1ebad004..431ccfa1e 100644
+--- a/core/drivers/clk/stm32/clk-stm32mp15.c
++++ b/core/drivers/clk/stm32/clk-stm32mp15.c
+@@ -272,15 +272,6 @@ struct stm32mp1_pll {
+ 	uint8_t refclk_max;
+ };
+ 
+-/* Compact structure of 32bit cells, copied raw when suspending */
+-struct stm32mp1_pll_settings {
+-	uint32_t valid_id;
+-	uint32_t freq[MAX_OPP];
+-	uint32_t volt[MAX_OPP];
+-	uint32_t cfg[MAX_OPP][PLLCFG_NB];
+-	uint32_t frac[MAX_OPP];
+-};
+-
+ #define N_S	0	/* Non-secure can access RCC interface */
+ #define SEC	1	/* RCC[TZEN] protects RCC interface */
+ 
+@@ -637,7 +628,15 @@ static const char __maybe_unused *const stm32mp1_clk_parent_name[_PARENT_NB] = {
+ };
+ 
+ #ifdef CFG_STM32_CPU_OPP
+-/* Storage of the precomputed SoC settings for PLL1 various OPPs */
++struct stm32mp1_pll_settings {
++	uint32_t valid_id;
++	uint32_t freq[MAX_OPP];
++	uint32_t volt[MAX_OPP];
++	uint32_t cfg[MAX_OPP][PLLCFG_NB];
++	uint32_t frac[MAX_OPP];
++};
++
++/* Storage of the SoC settings for PLL1 various OPP */
+ static struct stm32mp1_pll_settings pll1_settings;
+ static uint32_t current_opp_khz;
+ #endif
+@@ -1605,21 +1604,6 @@ int stm32mp1_clk_compute_all_pll1_settings(const void *fdt, int node,
+ 
+ 	return 0;
+ }
+-
+-void stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *data, size_t size)
+-{
+-	assert(size == sizeof(pll1_settings));
+-
+-	if (stm32mp1_clk_pll1_settings_are_valid())
+-		memcpy(data, &pll1_settings, size);
+-	else
+-		memset(data, 0, size);
+-}
+-#else
+-void stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *data, size_t size)
+-{
+-	memset(data, 0, size);
+-}
+ #endif /* CFG_STM32_CPU_OPP */
+ 
+ /*
+diff --git a/core/include/drivers/stm32mp1_rcc_util.h b/core/include/drivers/stm32mp1_rcc_util.h
+index ab6d342bd..276f7cee7 100644
+--- a/core/include/drivers/stm32mp1_rcc_util.h
++++ b/core/include/drivers/stm32mp1_rcc_util.h
+@@ -26,9 +26,6 @@ extern const struct clk_ops stm32mp1_clk_ops;
+ struct rstctrl *stm32mp_rcc_reset_id_to_rstctrl(unsigned int binding_id);
+ #endif
+ 
+-/* Save PLL1 configuration data for low power sequence if any */
+-void stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *data, size_t size);
+-
+ #ifdef CFG_STM32_CPU_OPP
+ /*
+  * Util for PLL1 settings management based on DT OPP table content.
+-- 
+2.53.0
+

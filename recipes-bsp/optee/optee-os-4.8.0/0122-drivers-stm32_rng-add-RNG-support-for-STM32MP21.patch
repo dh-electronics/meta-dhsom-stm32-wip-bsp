@@ -1,0 +1,54 @@
+From 105c55969e5cdc54e5d5d74799dfd57f9e2bb32b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 8 Oct 2024 15:40:08 +0200
+Subject: [PATCH 122/913] drivers: stm32_rng: add RNG support for STM32MP21
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+MP21 needs specific NSCR, HTCR and CR values to work properly.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 87b9752a3d3060419e1fcab48e235639d231ee5c drivers: stm32_rng: add RNG support for STM32MP21]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I0438526e6fefd52f91a1eb97cee97ae9e5bb0336
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/409820
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/420539
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/496953
+---
+ core/drivers/stm32_rng.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index 470ab1cf7..691a3657a 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -705,6 +705,18 @@ static const struct stm32_rng_driver_data mp15_data[] = {
+ };
+ DECLARE_KEEP_PAGER(mp15_data);
+ 
++static const struct stm32_rng_driver_data mp21_data[] = {
++	{
++		.max_noise_clk_freq = U(8000000),
++		.nb_clock = 2,
++		.has_cond_reset = true,
++		.has_power_optim = true,
++		.cr = 0x00800D00,
++		.nscr = 0x01FF,
++		.htcr = 0xAAC7,
++	},
++};
++
+ static const struct stm32_rng_driver_data mp25_data[] = {
+ 	{
+ 		.max_noise_clk_freq = U(48000000),
+@@ -720,6 +732,7 @@ static const struct stm32_rng_driver_data mp25_data[] = {
+ static const struct dt_device_match rng_match_table[] = {
+ 	{ .compatible = "st,stm32-rng", .compat_data = &mp15_data },
+ 	{ .compatible = "st,stm32mp13-rng", .compat_data = &mp13_data },
++	{ .compatible = "st,stm32mp21-rng", .compat_data = &mp21_data },
+ 	{ .compatible = "st,stm32mp25-rng", .compat_data = &mp25_data },
+ 	{ }
+ };
+-- 
+2.53.0
+

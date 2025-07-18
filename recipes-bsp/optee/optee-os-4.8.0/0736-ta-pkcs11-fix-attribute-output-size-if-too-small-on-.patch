@@ -1,0 +1,52 @@
+From b8b385665cb14a02243805f7912aceede71063e1 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@st.com>
+Date: Wed, 21 Jan 2026 14:03:26 +0100
+Subject: [PATCH 736/913] ta: pkcs11: fix attribute output size if too small on
+ get attribute value
+
+Correct the size field output value for attributes fetched with
+PKCS11_CMD_GET_ATTRIBUTE_VALUE where a too short buffer was provided.
+As per the PKCS#11 specification, in such case, the related attributes
+size field should be filled with CK_UNAVAILABLE_INFORMATION and the
+function to return an non-true-error code like CKR_BUFFER_TOO_SMALL.
+The implementation complied for the return value but was loading the
+required attribute data value size instead in CK_UNAVAILABLE_INFORMATION
+in the attribute size field.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2c808208621a3fa169301afaf6bd98da4fb79b50 ta: pkcs11: fix attribute output size if too small on get attribute value]
+Fixes: 783c1515c2f9 ("ta: pkcs11: Add support for getting object size and attribute value")
+Change-Id: I34bc67fcf86c4da97cbc644e841781508cc16ed2
+Signed-off-by: Etienne Carriere <etienne.carriere@st.com>
+Reviewed-by: Jens Wiklander <jens.wiklander@linaro.org>
+(cherry picked from commit 149e8d7ecc4ef8bb00ab4a37fd2ccede6d79e1ca)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/569875
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ ta/pkcs11/src/object.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/ta/pkcs11/src/object.c b/ta/pkcs11/src/object.c
+index 470eeb247..ed2ce2a95 100644
+--- a/ta/pkcs11/src/object.c
++++ b/ta/pkcs11/src/object.c
+@@ -900,8 +900,11 @@ enum pkcs11_rc entry_get_attribute_value(struct pkcs11_client *client,
+ 			attr_type_invalid = 1;
+ 			break;
+ 		case PKCS11_CKR_BUFFER_TOO_SMALL:
+-			if (data_ptr)
++			if (data_ptr) {
++				cli_head.size =
++					PKCS11_CK_UNAVAILABLE_INFORMATION;
+ 				buffer_too_small = 1;
++			}
+ 			break;
+ 		default:
+ 			rc = PKCS11_CKR_GENERAL_ERROR;
+-- 
+2.53.0
+

@@ -1,0 +1,48 @@
+From 967bcbf7e1014678e9e7969e2a0c92d8c4360853 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Sat, 28 Feb 2026 16:30:23 +0100
+Subject: [PATCH 110/913] drivers: stm32_gpio: panic on error while applying
+ RIF configuration
+
+If the RIF configuration cannot be applied, don't return error but
+panic() directly.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9621044c547c1b9614491ba972f3353aff15c83e drivers: stm32_gpio: panic on error while applying RIF configuration]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Id1a201e367665c298a256a1945ba1e663d0eedc0
+---
+ core/drivers/stm32_gpio.c | 11 +++--------
+ 1 file changed, 3 insertions(+), 8 deletions(-)
+
+diff --git a/core/drivers/stm32_gpio.c b/core/drivers/stm32_gpio.c
+index a8479ced0..ba4d66090 100644
+--- a/core/drivers/stm32_gpio.c
++++ b/core/drivers/stm32_gpio.c
+@@ -1560,7 +1560,6 @@ static void stm32_gpio_set_conf_sec(struct stm32_gpio_bank *bank)
+ 
+ static TEE_Result stm32_gpio_sec_config_resume(void)
+ {
+-	TEE_Result res = TEE_ERROR_GENERIC;
+ 	struct stm32_gpio_bank *bank = NULL;
+ 
+ 	STAILQ_FOREACH(bank, &bank_list, link) {
+@@ -1571,13 +1570,9 @@ static TEE_Result stm32_gpio_sec_config_resume(void)
+ 			bank->rif_cfg->access_mask[0] = GENMASK_32(bank->ngpios,
+ 								   0);
+ 
+-			res = apply_rif_config(bank,
+-					       bank->rif_cfg->access_mask[0]);
+-			if (res) {
+-				EMSG("Failed to set GPIO bank %c RIF config",
+-				     'A' + bank->bank_id);
+-				return res;
+-			}
++			if (apply_rif_config(bank,
++					     bank->rif_cfg->access_mask[0]))
++				panic();
+ 		} else {
+ 			stm32_gpio_set_conf_sec(bank);
+ 		}
+-- 
+2.53.0
+

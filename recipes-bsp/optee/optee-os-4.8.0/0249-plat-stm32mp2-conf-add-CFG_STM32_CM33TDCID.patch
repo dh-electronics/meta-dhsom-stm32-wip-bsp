@@ -1,0 +1,69 @@
+From c59afac87840f86556894cec87d7fa1847aae307 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 7 Nov 2023 18:33:45 +0100
+Subject: [PATCH 249/913] plat-stm32mp2: conf: add CFG_STM32_CM33TDCID
+
+If Cortex-M33 is TDCID, enable a dedicated flag CFG_STM32_CM33TDCID.
+This can be enabled automatically if the board DT is in the
+flavorlist-M33-TDCID.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e61d73c5feee308d23c19d4c381de47a197f65b6 plat-stm32mp2: conf: add CFG_STM32_CM33TDCID]
+Change-Id: I5efc9e58d82aa807380c9c11d6488475d2b68409
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/397749
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/397750
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/427744
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/409836
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/conf.mk | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index e66d08935..d30d96d2f 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -63,6 +63,27 @@ endif
+ include core/arch/arm/cpu/cortex-armv8-0.mk
+ supported-ta-targets ?= ta_arm64
+ 
++# Enable flag when Cortex-M33 is TDCID
++ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-M33-TDCID)),)
++$(call force,CFG_STM32_CM33TDCID,y)
++endif
++
++CFG_STM32_CM33TDCID ?= n
++ifeq ($(CFG_STM32_CM33TDCID),y)
++$(call force,CFG_SCMI_CORTEXM_AGENT,n)
++$(call force,CFG_SCMI_MSG_DRIVERS,n)
++$(call force,CFG_SCMI_PTA,n)
++$(call force,CFG_SCMI_SCPFW,n)
++$(call force,CFG_SCMI_SERVER_CLOCK_CONSUMER,n)
++$(call force,CFG_SCMI_SERVER_REGULATOR_CONSUMER,n)
++$(call force,CFG_SCMI_SERVER_RESET_CONSUMER,n)
++$(call force,CFG_STM32_BSEC_WRITE,n)
++$(call force,CFG_STM32_PWR_REGUL,n)
++$(call force,CFG_STM32_TAMP,n)
++$(call force,CFG_STM32MP_PROVISIONING,n)
++$(call force,CFG_TA_STM32MP_NVMEM,n)
++endif
++
+ $(call force,CFG_ARM_GIC_PM,y)
+ $(call force,CFG_ARM64_core,y)
+ $(call force,CFG_CORE_ASYNC_NOTIF,y)
+@@ -81,7 +102,7 @@ $(call force,CFG_SECURE_TIME_SOURCE_CNTPCT,y)
+ $(call force,CFG_STM32_SHARED_IO,y)
+ $(call force,CFG_STM32_STGEN,y)
+ $(call force,CFG_STM32_PWR,y)
+-$(call force,CFG_STM32_PWR_REGUL,y)
++CFG_STM32_PWR_REGUL ?= y
+ $(call force,CFG_STM32MP_CLK_CORE,y)
+ $(call force,CFG_WITH_ARM_TRUSTED_FW,y)
+ $(call force,CFG_WITH_LPAE,y)
+-- 
+2.53.0
+

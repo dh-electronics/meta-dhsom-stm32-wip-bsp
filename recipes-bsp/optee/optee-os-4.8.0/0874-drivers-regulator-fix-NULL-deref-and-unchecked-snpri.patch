@@ -1,0 +1,59 @@
+From b13480c9d5011f6910be4d69b43d312677f1054b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 15:30:28 +0200
+Subject: [PATCH 874/913] drivers: regulator: fix NULL deref and unchecked
+ snprintf in print_regulator
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The root-supply indentation branch of print_regulator() assigned msg
+from add_msg() without checking for NULL like every other add_msg()
+call site, so a truncated message buffer led to a NULL msg being
+passed to a later add_msg() call, dereferencing it.
+
+Also acknowledge the return value of the fallback snprintf() call
+with a (void) cast, matching this codebase's convention.
+
+Coverity issue: CID 1199909: CERT-C Expression
+Coverity issue: CID 1200370: CERT-C Error Handling
+Coverity issue: CID 1200398: CERT-C POSIX
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b7b1d356d7d485371e9436d859897871e54411e6 drivers: regulator: fix NULL deref and unchecked snprintf in print_regulator]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Id34dcf54c65d456a3ddb84f7b30d98fd25cc37b5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/592853
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/regulator/regulator.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/regulator/regulator.c b/core/drivers/regulator/regulator.c
+index 4f3cd5be2..cd23d8200 100644
+--- a/core/drivers/regulator/regulator.c
++++ b/core/drivers/regulator/regulator.c
+@@ -497,6 +497,8 @@ static void __maybe_unused print_regulator(struct regulator *regulator,
+ 	} else {
+ 		/* Root supply indentation */
+ 		msg = add_msg(msg, msg_end, "o- ");
++		if (!msg)
++			goto out;
+ 	}
+ 
+ 	regulator_get_range(regulator, &level_min, &level_max);
+@@ -529,7 +531,7 @@ static void __maybe_unused print_regulator(struct regulator *regulator,
+ 
+ out:
+ 	if (!msg)
+-		snprintf(msg_end - 4, 4, "...");
++		(void)snprintf(msg_end - 4, 4, "...");
+ 
+ 	IMSG("%s", msg_buf);
+ }
+-- 
+2.53.0
+

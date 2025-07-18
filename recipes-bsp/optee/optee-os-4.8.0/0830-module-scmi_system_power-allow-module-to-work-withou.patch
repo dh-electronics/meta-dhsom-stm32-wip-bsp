@@ -1,0 +1,113 @@
+From 98a87c0d3fc6e5b456498b3e098caf3941fba057 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Fri, 18 Jul 2025 16:45:45 +0200
+Subject: [PATCH 830/913] module: scmi_system_power: allow module to work
+ without timer
+
+Some platform such as stm32mp2 uses scmi_system_power without
+timer. In that case gracefull scmi system power set commands
+are not supported.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 22340dda3d2e274254b3491118082af80c1f0929 module: scmi_system_power: allow module to work without timer]
+Change-Id: Ibad629c03712a9613ebc9ffdc51ce128e04c9ec5
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/584005
+Tested-by: Valentin CARON <valentin.caron@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Valentin CARON <valentin.caron@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+---
+ .../src/mod_scmi_system_power.c                  | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/scmi_system_power/src/mod_scmi_system_power.c b/core/lib/scmi-server/SCP-firmware/module/scmi_system_power/src/mod_scmi_system_power.c
+index 7b327be5f..d1a5b125d 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/scmi_system_power/src/mod_scmi_system_power.c
++++ b/core/lib/scmi-server/SCP-firmware/module/scmi_system_power/src/mod_scmi_system_power.c
+@@ -12,7 +12,9 @@
+ #include <fwk_log.h>
+ #include <mod_scmi.h>
+ #include <mod_scmi_system_power.h>
++#ifdef BUILD_HAS_MOD_TIMER
+ #include <mod_timer.h>
++#endif
+ 
+ #include <fwk_assert.h>
+ #include <fwk_attributes.h>
+@@ -32,8 +34,10 @@ struct mod_scmi_sys_power_ctx {
+     const struct mod_scmi_from_protocol_api *scmi_api;
+     const struct mod_pd_restricted_api *pd_api;
+     fwk_id_t system_power_domain_id;
++#ifdef BUILD_HAS_MOD_TIMER
+     bool start_graceful_process;
+     struct mod_timer_alarm_api *alarm_api;
++#endif
+ #ifdef BUILD_HAS_SCMI_NOTIFICATIONS
+     unsigned int agent_count;
+     fwk_id_t *system_power_notifications;
+@@ -164,6 +168,7 @@ static void scmi_sys_power_state_notify(fwk_id_t service_id,
+ }
+ #endif
+ 
++#ifdef BUILD_HAS_MOD_TIMER
+ static void graceful_timer_callback(uintptr_t mod_scmi_system_state)
+ {
+     enum mod_pd_system_shutdown system_shutdown;
+@@ -184,6 +189,7 @@ static void graceful_timer_callback(uintptr_t mod_scmi_system_state)
+         }
+     }
+ }
++#endif
+ 
+ /*
+  * PROTOCOL_VERSION
+@@ -418,6 +424,7 @@ static int scmi_sys_power_state_set_handler(fwk_id_t service_id,
+     }
+ 
+     if (policy_status == MOD_SCMI_SYS_POWER_SKIP_MESSAGE_HANDLER) {
++#ifdef BUILD_HAS_MOD_TIMER
+ #ifdef BUILD_HAS_SCMI_NOTIFICATIONS
+         scmi_sys_power_state_notify(service_id, mod_scmi_system_state, false);
+ #endif
+@@ -443,6 +450,9 @@ static int scmi_sys_power_state_set_handler(fwk_id_t service_id,
+             }
+         }
+         return_values.status = (int32_t)SCMI_SUCCESS;
++#else
++        return_values.status = (int32_t)SCMI_NOT_SUPPORTED;
++#endif
+         goto exit;
+     }
+ 
+@@ -701,7 +711,9 @@ static int scmi_sys_power_init(fwk_id_t module_id, unsigned int element_count,
+                                const void *data)
+ {
+     scmi_sys_power_ctx.config = data;
++#ifdef BUILD_HAS_MOD_TIMER
+     scmi_sys_power_ctx.start_graceful_process = false;
++#endif
+ 
+     return FWK_SUCCESS;
+ }
+@@ -770,6 +782,7 @@ static int scmi_sys_power_bind(fwk_id_t id, unsigned int round)
+         FWK_ID_ELEMENT(FWK_MODULE_IDX_POWER_DOMAIN, pd_count - 1);
+ 
+ #ifdef BUILD_HAS_SCMI_NOTIFICATIONS
++#ifdef BUILD_HAS_MOD_TIMER
+     /*
+      * If notifications is supported a timer is required to handle graceful
+      * requests.
+@@ -784,6 +797,9 @@ static int scmi_sys_power_bind(fwk_id_t id, unsigned int round)
+         }
+         return scmi_sys_power_init_notifications();
+     }
++#else
++    return scmi_sys_power_init_notifications();
++#endif
+ #endif
+     return FWK_SUCCESS;
+ }
+-- 
+2.53.0
+

@@ -1,0 +1,75 @@
+From 9628849cac2c3f8291b4fdf28b55ad9efb3346af Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Wed, 17 Jun 2026 14:02:15 +0200
+Subject: [PATCH 768/913] drivers: counter: stm32_stgen: keep STGEN enabled
+ while reading RTC time
+
+The RTC is used to realign the STGEN counter when resuming from low
+power. However, stm32_rtc_get_time() relies on IO_READ_POLL_TIMEOUT(),
+so disabling STGEN while reading the RTC may lead to an infinite loop.
+
+Since the RTC cannot be stopped, disabling STGEN does not improve the
+realignment accuracy. Keep STGEN enabled during the RTC read to avoid
+the polling loop from stalling.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5662c14d550093c181aa29f029ad7a4c522eb4ef drivers: counter: stm32_stgen: keep STGEN enabled while reading RTC time]
+Change-Id: I784ecf121019b84ba9669453f6793cca0f929f60
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/580773
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/counter/stm32_stgen.c | 15 +++------------
+ 1 file changed, 3 insertions(+), 12 deletions(-)
+
+diff --git a/core/drivers/counter/stm32_stgen.c b/core/drivers/counter/stm32_stgen.c
+index 4fc9acf45..4654d4520 100644
+--- a/core/drivers/counter/stm32_stgen.c
++++ b/core/drivers/counter/stm32_stgen.c
+@@ -97,12 +97,6 @@ static void stm32_stgen_pm_suspend(void)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+-	/*
+-	 * Disable STGEN counter. At this point, it should be stopped by
+-	 * software.
+-	 */
+-	io_clrbits32(stgen_d.base + STGENC_CNTCR, STGENC_CNTCR_EN);
+-
+ 	/* Save current time from the RTC */
+ 	res = rtc_get_time(stgen_d.calendar);
+ 	if (res)
+@@ -111,9 +105,6 @@ static void stm32_stgen_pm_suspend(void)
+ 	/* Save current counter value */
+ 	reg_pair_from_64(stm32_stgen_get_counter_value(),
+ 			 &stgen_d.cnt_h, &stgen_d.cnt_l);
+-
+-	/* Re-enable STGEN as generic timer can be used later */
+-	io_setbits32(stgen_d.base + STGENC_CNTCR, STGENC_CNTCR_EN);
+ }
+ 
+ static void stm32_stgen_pm_resume(void)
+@@ -124,9 +115,6 @@ static void stm32_stgen_pm_resume(void)
+ 	signed long long nb_pm_count_ticks = 0;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+-	/* Disable STGEN counter while we're updating its value */
+-	io_clrbits32(stgen_d.base + STGENC_CNTCR, STGENC_CNTCR_EN);
+-
+ 	/* Read the current time from the RTC to update system counter */
+ 	res = rtc_get_time(&cur_calendar);
+ 	if (res)
+@@ -142,6 +130,9 @@ static void stm32_stgen_pm_resume(void)
+ 	if (ADD_OVERFLOW(counter_val, nb_pm_count_ticks, &counter_val))
+ 		panic("STGEN counter overflow");
+ 
++	/* Disable STGEN counter while we're updating its value */
++	io_clrbits32(stgen_d.base + STGENC_CNTCR, STGENC_CNTCR_EN);
++
+ 	io_write32(stgen_d.base + STGENC_CNTFID0, clock_src_rate);
+ 	if (io_read32(stgen_d.base + STGENC_CNTFID0) != clock_src_rate)
+ 		panic("Couldn't modify STGEN clock rate");
+-- 
+2.53.0
+

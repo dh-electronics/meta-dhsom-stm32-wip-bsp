@@ -1,0 +1,62 @@
+From 16798eae986704b1a80bcd8a1b4bda56319293bd Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 6 Aug 2026 09:38:33 +0200
+Subject: [PATCH 860/913] prod/optee/stm32mp2: check the rollback results in
+ stm32_pd
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When enabling the GPU clock or disabling its regulator failed,
+stm32_pd_set_state_gpu rolled the other resource back without checking
+the result, so a failed rollback left the power domain in an
+inconsistent state with no trace.
+
+Log an error when the rollback itself fails.
+
+Coverity issue: CID 1200425: Unchecked return value in stm32_pd_set_state_gpu
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8c40103d0a6abd55a98aa1ea99db0fb59548920c prod/optee/stm32mp2: check the rollback results in stm32_pd]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ib5fe47f6903961fb035c23318a913a3d7cdc2a3b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/597271
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+---
+ .../optee/stm32mp2/module/stm32_pd/src/mod_stm32_pd.c | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/src/mod_stm32_pd.c b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+index c2a9c502b..e56f685ba 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+@@ -75,8 +75,10 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
+             if (clk != NULL) {
+                 res = clk_enable(clk);
+                 if (res != TEE_SUCCESS) {
+-                    if (regu != NULL) {
+-                        regulator_disable(regu);
++                    if (regu != NULL &&
++                        regulator_disable(regu) != TEE_SUCCESS) {
++                        FWK_LOG_ERR("Failed to disable regulator on power domain %s",
++                                    fwk_module_get_element_name(pd_id));
+                     }
+                     return scmi_tee_result_to_fwk_status(res);
+                 }
+@@ -89,8 +91,9 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
+             if (regu != NULL) {
+                 res = regulator_disable(regu);
+                 if (res != TEE_SUCCESS) {
+-                    if (clk != NULL) {
+-                        clk_enable(clk);
++                    if (clk != NULL && clk_enable(clk) != TEE_SUCCESS) {
++                        FWK_LOG_ERR("Failed to enable clock on power domain %s",
++                                    fwk_module_get_element_name(pd_id));
+                     }
+                     return scmi_tee_result_to_fwk_status(res);
+                 }
+-- 
+2.53.0
+

@@ -1,0 +1,81 @@
+From 945eedee5acd3a9f62d2978a81daa049316b164b Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 10 Jun 2025 19:55:19 +0200
+Subject: [PATCH 276/913] pta: scmi: non-secure PM_NOIRQ OCALL context
+
+Implement non-secure PM_NOIRQ in OCALL context. Non-secure world can
+invoke an SCMI request during its power management (PM) no-irq
+sequence that is when it has masked its interrupts. This sequence
+can be used by the Linux kernel during this suspend/resume sequence
+when it may, for example, enable/disable clock. OP-TEE shall keep
+the foreign interrupts masked during these sequences.
+
+Non-secure invoke OCALL SCMI command	PTA_SCMI_OCALL_ENABLE_NOIRQ
+to enter this state, and command 	PTA_SCMI_OCALL_DISABLE_NOIRQ
+to exit this state. In the NOIRQ state, the OCALL OP-TEE thread
+context has its foreign interrupts masked.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 074098284615f60d54d101ccc9d23e0f40c74927 pta: scmi: non-secure PM_NOIRQ OCALL context]
+Change-Id: I668084d6392b39c7cd743f9d129601c57c58e622
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/466088
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/pta/scmi.c                       | 12 ++++++++++++
+ lib/libutee/include/pta_scmi_client.h |  2 ++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/core/pta/scmi.c b/core/pta/scmi.c
+index 5bc2a17f6..2db3b89e2 100644
+--- a/core/pta/scmi.c
++++ b/core/pta/scmi.c
+@@ -235,6 +235,14 @@ static enum optee_scmi_ocall_reply pta_scmi_ocall(uint32_t channel_id,
+ 	case PTA_SCMI_OCALL_ERROR:
+ 		FMSG("Error on channel %"PRIu32, channel_id);
+ 		break;
++	case PTA_SCMI_OCALL_ENABLE_NOIRQ:
++		FMSG("Enable NOIRQ on channel %"PRIu32, channel_id);
++		thread_enable_nsec_noirq();
++		break;
++	case PTA_SCMI_OCALL_DISABLE_NOIRQ:
++		FMSG("Disable NOIRQ on channel %"PRIu32, channel_id);
++		thread_disable_nsec_noirq();
++		break;
+ 	default:
+ 		DMSG("Invalid Ocall cmd %#x on channel %"PRIu32,
+ 		     ocall2_params[1], channel_id);
+@@ -275,6 +283,8 @@ static TEE_Result cmd_scmi_ocall_smt_thread(uint32_t ptypes,
+ 	while (1) {
+ 		switch (pta_scmi_ocall(channel_id, NULL)) {
+ 		case PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL:
++		case PTA_SCMI_OCALL_ENABLE_NOIRQ:
++		case PTA_SCMI_OCALL_DISABLE_NOIRQ:
+ 			continue;
+ 		case PTA_SCMI_OCALL_CLOSE_THREAD:
+ 			thread_rpc_ocall2_unprepare(rpc_arg);
+@@ -317,6 +327,8 @@ static TEE_Result cmd_scmi_ocall_msg_thread(uint32_t ptypes,
+ 	while (1) {
+ 		switch (pta_scmi_ocall(channel_id, &dyn_shm)) {
+ 		case PTA_SCMI_OCALL_PROCESS_MSG_CHANNEL:
++		case PTA_SCMI_OCALL_ENABLE_NOIRQ:
++		case PTA_SCMI_OCALL_DISABLE_NOIRQ:
+ 			continue;
+ 		case PTA_SCMI_OCALL_CLOSE_THREAD:
+ 			thread_rpc_ocall2_unprepare(rpc_arg);
+diff --git a/lib/libutee/include/pta_scmi_client.h b/lib/libutee/include/pta_scmi_client.h
+index 629a5a831..86e275a04 100644
+--- a/lib/libutee/include/pta_scmi_client.h
++++ b/lib/libutee/include/pta_scmi_client.h
+@@ -173,5 +173,7 @@ enum optee_scmi_ocall_reply {
+ 	PTA_SCMI_OCALL_CLOSE_THREAD = 1,
+ 	PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL = 2,
+ 	PTA_SCMI_OCALL_PROCESS_MSG_CHANNEL = 3,
++	PTA_SCMI_OCALL_ENABLE_NOIRQ = 4,
++	PTA_SCMI_OCALL_DISABLE_NOIRQ = 5,
+ };
+ #endif /* SCMI_PTA_SCMI_CLIENT_H */
+-- 
+2.53.0
+

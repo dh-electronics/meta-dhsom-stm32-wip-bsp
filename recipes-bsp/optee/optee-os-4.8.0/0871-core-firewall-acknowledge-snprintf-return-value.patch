@@ -1,0 +1,47 @@
+From 76534c79bff5ef5d211bbf6ac71b9b1746755adb Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 15:32:57 +0200
+Subject: [PATCH 871/913] core: firewall: acknowledge snprintf return value
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+firewall_dt_get_alternate_conf() built prop_name with snprintf()
+without checking or acknowledging the return value.
+
+Cast the call to (void), matching this codebase's convention for
+intentionally unchecked snprintf() calls.
+
+Coverity issue: CID 1200225: CERT-C Error Handling
+Coverity issue: CID 1200302: CERT-C POSIX
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c395fc54895adc045ff22744ee580959656aa0b0 core: firewall: acknowledge snprintf return value]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I3797643123bca2702f309731df97b3908dc84137
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/592847
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/firewall/firewall.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/firewall/firewall.c b/core/drivers/firewall/firewall.c
+index 8ef104e9e..5066a51c6 100644
+--- a/core/drivers/firewall/firewall.c
++++ b/core/drivers/firewall/firewall.c
+@@ -111,7 +111,8 @@ TEE_Result firewall_dt_get_alternate_conf(const void *fdt, int node,
+ 	if (!prop_name)
+ 		return TEE_ERROR_OUT_OF_MEMORY;
+ 
+-	snprintf(prop_name, max_len, "access-controllers-conf-%s", conf_name);
++	(void)snprintf(prop_name, max_len, "access-controllers-conf-%s",
++		       conf_name);
+ 	res = dt_driver_count_devices(prop_name, fdt, node, DT_DRIVER_FIREWALL,
+ 				      &nb_element);
+ 	if (res) {
+-- 
+2.53.0
+

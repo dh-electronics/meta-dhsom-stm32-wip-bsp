@@ -1,0 +1,59 @@
+From e4f860d76654e04f5ede47911b0468fa8c2d342e Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 16 Jul 2024 14:47:33 +0200
+Subject: [PATCH 533/913] mod/optee/clock: get min/max clock from list bounds
+
+Change get_range() handler to get min and max rate from the first and
+last clock discrete rates. This prevents enumerating all clock rates
+when only looking for the min/max rates.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 98aa07df5bf27818a285d21437d1853dd10f8a2e mod/optee/clock: get min/max clock from list bounds]
+Change-Id: I129dd1c0c9f58064daee66200beb7974eed88630
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ .../common/module/clock/src/mod_optee_clock.c | 20 +++++++------------
+ 1 file changed, 7 insertions(+), 13 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+index 7e4a26743..4c0f16a19 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+@@ -175,9 +175,8 @@ static int get_state(fwk_id_t dev_id, enum mod_clock_state *state)
+ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
+ {
+     struct optee_clock_dev_ctx *ctx = elt_id_to_ctx(dev_id);
+-    unsigned long rate;
+     size_t rate_count;
+-    size_t rate_idx;
++    size_t count;
+     TEE_Result res;
+ 
+     if ((ctx == NULL) || (range == NULL)) {
+@@ -223,18 +222,13 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
+     range->min = UINT64_MAX;
+     range->max = 0;
+ 
+-    for (rate_idx = 0; rate_idx < rate_count; rate_idx++) {
+-        size_t count = 1;
++    count = 1;
++    res = clk_get_rates_array(ctx->clk, 0, &range->min, &count);
++    fwk_assert(!res && count == 1);
+ 
+-        res = clk_get_rates_array(ctx->clk, rate_idx, &rate, &count);
+-        fwk_assert(!res && count == 1);
+-
+-        if (rate > range->max) {
+-            range->max = rate;
+-        } else if (rate < range->min) {
+-            range->min = rate;
+-        }
+-    }
++    count = 1;
++    res = clk_get_rates_array(ctx->clk, rate_count - 1, &range->max, &count);
++    fwk_assert(!res && count == 1);
+ 
+     return FWK_SUCCESS;
+ }
+-- 
+2.53.0
+

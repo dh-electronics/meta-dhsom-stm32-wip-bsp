@@ -1,0 +1,61 @@
+From c343879ac31332e9900c6ae223abea89ef8893d7 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 23 Feb 2024 15:51:34 +0100
+Subject: [PATCH 443/913] plat-stm32mp1: add a function to enable monitoring in
+ PWR
+
+Add a new function to enable the voltage and temperature monitoring
+with the MONEN bit of PWR_CR2 register.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 00ea4a7850e191dd84420be407f43acc4bce46d3 plat-stm32mp1: add a function to enable monitoring in PWR
+e34735aef974c1d3d0301258515fafd6be852310 plat-stm32mp1: add a function to enable monitoring in PWR]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ifa9afc34bc73fc156bf2da09df9638f6b0f8430b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/362676
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372743
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c | 7 +++++++
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h | 5 +++++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+index ac00894ce..1dce6cfc1 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+@@ -290,3 +290,10 @@ DEFINE_DT_DRIVER(stm32mp1_pwr_regu_dt_driver) = {
+ 	.match_table = stm32mp1_pwr_regu_match_table,
+ 	.probe = stm32mp1_pwr_regu_probe,
+ };
++
++void stm32mp_pwr_monitoring_enable(void)
++{
++	vaddr_t pwr_base = stm32_pwr_base();
++
++	io_setbits32(pwr_base + PWR_CR2_OFF, PWR_CR2_MONEN);
++}
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
+index ff6893a05..bf2029b73 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
+@@ -43,6 +43,9 @@
+ 
+ #define PWR_CR2_BREN		BIT(0)
+ #define PWR_CR2_RREN		BIT(1)
++#define PWR_CR2_MONEN		BIT(4)
++#define PWR_CR2_BRRDY		BIT(16)
++#define PWR_CR2_RRRDY		BIT(17)
+ 
+ #define PWR_CR3_VBE		BIT(8)
+ #define PWR_CR3_VBRS		BIT(9)
+@@ -82,4 +85,6 @@ bool stm32mp1_pwr_regulator_is_enabled(enum pwr_regulator id);
+ 
+ /* Returns the registered regulator related to @id or NULL */
+ struct regulator *stm32mp1_pwr_get_regulator(enum pwr_regulator id);
++
++void stm32mp_pwr_monitoring_enable(void);
+ #endif /*__STM32MP1_PWR_H*/
+-- 
+2.53.0
+

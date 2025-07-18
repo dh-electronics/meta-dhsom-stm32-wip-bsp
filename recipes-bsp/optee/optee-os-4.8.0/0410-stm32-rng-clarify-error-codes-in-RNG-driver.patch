@@ -1,0 +1,72 @@
+From 78444d323f628fefb238b7a28f4e091517e74f8b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 18 Sep 2025 17:11:09 +0200
+Subject: [PATCH 410/913] stm32: rng: clarify error codes in RNG driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Improves errors to simplify debug
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c58bd648c281151e812a3aff7c8b4edbd37cacfd stm32: rng: clarify error codes in RNG driver]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ib4d6c3e67f760e06c5bac5f2df9a526a7aa684e4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/474253
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+(cherry picked from commit 7fbd46c89c1aea8d5440e12fa9a45a062e7ee990)
+---
+ core/drivers/stm32_rng.c | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index e2ece9865..980218f9f 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -234,7 +234,7 @@ static TEE_Result read_available(vaddr_t rng_base, uint8_t *out, size_t *size)
+ 
+ 	if (io_read32(rng_base + RNG_SR) & RNG_SR_SEIS) {
+ 		FMSG("RNG noise error");
+-		return TEE_ERROR_NO_DATA;
++		return TEE_ERROR_BAD_STATE;
+ 	}
+ 
+ 	buf = out;
+@@ -393,7 +393,7 @@ static TEE_Result stm32_rng_init(void)
+ 	if (IO_READ32_POLL_TIMEOUT(rng_base + RNG_SR, value,
+ 				   value & RNG_SR_DRDY, 0,
+ 				   RNG_READY_TIMEOUT_US))
+-		return TEE_ERROR_GENERIC;
++		return TEE_ERROR_BAD_STATE;
+ 
+ 	res =  TEE_SUCCESS;
+ 
+@@ -437,14 +437,13 @@ static TEE_Result stm32_rng_read(uint8_t *out, size_t size)
+ 		rc = read_available(rng_base, out_ptr, &sz);
+ 
+ 		/* Raise timeout only if we failed to get some samples */
+-		assert(!rc || rc == TEE_ERROR_NO_DATA);
+ 		if (rc)
+ 			burst_timeout = timeout_elapsed(timeout_ref);
+ 
+ 		may_spin_unlock(&stm32_rng->lock, exceptions);
+ 
+ 		if (burst_timeout) {
+-			rc = TEE_ERROR_GENERIC;
++			rc = TEE_ERROR_TIMEOUT;
+ 			goto out;
+ 		}
+ 
+@@ -458,7 +457,6 @@ static TEE_Result stm32_rng_read(uint8_t *out, size_t size)
+ 	}
+ 
+ out:
+-	assert(!rc || rc == TEE_ERROR_GENERIC);
+ 	disable_rng_clock();
+ 
+ 	return rc;
+-- 
+2.53.0
+

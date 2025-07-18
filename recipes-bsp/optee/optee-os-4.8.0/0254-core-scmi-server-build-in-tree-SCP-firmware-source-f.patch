@@ -1,0 +1,87 @@
+From 46978e935ec3cd3060c7f7fc84524bba0ed770b7 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Mon, 30 Mar 2026 18:22:53 +0200
+Subject: [PATCH 254/913] core: scmi-server: build in-tree SCP-firmware source
+ file tree
+
+Allow on to dump SCP-firmware source tree from OP-TEE OS local directory
+core/lib/scm-server/SCP-firmware/. When so, the build configuration
+does not need to provide the SCP-firmware source tree absolute path
+with CFG_SCP_FIRMWARE.
+
+Rebased from : https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/367303
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 979fcef1589cc588ff86a4c5499314395a6a9472 core: scmi-server: build in-tree SCP-firmware source file tree]
+Change-Id: If84154f85a685101de0464fa4e0027eb2c8a7ebd
+---
+ core/lib/scmi-server/sub.mk | 12 ++++++++++--
+ mk/config.mk                | 15 ++++++++++++++-
+ 2 files changed, 24 insertions(+), 3 deletions(-)
+
+diff --git a/core/lib/scmi-server/sub.mk b/core/lib/scmi-server/sub.mk
+index cae25052d..7bb2bbfdd 100644
+--- a/core/lib/scmi-server/sub.mk
++++ b/core/lib/scmi-server/sub.mk
+@@ -7,7 +7,12 @@
+ # The toolchain build directive must also match the list of
+ # embedded modules.
+ 
++ifeq ($(_CFG_SCP_FIRMWARE_IN_TREE),y)
++scpfw-path = ${CURDIR}/core/lib/scmi-server/SCP-firmware
++else
+ scpfw-path = $(CFG_SCP_FIRMWARE)
++endif
++
+ scpfw-product = optee/$(CFG_SCMI_SCPFW_PRODUCT)
+ scpfw-out-path := $(out-dir)/$(libdir)
+ 
+@@ -53,8 +58,12 @@ cppflags-lib-y += -DBUILD_VERSION_MAJOR=$(scpfw-integ-version-maj) \
+ 		  -DBUILD_VERSION_MINOR=$(scpfw-integ-version-min) \
+ 		  -DBUILD_VERSION_PATCH=$(scpfw-integ-version-pat)
+ 
++ifeq ($(_CFG_SCP_FIRMWARE_IN_TREE),y)
++scpfw-impl-version := $(shell echo $(scpfw-integ-version)-intree-optee-os-$(TEE_IMPL_VERSION))
++else
+ scpfw-impl-version := $(shell git -C $(scpfw-path) describe --tags --always --dirty=-dev 2>/dev/null || \
+-                      echo Unknown_$(scpfw-integ-version))
++			echo Unknown_$(scpfw-integ-version))
++endif
+ cppflags-lib-y += -DBUILD_VERSION_DESCRIBE_STRING=\"$(scpfw-impl-version)\"
+ 
+ cppflags-lib-y += -DFWK_LOG_LEVEL=$(CFG_SCPFW_LOG_LEVEL)
+@@ -110,4 +119,3 @@ cppflags-lib-$(CFG_SCPFW_INBAND_MSG_SUPPORT) += -DBUILD_HAS_INBAND_MSG_SUPPORT
+ 
+ # Include SCP-firmware make files
+ include $(scpfw-path)/product/optee/sub.mk
+-
+diff --git a/mk/config.mk b/mk/config.mk
+index a5b1782cf..58bc0083a 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -849,9 +849,22 @@ $(call force,CFG_SCMI_PTA,y,Required by CFG_SCMI_SCPFW)
+ ifeq (,$(CFG_SCMI_SCPFW_PRODUCT))
+ $(error CFG_SCMI_SCPFW=y requires CFG_SCMI_SCPFW_PRODUCT configuration)
+ endif
++ifeq (,$(CFG_SCP_FIRMWARE))
++$(call force,_CFG_SCP_FIRMWARE_IN_TREE,y)
++endif #CFG_SCP_FIRMWARE empty
++
++ifeq ($(_CFG_SCP_FIRMWARE_IN_TREE),y)
++ifeq (,$(wildcard core/lib/scmi-server/SCP-firmware/CMakeLists.txt))
++$(info WARNING: CFG_SCMI_SCPFW=y without CFG_SCP_FIRMWARE value expects SCP-firmware source tree at core/lib/scmi-serve/SCP-firmware/)
++$(info WARNING: Maybe need to get SCP-firmware source tree and set its absolute path in CFG_SCP_FIRMWARE.)
++$(error CFG_SCMI_SCPFW=y but cannot find the location of SCP-firmware source tree)
++endif
++else #_CFG_SCP_FIRMWARE_IN_TREE
+ ifeq (,$(wildcard $(CFG_SCP_FIRMWARE)/CMakeLists.txt))
+-$(error CFG_SCMI_SCPFW=y requires CFG_SCP_FIRMWARE configuration)
++$(info WARNING: Invalid config SCP-firmware source tree absolute path CFG_SCP_FIRMWARE=$(CFG_SCP_FIRMWARE))
++$(error CFG_SCMI_SCPFW=y but CFG_SCP_FIRMWARE does not seems to provide the source tree location)
+ endif
++endif #_CFG_SCP_FIRMWARE_IN_TREE
+ endif #CFG_SCMI_SCPFW
+ 
+ # CFG_SCMI_SCPFW_FROM_DT, when enabled, calls scpfw_configure() function
+-- 
+2.53.0
+

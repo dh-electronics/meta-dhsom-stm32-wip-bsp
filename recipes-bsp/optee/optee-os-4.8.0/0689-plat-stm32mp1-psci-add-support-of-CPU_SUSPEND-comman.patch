@@ -1,0 +1,118 @@
+From d2ae3c47466c5d1e8dced44384d3616c8db5afe4 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 5 Dec 2025 17:26:17 +0100
+Subject: [PATCH 689/913] plat-stm32mp1: psci: add support of CPU_SUSPEND
+ command with OPTEE in DDR
+
+Add support of PSCI CPU_SUSPEND command when the configuration
+CFG_STM32MP1_OPTEE_IN_SYSRAM is not enabled (means OPTEE had been loaded
+in DDR and not in SYSRAM). The final actions will be done by TF-A
+through the stm32mp_pm_call_bl2_lp_entry() function.
+
+STM32_PM_CPU_STANDBY_FLAG indicate to TF-A to block the CPU in WFI loop.
+STM32_PM_CARE_OTHER_CPU_STATE_FLAG indicate to TF-A to make sure the other
+CPU is well blocked in its WFI loop before disabled the DDR.
+
+STM32_PM_CARE_OTHER_CPU_STATE_FLAG should be combined with an effective
+"soc_mode" (STOP, LPSTOP, etc..).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e3fba8cdd4e7c6a3fd1f123aae3ac10cc16b9e8a plat-stm32mp1: psci: add support of CPU_SUSPEND command with OPTEE in DDR]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: If48e0d0d042e61fb2c2e38aecc7410dca333af0f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/515755
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/pm/psci.c | 32 ++++++++++++++++++++++++---
+ 1 file changed, 29 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/pm/psci.c b/core/arch/arm/plat-stm32mp1/pm/psci.c
+index 4e22fae44..1897cfa17 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/psci.c
++++ b/core/arch/arm/plat-stm32mp1/pm/psci.c
+@@ -41,6 +41,8 @@
+ 
+ #define CONSOLE_FLUSH_DELAY_MS		10
+ 
++#define STM32_PM_CPU_STANDBY_FLAG		BIT(31)
++#define STM32_PM_CARE_OTHER_CPU_STATE_FLAG	BIT(30)
+ #define STM32_PM_SOC_MODE_MASK			GENMASK_32(7, 0)
+ 
+ static_assert(STM32_PM_MAX_SOC_MODE ==
+@@ -57,7 +59,7 @@ enum core_state_id {
+ 	CORE_ON,
+ };
+ 
+-static enum core_state_id core_state[CFG_TEE_CORE_NB_CORE];
++static enum core_state_id core_state[2];
+ static unsigned int __maybe_unused state_lock = SPINLOCK_UNLOCK;
+ 
+ static uint32_t __maybe_unused lock_state_access(void)
+@@ -550,6 +552,7 @@ static void stm32_cpu_standby(void)
+ 
+ 	set_locked(&cstop_cpux_state[pos], STATE_AUTO_CSTOP_ENTRY);
+ 
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
+ 	/*
+ 	 * Enter standby state.
+ 	 * Synchronize on memory accesses and instruction flow before the WFI
+@@ -560,9 +563,14 @@ static void stm32_cpu_standby(void)
+ 		isb();
+ 		wfi();
+ 	} while (!read_isr());
++#else
++	if (stm32mp_pm_call_bl2_lp_entry(STM32_PM_CPU_STANDBY_FLAG))
++		panic();
++#endif
+ 
+ 	exceptions = may_spin_lock(&cstop_lock);
+ 
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
+ 	if (cstop_enter == STATE_AUTO_CSTOP_ENTRY) {
+ 		struct itr_chip *itr_chip = interrupt_get_main_chip();
+ 		size_t other_pos = stm32_get_pos_other();
+@@ -570,6 +578,7 @@ static void stm32_cpu_standby(void)
+ 		interrupt_raise_sgi(itr_chip, GIC_SEC_SGI_6,
+ 				    TARGET_CPUX_GIC_MASK(other_pos));
+ 	}
++#endif
+ 
+ 	cstop_cpux_state[pos] = STATE_NONE;
+ 
+@@ -586,12 +595,29 @@ static int stm32_pwr_domain_suspend(unsigned int soc_mode)
+ 	int ret = PSCI_RET_INTERNAL_FAILURE;
+ 	uint32_t arg = (uint32_t)soc_mode;
+ 	uint32_t exceptions = 0;
++	bool denied = false;
+ 	uint32_t scr = 0;
+ 	int rc = 1;
+ 
+ 	exceptions = may_spin_lock(&cstop_lock);
+-	if (core_state[other_pos] != CORE_OFF &&
+-	    cstop_cpux_state[other_pos] != STATE_AUTO_CSTOP_ENTRY) {
++
++	/* If we are already handling a low power request */
++	if (cstop_enter == STATE_AUTO_CSTOP_ENTRY)
++		denied = true;
++
++	if (core_state[other_pos] != CORE_OFF) {
++		arg |= STM32_PM_CARE_OTHER_CPU_STATE_FLAG;
++
++		/* If the other core is ON but not already in LP */
++		if (cstop_cpux_state[other_pos] != STATE_AUTO_CSTOP_ENTRY)
++			denied = true;
++	}
++
++	/* If an IRQ is pending */
++	if (read_isr())
++		denied = true;
++
++	if (denied) {
+ 		may_spin_unlock(&cstop_lock, exceptions);
+ 		return PSCI_RET_DENIED;
+ 	}
+-- 
+2.53.0
+

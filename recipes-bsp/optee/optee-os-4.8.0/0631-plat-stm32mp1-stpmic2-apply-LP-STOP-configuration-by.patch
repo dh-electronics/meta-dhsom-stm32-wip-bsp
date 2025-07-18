@@ -1,0 +1,74 @@
+From 45c5edea916543a6e119526140ced7c94d81ce20 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Wed, 18 Mar 2026 16:07:13 +0100
+Subject: [PATCH 631/913] plat-stm32mp1: stpmic2: apply LP-STOP configuration
+ by default
+
+As STPMIC2 already apply the alternate state on STPMIC2 regulators
+for Stop mode only when they are modified, we save some time during
+suspend and resume by:
+- no more change the alternate state on STPMIC2 regulators when it
+  is not required, i.e. for Stop mode
+- apply the LP-STOP STPMIC2 alternate configuration by default
+  (which is the most selected low power mode used by the system
+   for PSCI OSI).
+
+Like this,
+ - STOP is not impacted because it doesn't need a PMIC configuration
+ - LP-STOP save around 800us (entry latency)
+ - LPLV-STOP lost 1600us (entry and exit latency) as it should configure
+   and reconfigure PMIC after resume
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bb785b953ccd59267787d8b88e31721f32784b13 plat-stm32mp1: stpmic2: apply LP-STOP configuration by default]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I36c2961d909437bca36c22042fff17226d68361d
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/548733
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c   | 14 ++++++++++++--
+ core/include/dt-bindings/power/stm32mp1-power.h    |  3 +++
+ 2 files changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c
+index dec80193a..e8c2ee2d1 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic2.c
+@@ -35,9 +35,19 @@ static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint,
+ 		res = stm32_pmic2_suspend_regulator(regulator, pwrlvl);
+ 		if (res)
+ 			return res;
+-		return stm32_pmic2_apply_pm_state(regulator, pwrlvl);
++
++		/* No STPMIC2 alternate update for mode < STM32_PM_DEFAULT */
++		if (pwrlvl >= STM32_PM_DEFAULT)
++			return stm32_pmic2_apply_pm_state(regulator, pwrlvl);
+ 	} else if (op == PM_OP_RESUME) {
+-		return stm32_pmic2_resume_regulator(regulator);
++		res = stm32_pmic2_resume_regulator(regulator);
++		if (res)
++			return res;
++		/*
++		 * Restore the default STPMIC2 alternate state
++		 * It is an latency optimisation for OSI
++		 */
++		return stm32_pmic2_apply_pm_state(regulator, STM32_PM_DEFAULT);
+ 	}
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/include/dt-bindings/power/stm32mp1-power.h b/core/include/dt-bindings/power/stm32mp1-power.h
+index ff85c14bf..4ce5bc4f7 100644
+--- a/core/include/dt-bindings/power/stm32mp1-power.h
++++ b/core/include/dt-bindings/power/stm32mp1-power.h
+@@ -17,4 +17,7 @@
+ #define STM32_PM_SHUTDOWN			7
+ #define STM32_PM_MAX_SOC_MODE			8
+ 
++/* Default configuration for PMIC (first level with alternate setting)*/
++#define STM32_PM_DEFAULT			STM32_PM_CSTOP_ALLOW_LP_STOP
++
+ #endif /* DT_BINDINGS_STM32MP1_POWER_H */
+-- 
+2.53.0
+

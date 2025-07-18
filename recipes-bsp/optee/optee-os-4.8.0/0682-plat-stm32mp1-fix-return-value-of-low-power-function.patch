@@ -1,0 +1,64 @@
+From 47070f955499fdcefe15eadf7be0c4204c5ec8b0 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 29 Sep 2025 16:03:06 +0200
+Subject: [PATCH 682/913] plat-stm32mp1: fix return value of low power
+ functions for STM32MP15
+
+Fix the return value of enter_cstop_suspend and __psci_system_suspend
+when CFG_STM32MP1_OPTEE_IN_SYSRAM is not activated for STM32MP15.
+
+This patch avoids to answer a error on PSCI system suspend request when
+the Standby/cpu pwr down request is not really performed but change for
+hardware restriction to Stop mode and simple WFI (for example when
+Cortext-M4 not allows Standby mode with the bit PPDS in PWR_MCUCR).
+
+The behavior is identical for CFG_STM32MP1_OPTEE_IN_SYSRAM activated.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f69d4875faffb1821193265f7a4ead6034705ccb plat-stm32mp1: fix return value of low power functions for STM32MP15]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I1535afa2226040b1c8ec2dec2074ff4939c881f3
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/494619
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/pm/psci.c | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/pm/psci.c b/core/arch/arm/plat-stm32mp1/pm/psci.c
+index 1db5e5045..ab862d759 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/psci.c
++++ b/core/arch/arm/plat-stm32mp1/pm/psci.c
+@@ -243,8 +243,8 @@ static int enter_cstop_suspend(unsigned int soc_mode)
+ 	stm32_enter_cstop(soc_mode);
+ 
+ #ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
+-	stm32mp_pm_call_bl2_lp_entry(soc_mode);
+-	rc = 0;
++	if (stm32mp_pm_call_bl2_lp_entry(soc_mode) == TEE_SUCCESS)
++		rc = 0;
+ #else
+ 	if (need_to_backup_cpu_context(soc_mode)) {
+ 		stm32_pm_cpu_power_down_wfi();
+@@ -387,6 +387,18 @@ uint32_t __weak __psci_system_suspend(uintptr_t entry,
+ 			if (!IS_ENABLED(CFG_PAGED_PSCI_SYSTEM_SUSPEND))
+ 				sm_restore_unbanked_regs(&nsec->ub_regs);
+ 		}
++#ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
++		/*
++		 * TF-A return to caller if standby is aborted (error)
++		 * or is reduced to Stop mode with simple WFI exit
++		 * so result OK as low power mode is performed (Stop)
++		 * PS: for OPTEE in SYSRAM and aborted Standby,
++		 *     stm32_pm_cpu_power_down_wfi() calls
++		 *     stm32mp_sysram_resume()
++		 *     and this part is NOT reached
++		 */
++		ret = 0;
++#endif
+ 	} else {
+ 		ret = plat_suspend((uint32_t)soc_mode);
+ 	}
+-- 
+2.53.0
+

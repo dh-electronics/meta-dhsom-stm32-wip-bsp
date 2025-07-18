@@ -1,0 +1,77 @@
+From 86dc9b8e6cae8e0e21c7bf7dd33f5cc984776c53 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 4 Aug 2026 14:03:08 +0200
+Subject: [PATCH 884/913] drivers: stm32_rifsc: check pointers before
+ dereferencing them
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+stm32_risup_cfg and stm32_rimu_cfg computed register offsets from
+risup->id and rimu->id in their variable initializers, before testing
+those very pointers against NULL a few lines below.
+
+Move the offset computations after the parameter checks so the pointers
+are validated before being dereferenced.
+
+Coverity issue: CID 1199950: Dereference before null check in stm32_risup_cfg
+Coverity issue: CID 1200178: Dereference before null check in stm32_rimu_cfg
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7c28ac5346cecc7b817a2eaa25c6f1a08186a819 drivers: stm32_rifsc: check pointers before dereferencing them]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ie39e937742f113f4d20197d0ff0113c3a6ec990d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/597005
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/firewall/stm32_rifsc.c | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_rifsc.c b/core/drivers/firewall/stm32_rifsc.c
+index f0409241f..50df24231 100644
+--- a/core/drivers/firewall/stm32_rifsc.c
++++ b/core/drivers/firewall/stm32_rifsc.c
+@@ -524,14 +524,18 @@ static TEE_Result stm32_rifsc_parse_fdt(const void *fdt, int node,
+ static TEE_Result stm32_risup_cfg(struct rifsc_platdata *pdata,
+ 				  struct risup_cfg *risup)
+ {
+-	uintptr_t offset = sizeof(uint32_t) * (risup->id / _PERIPH_IDS_PER_REG);
+-	uintptr_t cidcfgr_offset = _OFFSET_PERX_CIDCFGR * risup->id;
+ 	struct rifsc_driver_data *drv_data = pdata->drv_data;
+-	uint32_t shift = risup->id % _PERIPH_IDS_PER_REG;
++	uintptr_t cidcfgr_offset = 0;
++	uintptr_t offset = 0;
++	uint32_t shift = 0;
+ 
+ 	if (!risup || risup->id >= drv_data->nb_risup)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	offset = sizeof(uint32_t) * (risup->id / _PERIPH_IDS_PER_REG);
++	cidcfgr_offset = _OFFSET_PERX_CIDCFGR * risup->id;
++	shift = risup->id % _PERIPH_IDS_PER_REG;
++
+ 	if (drv_data->sec_en)
+ 		io_clrsetbits32_stm32shregs(pdata->base + _RIFSC_RISC_SECCFGR0 +
+ 					    offset, BIT(shift),
+@@ -657,12 +661,14 @@ static void stm32_rimu_errata_ahbrisab(struct rifsc_platdata *pdata,
+ static TEE_Result stm32_rimu_cfg(struct rifsc_platdata *pdata,
+ 				 struct rimu_cfg *rimu)
+ {
+-	uintptr_t offset =  _RIFSC_RIMC_ATTR0 + (sizeof(uint32_t) * rimu->id);
+ 	struct rifsc_driver_data *drv_data = pdata->drv_data;
++	uintptr_t offset = 0;
+ 
+ 	if (!rimu || rimu->id >= drv_data->nb_rimu)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	offset = _RIFSC_RIMC_ATTR0 + (sizeof(uint32_t) * rimu->id);
++
+ 	stm32_rimu_errata_ahbrisab(pdata, rimu);
+ 
+ 	if (drv_data->rif_en)
+-- 
+2.53.0
+

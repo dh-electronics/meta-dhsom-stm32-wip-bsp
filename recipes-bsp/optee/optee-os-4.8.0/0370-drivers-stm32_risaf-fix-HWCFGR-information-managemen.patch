@@ -1,0 +1,65 @@
+From 4a3a06104398c1af78d73508549bf6a27ef66127 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Mon, 27 Apr 2026 23:44:16 +0200
+Subject: [PATCH 370/913] drivers: stm32_risaf: fix HWCFGR information
+ management
+
+hw_nregions (and so hw_nsubregions) take into account the base0 region,
+which is not configurable. So decrement their value after read.
+As described in the reference manual, hw_nsubregions reflects the total
+number of subregions A and B. Convert it to the number of subregions per
+region, easier to use from software point of  view.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d06c293fd52faef358a03955415470f884bec430 drivers: stm32_risaf: fix HWCFGR information management]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I512764717b9ce1780b3aebafa79056eca65d95a3
+---
+ core/drivers/firewall/stm32_risaf.c | 20 ++++++++++++++------
+ 1 file changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index ed773a232..23af8ef9e 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -683,16 +683,24 @@ static TEE_Result stm32_risaf_init_ddata(struct stm32_risaf_instance *risaf)
+ 	mask_msb = mask_lsb + ((hwcfgr & _RISAF_HWCFGR_CFG4_MASK) >>
+ 			       _RISAF_HWCFGR_CFG4_SHIFT) - 1U;
+ 	risaf->ddata->mask_regions = GENMASK_32(mask_msb, mask_lsb);
+-	risaf->ddata->max_base_regions = (hwcfgr & _RISAF_HWCFGR_CFG1_MASK) >>
+-					 _RISAF_HWCFGR_CFG1_SHIFT;
++	/* hw_nregions take account the base0, which is not configurable */
++	risaf->ddata->max_base_regions = ((hwcfgr & _RISAF_HWCFGR_CFG1_MASK) >>
++					  _RISAF_HWCFGR_CFG1_SHIFT) - 1;
+ 
+ 	/* Get IP region granularity */
+ 	risaf->ddata->granularity = BIT((hwcfgr & _RISAF_HWCFGR_CFG3_MASK) >>
+ 					_RISAF_HWCFGR_CFG3_SHIFT);
+ 
+-	/* Get maximum number of subregions */
+-	risaf->ddata->max_subregions = (hwcfgr & _RISAF_HWCFGR_CFG2_MASK) >>
+-					_RISAF_HWCFGR_CFG2_SHIFT;
++	/*
++	 * Get maximum number of subregions.
++	 * hw_nsubregions reflects the total number of subregions A and B.
++	 * It also takes into account the base0, decrement it.
++	 * Convert it to the number of subregions per region.
++	 */
++	mask_lsb = ((hwcfgr & _RISAF_HWCFGR_CFG2_MASK) >>
++		   _RISAF_HWCFGR_CFG2_SHIFT) - 1;
++	risaf->ddata->max_subregions = (mask_lsb * 2) /
++				       risaf->ddata->max_base_regions;
+ 
+ 	return TEE_SUCCESS;
+ }
+@@ -1226,7 +1234,7 @@ static TEE_Result stm32_risaf_probe(const void *fdt, int node,
+ 			panic();
+ 
+ 		id = _RISAF_GET_REGION_ID(regions[i].cfg);
+-		assert(id < risaf->ddata->max_base_regions);
++		assert(id <= risaf->ddata->max_base_regions);
+ 
+ 		if (risaf_configure_region(risaf, &regions[i]))
+ 			panic();
+-- 
+2.53.0
+

@@ -1,0 +1,146 @@
+From eabca53cf8eb08486e935ac52f42bf17c97d0796 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 6 Jun 2024 09:24:26 +0200
+Subject: [PATCH 235/913] plat-stm32mp1: enable SCMI regulator consumer for
+ STM32MP15
+
+Default enable support for SCMI regulator consumer on STM32MP15 platform.
+This change requires a rework of the SCMI protocol list passed to
+SCMI client as SCMI voltage Domain protocol should not be listed if
+there are no voltage domains exposed (aka no scmi-regulator-consumer
+compatible DT node) despite CFG_SCMI_MSG_REGULATOR_CONSUMER is enabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 49bd82d0de794780ba786a1b9262c6e418b2720e plat-stm32mp1: enable SCMI regulator consumer for STM32MP15]
+Change-Id: I72137f3092668b8a7179429125bc0b94f2cc7994
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/385768
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk       |  1 +
+ core/arch/arm/plat-stm32mp1/scmi_server.c | 55 ++++++++++++-----------
+ 2 files changed, 29 insertions(+), 27 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 31f49bfa0..89cf71f00 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -377,6 +377,7 @@ $(call force,CFG_SCMI_MSG_DRIVERS,y,Mandated by CFG_SCMI_PTA)
+ $(call force,CFG_SCMI_SCPFW,n,SCPFW for STM32MP1 no is not supported)
+ $(call force,CFG_SCMI_MSG_CLOCK,y)
+ $(call force,CFG_SCMI_MSG_RESET_DOMAIN,y)
++$(call force,CFG_SCMI_MSG_REGULATOR_CONSUMER,y)
+ $(call force,CFG_SCMI_MSG_VOLTAGE_DOMAIN,y)
+ CFG_SCMI_MSG_SHM_MSG ?= y
+ CFG_SCMI_MSG_SMT ?= y
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index ff13bee1c..04693b2ca 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -296,40 +296,58 @@ struct scmi_msg_channel *plat_scmi_get_channel(unsigned int channel_id)
+ 	return find_resource(confined_id)->channel;
+ }
+ 
+-static size_t __maybe_unused plat_scmi_protocol_count_paranoid(void)
++static uint8_t *plat_protocol_list;
++static size_t plat_protocol_list_count;
++
++static void add_protocol(uint8_t protocol_id)
++{
++	plat_protocol_list_count++;
++
++	plat_protocol_list = realloc(plat_protocol_list,
++				     plat_protocol_list_count *
++				     sizeof(*plat_protocol_list));
++	assert(plat_protocol_list);
++
++	plat_protocol_list[plat_protocol_list_count - 1] = protocol_id;
++}
++
++static void plat_scmi_set_protocol_list(void)
+ {
+ 	unsigned int n = 0;
+-	unsigned int count = 0;
+ 	const size_t channel_count = ARRAY_SIZE(scmi_channel);
+ 
++	if (plat_protocol_list_count)
++		return;
++
+ 	for (n = 0; n < channel_count; n++)
+ 		if (scmi_channel[n].clock_count)
+ 			break;
+ 	if (n < channel_count)
+-		count++;
++		add_protocol(SCMI_PROTOCOL_ID_CLOCK);
+ 
+ 	for (n = 0; n < channel_count; n++)
+ 		if (scmi_channel[n].rd_count)
+ 			break;
+ 	if (n < channel_count)
+-		count++;
++		add_protocol(SCMI_PROTOCOL_ID_RESET_DOMAIN);
+ 
+ 	for (n = 0; n < channel_count; n++)
+ 		if (IS_ENABLED(CFG_SCMI_MSG_REGULATOR_CONSUMER) &&
+ 		    plat_scmi_voltd_count(n))
+ 			break;
+ 	if (n < channel_count)
+-		count++;
++		add_protocol(SCMI_PROTOCOL_ID_VOLTAGE_DOMAIN);
+ 
+ #ifdef CFG_SCMI_MSG_PERF_DOMAIN
+ 	for (n = 0; n < channel_count; n++)
+ 		if (scmi_channel[n].perfd_count)
+ 			break;
+ 	if (n < channel_count)
+-		count++;
++		add_protocol(SCMI_PROTOCOL_ID_PERF);
+ #endif
+ 
+-	return count;
++	/* The array expects a terminal 0 ID value */
++	add_protocol(0);
+ }
+ 
+ static const char vendor[] = "ST";
+@@ -345,33 +363,16 @@ const char *plat_scmi_sub_vendor_name(void)
+ 	return sub_vendor;
+ }
+ 
+-/* Currently supporting Clocks and Reset Domains */
+-static const uint8_t plat_protocol_list[] = {
+-	SCMI_PROTOCOL_ID_CLOCK,
+-	SCMI_PROTOCOL_ID_RESET_DOMAIN,
+-#ifdef CFG_SCMI_MSG_REGULATOR_CONSUMER
+-	SCMI_PROTOCOL_ID_VOLTAGE_DOMAIN,
+-#endif
+-#ifdef CFG_SCMI_MSG_PERF_DOMAIN
+-	SCMI_PROTOCOL_ID_PERF,
+-#endif
+-	0 /* Null termination */
+-};
+-
+ size_t plat_scmi_protocol_count(void)
+ {
+-	const size_t count = ARRAY_SIZE(plat_protocol_list) - 1;
+-
+-	assert(count == plat_scmi_protocol_count_paranoid());
++	plat_scmi_set_protocol_list();
++	assert(plat_protocol_list_count);
+ 
+-	return count;
++	return plat_protocol_list_count - 1;
+ }
+ 
+ const uint8_t *plat_scmi_protocol_list(unsigned int channel_id __unused)
+ {
+-	assert(plat_scmi_protocol_count_paranoid() ==
+-	       (ARRAY_SIZE(plat_protocol_list) - 1));
+-
+ 	return plat_protocol_list;
+ }
+ 
+-- 
+2.53.0
+

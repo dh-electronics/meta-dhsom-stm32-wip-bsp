@@ -1,0 +1,61 @@
+From c5c100dc7e4a9030a20fdffbbcc82549a519e504 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Fri, 8 Dec 2023 19:00:26 +0100
+Subject: [PATCH 553/913] plat-stm32mp2: add remoteproc firmware loading
+ support
+
+Enable the remoteproc TA, the remoteproc PTA and the
+stm32mp_remoteproc driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6bb6e9e8dd9f9ad0233fa94ab3fb0a54b613e4fa plat-stm32mp2: add remoteproc firmware loading support]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+---
+ .../arm/plat-stm32mp2/conf.disable-secure-services.mk  |  3 ---
+ core/arch/arm/plat-stm32mp2/conf.mk                    | 10 ++++++++++
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk b/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
+index df19d5372..a6a3d417b 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
+@@ -13,9 +13,6 @@ $(call force,CFG_TEE_BENCHMARK,n)
+ $(call force,CFG_WITH_TUI,n)
+ $(call force,CFG_WITH_USER_TA,n)
+ 
+-# Deactivate remote processor support
+-$(call force,CFG_STM32MP_REMOTEPROC,n)
+-
+ # Deactivate crypto support
+ $(call force,CFG_CRYPTO,n)
+ $(call force,CFG_STM32_CRYP,n)
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index 38f2442d4..884c5fb48 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -126,6 +126,7 @@ $(call force,CFG_STM32_STGEN,y)
+ $(call force,CFG_STM32_PWR,y)
+ CFG_STM32_PWR_REGUL ?= y
+ $(call force,CFG_STM32MP_CLK_CORE,y)
++$(call force,CFG_STM32MP_REMOTEPROC,y)
+ CFG_STM32MP2_CLK_CAL ?= y
+ 
+ ifeq ($(CFG_STM32MP2_CLK_CAL),y)
+@@ -227,6 +228,15 @@ CFG_STM32_EARLY_CONSOLE_UART ?= 2
+ # Default disable external DT support
+ CFG_EXTERNAL_DT ?= n
+ 
++CFG_DRIVERS_REMOTEPROC ?= $(CFG_STM32MP_REMOTEPROC)
++CFG_REMOTEPROC_PTA ?= $(CFG_STM32MP_REMOTEPROC)
++ifeq ($(CFG_REMOTEPROC_PTA),y)
++# Remoteproc early TA for coprocessor firmware management in boot stages
++CFG_IN_TREE_EARLY_TAS += remoteproc/80a4c275-0a47-4905-8285-1486a9771a08
++# Embed public part of this key in OP-TEE OS
++RPROC_SIGN_KEY ?= keys/default.pem
++endif
++
+ ifeq ($(CFG_STM32_HSE_MONITORING),y)
+ $(call force,CFG_STM32_LPTIMER,y)
+ endif
+-- 
+2.53.0
+

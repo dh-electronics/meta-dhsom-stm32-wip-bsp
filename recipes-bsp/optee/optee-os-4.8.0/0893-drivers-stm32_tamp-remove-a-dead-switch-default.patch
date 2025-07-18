@@ -1,0 +1,80 @@
+From 683e6b5b509ec778136f5ae9c720cb6c8fb27ffb Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 4 Aug 2026 14:28:33 +0200
+Subject: [PATCH 893/913] drivers: stm32_tamp: remove a dead switch default
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The loop building the TAMP access masks iterates over the three RIF
+resources and the switch handled each of them, so its default case,
+which panics, can never be reached.
+
+Replace the switch by two lookup tables sized on TAMP_RIF_RESOURCES.
+
+Coverity issue: CID 1200340: Dead default in switch in apply_rif_config
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git fb60e2d2d4b2c3e95a270a86aa6f8980f7389ebf drivers: stm32_tamp: remove a dead switch default]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I41ce3071ba11b60fa70e9400bb7c790dc0487043
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/597014
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/stm32_tamp.c | 30 ++++++++++++------------------
+ 1 file changed, 12 insertions(+), 18 deletions(-)
+
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index bec3d82cf..addc5a172 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -674,6 +674,16 @@ static vaddr_t get_base(void)
+ 
+ static void apply_rif_config(void)
+ {
++	static const uint32_t sec_mask[TAMP_RIF_RESOURCES] = {
++		_TAMP_SECCFGR_TAMPSEC,
++		_TAMP_SECCFGR_CNT1SEC,
++		_TAMP_SECCFGR_CNT2SEC,
++	};
++	static const uint32_t priv_mask[TAMP_RIF_RESOURCES] = {
++		_TAMP_PRIVCFG_TAMPPRIV,
++		_TAMP_PRIVCFG_CNT1PRIV | _TAMP_PRIVCFG_BKPRWPRIV,
++		_TAMP_PRIVCFG_CNT2PRIV | _TAMP_PRIVCFG_BKPWPRIV,
++	};
+ 	struct rif_conf_data *rif_conf = stm32_tamp_dev->pdata.conf_data;
+ 	uint32_t access_mask_priv_reg = 0;
+ 	uint32_t access_mask_sec_reg = 0;
+@@ -688,24 +698,8 @@ static void apply_rif_config(void)
+ 	/* Build access masks for _TAMP_PRIVCFGR and _TAMP_SECCFGR */
+ 	for (i = 0; i < TAMP_RIF_RESOURCES; i++) {
+ 		if (BIT(i) & rif_conf->access_mask[0]) {
+-			switch (i) {
+-			case 0:
+-				access_mask_sec_reg |= _TAMP_SECCFGR_TAMPSEC;
+-				access_mask_priv_reg |= _TAMP_PRIVCFG_TAMPPRIV;
+-				break;
+-			case 1:
+-				access_mask_sec_reg |= _TAMP_SECCFGR_CNT1SEC;
+-				access_mask_priv_reg |= _TAMP_PRIVCFG_CNT1PRIV;
+-				access_mask_priv_reg |= _TAMP_PRIVCFG_BKPRWPRIV;
+-				break;
+-			case 2:
+-				access_mask_sec_reg |= _TAMP_SECCFGR_CNT2SEC;
+-				access_mask_priv_reg |= _TAMP_PRIVCFG_CNT2PRIV;
+-				access_mask_priv_reg |= _TAMP_PRIVCFG_BKPWPRIV;
+-				break;
+-			default:
+-				panic();
+-			}
++			access_mask_sec_reg |= sec_mask[i];
++			access_mask_priv_reg |= priv_mask[i];
+ 		}
+ 	}
+ 
+-- 
+2.53.0
+

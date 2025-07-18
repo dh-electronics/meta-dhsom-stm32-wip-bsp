@@ -1,0 +1,67 @@
+From 090f1f539aeeb7568bb87a586dfee839d83e6f91 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 14:04:16 +0200
+Subject: [PATCH 865/913] lib: libpng: fix uninitialized tRNS buffer, harden
+ zTXt null-terminator
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+png_handle_tRNS: Initialize readbuf array to prevent use of an
+uninitialized variable when processing non-PALETTE color types.
+
+png_handle_zTXt: Guard the null-terminator write on the decompressed
+buffer with a bounds check against the actual read buffer allocation
+(read_buffer_size), rather than the unrelated chunk length, and report
+a benign error if that bound is ever violated.
+
+Coverity issue: CID 892682: Uninitialized scalar variable
+Coverity issue: CID 1207391: CERT-C Expression
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bf72c794129f90e1e4d222d0c66d871c0842da3f lib: libpng: fix uninitialized tRNS buffer, harden zTXt null-terminator]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Iaa3bbb1e37df80f617e6a1ec45b30e3059a8673a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/592841
+Domain-Review: Yannick FERTRE <yannick.fertre@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Philippe CORNU <philippe.cornu@foss.st.com>
+---
+ lib/libpng/pngrutil.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/lib/libpng/pngrutil.c b/lib/libpng/pngrutil.c
+index d5fa08c39..41a51d909 100644
+--- a/lib/libpng/pngrutil.c
++++ b/lib/libpng/pngrutil.c
+@@ -1816,7 +1816,7 @@ png_handle_sPLT(png_structrp png_ptr, png_inforp info_ptr, png_uint_32 length)
+ void /* PRIVATE */
+ png_handle_tRNS(png_structrp png_ptr, png_inforp info_ptr, png_uint_32 length)
+ {
+-   png_byte readbuf[PNG_MAX_PALETTE_LENGTH];
++   png_byte readbuf[PNG_MAX_PALETTE_LENGTH] = {0};
+ 
+    png_debug(1, "in png_handle_tRNS");
+ 
+@@ -2683,7 +2683,15 @@ png_handle_zTXt(png_structrp png_ptr, png_inforp info_ptr, png_uint_32 length)
+              * it isn't necessarily '\0' terminated.
+              */
+             buffer = png_ptr->read_buffer;
+-            buffer[uncompressed_length+(keyword_length+2)] = 0;
++            /* Bound against the actual allocation (read_buffer_size), not
++             * 'length', since read_buffer was resized by
++             * png_decompress_chunk(); this is the real overflow check.
++             */
++            if (uncompressed_length + (keyword_length+2) <
++                png_ptr->read_buffer_size)
++               buffer[uncompressed_length+(keyword_length+2)] = 0;
++            else
++               errmsg = "internal error: read buffer too small";
+ 
+             text.compression = PNG_TEXT_COMPRESSION_zTXt;
+             text.key = (png_charp)buffer;
+-- 
+2.53.0
+

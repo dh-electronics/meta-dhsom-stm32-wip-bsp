@@ -1,0 +1,139 @@
+From 6ca2e8346c959ab9b0c32b7a71a0b18784b6171b Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Thu, 17 Nov 2022 18:24:42 +0100
+Subject: [PATCH 088/913] plat-stm32mp2: open the complete debug access on
+ STM32MP2
+
+Open all the debug at boot time for development purpose.
+Check the BSEC security state to avoid it on secure close device.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git defd1706dcde520698f260801e152d1ebd265855 plat-stm32mp2: open the complete debug access on STM32MP2]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Change-Id: I2eba591c7fc4ea39a190efe671ae33af5465de93
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/276337
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/354407
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c            | 59 +++++++++++++++++++
+ core/arch/arm/plat-stm32mp2/platform_config.h |  9 +++
+ 2 files changed, 68 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 689d8927e..fa084bdfe 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -12,6 +12,7 @@
+ #include <drivers/stm32_serc.h>
+ #include <drivers/stm32_uart.h>
+ #include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stm32mp_dt_bindings.h>
+ #include <initcall.h>
+ #include <kernel/abort.h>
+ #include <kernel/boot.h>
+@@ -24,6 +25,9 @@
+ #include <stm32_util.h>
+ #include <trace.h>
+ 
++/* DBGMCU registers */
++#define DBGMCU_DBG_AUTH_DEV		U(0x104)
++
+ register_phys_mem_pgdir(MEM_AREA_IO_NSEC, APB1_BASE, APB1_SIZE);
+ 
+ register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB1_BASE, APB1_SIZE);
+@@ -147,6 +151,13 @@ vaddr_t stm32_rcc_base(void)
+ 	return io_pa_or_va_secure(&base, 1);
+ }
+ 
++static uintptr_t stm32_dbgmcu_base(void)
++{
++	static struct io_pa_va dbgmcu_base = { .pa = DBGMCU_BASE };
++
++	return io_pa_or_va_nsec(&dbgmcu_base, 1);
++}
++
+ void boot_primary_init_intc(void)
+ {
+ 	gic_init(GIC_BASE + GICC_OFFSET, GIC_BASE + GICD_OFFSET);
+@@ -195,7 +206,55 @@ void plat_bsec_get_static_cfg(struct stm32_bsec_static_cfg *cfg)
+ 	cfg->upper_start = STM32MP2_UPPER_OTP_START;
+ 	cfg->max_id = STM32MP2_OTP_MAX_ID;
+ }
++
++#ifndef CFG_STM32_CM33TDCID
++static TEE_Result init_debug(void)
++{
++	TEE_Result res = TEE_SUCCESS;
++	struct clk *dbg_clk = stm32mp_rcc_clock_id_to_clk(CK_SYSDBG);
++	uint32_t state = 0;
++
++	res = stm32_bsec_get_state(&state);
++	if (res)
++		return res;
++
++	if (state != BSEC_STATE_SEC_CLOSED) {
++		struct clk __maybe_unused *dbgmcu_clk = NULL;
++
++		if (IS_ENABLED(CFG_INSECURE))
++			IMSG("WARNING: All debug access are allowed");
++
++		res = stm32_bsec_write_debug_conf(STM32_BSEC_DEBUG_ALL);
++		if (res)
++			panic("Debug configuration failed");
++
++		/* Enable DBG as used to access coprocessor debug registers */
++		assert(dbg_clk);
++		if (clk_enable(dbg_clk))
++			panic("Could not enable debug clock");
++
++#if defined(CFG_STM32MP21)
++		dbgmcu_clk = stm32mp_rcc_clock_id_to_clk(CK_DBGMCU);
++
++		assert(dbgmcu_clk);
++		if (clk_enable(dbgmcu_clk))
++			panic("Could not enable DBGMCU clock");
++
++		stm32_bsec_mp21_ap0_unlock();
++
++		/*
++		 * Write a dummy value to trigger the full visibility
++		 * of the debug port.
++		 */
++		io_write32(stm32_dbgmcu_base() + DBGMCU_DBG_AUTH_DEV, 1);
+ #endif
++	}
++
++	return res;
++}
++early_init_late(init_debug);
++#endif /* !CFG_STM32_CM33TDCID */
++#endif /* CFG_STM32_BSEC3 */
+ 
+ void __noreturn do_reset(const char *str __maybe_unused)
+ {
+diff --git a/core/arch/arm/plat-stm32mp2/platform_config.h b/core/arch/arm/plat-stm32mp2/platform_config.h
+index 6bc791a67..99278dece 100644
+--- a/core/arch/arm/plat-stm32mp2/platform_config.h
++++ b/core/arch/arm/plat-stm32mp2/platform_config.h
+@@ -90,6 +90,15 @@
+ 
+ #define SRAM1_BASE			0x0e040000
+ 
++#ifdef CFG_STM32MP21
++#define DBGMCU_BASE			0x440a0000
++#else
++#define DBGMCU_BASE			0x4a010000
++#endif
++
++/* DBGMCU */
++#define DBGMCU_SIZE			0x10000
++
+ /* GIC resources */
+ #define GIC_SIZE			0x80000
+ #define GICC_OFFSET			0x20000
+-- 
+2.53.0
+

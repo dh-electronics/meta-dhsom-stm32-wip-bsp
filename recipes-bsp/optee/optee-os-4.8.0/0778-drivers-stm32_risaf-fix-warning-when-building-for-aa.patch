@@ -1,0 +1,49 @@
+From e7f21991126ae48c24ba8d77f78cbb920500d9b2 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Sun, 3 May 2026 14:38:31 +0200
+Subject: [PATCH 778/913] drivers: stm32_risaf: fix warning when building for
+ aarch32
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+STM32MP2 can execute a secure OS compiled for aarch32.
+When compiling the RISAF driver a warning occurs :
+core/drivers/firewall/stm32_risaf.c:529:30: error:
+format ‘%lx’ expects argument of type ‘long unsigned int’,
+but argument 6 has type ‘paddr_t’ {aka ‘long long unsigned int’}
+[-Werror=format=]
+  529 | EMSG("RISAF %#"PRIxPTR": unsupported encryption mode",
+      |      ^~~~~~~~~~
+  530 |      risaf->pdata.base.pa);
+      |      ~~~~~~~~~~~~~~~~~~~~
+      |                       |
+      |                       paddr_t {aka long long unsigned int}
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e633db7dd5804f05e6ab18f36ee7576f67a8094d drivers: stm32_risaf: fix warning when building for aarch32]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: Iecdc63d6b9ca50f3f7b6e8a68c2b0baa74072670
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/571875
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/firewall/stm32_risaf.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index f52da5273..5b6ec4dc8 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -526,7 +526,7 @@ risaf_configure_region(struct stm32_risaf_instance *risaf,
+ 		 * for another platform.
+ 		 */
+ 		if (!IS_ENABLED(CFG_STM32MP21) && (cfg & BIT(14))) {
+-			EMSG("RISAF %#"PRIxPTR": unsupported encryption mode",
++			EMSG("RISAF %#"PRIxPA": unsupported encryption mode",
+ 			     risaf->pdata.base.pa);
+ 			return TEE_ERROR_NOT_SUPPORTED;
+ 		}
+-- 
+2.53.0
+

@@ -1,0 +1,48 @@
+From 457062c6070248436584d154234b2af6167c7d64 Mon Sep 17 00:00:00 2001
+From: Sungbae Yoo <sungbaey@nvidia.com>
+Date: Mon, 3 Aug 2026 09:37:58 +0000
+Subject: [PATCH 896/913] ta: pkcs11: invalidate handles before freeing token
+ objects
+
+Move token_invalidate_object_handles() before cleanup_persistent_object()
+so that handles are invalidated while obj is still valid.
+
+cleanup_persistent_object() frees obj through cleanup_volatile_obj_ref().
+Calling token_invalidate_object_handles() afterwards therefore passes a
+pointer to an object whose lifetime has ended.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3a93d1167a94782bfc5945e28444de46127b3572 ta: pkcs11: invalidate handles before freeing token objects]
+Fixes: bb5d18259197 ("ta: pkcs11: invalidate handle of destroyed token objects")
+Signed-off-by: Sungbae Yoo <sungbaey@nvidia.com>
+Acked-by: Jens Wiklander <jens.wiklander@oss.qualcomm.com>
+(cherry picked from commit d46e13db40fa59913b3a1c72b1ea4c85e32dcabc)
+Change-Id: Ic026826afa12913aea401db2e0a92f33beeea8d5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/607617
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ ta/pkcs11/src/object.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ta/pkcs11/src/object.c b/ta/pkcs11/src/object.c
+index ac6c532cc..59a3464c2 100644
+--- a/ta/pkcs11/src/object.c
++++ b/ta/pkcs11/src/object.c
+@@ -162,9 +162,9 @@ void destroy_object(struct pkcs11_session *session, struct pkcs11_object *obj,
+ 
+ 		handle_put(get_object_handle_db(session),
+ 			   pkcs11_object2handle(obj, session));
+-		cleanup_persistent_object(obj, session->token);
+-
+ 		token_invalidate_object_handles(obj);
++
++		cleanup_persistent_object(obj, session->token);
+ 	} else {
+ 		handle_put(get_object_handle_db(session),
+ 			   pkcs11_object2handle(obj, session));
+-- 
+2.53.0
+

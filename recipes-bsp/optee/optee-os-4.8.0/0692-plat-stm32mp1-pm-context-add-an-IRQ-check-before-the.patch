@@ -1,0 +1,106 @@
+From 0a6786857f75a4f79d402cec37cc860ccb528c1c Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Wed, 18 Mar 2026 14:42:29 +0100
+Subject: [PATCH 692/913] plat-stm32mp1: pm: context: add an IRQ check before
+ the jump in TF-A
+
+Add a last IRQ check before going into TFA to sleep. If an IRQ is waiting,
+return PSCI_RET_DENIED to the PSCI command.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d99f607180e77e861512d39d35a49d2f62f1c136 plat-stm32mp1: pm: context: add an IRQ check before the jump in TF-A]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I426267e7d131c4d6553b124370f1eaebaefaf485
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/534179
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/pm/context.c |  7 +++++--
+ core/arch/arm/plat-stm32mp1/pm/psci.c    | 16 +++++++++++-----
+ 2 files changed, 16 insertions(+), 7 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.c b/core/arch/arm/plat-stm32mp1/pm/context.c
+index c595b2782..8a1f44b97 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/context.c
++++ b/core/arch/arm/plat-stm32mp1/pm/context.c
+@@ -37,6 +37,8 @@
+ 
+ #define PM_MAILBOX_LOW_POWER_EP_ERROR	-1
+ 
++#define STM32_PM_CPU_STANDBY_FLAG	BIT(31)
++
+ /*
+  * STANDBY_CONTEXT_MAGIC  - V1 and V2 are not supported by OP-TEE
+  *
+@@ -584,7 +586,7 @@ TEE_Result stm32mp_pm_call_bl2_lp_entry(unsigned int soc_mode)
+ {
+ 	struct pm_mailbox *mailbox = NULL;
+ 	int (*stm32_pwr_down_wfi)(bool is_cstop, unsigned int soc_mode) = NULL;
+-	int ret = 1;
++	int ret = PM_MAILBOX_LOW_POWER_EP_ERROR;
+ 
+ 	clk_enable(pm_clocks.bkpsram);
+ 
+@@ -605,7 +607,8 @@ TEE_Result stm32mp_pm_call_bl2_lp_entry(unsigned int soc_mode)
+ 	/* Clean again the cache after disabling the cache */
+ 	dcache_op_all(DCACHE_OP_CLEAN_INV);
+ 
+-	ret = (*stm32_pwr_down_wfi)(true, soc_mode);
++	if (!read_isr())
++		ret = (*stm32_pwr_down_wfi)(true, soc_mode);
+ 
+ 	/* Enable Cache & MMU */
+ 	write_sctlr(read_sctlr() | SCTLR_C | SCTLR_M);
+diff --git a/core/arch/arm/plat-stm32mp1/pm/psci.c b/core/arch/arm/plat-stm32mp1/pm/psci.c
+index 1897cfa17..808ca7aeb 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/psci.c
++++ b/core/arch/arm/plat-stm32mp1/pm/psci.c
+@@ -545,8 +545,10 @@ static inline size_t stm32_get_pos_other(void) {
+ 	return get_core_pos() == 1 ? 0 : 1;
+ }
+ 
+-static void stm32_cpu_standby(void)
++static int stm32_cpu_standby(void)
+ {
++	TEE_Result tee_result __maybe_unused = TEE_ERROR_GENERIC;
++	int ret = PSCI_RET_SUCCESS;
+ 	size_t pos = get_core_pos();
+ 	uint32_t exceptions = 0;
+ 
+@@ -564,8 +566,11 @@ static void stm32_cpu_standby(void)
+ 		wfi();
+ 	} while (!read_isr());
+ #else
+-	if (stm32mp_pm_call_bl2_lp_entry(STM32_PM_CPU_STANDBY_FLAG))
+-		panic();
++	tee_result = stm32mp_pm_call_bl2_lp_entry(STM32_PM_CPU_STANDBY_FLAG);
++	if (tee_result == TEE_ERROR_BAD_STATE)
++		ret = PSCI_RET_DENIED;
++	else if (tee_result != TEE_SUCCESS)
++		ret = PSCI_RET_INTERNAL_FAILURE;
+ #endif
+ 
+ 	exceptions = may_spin_lock(&cstop_lock);
+@@ -586,6 +591,8 @@ static void stm32_cpu_standby(void)
+ 
+ 	while (get_locked(&cstop_enter) != STATE_NONE)
+ 		wfe();
++
++	return ret;
+ }
+ DECLARE_KEEP_PAGER(stm32_cpu_standby);
+ 
+@@ -685,8 +692,7 @@ int __weak __psci_cpu_suspend(uint32_t power_state,
+ 
+ 	switch (state_id) {
+ 	case STM32_STATE_ID_CPU_PWRDN:
+-		stm32_cpu_standby();
+-		ret = PSCI_RET_SUCCESS;
++		ret = stm32_cpu_standby();
+ 		break;
+ 	case STM32_STATE_ID_STOP1:
+ 		ret = stm32_pwr_domain_suspend(STM32_PM_CSTOP_ALLOW_STOP);
+-- 
+2.53.0
+

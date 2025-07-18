@@ -1,0 +1,50 @@
+From 7f2fd42beec33612fe17092899949e17b2d0e8c7 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 15:12:59 +0200
+Subject: [PATCH 864/913] libutee: tui_keyboard: fix uninitialized res in
+ keyboard create
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+TEE_Result res was declared without an initializer in
+__tui_keyboard_create(). If every keyboard_layouts[n] entry produces
+only zero-value keys, the assignment loop never sets res before the
+function reaches the out: label and reads it, resulting in a read of
+an uninitialized scalar.
+
+Initialize res to TEE_SUCCESS to match the intended default outcome.
+
+Coverity issue: CID 1207506: CERT-C Expression
+Coverity issue: CID 1207994: Uninitialized scalar variable
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 233a7358cf5b1e0089ce26f79cc28a8446194dba libutee: tui_keyboard: fix uninitialized res in keyboard create]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ibe4d3c26e9fc1278bc8d49a1345df6ff62e0fa1c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/592839
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Philippe CORNU <philippe.cornu@foss.st.com>
+Domain-Review: Yannick FERTRE <yannick.fertre@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ lib/libutee/tui/tui_keyboard.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/libutee/tui/tui_keyboard.c b/lib/libutee/tui/tui_keyboard.c
+index 563d64f91..38776399a 100644
+--- a/lib/libutee/tui/tui_keyboard.c
++++ b/lib/libutee/tui/tui_keyboard.c
+@@ -364,7 +364,7 @@ static bool is_tui_keyboard(struct tui_widget *tw)
+ TEE_Result __tui_keyboard_create(struct tui_widget_head *twh, size_t *ypos,
+ 				 size_t scr_width)
+ {
+-	TEE_Result res;
++	TEE_Result res = TEE_SUCCESS;
+ 	struct tui_keyboard *tkb;
+ 	size_t row;
+ 	size_t col;
+-- 
+2.53.0
+

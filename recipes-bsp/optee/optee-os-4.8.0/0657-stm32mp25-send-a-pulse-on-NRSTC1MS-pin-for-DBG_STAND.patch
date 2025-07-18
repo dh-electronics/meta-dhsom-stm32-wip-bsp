@@ -1,0 +1,170 @@
+From 5421ba9b53c0afd1e86c17c64d410bf465ac7161 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 5 May 2026 11:40:31 +0200
+Subject: [PATCH 657/913] stm32mp25: send a pulse on NRSTC1MS pin for
+ DBG_STANDBY
+
+A debugger can program DBGMCU_CR.DBG_STANDBY to keep enabled
+power and clocks during standby and to stay connected.
+
+But in this case the PWR lines, as PWR_CPU_ON and PWR_ON, are not managed
+and the ROM code hangs at standby wake-up because the regulators used
+by the boot devices are not available; normally they are re-enabled by
+STPMIC25  based on its pwrctl lines connected to PWR_ON.
+
+So OP-TEE need to send a reset pulse on NRSTC1MS pin at suspend as
+workaround of to this issue; this pulse guarantees that the power
+sequence requested by the software is performed by STPMIC25 even if the
+low power modes is simulated in PWR and the sequence not performed by the
+hardware.
+
+The pulse duration is configured in suspend of RCC clock driver, with
+C1MSRD in RCC_C1MSRDCR register and default value 0x0: No pulse.
+
+This patch also add a message once to inform the simulated low power mode
+because this simulated mode requested for debugger connection can cause or
+mask issues.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e24a836e725534eb6e1a88aa0cd4298d0fb5646a stm32mp25: send a pulse on NRSTC1MS pin for DBG_STANDBY]
+Change-Id: I91081add72dde14d2466faa04587f5c55c94b9ad
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/364374
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373588
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373700
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c       | 54 ++++++++++++++++++++++++
+ core/arch/arm/plat-stm32mp2/stm32_util.h |  2 +
+ core/arch/arm/plat-stm32mp2/stm32mp_pm.c |  3 ++
+ 3 files changed, 59 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index ca3dfcbc3..2b0d862a5 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -16,7 +16,11 @@
+ #include <drivers/stm32_uart.h>
+ #include <drivers/stm32mp_dt_bindings.h>
+ #include <drivers/stm32mp25_pwr.h>
++#if defined(CFG_STM32MP25) || defined(STM32MP23)
+ #include <drivers/stm32mp25_rcc.h>
++#else /* defined(CFG_STM32MP21) */
++#include <drivers/stm32mp21_rcc.h>
++#endif
+ #include <initcall.h>
+ #include <kernel/abort.h>
+ #include <kernel/boot.h>
+@@ -29,13 +33,19 @@
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
+ #include <stm32_util.h>
++#include <stm32mp_pm.h>
+ #include <string.h>
+ #include <trace.h>
+ #include <util.h>
+ 
+ /* DBGMCU registers */
++#define DBGMCU_CR			U(0x4)
+ #define DBGMCU_DBG_AUTH_DEV		U(0x104)
+ 
++#define DBGMCU_CR_DBG_SLEEP		BIT(0)
++#define DBGMCU_CR_DBG_STOP		BIT(1)
++#define DBGMCU_CR_DBG_STANDBY		BIT(2)
++
+ register_phys_mem_pgdir(MEM_AREA_IO_NSEC, APB1_BASE, APB1_SIZE);
+ 
+ register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB1_BASE, APB1_SIZE);
+@@ -51,6 +61,8 @@ register_phys_mem_pgdir(MEM_AREA_IO_SEC, SAHB_BASE, SAHB_SIZE);
+ 
+ register_phys_mem_pgdir(MEM_AREA_IO_SEC, GIC_BASE, GIC_SIZE);
+ 
++register_phys_mem_pgdir(MEM_AREA_IO_NSEC, DBGMCU_BASE, DBGMCU_SIZE);
++
+ #ifdef CFG_STM32_CM33TDCID
+ /* Map beginning SRAM1 as read-only non-secure for BSEC shadow */
+ register_phys_mem(MEM_AREA_RAM_NSEC, SRAM1_BASE, SIZE_4K);
+@@ -315,3 +327,45 @@ void __noreturn do_reset(const char *str __maybe_unused)
+ 	/* Cannot occur */
+ 	panic();
+ }
++
++/*
++ * Handle low-power emulation mode
++ * In PWR debug Standby mode, the low power modes is not signaled to external
++ * regulators with the SOC signals PWR_CPU_ON and PWR_ON so the regulators
++ * required by the boot devices are not restored after the simulated low power
++ * modes.
++ * On reference design with STPMIC25, the NRSTC1MS signals are connected to
++ * pins PWRCTRL3 and to used to drive the PMIC regulators required by ROM code
++ * to reboot for external mass-storage (D1 domain exits DStandby, not Standby).
++ * To avoid a wake-up issue in ROM Code in simulated STANDBY low power mode,
++ * we force the STPMIC25 regulators configuration with a pulse on NRSTC1MS pin
++ * as a workaround.
++ */
++void stm32_debug_suspend(unsigned long a0)
++{
++	struct clk *dbgmcu_clk = stm32mp_rcc_clock_id_to_clk(CK_ICN_APBDBG);
++	uint32_t dbgmcu_cr = U(0);
++	static bool info_displayed;
++
++	if (clk_enable(dbgmcu_clk))
++		return;
++
++	dbgmcu_cr = io_read32(stm32_dbgmcu_base() + DBGMCU_CR);
++
++	/* WARN ONCE when emulation debug is activated */
++	if (!info_displayed &&
++	    dbgmcu_cr & (DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STOP |
++			 DBGMCU_CR_DBG_STANDBY)) {
++		MSG("Low power emulation mode enable (DBGMCU_CR=%#"PRIx32")",
++		    dbgmcu_cr);
++		info_displayed = true;
++	}
++
++	/* Pulse on NRSTC1MS pin for standby request when PMIC is used */
++	if (dbgmcu_cr & DBGMCU_CR_DBG_STANDBY && a0 >= PM_D2_LPLV_LEVEL &&
++	    stm32_stpmic2_is_present())
++		io_setbits32(stm32_rcc_base() + RCC_C1MSRDCR,
++			     RCC_C1MSRDCR_C1MSRST);
++
++	clk_disable(dbgmcu_clk);
++}
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+index 5ea80ac77..5e5a42a2b 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -33,6 +33,8 @@ static inline bool stm32_stpmic2_is_present(void)
+ }
+ #endif
+ 
++void stm32_debug_suspend(unsigned long a0);
++
+ /* Get device ID from SYSCFG registers */
+ uint32_t stm32mp_syscfg_get_chip_dev_id(void);
+ #endif /*__STM32_UTIL_H__*/
+diff --git a/core/arch/arm/plat-stm32mp2/stm32mp_pm.c b/core/arch/arm/plat-stm32mp2/stm32mp_pm.c
+index 7dfe0e361..8822eefa7 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32mp_pm.c
++++ b/core/arch/arm/plat-stm32mp2/stm32mp_pm.c
+@@ -8,6 +8,7 @@
+ #include <kernel/thread.h>
+ #include <sm/psci.h>
+ #include <stm32mp_pm.h>
++#include <stm32_util.h>
+ 
+ /**
+  * @brief   Handler for system off
+@@ -87,6 +88,8 @@ unsigned long thread_cpu_suspend_handler(unsigned long a0,
+ 
+ 	retstatus = pm_change_state(PM_OP_SUSPEND, get_pm_hint(a0));
+ 
++	stm32_debug_suspend(a0);
++
+ 	/*
+ 	 * Returned value to the TF-A.
+ 	 * If it is not 0, the system will panic
+-- 
+2.53.0
+

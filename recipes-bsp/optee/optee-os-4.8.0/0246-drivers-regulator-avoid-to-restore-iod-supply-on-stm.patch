@@ -1,0 +1,58 @@
+From 938143297231a70a78aad5fd71b21326cbc8491b Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Wed, 18 Mar 2026 14:42:29 +0100
+Subject: [PATCH 246/913] drivers: regulator: avoid to restore iod supply on
+ stm32mp13
+
+The configuration of IO domain supply (voltage, activation) are kept
+during Stop mode and LP-Stop mode, so they don't need to be restored.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 78590d6bb74dff694a2330f3da61e959d257cf1f drivers: regulator: avoid to restore iod supply on stm32mp13]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I41c61cae8c66b9edb9d4928b35d5fc9bdcbabb62
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/548297
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/regulator/stm32mp13_regulator_iod.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/regulator/stm32mp13_regulator_iod.c b/core/drivers/regulator/stm32mp13_regulator_iod.c
+index e0c518bbc..634c4572b 100644
+--- a/core/drivers/regulator/stm32mp13_regulator_iod.c
++++ b/core/drivers/regulator/stm32mp13_regulator_iod.c
+@@ -9,6 +9,7 @@
+ #include <drivers/stm32mp1_pwr.h>
+ #include <drivers/stm32mp1_syscfg.h>
+ #include <drivers/stm32mp13_regulator_iod.h>
++#include <dt-bindings/power/stm32mp1-power.h>
+ #include <initcall.h>
+ #include <io.h>
+ #include <kernel/boot.h>
+@@ -170,15 +171,20 @@ static TEE_Result iod_set_voltage(struct regulator *regu, int level_uv)
+  * To protect the IOs, we disable High Speed Low Voltage mode before
+  * entering suspend state and restore the configuration when resuming.
+  */
+-static TEE_Result iod_pm(enum pm_op op, unsigned int pm_hint __unused,
++static TEE_Result iod_pm(enum pm_op op, unsigned int pm_hint,
+ 			 const struct pm_callback_handle *hdl)
+ {
+ 	struct regulator *regu = hdl->handle;
+ 	struct iod_regul *iod = regu->priv;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
++	unsigned int pwrlvl = PM_HINT_PLATFORM_STATE(pm_hint);
+ 
+ 	assert(op == PM_OP_SUSPEND || op == PM_OP_RESUME);
+ 
++	/* Skip as supply don't change for Stop & LP-Stop modes */
++	if (pwrlvl < STM32_PM_CSTOP_ALLOW_LPLV_STOP)
++		return TEE_SUCCESS;
++
+ 	if (op == PM_OP_SUSPEND) {
+ 		FMSG("%s: suspend", regulator_name(regu));
+ 
+-- 
+2.53.0
+

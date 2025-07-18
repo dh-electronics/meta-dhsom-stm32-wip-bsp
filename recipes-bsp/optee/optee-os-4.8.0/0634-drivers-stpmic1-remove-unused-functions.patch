@@ -1,0 +1,125 @@
+From d581bdc5911899e42582b095e260e9b40e08f5e4 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 30 Mar 2026 16:51:47 +0200
+Subject: [PATCH 634/913] drivers: stpmic1: remove unused functions
+
+Remove API for low power configuration of regulators driven
+from STPMIC1 device
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d496411e8e7772e19f7392a1fa453a94d7de676d drivers: stpmic1: remove unused functions]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I0dc1e580dafc83844bff16f18043ff73f80adb38
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/552464
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stpmic1.c         | 54 ----------------------------------
+ core/include/drivers/stpmic1.h |  6 ----
+ 2 files changed, 60 deletions(-)
+
+diff --git a/core/drivers/stpmic1.c b/core/drivers/stpmic1.c
+index 444b98383..233261480 100644
+--- a/core/drivers/stpmic1.c
++++ b/core/drivers/stpmic1.c
+@@ -830,22 +830,6 @@ int stpmic1_regulator_voltage_get(const char *name)
+ 	return regul->voltage_table[value];
+ }
+ 
+-int stpmic1_lp_copy_reg(const char *name)
+-{
+-	const struct regul_struct *regul = get_regulator_data(name);
+-	uint8_t val = 0;
+-	int status = 0;
+-
+-	if (!regul->low_power_reg)
+-		return -1;
+-
+-	status = stpmic1_register_read(regul->control_reg, &val);
+-	if (status)
+-		return status;
+-
+-	return stpmic1_register_write(regul->low_power_reg, val);
+-}
+-
+ bool stpmic1_regu_has_lp_cfg(const char *name)
+ {
+ 	return get_regulator_data(name)->low_power_reg;
+@@ -878,17 +862,6 @@ int stpmic1_lp_load_unpg(struct stpmic1_lp_cfg *cfg)
+ 	return status;
+ }
+ 
+-int stpmic1_lp_reg_on_off(const char *name, uint8_t enable)
+-{
+-	const struct regul_struct *regul = get_regulator_data(name);
+-
+-	if (!regul->low_power_reg)
+-		return -1;
+-
+-	return stpmic1_register_update(regul->low_power_reg, enable,
+-				       LDO_BUCK_ENABLE_MASK);
+-}
+-
+ int stpmic1_lp_on_off_unpg(struct stpmic1_lp_cfg *cfg, int enable)
+ {
+ 	assert(cfg->lp_reg && (enable == 0 || enable == 1));
+@@ -897,17 +870,6 @@ int stpmic1_lp_on_off_unpg(struct stpmic1_lp_cfg *cfg, int enable)
+ 				       LDO_BUCK_ENABLE_MASK);
+ }
+ 
+-int stpmic1_lp_set_mode(const char *name, uint8_t hplp)
+-{
+-	const struct regul_struct *regul = get_regulator_data(name);
+-
+-	assert(regul->low_power_reg && (hplp == 0 || hplp == 1));
+-
+-	return stpmic1_register_update(regul->low_power_reg,
+-				       hplp << LDO_BUCK_HPLP_POS,
+-				       BIT(LDO_BUCK_HPLP_POS));
+-}
+-
+ int stpmic1_lp_mode_unpg(struct stpmic1_lp_cfg *cfg, unsigned int mode)
+ {
+ 	assert(cfg->lp_reg && (mode == 0 || mode == 1));
+@@ -916,22 +878,6 @@ int stpmic1_lp_mode_unpg(struct stpmic1_lp_cfg *cfg, unsigned int mode)
+ 				       BIT(LDO_BUCK_HPLP_POS));
+ }
+ 
+-int stpmic1_lp_set_voltage(const char *name, uint16_t millivolts)
+-{
+-	size_t voltage_index = voltage_to_index(name, millivolts);
+-	const struct regul_struct *regul = get_regulator_data(name);
+-	uint8_t mask = 0;
+-
+-	assert(voltage_index != VOLTAGE_INDEX_INVALID);
+-
+-	mask = find_plat_mask(name);
+-	if (!mask)
+-		return 0;
+-
+-	return stpmic1_register_update(regul->low_power_reg, voltage_index << 2,
+-				       mask);
+-}
+-
+ /* Returns 1 if no configuration are expected applied at runtime, 0 otherwise */
+ int stpmic1_lp_voltage_cfg(const char *name, uint16_t millivolts,
+ 			   struct stpmic1_lp_cfg *cfg)
+diff --git a/core/include/drivers/stpmic1.h b/core/include/drivers/stpmic1.h
+index 13539c658..b2217e547 100644
+--- a/core/include/drivers/stpmic1.h
++++ b/core/include/drivers/stpmic1.h
+@@ -175,12 +175,6 @@ int stpmic1_register_update(uint8_t register_id, uint8_t value, uint8_t mask);
+ 
+ int stpmic1_regulator_mask_reset_set(const char *name);
+ 
+-/* API for low power configuration of regulators driven from STPMIC1 device */
+-int stpmic1_lp_copy_reg(const char *name);
+-int stpmic1_lp_reg_on_off(const char *name, uint8_t enable);
+-int stpmic1_lp_set_mode(const char *name, uint8_t hplp);
+-int stpmic1_lp_set_voltage(const char *name, uint16_t millivolts);
+-
+ /*
+  * Specific API for controlling regulators driven from STPMIC1 device
+  * from unpaged execution context of the STPMIC1 driver.
+-- 
+2.53.0
+

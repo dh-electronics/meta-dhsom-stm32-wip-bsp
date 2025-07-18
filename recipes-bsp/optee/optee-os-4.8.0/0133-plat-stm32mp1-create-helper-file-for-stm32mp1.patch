@@ -1,0 +1,128 @@
+From c059ef6f4ceaa93ec3f07f4618d7938582a63645 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 18 Mar 2026 11:19:43 +0100
+Subject: [PATCH 133/913] plat-stm32mp1: create helper file for stm32mp1
+
+Move all rcc helper functions into stm32mp1_rcc_util.h file
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e7aadd68b2c8cfbb14f285265c4d286fa7071f5d plat-stm32mp1: create helper file for stm32mp1]
+Change-Id: I9c7c6b65230c29f866cdee788c8d34d1cb12e4b2
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/stm32_util.h | 12 +-----------
+ core/drivers/clk/clk-stm32mp13.c         |  1 +
+ core/drivers/clk/clk-stm32mp15.c         |  2 ++
+ core/include/drivers/stm32mp13_rcc.h     |  2 --
+ core/include/drivers/stm32mp1_rcc_util.h | 25 ++++++++++++++++++++++++
+ 5 files changed, 29 insertions(+), 13 deletions(-)
+ create mode 100644 core/include/drivers/stm32mp1_rcc_util.h
+
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index d16cdf436..888908610 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -8,6 +8,7 @@
+ 
+ #include <assert.h>
+ #include <drivers/clk.h>
++#include <drivers/stm32mp1_rcc_util.h>
+ #include <kernel/panic.h>
+ #include <stdbool.h>
+ #include <stdint.h>
+@@ -36,9 +37,6 @@ bool stm32mp_supports_cpu_opp(uint32_t opp_id);
+ /* Backup registers and RAM utils */
+ vaddr_t stm32mp_bkpreg(unsigned int idx);
+ 
+-/* Platform util for the RCC drivers */
+-vaddr_t stm32_rcc_base(void);
+-
+ /* Erase ESRAM3 */
+ TEE_Result stm32mp_syscfg_erase_sram3(void);
+ 
+@@ -64,14 +62,6 @@ static inline void stm32mp_register_online_cpu(void)
+ uint32_t may_spin_lock(unsigned int *lock);
+ void may_spin_unlock(unsigned int *lock, uint32_t exceptions);
+ 
+-/* Helper from platform RCC clock driver */
+-struct clk *stm32mp_rcc_clock_id_to_clk(unsigned long clock_id);
+-
+-extern const struct clk_ops stm32mp1_clk_ops;
+-
+-/* Return rstctrl instance related to RCC reset controller DT binding ID */
+-struct rstctrl *stm32mp_rcc_reset_id_to_rstctrl(unsigned int binding_id);
+-
+ bool stm32mp_allow_probe_shared_device(const void *fdt, int node);
+ 
+ #if defined(CFG_STM32MP15) && defined(CFG_WITH_PAGER)
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 8698b0c8f..143cf772e 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -8,6 +8,7 @@
+ #include <drivers/clk_dt.h>
+ #include <drivers/stm32mp_dt_bindings.h>
+ #include <drivers/stm32mp13_rcc.h>
++#include <drivers/stm32mp1_rcc_util.h>
+ #include <io.h>
+ #include <kernel/boot.h>
+ #include <libfdt.h>
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index 166902b16..46f2c24b3 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -8,8 +8,10 @@
+ #include <drivers/stm32mp1_rcc.h>
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
++#include <drivers/stm32_gpio.h>
+ #include <drivers/stm32_shared_io.h>
+ #include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stm32mp1_rcc_util.h>
+ #include <initcall.h>
+ #include <io.h>
+ #include <keep.h>
+diff --git a/core/include/drivers/stm32mp13_rcc.h b/core/include/drivers/stm32mp13_rcc.h
+index 3f76ef717..bfbd3e9af 100644
+--- a/core/include/drivers/stm32mp13_rcc.h
++++ b/core/include/drivers/stm32mp13_rcc.h
+@@ -1874,6 +1874,4 @@
+ #define RCC_MP_CIFR_MASK			U(0x110F1F)
+ #define RCC_OFFSET_MASK				GENMASK_32(11, 0)
+ 
+-vaddr_t stm32_rcc_base(void);
+-
+ #endif /*__DRIVERS_STM32MP13_RCC_H__*/
+diff --git a/core/include/drivers/stm32mp1_rcc_util.h b/core/include/drivers/stm32mp1_rcc_util.h
+new file mode 100644
+index 000000000..611e84d9c
+--- /dev/null
++++ b/core/include/drivers/stm32mp1_rcc_util.h
+@@ -0,0 +1,25 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (C) STMicroelectronics 2022 - All Rights Reserved
++ */
++
++#ifndef __DRIVERS_STM32MP1_RCC_UTIL_H__
++#define __DRIVERS_STM32MP1_RCC_UTIL_H__
++
++/* Platform util for the RCC drivers */
++vaddr_t stm32_rcc_base(void);
++
++/* Helper from platform RCC clock driver */
++struct clk *stm32mp_rcc_clock_id_to_clk(unsigned long clock_id);
++
++#ifdef CFG_STM32MP15_CLK
++/* Export stm32mp1_clk_ops to make it pager resisdent for STM32MP15 */
++extern const struct clk_ops stm32mp1_clk_ops;
++#endif
++
++#ifdef CFG_DRIVERS_RSTCTRL
++/* Helper from platform RCC reset driver */
++struct rstctrl *stm32mp_rcc_reset_id_to_rstctrl(unsigned int binding_id);
++#endif
++
++#endif /*__DRIVERS_STM32MP1_RCC_UTIL_H__*/
+-- 
+2.53.0
+

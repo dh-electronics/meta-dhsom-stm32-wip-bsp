@@ -1,0 +1,71 @@
+From e16a472c744cd39a9501d030577e91754aaa5afc Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Fri, 15 May 2026 10:18:30 +0200
+Subject: [PATCH 712/913] dts: stm32: define PWR-IRQ resources on stm32mp15
+
+Define PWR-IRQ resources on stm32mp15 boards.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1401e84c2e00454a6a4ed686c4d52efc4f75b998 dts: stm32: define PWR-IRQ resources on stm32mp15]
+Change-Id: Icd3f32f0668177871cf2128a55954cdd0b0e428c
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/450013
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp151.dtsi | 24 ++++++++++++++++++------
+ 1 file changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp151.dtsi b/core/arch/arm/dts/stm32mp151.dtsi
+index 5d024f39f..9b6b97083 100644
+--- a/core/arch/arm/dts/stm32mp151.dtsi
++++ b/core/arch/arm/dts/stm32mp151.dtsi
+@@ -209,6 +209,15 @@
+ 			};
+ 		};
+ 
++		pwr_irq: pwr@50001010 {
++			compatible = "st,stm32mp1-pwr-irq";
++			interrupts = <GIC_SPI 149 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
++			wakeup-gpios = <0>, <0>, <0>, <0>, <0>, <0>;
++			status = "disabled";
++		};
++
+ 		pwr_mcu: pwr_mcu@50001014 {
+ 			compatible = "st,stm32mp151-pwr-mcu", "syscon";
+ 			reg = <0x50001014 0x4>;
+@@ -216,9 +225,12 @@
+ 
+ 		exti: interrupt-controller@5000d000 {
+ 			compatible = "st,stm32mp1-exti";
++			wakeup-parent = <&pwr_irq>;
+ 			interrupt-controller;
+ 			#interrupt-cells = <2>;
+ 			reg = <0x5000d000 0x400>;
++			status = "disabled";
++
+ 			interrupts-extended =
+ 				<&intc GIC_SPI 6   IRQ_TYPE_LEVEL_HIGH>,	/* EXTI_0 */
+ 				<&intc GIC_SPI 7   IRQ_TYPE_LEVEL_HIGH>,
+@@ -275,12 +287,12 @@
+ 				<&intc GIC_SPI 140 IRQ_TYPE_LEVEL_HIGH>,
+ 				<&intc GIC_SPI 141 IRQ_TYPE_LEVEL_HIGH>,
+ 				<&intc GIC_SPI 135 IRQ_TYPE_LEVEL_HIGH>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,						/* EXTI_60 */
++				<&pwr_irq 0 IRQ_TYPE_EDGE_FALLING 0>,
++				<&pwr_irq 1 IRQ_TYPE_EDGE_FALLING 0>,
++				<&pwr_irq 2 IRQ_TYPE_EDGE_FALLING 0>,
++				<&pwr_irq 3 IRQ_TYPE_EDGE_FALLING 0>,
++				<&pwr_irq 4 IRQ_TYPE_EDGE_FALLING 0>,
++				<&pwr_irq 5 IRQ_TYPE_EDGE_FALLING 0>,		/* EXTI_60 */
+ 				<&intc GIC_SPI 100 IRQ_TYPE_LEVEL_HIGH>,
+ 				<0>,
+ 				<0>,
+-- 
+2.53.0
+

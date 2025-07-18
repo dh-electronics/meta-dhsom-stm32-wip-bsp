@@ -1,0 +1,62 @@
+From 2c4f52217cb1cae9061fe66b7699cec3bc2850a6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 4 Aug 2026 14:11:58 +0200
+Subject: [PATCH 881/913] ta: pkcs11: check delete result and drop unused
+ assignment
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+cleanup_persistent_object ignored the status of
+TEE_CloseAndDeletePersistentObject1, so a failure to delete the
+persistent object went unreported. Log it.
+
+In entry_copy_object, rc was reset to PKCS11_CKR_OK at the end of the
+CKA_EXTRACTABLE handling, but it is unconditionally reassigned just
+below, so the stored value is never used. Drop it.
+
+Coverity issue: CID 1201989: Unchecked return value from library in cleanup_persistent_object
+Coverity issue: CID 1201959: Unused value in entry_copy_object
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c512e8b7561f79ff2c61ec3948541006e3986854 ta: pkcs11: check delete result and drop unused assignment]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ie3b9a728892c2fac473645cb82d6d2d7a17ea790
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/597002
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ ta/pkcs11/src/object.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/ta/pkcs11/src/object.c b/ta/pkcs11/src/object.c
+index 4574f598a..ac6c532cc 100644
+--- a/ta/pkcs11/src/object.c
++++ b/ta/pkcs11/src/object.c
+@@ -115,8 +115,11 @@ void cleanup_persistent_object(struct pkcs11_object *obj,
+ 				       obj->uuid, sizeof(TEE_UUID),
+ 				       TEE_DATA_FLAG_ACCESS_WRITE_META,
+ 				       &obj->attribs_hdl);
+-	if (!res)
+-		TEE_CloseAndDeletePersistentObject1(obj->attribs_hdl);
++	if (!res) {
++		res = TEE_CloseAndDeletePersistentObject1(obj->attribs_hdl);
++		if (res)
++			TEE_Panic(res);
++	}
+ 
+ 	obj->attribs_hdl = TEE_HANDLE_NULL;
+ 	destroy_object_uuid(token, obj);
+@@ -1250,7 +1253,6 @@ enum pkcs11_rc entry_copy_object(struct pkcs11_client *client, uint32_t ptypes,
+ 			if (rc)
+ 				goto out;
+ 		}
+-		rc = PKCS11_CKR_OK;
+ 	}
+ 
+ 	/*
+-- 
+2.53.0
+

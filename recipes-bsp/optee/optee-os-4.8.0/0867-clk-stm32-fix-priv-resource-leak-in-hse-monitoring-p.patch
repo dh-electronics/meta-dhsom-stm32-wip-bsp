@@ -1,0 +1,58 @@
+From 705afed8479babb27026e985830ecde215235345 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 15:17:09 +0200
+Subject: [PATCH 867/913] clk: stm32: fix priv resource leak in hse monitoring
+ probe
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+stm32_hse_monitoring() allocates priv with calloc() then returns early
+on several paths (node not found, monitor node disabled, or clock
+lookup failure) before priv is handed to register_pm_driver_cb(),
+leaking the allocation. Move calloc to fix the issue.
+
+Coverity issue: CID 1200442: Resource leak
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 99b8e34ee8b738350aa67ef40358946680e4b822 clk: stm32: fix priv resource leak in hse monitoring probe]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I75cbaf43971df3b96ea4c07768e54c0406e3f91e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/592843
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/clk/stm32/clk-stm32mp-hse-monitoring.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/clk/stm32/clk-stm32mp-hse-monitoring.c b/core/drivers/clk/stm32/clk-stm32mp-hse-monitoring.c
+index 54386a498..09d7cd9e9 100644
+--- a/core/drivers/clk/stm32/clk-stm32mp-hse-monitoring.c
++++ b/core/drivers/clk/stm32/clk-stm32mp-hse-monitoring.c
+@@ -78,10 +78,6 @@ static TEE_Result stm32_hse_monitoring(void)
+ 	int node = -1;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+-	priv = calloc(1, sizeof(*priv));
+-	if (!priv)
+-		return TEE_ERROR_OUT_OF_MEMORY;
+-
+ 	fdt = get_embedded_dt();
+ 	if (!fdt)
+ 		panic();
+@@ -120,6 +116,10 @@ static TEE_Result stm32_hse_monitoring(void)
+ 	counter = fdt_counter_get(fdt, node, &config);
+ 	assert(counter && config);
+ 
++	priv = calloc(1, sizeof(*priv));
++	if (!priv)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
+ 	priv->counter = counter;
+ 	priv->config = config;
+ 	priv->threshold = ticks;
+-- 
+2.53.0
+

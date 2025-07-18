@@ -1,0 +1,38 @@
+From 8b165bca379e087db3c5d85d51013da962d5029a Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 15 Apr 2025 11:10:35 +0200
+Subject: [PATCH 536/913] mod/dvfs: call set_rate when frequency change with
+ same voltage
+
+Always set frequency with set_rate ops when the requested voltage is
+equal to the actual voltage and when frequency change.
+
+This patch allow to support several OPP in DVFS module with a same voltage
+but with several frequencies.
+
+This patch still manage the case ctx->current_opp.frequency = 0, when the
+frequency has not yet been set.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c03528af0850e931cbf8283716a06c32edf6dafc mod/dvfs: call set_rate when frequency change with same voltage]
+Change-Id: I5766c3242f434440deadbb2c297dc26559427b79
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+---
+ core/lib/scmi-server/SCP-firmware/module/dvfs/src/mod_dvfs.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/dvfs/src/mod_dvfs.c b/core/lib/scmi-server/SCP-firmware/module/dvfs/src/mod_dvfs.c
+index 4eba0c510..d47fab8d6 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/dvfs/src/mod_dvfs.c
++++ b/core/lib/scmi-server/SCP-firmware/module/dvfs/src/mod_dvfs.c
+@@ -699,7 +699,7 @@ static int dvfs_handle_set_opp(
+             ctx->state = DVFS_DOMAIN_SET_OPP_DONE;
+             return status;
+         }
+-    } else if (ctx->current_opp.frequency == 0) {
++    } else if (ctx->current_opp.frequency != ctx->request.new_opp.frequency) {
+         /*
+          * At startup the voltage may be set without the frequency having
+          * been set. In this case we must set the frequency regardless of
+-- 
+2.53.0
+

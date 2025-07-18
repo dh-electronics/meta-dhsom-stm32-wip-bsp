@@ -1,0 +1,58 @@
+From b08a393f33600e3319e2c5097de5dfedff0eb3d0 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Mon, 8 Jun 2026 16:27:15 +0200
+Subject: [PATCH 733/913] core: kernel: use spinlock instead of trylock in
+ mutex_pm_aware_lock()
+
+Use a blocking spinlock instead of trylock in mutex_pm_aware_lock().
+
+This function protects concurrent accesses in the clock framework. Using
+trylock here is not appropriate since lock acquisition is expected to
+succeed to guarantee proper serialization. A failed trylock may trigger
+an unexpected panic even in valid concurrent access scenarios.
+
+Replace cpu_spin_trylock() and thread_spin_trylock() with
+cpu_spin_lock() and thread_spin_lock() respectively, so the critical
+section is always properly protected.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cde2bb991eaba9b9a89f0cf83cdaff587998a1e5 core: kernel: use spinlock instead of trylock in mutex_pm_aware_lock()]
+Fixes: da734e6f2642 ("core: kernel: consider thread PM context in PM aware mutex")
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: Ia44c834e5520a95e7c8a63834c19458fcfb8938a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/576744
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/kernel/mutex.c | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/core/kernel/mutex.c b/core/kernel/mutex.c
+index 3309aceeb..3cc4711c0 100644
+--- a/core/kernel/mutex.c
++++ b/core/kernel/mutex.c
+@@ -356,19 +356,16 @@ void mutex_pm_aware_destroy(struct mutex_pm_aware *m)
+ void mutex_pm_aware_lock(struct mutex_pm_aware *m)
+ {
+ 	if (thread_is_for_pm()) {
+-		if (!cpu_spin_trylock(&m->lock) || m->mutex.state)
+-			panic();
++		cpu_spin_lock(&m->lock);
+ 	} else {
+ 		mutex_lock(&m->mutex);
+-		if (!thread_spin_trylock(&m->lock))
+-			panic();
++		thread_spin_lock(&m->lock);
+ 	}
+ }
+ 
+ void mutex_pm_aware_unlock(struct mutex_pm_aware *m)
+ {
+ 	if (thread_is_for_pm()) {
+-		assert(!m->mutex.state);
+ 		cpu_spin_unlock(&m->lock);
+ 	} else {
+ 		thread_spin_unlock(&m->lock);
+-- 
+2.53.0
+

@@ -1,0 +1,58 @@
+From 8712bad52baf4d18c601bb6b6fcfe92254ec3fe7 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@st.com>
+Date: Wed, 21 Jan 2026 13:58:09 +0100
+Subject: [PATCH 735/913] ta: pkcs11: check template consistency on get
+ attribute value
+
+Check client template holds consistent attribute area sizes
+value on PKCS11_CMD_GET_ATTRIBUTE_SIZE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4d1b56234511f654d51e0b9b0435b3317e611d3b ta: pkcs11: check template consistency on get attribute value]
+Fixes: 783c1515c2f9 ("ta: pkcs11: Add support for getting object size and attribute value")
+Change-Id: I4bd1d77849ccacb79f9937619e3cc3d54c938b36
+Signed-off-by: Etienne Carriere <etienne.carriere@st.com>
+Reviewed-by: Jens Wiklander <jens.wiklander@linaro.org>
+(cherry picked from commit 16926d5a46934c46e6656246b4fc18385a246900)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/569874
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ ta/pkcs11/src/object.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/ta/pkcs11/src/object.c b/ta/pkcs11/src/object.c
+index ba3be7a71..470eeb247 100644
+--- a/ta/pkcs11/src/object.c
++++ b/ta/pkcs11/src/object.c
+@@ -840,12 +840,23 @@ enum pkcs11_rc entry_get_attribute_value(struct pkcs11_client *client,
+ 	for (; cur < end; cur += len) {
+ 		struct pkcs11_attribute_head *cli_ref = (void *)cur;
+ 		struct pkcs11_attribute_head cli_head = { };
++		uintptr_t cli_end = 0;
+ 		void *data_ptr = NULL;
+ 
++		if ((char *)(cli_ref + 1) > end) {
++			rc = PKCS11_CKR_ARGUMENTS_BAD;
++			goto out;
++		}
++
+ 		/* Make copy of header so that is aligned properly. */
+ 		TEE_MemMove(&cli_head, cli_ref, sizeof(cli_head));
+ 
+-		len = sizeof(*cli_ref) + cli_head.size;
++		if (ADD_OVERFLOW(sizeof(*cli_ref), cli_head.size, &len) ||
++		    ADD_OVERFLOW((uintptr_t)cur, len, &cli_end) ||
++		    (char *)cli_end > end) {
++			rc = PKCS11_CKR_ARGUMENTS_BAD;
++			goto out;
++		}
+ 
+ 		/* Treat hidden attributes as missing attributes */
+ 		if (attribute_is_hidden(&cli_head)) {
+-- 
+2.53.0
+

@@ -1,0 +1,44 @@
+From 02ff246999a006c1679a206ea57012ca0c5c06c9 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Mon, 27 Apr 2026 22:40:36 +0200
+Subject: [PATCH 365/913] drivers: stm32_risaf: refactor granularity getting
+ from hw config
+
+_RISAF_HWCFGR content is already stored in a local variable.
+Formula is simple enough not to use a temporary local variable.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 014b381afe8dbd487c99c5813e5a5a13a67775bf drivers: stm32_risaf: refactor granularity getting from hw config]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: Ib992eb565d0f56876c4eedf9ae905cf052c598c0
+---
+ core/drivers/firewall/stm32_risaf.c | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index bdb983dd3..8f657515d 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -468,7 +468,6 @@ void stm32_risaf_is_locked(struct stm32_risaf_instance *risaf, bool *state)
+ static TEE_Result stm32_risaf_init_ddata(struct stm32_risaf_instance *risaf)
+ {
+ 	vaddr_t base = risaf_base(risaf);
+-	uint32_t granularity = 0;
+ 	uint32_t mask_lsb = 0;
+ 	uint32_t mask_msb = 0;
+ 	uint32_t hwcfgr = 0;
+@@ -488,10 +487,8 @@ static TEE_Result stm32_risaf_init_ddata(struct stm32_risaf_instance *risaf)
+ 					 _RISAF_HWCFGR_CFG1_SHIFT;
+ 
+ 	/* Get IP region granularity */
+-	granularity = io_read32(risaf_base(risaf) + _RISAF_HWCFGR);
+-	granularity = BIT((granularity & _RISAF_HWCFGR_CFG3_MASK) >>
+-			  _RISAF_HWCFGR_CFG3_SHIFT);
+-	risaf->ddata->granularity = granularity;
++	risaf->ddata->granularity = BIT((hwcfgr & _RISAF_HWCFGR_CFG3_MASK) >>
++					_RISAF_HWCFGR_CFG3_SHIFT);
+ 
+ 	return TEE_SUCCESS;
+ }
+-- 
+2.53.0
+

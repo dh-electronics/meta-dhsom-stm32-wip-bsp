@@ -1,0 +1,2471 @@
+From 16806df6c8530055e22c541e8e05d1dc38494bdc Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 24 Mar 2026 17:48:43 +0100
+Subject: [PATCH 335/913] Squashed commit upgrading to mbedtls-3.6.5
+
+Squash merging branch import/mbedtls-3.6.5
+
+commit c40cea47ad7c ("Import mbedtls-3.6.5")
+commit 2826136f4b61 ("mbedtls: remove default include/mbedtls/config.h")
+commit e4f52f042adc ("mbedtls: configure mbedtls to reach for config")
+commit 41c7e16c1099 ("libmbedtls: make mbedtls_mpi_mont*() available")
+commit 196c68f26b35 ("libmbedtls: add mbedtls_mpi_init_mempool()")
+commit 17a529137cf0 ("libmedtls: mpi_miller_rabin: increase count limit")
+commit e984be59a8ad ("libmbedtls: add interfaces in mbedtls for context memory operation")
+commit f5a824199020 ("libmbedtls: fix no CRT issue")
+commit 77aed40de4f6 ("libmbedtls: add SM2 curve")
+commit 383ec6f79d6e ("libmbedtls: add fault mitigation in mbedtls_rsa_rsassa_pss_verify_ext()")
+commit 8ad6f859f90b ("libmbedtls: add fault mitigation in mbedtls_rsa_rsassa_pkcs1_v15_verify()")
+commit 1ff4c0c4fd5d ("libmbedtls: fix cipher_wrap.c for chacha20 and chachapoly")
+commit 369fcd552af0 ("libmbedtls: fix cipher_wrap.c for NIST AES Key Wrap mode")
+commit c418523d36ef ("libmbedtls: allow inclusion of arm_neon.h")
+commit 459bf515c5b2 ("libmbedtls: add CFG_CORE_UNSAFE_MODEXP and CFG_TA_MBEDTLS_UNSAFE_MODEXP")
+commit 37734ceb58aa ("libmbedtls: use mempool_calloc() for temporary memory")
+commit 3cb6bf44787f ("libmbedtls: fix build warning related to deprecated DTLS connect ID")
+commit 92c283910cbb ("libmbedtls: fix compilation warning with GCC14")
+commit 834f027107e1 ("libmbedtls: fix warning redundant-decls in mbedtls 3.6.5")
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git fb7b5fb10247902c3504fafc35d778e848aaa978 Squashed commit upgrading to mbedtls-3.6.5]
+Change-Id: I9131ca3d3eaf9436859133860fe216d50d3485d2
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Acked-by: Jens Wiklander <jens.wiklander@linaro.org>
+(cherry picked from commit 19116a65b6728f04be40b827236dce7a34da49e1)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/550616
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ lib/libmbedtls/mbedtls/ChangeLog              |  43 ++
+ lib/libmbedtls/mbedtls/README.md              |  15 +-
+ .../mbedtls/include/mbedtls/bignum.h          |  11 +-
+ .../mbedtls/include/mbedtls/build_info.h      |   8 +-
+ .../mbedtls/include/mbedtls/cipher.h          | 109 ++++-
+ lib/libmbedtls/mbedtls/include/mbedtls/cmac.h |   9 +-
+ .../mbedtls/include/mbedtls/threading.h       |  46 +-
+ .../mbedtls/include/psa/crypto_extra.h        |  47 +-
+ lib/libmbedtls/mbedtls/library/bignum.c       | 409 ++++++++++--------
+ lib/libmbedtls/mbedtls/library/bignum_core.c  | 218 ++++++++++
+ lib/libmbedtls/mbedtls/library/bignum_core.h  |  41 ++
+ .../mbedtls/library/bignum_core_invasive.h    |  19 +-
+ .../mbedtls/library/bignum_internal.h         |  72 +++
+ lib/libmbedtls/mbedtls/library/cipher.c       |  57 ++-
+ .../mbedtls/library/cipher_invasive.h         |   3 +-
+ lib/libmbedtls/mbedtls/library/cipher_wrap.h  |   2 +-
+ lib/libmbedtls/mbedtls/library/cmac.c         |   6 +-
+ lib/libmbedtls/mbedtls/library/common.h       |   3 +-
+ lib/libmbedtls/mbedtls/library/dhm.c          |  18 +-
+ lib/libmbedtls/mbedtls/library/ecdsa.c        |  23 +-
+ lib/libmbedtls/mbedtls/library/ecp.c          |  30 +-
+ lib/libmbedtls/mbedtls/library/psa_crypto.c   |  44 +-
+ .../mbedtls/library/psa_crypto_cipher.c       |  58 ++-
+ .../mbedtls/library/psa_crypto_core.h         |  12 -
+ lib/libmbedtls/mbedtls/library/rsa.c          |  60 +--
+ .../mbedtls/library/rsa_alt_helpers.c         |  18 +-
+ .../mbedtls/library/rsa_alt_helpers.h         |  15 +-
+ lib/libmbedtls/mbedtls/library/ssl_msg.c      |   4 +-
+ lib/libmbedtls/mbedtls/library/ssl_tls.c      |   2 +-
+ .../mbedtls/library/ssl_tls12_client.c        |   2 +-
+ lib/libmbedtls/mbedtls/library/threading.c    |   2 +-
+ .../mbedtls/library/threading_internal.h      |  28 ++
+ 32 files changed, 1036 insertions(+), 398 deletions(-)
+ create mode 100644 lib/libmbedtls/mbedtls/library/threading_internal.h
+
+diff --git a/lib/libmbedtls/mbedtls/ChangeLog b/lib/libmbedtls/mbedtls/ChangeLog
+index 4d4bbdbe5..59a960439 100644
+--- a/lib/libmbedtls/mbedtls/ChangeLog
++++ b/lib/libmbedtls/mbedtls/ChangeLog
+@@ -1,5 +1,48 @@
+ Mbed TLS ChangeLog (Sorted per branch, date)
+ 
++= Mbed TLS 3.6.5 branch released 2025-10-15
++
++API changes
++   * When building the library as a PSA client (MBEDTLS_PSA_CRYPTO_CLIENT
++     enabled and MBEDTLS_PSA_CRYPTO_C disabled), you need to provide the
++     function psa_can_do_cipher() in addition to psa_can_do_hash(). This
++     changed was made in Mbed TLS 3.6.0 but was not announced then.
++
++Features
++   * The new function mbedtls_cipher_finish_padded() is similar to
++     mbedtls_cipher_finish(), but makes it easier to process invalid-padding
++     conditions in constant time.
++
++Security
++   * Fix a timing side channel in CBC-PKCS7 decryption that could
++     allow an attacker who can submit chosen ciphertexts to recover
++     some plaintexts through a timing-based padding oracle attack.
++     Credits to Beat Heeb from Oberon microsystems AG. CVE-2025-59438
++   * Fix a local timing side-channel in modular inversion and GCD that was
++     exploitable in RSA key generation and other RSA operations (see the full
++     advisory for details), allowing a local attacker to fully recover the
++     private key. This can be exploited on some Arm-v9 CPUs by an unprivileged
++     attacker running code on the same core (SSBleed), or when Trustzone-M is
++     used, by the non-secure side abusing timer interrupts (M-Step), and
++     probably in other similar settings as well. Found and reported
++     independently by: SSBleed: Chang Liu (Tsinghua University) and Trevor E.
++     Carlson (National University of Singapore); M-Step: Cristiano Rodrigues
++     (University of Minho), Marton Bognar (DistriNet, KU Leuven), Sandro Pinto
++     (University of Minho), Jo Van Bulck (DistriNet, KU Leuven). CVE-2025-54764
++
++Bugfix
++    * Fix potential CMake parallel build failure when building both the static
++      and shared libraries.
++   * Fix a build error or incorrect TLS session
++     lifetime on platforms where mbedtls_time_t
++     is not time_t. Fixes #10236.
++
++Changes
++   * The function mbedtls_mpi_gcd() now always gives a non-negative output.
++     Previously the output was negative when B = 0 and A < 0, which was not
++     documented, and inconsistent as all other inputs resulted in a non-negative
++     output.
++
+ = Mbed TLS 3.6.4 branch released 2025-06-30
+ 
+ Features
+diff --git a/lib/libmbedtls/mbedtls/README.md b/lib/libmbedtls/mbedtls/README.md
+index b70c67e03..d1cf0c2e2 100644
+--- a/lib/libmbedtls/mbedtls/README.md
++++ b/lib/libmbedtls/mbedtls/README.md
+@@ -1,9 +1,7 @@
+ README for Mbed TLS
+ ===================
+ 
+-Mbed TLS is a C library that implements cryptographic primitives, X.509 certificate manipulation and the SSL/TLS and DTLS protocols. Its small code footprint makes it suitable for embedded systems.
+-
+-Mbed TLS includes a reference implementation of the [PSA Cryptography API](#psa-cryptography-api). This is currently a preview for evaluation purposes only.
++Mbed TLS is a C library that implements cryptographic primitives (including the [PSA Cryptography API](#psa-cryptography-api)), X.509 certificate manipulation and the SSL/TLS and DTLS protocols. Its small code footprint makes it suitable for embedded systems.
+ 
+ Configuration
+ -------------
+@@ -72,7 +70,13 @@ The following tools are required:
+     Depending on your Python installation, you may need to invoke `python` instead of `python3`. To install the packages system-wide, omit the `--user` option.
+ * A C compiler for the host platform, for some test data.
+ 
+-If you are cross-compiling, you must set the `CC` environment variable to a C compiler for the host platform when generating the configuration-independent files.
++The scripts that generate the configuration-independent files will look for a host C compiler in the following places (in order of preference):
++
++1. The `HOSTCC` environment variable. This can be used if `CC` is pointing to a cross-compiler.
++2. The `CC` environment variable.
++3. An executable called `cc` in the current path.
++
++Note: If you have multiple toolchains installed, it is recommended to set `CC` or `HOSTCC` to the intended host compiler before generating the files.
+ 
+ Any of the following methods are available to generate the configuration-independent files:
+ 
+@@ -292,8 +296,7 @@ Arm welcomes feedback on the design of the API. If you think something could be
+ 
+ ### PSA implementation in Mbed TLS
+ 
+-Mbed TLS includes a reference implementation of the PSA Cryptography API.
+-However, it does not aim to implement the whole specification; in particular it does not implement all the algorithms.
++Mbed TLS includes an implementation of the PSA Cryptography API. It covers most, but not all algorithms.
+ 
+ The X.509 and TLS code can use PSA cryptography for most operations. To enable this support, activate the compilation option `MBEDTLS_USE_PSA_CRYPTO` in `mbedtls_config.h`. Note that TLS 1.3 uses PSA cryptography for most operations regardless of this option. See `docs/use-psa-crypto.md` for details.
+ 
+diff --git a/lib/libmbedtls/mbedtls/include/mbedtls/bignum.h b/lib/libmbedtls/mbedtls/include/mbedtls/bignum.h
+index 97f8ca44a..caf84834d 100644
+--- a/lib/libmbedtls/mbedtls/include/mbedtls/bignum.h
++++ b/lib/libmbedtls/mbedtls/include/mbedtls/bignum.h
+@@ -980,6 +980,7 @@ int mbedtls_mpi_random(mbedtls_mpi *X,
+  * \brief          Compute the greatest common divisor: G = gcd(A, B)
+  *
+  * \param G        The destination MPI. This must point to an initialized MPI.
++ *                 This will always be positive or 0.
+  * \param A        The first operand. This must point to an initialized MPI.
+  * \param B        The second operand. This must point to an initialized MPI.
+  *
+@@ -994,10 +995,12 @@ int mbedtls_mpi_gcd(mbedtls_mpi *G, const mbedtls_mpi *A,
+  * \brief          Compute the modular inverse: X = A^-1 mod N
+  *
+  * \param X        The destination MPI. This must point to an initialized MPI.
++ *                 The value returned on success will be between [1, N-1].
+  * \param A        The MPI to calculate the modular inverse of. This must point
+- *                 to an initialized MPI.
++ *                 to an initialized MPI. This value can be negative, in which
++ *                 case a positive answer will still be returned in \p X.
+  * \param N        The base of the modular inversion. This must point to an
+- *                 initialized MPI.
++ *                 initialized MPI and be greater than one.
+  *
+  * \return         \c 0 if successful.
+  * \return         #MBEDTLS_ERR_MPI_ALLOC_FAILED if a memory allocation failed.
+@@ -1079,7 +1082,7 @@ int mbedtls_mpi_gen_prime(mbedtls_mpi *X, size_t nbits, int flags,
+  * \param mm       The -1/m mod N result
+  * \param N        The modulus
+  */
+-void mbedtls_mpi_montg_init( mbedtls_mpi_uint *mm, const mbedtls_mpi *N );
++void mbedtls_mpi_montg_init(mbedtls_mpi_uint *mm, const mbedtls_mpi *N);
+ 
+ /**
+  * \brief          Montgomery multiplication: A = A * B * R^-1 mod N
+@@ -1091,7 +1094,7 @@ void mbedtls_mpi_montg_init( mbedtls_mpi_uint *mm, const mbedtls_mpi *N );
+  */
+ void mbedtls_mpi_montmul(mbedtls_mpi *A, const mbedtls_mpi *B,
+                          const mbedtls_mpi *N, mbedtls_mpi_uint mm,
+-                         mbedtls_mpi *T );
++                         mbedtls_mpi *T);
+ 
+ /**
+  * \brief          Montgomery reduction: A = A * R^-1 mod N
+diff --git a/lib/libmbedtls/mbedtls/include/mbedtls/build_info.h b/lib/libmbedtls/mbedtls/include/mbedtls/build_info.h
+index e18e823c1..3d867aa1b 100644
+--- a/lib/libmbedtls/mbedtls/include/mbedtls/build_info.h
++++ b/lib/libmbedtls/mbedtls/include/mbedtls/build_info.h
+@@ -26,16 +26,16 @@
+  */
+ #define MBEDTLS_VERSION_MAJOR  3
+ #define MBEDTLS_VERSION_MINOR  6
+-#define MBEDTLS_VERSION_PATCH  4
++#define MBEDTLS_VERSION_PATCH  5
+ 
+ /**
+  * The single version number has the following structure:
+  *    MMNNPP00
+  *    Major version | Minor version | Patch version
+  */
+-#define MBEDTLS_VERSION_NUMBER         0x03060400
+-#define MBEDTLS_VERSION_STRING         "3.6.4"
+-#define MBEDTLS_VERSION_STRING_FULL    "Mbed TLS 3.6.4"
++#define MBEDTLS_VERSION_NUMBER         0x03060500
++#define MBEDTLS_VERSION_STRING         "3.6.5"
++#define MBEDTLS_VERSION_STRING_FULL    "Mbed TLS 3.6.5"
+ 
+ /* Macros for build-time platform detection */
+ 
+diff --git a/lib/libmbedtls/mbedtls/include/mbedtls/cipher.h b/lib/libmbedtls/mbedtls/include/mbedtls/cipher.h
+index 5d5fc0c5e..20d348f28 100644
+--- a/lib/libmbedtls/mbedtls/include/mbedtls/cipher.h
++++ b/lib/libmbedtls/mbedtls/include/mbedtls/cipher.h
+@@ -329,8 +329,15 @@ typedef struct mbedtls_cipher_context_t {
+     /** Padding functions to use, if relevant for
+      * the specific cipher mode.
+      */
+-    void(*MBEDTLS_PRIVATE(add_padding))(unsigned char *output, size_t olen, size_t data_len);
+-    int(*MBEDTLS_PRIVATE(get_padding))(unsigned char *input, size_t ilen, size_t *data_len);
++    void(*MBEDTLS_PRIVATE(add_padding))(unsigned char *output, size_t olen,
++                                        size_t data_len);
++    /* Report invalid-padding condition through the output parameter
++     * invalid_padding. To minimize changes in Mbed TLS 3.6, where this
++     * declaration is in a public header, use the public type size_t
++     * rather than the internal type mbedtls_ct_condition_t. */
++    int(*MBEDTLS_PRIVATE(get_padding))(unsigned char *input, size_t ilen,
++                                       size_t *data_len,
++                                       size_t *invalid_padding);
+ #endif
+ 
+     /** Buffer for input that has not been processed yet. */
+@@ -904,23 +911,24 @@ int mbedtls_cipher_set_iv(mbedtls_cipher_context_t *ctx,
+  *
+  * \note          With non-AEAD ciphers, the order of calls for each message
+  *                is as follows:
+- *                1. mbedtls_cipher_set_iv() if the mode uses an IV/nonce.
+- *                2. mbedtls_cipher_reset()
+- *                3. mbedtls_cipher_update() one or more times
+- *                4. mbedtls_cipher_finish()
++ *                1. mbedtls_cipher_set_iv() if the mode uses an IV/nonce;
++ *                2. mbedtls_cipher_reset();
++ *                3. mbedtls_cipher_update() zero, one or more times;
++ *                4. mbedtls_cipher_finish_padded() (recommended for decryption
++ *                   if the mode uses padding) or mbedtls_cipher_finish().
+  *                .
+  *                This sequence can be repeated to encrypt or decrypt multiple
+  *                messages with the same key.
+  *
+  * \note          With AEAD ciphers, the order of calls for each message
+  *                is as follows:
+- *                1. mbedtls_cipher_set_iv() if the mode uses an IV/nonce.
+- *                2. mbedtls_cipher_reset()
+- *                3. mbedtls_cipher_update_ad()
+- *                4. mbedtls_cipher_update() one or more times
+- *                5. mbedtls_cipher_finish()
++ *                1. mbedtls_cipher_set_iv() if the mode uses an IV/nonce;
++ *                2. mbedtls_cipher_reset();
++ *                3. mbedtls_cipher_update_ad();
++ *                4. mbedtls_cipher_update() zero, one or more times;
++ *                5. mbedtls_cipher_finish() (or mbedtls_cipher_finish_padded());
+  *                6. mbedtls_cipher_check_tag() (for decryption) or
+- *                mbedtls_cipher_write_tag() (for encryption).
++ *                   mbedtls_cipher_write_tag() (for encryption).
+  *                .
+  *                This sequence can be repeated to encrypt or decrypt multiple
+  *                messages with the same key.
+@@ -956,7 +964,8 @@ int mbedtls_cipher_update_ad(mbedtls_cipher_context_t *ctx,
+  *                      many block-sized blocks of data as possible to output.
+  *                      Any data that cannot be written immediately is either
+  *                      added to the next block, or flushed when
+- *                      mbedtls_cipher_finish() is called.
++ *                      mbedtls_cipher_finish() or mbedtls_cipher_finish_padded()
++ *                      is called.
+  *                      Exception: For MBEDTLS_MODE_ECB, expects a single block
+  *                      in size. For example, 16 Bytes for AES.
+  *
+@@ -990,12 +999,30 @@ int mbedtls_cipher_update(mbedtls_cipher_context_t *ctx,
+  *                      contained in it is padded to the size of
+  *                      the last block, and written to the \p output buffer.
+  *
++ * \warning             This function reports invalid padding through an error
++ *                      code. Adversaries may be able to decrypt encrypted
++ *                      data if they can submit chosen ciphertexts and
++ *                      detect whether it has valid padding or not,
++ *                      either through direct observation or through a side
++ *                      channel such as timing. This is known as a
++ *                      padding oracle attack.
++ *                      Therefore applications that call this function for
++ *                      decryption with a cipher that involves padding
++ *                      should take care around error handling. Preferably,
++ *                      such applications should use
++ *                      mbedtls_cipher_finish_padded() instead of this function.
++ *
+  * \param ctx           The generic cipher context. This must be initialized and
+  *                      bound to a key.
+  * \param output        The buffer to write data to. This needs to be a writable
+  *                      buffer of at least block_size Bytes.
+  * \param olen          The length of the data written to the \p output buffer.
+  *                      This may not be \c NULL.
++ *                      Note that when decrypting in a mode with padding,
++ *                      the actual output length is sensitive and may be
++ *                      used to mount a padding oracle attack (see warning
++ *                      above), although less efficiently than through
++ *                      the invalid-padding condition.
+  *
+  * \return              \c 0 on success.
+  * \return              #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA on
+@@ -1003,17 +1030,66 @@ int mbedtls_cipher_update(mbedtls_cipher_context_t *ctx,
+  * \return              #MBEDTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED on decryption
+  *                      expecting a full block but not receiving one.
+  * \return              #MBEDTLS_ERR_CIPHER_INVALID_PADDING on invalid padding
+- *                      while decrypting.
++ *                      while decrypting. Note that invalid-padding errors
++ *                      should be handled carefully; see the warning above.
+  * \return              A cipher-specific error code on failure.
+  */
+ int mbedtls_cipher_finish(mbedtls_cipher_context_t *ctx,
+                           unsigned char *output, size_t *olen);
+ 
++/**
++ * \brief               The generic cipher finalization function. If data still
++ *                      needs to be flushed from an incomplete block, the data
++ *                      contained in it is padded to the size of
++ *                      the last block, and written to the \p output buffer.
++ *
++ * \note                This function is similar to mbedtls_cipher_finish().
++ *                      The only difference is that it reports invalid padding
++ *                      decryption differently, through the \p invalid_padding
++ *                      parameter rather than an error code.
++ *                      For encryption, and in modes without padding (including
++ *                      all authenticated modes), this function is identical
++ *                      to mbedtls_cipher_finish().
++ *
++ * \param[in,out] ctx   The generic cipher context. This must be initialized and
++ *                      bound to a key.
++ * \param[out] output   The buffer to write data to. This needs to be a writable
++ *                      buffer of at least block_size Bytes.
++ * \param[out] olen     The length of the data written to the \p output buffer.
++ *                      This may not be \c NULL.
++ *                      Note that when decrypting in a mode with padding,
++ *                      the actual output length is sensitive and may be
++ *                      used to mount a padding oracle attack (see warning
++ *                      on mbedtls_cipher_finish()).
++ * \param[out] invalid_padding
++ *                      If this function returns \c 0 on decryption,
++ *                      \p *invalid_padding is \c 0 if the ciphertext was
++ *                      valid, and all-bits-one if the ciphertext had invalid
++ *                      padding.
++ *                      On encryption, or in a mode without padding (including
++ *                      all authenticated modes), \p *invalid_padding is \c 0
++ *                      on success.
++ *                      The value in \p *invalid_padding is unspecified if
++ *                      this function returns a nonzero status.
++ *
++ * \return              \c 0 on success.
++ *                      Also \c 0 for decryption with invalid padding.
++ * \return              #MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA on
++ *                      parameter-verification failure.
++ * \return              #MBEDTLS_ERR_CIPHER_FULL_BLOCK_EXPECTED on decryption
++ *                      expecting a full block but not receiving one.
++ * \return              A cipher-specific error code on failure.
++ */
++int mbedtls_cipher_finish_padded(mbedtls_cipher_context_t *ctx,
++                                 unsigned char *output, size_t *olen,
++                                 size_t *invalid_padding);
++
+ #if defined(MBEDTLS_GCM_C) || defined(MBEDTLS_CHACHAPOLY_C)
+ /**
+  * \brief               This function writes a tag for AEAD ciphers.
+  *                      Currently supported with GCM and ChaCha20+Poly1305.
+- *                      This must be called after mbedtls_cipher_finish().
++ *                      This must be called after mbedtls_cipher_finish()
++ *                      or mbedtls_cipher_finish_padded().
+  *
+  * \param ctx           The generic cipher context. This must be initialized,
+  *                      bound to a key, and have just completed a cipher
+@@ -1032,7 +1108,8 @@ int mbedtls_cipher_write_tag(mbedtls_cipher_context_t *ctx,
+ /**
+  * \brief               This function checks the tag for AEAD ciphers.
+  *                      Currently supported with GCM and ChaCha20+Poly1305.
+- *                      This must be called after mbedtls_cipher_finish().
++ *                      This must be called after mbedtls_cipher_finish()
++ *                      or mbedtls_cipher_finish_padded().
+  *
+  * \param ctx           The generic cipher context. This must be initialized.
+  * \param tag           The buffer holding the tag. This must be a readable
+diff --git a/lib/libmbedtls/mbedtls/include/mbedtls/cmac.h b/lib/libmbedtls/mbedtls/include/mbedtls/cmac.h
+index 16421ba3d..6eefce1b8 100644
+--- a/lib/libmbedtls/mbedtls/include/mbedtls/cmac.h
++++ b/lib/libmbedtls/mbedtls/include/mbedtls/cmac.h
+@@ -76,10 +76,11 @@ struct mbedtls_cmac_context_t {
+  * \brief               Initialises and allocate CMAC context memory
+  *                      Must be called with an initialized cipher context.
+  *
+- * \param ctx           The cipher context used for the CMAC operation, initialized
+- *                      as one of the following types: MBEDTLS_CIPHER_AES_128_ECB,
+- *                      MBEDTLS_CIPHER_AES_192_ECB, MBEDTLS_CIPHER_AES_256_ECB,
+- *                      or MBEDTLS_CIPHER_DES_EDE3_ECB.
++ * \param ctx           The cipher context used for the CMAC operation,
++ *                      initialized as one of the following types:
++ *                      MBEDTLS_CIPHER_AES_128_ECB, MBEDTLS_CIPHER_AES_192_ECB,
++ *                      MBEDTLS_CIPHER_AES_256_ECB, or
++ *                      MBEDTLS_CIPHER_DES_EDE3_ECB.
+  * \return              \c 0 on success.
+  * \return              A cipher-specific error code on failure.
+  */
+diff --git a/lib/libmbedtls/mbedtls/include/mbedtls/threading.h b/lib/libmbedtls/mbedtls/include/mbedtls/threading.h
+index b4df0e38b..7b55a4649 100644
+--- a/lib/libmbedtls/mbedtls/include/mbedtls/threading.h
++++ b/lib/libmbedtls/mbedtls/include/mbedtls/threading.h
+@@ -51,15 +51,45 @@ typedef struct mbedtls_threading_mutex_t {
+  *                  mbedtls_threading_free_alt() must be called once in the main
+  *                  thread after all other Mbed TLS functions.
+  *
+- * \note            mutex_init() and mutex_free() don't return a status code.
+- *                  If mutex_init() fails, it should leave its argument (the
+- *                  mutex) in a state such that mutex_lock() will fail when
+- *                  called with this argument.
++ * \warning         \p mutex_init and \p mutex_free don't return a status code.
++ *                  If \p mutex_init fails, it should leave the mutex in
++ *                  a state such that \p mutex_lock will reliably return
++ *                  #MBEDTLS_ERR_THREADING_MUTEX_ERROR called on this mutex,
++ *                  and \p mutex_free will do nothing.
+  *
+- * \param mutex_init    the init function implementation
+- * \param mutex_free    the free function implementation
+- * \param mutex_lock    the lock function implementation
+- * \param mutex_unlock  the unlock function implementation
++ * \param mutex_init    The init function implementation. <br>
++ *                      The behavior is undefined if the mutex is already
++ *                      initialized and has not been destroyed.
++ *                      On platforms where mutex initialization can fail,
++ *                      since this function does not return a status code,
++ *                      it must leave the mutex object in a safe state where
++ *                      subsequent function calls will not cause undefined
++ *                      behavior: after a call to \p mutex_init, the
++ *                      function \p mutex_lock must either succeed or
++ *                      fail with a nonzero status code, and the function
++ *                      \p mutex_free must free any resources associated
++ *                      with the mutex..
++ * \param mutex_free    The destroy function implementation. <br>
++ *                      This function must free any resources associated
++ *                      with the mutex object. <br>
++ *                      This function must work reliably if \p mutex_init
++ *                      has been called on the mutex and \p mutex_free
++ *                      has not yet been called. <br>
++ *                      The behavior is undefined if the mutex was not
++ *                      initialized, if it has already been destroyed,
++ *                      if it is currently locked, or if this function
++ *                      is called concurrently from multiple threads.
++ * \param mutex_lock    The lock function implementation. <br>
++ *                      This function must work reliably on any mutex
++ *                      which is not currently locked and on which
++ *                      \p mutex_init has already been called but
++ *                      \p mutex_free has not been called yet. <br>
++ *                      The behavior is undefined if the mutex was not
++ *                      initialized, if it has already been destroyed, or if
++ *                      it is currently locked by the calling thread.
++ * \param mutex_unlock  The unlock function implementation. <br>
++ *                      The behavior is undefined if the mutex is not
++ *                      currently locked by the calling thread.
+  */
+ void mbedtls_threading_set_alt(void (*mutex_init)(mbedtls_threading_mutex_t *),
+                                void (*mutex_free)(mbedtls_threading_mutex_t *),
+diff --git a/lib/libmbedtls/mbedtls/include/psa/crypto_extra.h b/lib/libmbedtls/mbedtls/include/psa/crypto_extra.h
+index 70740901e..a710397a7 100644
+--- a/lib/libmbedtls/mbedtls/include/psa/crypto_extra.h
++++ b/lib/libmbedtls/mbedtls/include/psa/crypto_extra.h
+@@ -600,9 +600,10 @@ psa_status_t mbedtls_psa_platform_get_builtin_key(
+  * This means that PSA core was built with the corresponding PSA_WANT_ALG_xxx
+  * set and that psa_crypto_init has already been called.
+  *
+- * \note When using Mbed TLS version of PSA core (i.e. MBEDTLS_PSA_CRYPTO_C is
+- *       set) for now this function only checks the state of the driver
+- *       subsystem, not the algorithm. This might be improved in the future.
++ * \note When using the built-in version of the PSA core (i.e.
++ *       #MBEDTLS_PSA_CRYPTO_C is set), for now, this function only checks
++ *       the state of the driver subsystem, not the algorithm.
++ *       This might be improved in the future.
+  *
+  * \param hash_alg  The hash algorithm.
+  *
+@@ -610,6 +611,21 @@ psa_status_t mbedtls_psa_platform_get_builtin_key(
+  */
+ int psa_can_do_hash(psa_algorithm_t hash_alg);
+ 
++/**
++ * Tell if PSA is ready for this cipher.
++ *
++ * \note When using the built-in version of the PSA core (i.e.
++ *       #MBEDTLS_PSA_CRYPTO_C is set), for now, this function only checks
++ *       the state of the driver subsystem, not the key type and algorithm.
++ *       This might be improved in the future.
++ *
++ * \param key_type    The key type.
++ * \param cipher_alg  The cipher algorithm.
++ *
++ * \return 1 if the PSA can handle \p cipher_alg, 0 otherwise.
++ */
++int psa_can_do_cipher(psa_key_type_t key_type, psa_algorithm_t cipher_alg);
++
+ /**@}*/
+ 
+ /** \addtogroup crypto_types
+@@ -744,6 +760,17 @@ int psa_can_do_hash(psa_algorithm_t hash_alg);
+  * To make the authentication explicit there are various methods, see Section 5
+  * of RFC 8236 for two examples.
+  *
++ * \note The JPAKE implementation has the following limitations:
++ *       - The only supported primitive is ECC on the curve secp256r1, i.e.
++ *         `PSA_PAKE_PRIMITIVE(PSA_PAKE_PRIMITIVE_TYPE_ECC,
++ *          PSA_ECC_FAMILY_SECP_R1, 256)`.
++ *       - The only supported hash algorithm is SHA-256, i.e.
++ *         `PSA_ALG_SHA_256`.
++ *       - When using the built-in implementation, the user ID and the peer ID
++ *         must be `"client"` (6-byte string) and `"server"` (6-byte string),
++ *         or the other way round.
++ *         Third-party drivers may or may not have this limitation.
++ *
+  */
+ #define PSA_ALG_JPAKE                   ((psa_algorithm_t) 0x0a000100)
+ 
+@@ -1180,6 +1207,8 @@ static psa_algorithm_t psa_pake_cs_get_algorithm(
+  * This function overwrites any PAKE algorithm
+  * previously set in \p cipher_suite.
+  *
++ * \note For #PSA_ALG_JPAKE, the only supported hash algorithm is SHA-256.
++ *
+  * \param[out] cipher_suite    The cipher suite structure to write to.
+  * \param algorithm            The PAKE algorithm to write.
+  *                             (`PSA_ALG_XXX` values of type ::psa_algorithm_t
+@@ -1203,6 +1232,10 @@ static psa_pake_primitive_t psa_pake_cs_get_primitive(
+  *
+  * This function overwrites any primitive previously set in \p cipher_suite.
+  *
++ * \note For #PSA_ALG_JPAKE, the only supported primitive is ECC on the curve
++ *       secp256r1, i.e. `PSA_PAKE_PRIMITIVE(PSA_PAKE_PRIMITIVE_TYPE_ECC,
++ *       PSA_ECC_FAMILY_SECP_R1, 256)`.
++ *
+  * \param[out] cipher_suite    The cipher suite structure to write to.
+  * \param primitive            The primitive to write. If this is 0, the
+  *                             primitive type in \p cipher_suite becomes
+@@ -1539,6 +1572,10 @@ psa_status_t psa_pake_set_password_key(psa_pake_operation_t *operation,
+  * values of type ::psa_algorithm_t such that #PSA_ALG_IS_PAKE(\c alg) is true)
+  * for more information.
+  *
++ * \note When using the built-in implementation of #PSA_ALG_JPAKE, the user ID
++ *       must be `"client"` (6-byte string) or `"server"` (6-byte string).
++ *       Third-party drivers may or may not have this limitation.
++ *
+  * \param[in,out] operation     The operation object to set the user ID for. It
+  *                              must have been set up by psa_pake_setup() and
+  *                              not yet in use (neither psa_pake_output() nor
+@@ -1580,6 +1617,10 @@ psa_status_t psa_pake_set_user(psa_pake_operation_t *operation,
+  * values of type ::psa_algorithm_t such that #PSA_ALG_IS_PAKE(\c alg) is true)
+  * for more information.
+  *
++ * \note When using the built-in implementation of #PSA_ALG_JPAKE, the peer ID
++ *       must be `"client"` (6-byte string) or `"server"` (6-byte string).
++ *       Third-party drivers may or may not have this limitation.
++ *
+  * \param[in,out] operation     The operation object to set the peer ID for. It
+  *                              must have been set up by psa_pake_setup() and
+  *                              not yet in use (neither psa_pake_output() nor
+diff --git a/lib/libmbedtls/mbedtls/library/bignum.c b/lib/libmbedtls/mbedtls/library/bignum.c
+index 7b8b966a6..5ec6aa747 100644
+--- a/lib/libmbedtls/mbedtls/library/bignum.c
++++ b/lib/libmbedtls/mbedtls/library/bignum.c
+@@ -215,7 +215,7 @@ void mbedtls_mpi_free(mbedtls_mpi *X)
+     }
+ 
+     if (X->p != NULL) {
+-        if(X->use_mempool) {
++        if (X->use_mempool) {
+             mbedtls_mpi_zeroize(X->p, X->n);
+             mempool_free(mbedtls_mpi_mempool, X->p);
+         } else {
+@@ -240,13 +240,13 @@ int mbedtls_mpi_grow(mbedtls_mpi *X, size_t nblimbs)
+     }
+ 
+     if (X->n < nblimbs) {
+-        if(X->use_mempool) {
++        if (X->use_mempool) {
+             p = mempool_alloc(mbedtls_mpi_mempool, nblimbs * ciL);
+-            if(p == NULL)
++            if (p == NULL)
+                 return MBEDTLS_ERR_MPI_ALLOC_FAILED;
+             memset(p, 0, nblimbs * ciL);
+         } else {
+-                p = (mbedtls_mpi_uint *) mbedtls_calloc(nblimbs, ciL);
++                p = (mbedtls_mpi_uint *)mbedtls_calloc(nblimbs, ciL);
+                 if (p == NULL)
+                     return MBEDTLS_ERR_MPI_ALLOC_FAILED;
+         }
+@@ -307,7 +307,8 @@ int mbedtls_mpi_shrink(mbedtls_mpi *X, size_t nblimbs)
+             return MBEDTLS_ERR_MPI_ALLOC_FAILED;
+         memset(p, 0, i * ciL);
+     } else {
+-        if ((p = (mbedtls_mpi_uint *) mbedtls_calloc(i, ciL)) == NULL)
++        p = (mbedtls_mpi_uint *)mbedtls_calloc(i, ciL);
++        if (p == NULL)
+             return MBEDTLS_ERR_MPI_ALLOC_FAILED;
+     }
+ 
+@@ -317,8 +318,7 @@ int mbedtls_mpi_shrink(mbedtls_mpi *X, size_t nblimbs)
+         if (X->use_mempool) {
+             mbedtls_mpi_zeroize(X->p, X->n);
+             mempool_free(mbedtls_mpi_mempool, X->p);
+-        }
+-        else {
++        } else {
+             mbedtls_mpi_zeroize_and_free(X->p, X->n);
+         }
+     }
+@@ -481,13 +481,6 @@ cleanup:
+     return ret;
+ }
+ 
+-/*
+- * Return the number of less significant zero-bits
+- */
+-size_t mbedtls_mpi_lsb(const mbedtls_mpi *X)
+-{
+-    size_t i;
+-
+ #if defined(__has_builtin)
+ #if (MBEDTLS_MPI_UINT_MAX == UINT_MAX) && __has_builtin(__builtin_ctz)
+     #define mbedtls_mpi_uint_ctz __builtin_ctz
+@@ -498,22 +491,34 @@ size_t mbedtls_mpi_lsb(const mbedtls_mpi *X)
+ #endif
+ #endif
+ 
+-#if defined(mbedtls_mpi_uint_ctz)
++#if !defined(mbedtls_mpi_uint_ctz)
++static size_t mbedtls_mpi_uint_ctz(mbedtls_mpi_uint x)
++{
++    size_t count = 0;
++    mbedtls_ct_condition_t done = MBEDTLS_CT_FALSE;
++
++    for (size_t i = 0; i < biL; i++) {
++        mbedtls_ct_condition_t non_zero = mbedtls_ct_bool((x >> i) & 1);
++        done = mbedtls_ct_bool_or(done, non_zero);
++        count = mbedtls_ct_size_if(done, count, i + 1);
++    }
++
++    return count;
++}
++#endif
++
++/*
++ * Return the number of less significant zero-bits
++ */
++size_t mbedtls_mpi_lsb(const mbedtls_mpi *X)
++{
++    size_t i;
++
+     for (i = 0; i < X->n; i++) {
+         if (X->p[i] != 0) {
+             return i * biL + mbedtls_mpi_uint_ctz(X->p[i]);
+         }
+     }
+-#else
+-    size_t count = 0;
+-    for (i = 0; i < X->n; i++) {
+-        for (size_t j = 0; j < biL; j++, count++) {
+-            if (((X->p[i] >> j) & 1) != 0) {
+-                return count;
+-            }
+-        }
+-    }
+-#endif
+ 
+     return 0;
+ }
+@@ -1665,7 +1670,7 @@ int mbedtls_mpi_mod_int(mbedtls_mpi_uint *r, const mbedtls_mpi *A, mbedtls_mpi_s
+ /**
+  * \remark Replaced by our own because the original has been removed since
+  *         mbedtls v3.6.0.
+-*/
++ */
+ void mbedtls_mpi_montg_init(mbedtls_mpi_uint *mm, const mbedtls_mpi *N)
+ {
+     *mm = mbedtls_mpi_core_montmul_init(N->p);
+@@ -1695,8 +1700,8 @@ void mbedtls_mpi_montg_init(mbedtls_mpi_uint *mm, const mbedtls_mpi *N)
+  *         mbedtls v3.6.0.
+  */
+ void mbedtls_mpi_montmul(mbedtls_mpi *A, const mbedtls_mpi *B,
+-                        const mbedtls_mpi *N, mbedtls_mpi_uint mm,
+-                        mbedtls_mpi *T)
++                         const mbedtls_mpi *N, mbedtls_mpi_uint mm,
++                         mbedtls_mpi *T)
+ {
+     mbedtls_mpi_core_montmul(A->p, A->p, B->p, B->n, N->p, N->n, mm, T->p);
+ }
+@@ -1704,18 +1709,19 @@ void mbedtls_mpi_montmul(mbedtls_mpi *A, const mbedtls_mpi *B,
+ /**
+  * Montgomery reduction: A = A * R^-1 mod N
+  *
+- * See mbedtls_mpi_montmul() regarding constraints and guarantees on the parameters.
++ * See mbedtls_mpi_montmul() regarding constraints and guarantees on the
++ * parameters.
+  *
+  * \remark Replaced by our own because the original has been removed since
+  *         mbedtls v3.6.0.
+  */
+ void mbedtls_mpi_montred(mbedtls_mpi *A, const mbedtls_mpi *N,
+-                        mbedtls_mpi_uint mm, mbedtls_mpi *T)
++                         mbedtls_mpi_uint mm, mbedtls_mpi *T)
+ {
+     mbedtls_mpi_uint z = 1;
+     mbedtls_mpi U;
+ 
+-    U.n = U.s = (int) z;
++    U.n = U.s = (int)z;
+     U.p = &z;
+ 
+     mbedtls_mpi_montmul(A, &U, N, mm, T);
+@@ -1853,7 +1859,6 @@ int mbedtls_mpi_exp_mod(mbedtls_mpi *X, const mbedtls_mpi *A,
+ #endif
+ }
+ 
+-
+ /*
+  * Sliding-window exponentiation: X = A^E mod N  (HAC 14.85)
+  */
+@@ -1864,104 +1869,122 @@ int mbedtls_mpi_exp_mod_unsafe(mbedtls_mpi *X, const mbedtls_mpi *A,
+     return mbedtls_mpi_exp_mod_optionally_safe(X, A, E, MBEDTLS_MPI_IS_PUBLIC, N, prec_RR);
+ }
+ 
++/* Constant-time GCD and/or modinv with odd modulus and A <= N */
++int mbedtls_mpi_gcd_modinv_odd(mbedtls_mpi *G,
++                               mbedtls_mpi *I,
++                               const mbedtls_mpi *A,
++                               const mbedtls_mpi *N)
++{
++    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
++    mbedtls_mpi local_g;
++    mbedtls_mpi_uint *T = NULL;
++    const size_t T_factor = I != NULL ? 5 : 4;
++    const mbedtls_mpi_uint zero = 0;
++
++    /* Check requirements on A and N */
++    if (mbedtls_mpi_cmp_int(A, 0) < 0 ||
++        mbedtls_mpi_cmp_mpi(A, N) > 0 ||
++        mbedtls_mpi_get_bit(N, 0) != 1 ||
++        (I != NULL && mbedtls_mpi_cmp_int(N, 1) == 0)) {
++        return MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
++    }
++
++    /* Check aliasing requirements */
++    if (A == N || (I != NULL && (I == N || G == N))) {
++        return MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
++    }
++
++    mbedtls_mpi_init_mempool(&local_g);
++
++    if (G == NULL) {
++        G = &local_g;
++    }
++
++    /* We can't modify the values of G or I before use in the main function,
++     * as they could be aliased to A or N. */
++    MBEDTLS_MPI_CHK(mbedtls_mpi_grow(G, N->n));
++    if (I != NULL) {
++        MBEDTLS_MPI_CHK(mbedtls_mpi_grow(I, N->n));
++    }
++
++    T = mbedtls_calloc(sizeof(mbedtls_mpi_uint) * N->n, T_factor);
++    if (T == NULL) {
++        ret = MBEDTLS_ERR_MPI_ALLOC_FAILED;
++        goto cleanup;
++    }
++
++    mbedtls_mpi_uint *Ip = I != NULL ? I->p : NULL;
++    /* If A is 0 (null), then A->p would be null, and A->n would be 0,
++     * which would be an issue if A->p and A->n were passed to
++     * mbedtls_mpi_core_gcd_modinv_odd below. */
++    const mbedtls_mpi_uint *Ap = A->p != NULL ? A->p : &zero;
++    size_t An = A->n >= N->n ? N->n : A->p != NULL ? A->n : 1;
++    mbedtls_mpi_core_gcd_modinv_odd(G->p, Ip, Ap, An, N->p, N->n, T);
++
++    G->s = 1;
++    if (I != NULL) {
++        I->s = 1;
++    }
++
++    if (G->n > N->n) {
++        memset(G->p + N->n, 0, ciL * (G->n - N->n));
++    }
++    if (I != NULL && I->n > N->n) {
++        memset(I->p + N->n, 0, ciL * (I->n - N->n));
++    }
++
++cleanup:
++    mbedtls_mpi_free(&local_g);
++    mbedtls_free(T);
++    return ret;
++}
++
+ /*
+- * Greatest common divisor: G = gcd(A, B)  (HAC 14.54)
++ * Greatest common divisor: G = gcd(A, B)
++ * Wrapper around mbedtls_mpi_gcd_modinv() that removes its restrictions.
+  */
+ int mbedtls_mpi_gcd(mbedtls_mpi *G, const mbedtls_mpi *A, const mbedtls_mpi *B)
+ {
+     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+-    size_t lz, lzt;
+     mbedtls_mpi TA, TB;
+ 
+     mbedtls_mpi_init_mempool(&TA); mbedtls_mpi_init_mempool(&TB);
+ 
++    /* Make copies and take absolute values */
+     MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&TA, A));
+     MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&TB, B));
++    TA.s = TB.s = 1;
+ 
+-    lz = mbedtls_mpi_lsb(&TA);
+-    lzt = mbedtls_mpi_lsb(&TB);
++    /* Make the two values the same (non-zero) number of limbs.
++     * This is needed to use mbedtls_mpi_core functions below. */
++    MBEDTLS_MPI_CHK(mbedtls_mpi_grow(&TA, TB.n != 0 ? TB.n : 1));
++    MBEDTLS_MPI_CHK(mbedtls_mpi_grow(&TB, TA.n)); // non-zero from above
+ 
+-    /* The loop below gives the correct result when A==0 but not when B==0.
+-     * So have a special case for B==0. Leverage the fact that we just
+-     * calculated the lsb and lsb(B)==0 iff B is odd or 0 to make the test
+-     * slightly more efficient than cmp_int(). */
+-    if (lzt == 0 && mbedtls_mpi_get_bit(&TB, 0) == 0) {
+-        ret = mbedtls_mpi_copy(G, A);
++    /* Handle special cases (that don't happen in crypto usage) */
++    if (mbedtls_mpi_core_check_zero_ct(TA.p, TA.n) == MBEDTLS_CT_FALSE) {
++        MBEDTLS_MPI_CHK(mbedtls_mpi_copy(G, &TB)); // GCD(0, B) = abs(B)
+         goto cleanup;
+     }
+-
+-    if (lzt < lz) {
+-        lz = lzt;
++    if (mbedtls_mpi_core_check_zero_ct(TB.p, TB.n) == MBEDTLS_CT_FALSE) {
++        MBEDTLS_MPI_CHK(mbedtls_mpi_copy(G, &TA)); // GCD(A, 0) = abs(A)
++        goto cleanup;
+     }
+ 
+-    TA.s = TB.s = 1;
++    /* Make boths inputs odd by putting powers of 2 on the side */
++    const size_t za = mbedtls_mpi_lsb(&TA);
++    const size_t zb = mbedtls_mpi_lsb(&TB);
++    MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&TA, za));
++    MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&TB, zb));
+ 
+-    /* We mostly follow the procedure described in HAC 14.54, but with some
+-     * minor differences:
+-     * - Sequences of multiplications or divisions by 2 are grouped into a
+-     *   single shift operation.
+-     * - The procedure in HAC assumes that 0 < TB <= TA.
+-     *     - The condition TB <= TA is not actually necessary for correctness.
+-     *       TA and TB have symmetric roles except for the loop termination
+-     *       condition, and the shifts at the beginning of the loop body
+-     *       remove any significance from the ordering of TA vs TB before
+-     *       the shifts.
+-     *     - If TA = 0, the loop goes through 0 iterations and the result is
+-     *       correctly TB.
+-     *     - The case TB = 0 was short-circuited above.
+-     *
+-     * For the correctness proof below, decompose the original values of
+-     * A and B as
+-     *   A = sa * 2^a * A' with A'=0 or A' odd, and sa = +-1
+-     *   B = sb * 2^b * B' with B'=0 or B' odd, and sb = +-1
+-     * Then gcd(A, B) = 2^{min(a,b)} * gcd(A',B'),
+-     * and gcd(A',B') is odd or 0.
+-     *
+-     * At the beginning, we have TA = |A| and TB = |B| so gcd(A,B) = gcd(TA,TB).
+-     * The code maintains the following invariant:
+-     *     gcd(A,B) = 2^k * gcd(TA,TB) for some k   (I)
+-     */
++    /* Ensure A <= B: if B < A, swap them */
++    mbedtls_ct_condition_t swap = mbedtls_mpi_core_lt_ct(TB.p, TA.p, TA.n);
++    mbedtls_mpi_core_cond_swap(TA.p, TB.p, TA.n, swap);
+ 
+-    /* Proof that the loop terminates:
+-     * At each iteration, either the right-shift by 1 is made on a nonzero
+-     * value and the nonnegative integer bitlen(TA) + bitlen(TB) decreases
+-     * by at least 1, or the right-shift by 1 is made on zero and then
+-     * TA becomes 0 which ends the loop (TB cannot be 0 if it is right-shifted
+-     * since in that case TB is calculated from TB-TA with the condition TB>TA).
+-     */
+-    while (mbedtls_mpi_cmp_int(&TA, 0) != 0) {
+-        /* Divisions by 2 preserve the invariant (I). */
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&TA, mbedtls_mpi_lsb(&TA)));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&TB, mbedtls_mpi_lsb(&TB)));
+-
+-        /* Set either TA or TB to |TA-TB|/2. Since TA and TB are both odd,
+-         * TA-TB is even so the division by 2 has an integer result.
+-         * Invariant (I) is preserved since any odd divisor of both TA and TB
+-         * also divides |TA-TB|/2, and any odd divisor of both TA and |TA-TB|/2
+-         * also divides TB, and any odd divisor of both TB and |TA-TB|/2 also
+-         * divides TA.
+-         */
+-        if (mbedtls_mpi_cmp_mpi(&TA, &TB) >= 0) {
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_sub_abs(&TA, &TA, &TB));
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&TA, 1));
+-        } else {
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_sub_abs(&TB, &TB, &TA));
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&TB, 1));
+-        }
+-        /* Note that one of TA or TB is still odd. */
+-    }
++    MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(G, NULL, &TA, &TB));
+ 
+-    /* By invariant (I), gcd(A,B) = 2^k * gcd(TA,TB) for some k.
+-     * At the loop exit, TA = 0, so gcd(TA,TB) = TB.
+-     * - If there was at least one loop iteration, then one of TA or TB is odd,
+-     *   and TA = 0, so TB is odd and gcd(TA,TB) = gcd(A',B'). In this case,
+-     *   lz = min(a,b) so gcd(A,B) = 2^lz * TB.
+-     * - If there was no loop iteration, then A was 0, and gcd(A,B) = B.
+-     *   In this case, lz = 0 and B = TB so gcd(A,B) = B = 2^lz * TB as well.
+-     */
+-
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_shift_l(&TB, lz));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_copy(G, &TB));
++    /* Re-inject the power of 2 we had previously put aside */
++    size_t zg = za > zb ? zb : za; // zg = min(za, zb)
++    MBEDTLS_MPI_CHK(mbedtls_mpi_shift_l(G, zg));
+ 
+ cleanup:
+ 
+@@ -2020,93 +2043,139 @@ int mbedtls_mpi_random(mbedtls_mpi *X,
+ }
+ 
+ /*
+- * Modular inverse: X = A^-1 mod N  (HAC 14.61 / 14.64)
++ * Modular inverse: X = A^-1 mod N with N odd (and A any range)
+  */
+-int mbedtls_mpi_inv_mod(mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi *N)
++int mbedtls_mpi_inv_mod_odd(mbedtls_mpi *X,
++                            const mbedtls_mpi *A,
++                            const mbedtls_mpi *N)
+ {
+     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+-    mbedtls_mpi G, TA, TU, U1, U2, TB, TV, V1, V2;
++    mbedtls_mpi T, G;
+ 
+-    if (mbedtls_mpi_cmp_int(N, 1) <= 0) {
+-        return MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
++    mbedtls_mpi_init_mempool(&T);
++    mbedtls_mpi_init_mempool(&G);
++
++    MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&T, A, N));
++    MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(&G, &T, &T, N));
++    if (mbedtls_mpi_cmp_int(&G, 1) != 0) {
++        ret = MBEDTLS_ERR_MPI_NOT_ACCEPTABLE;
++        goto cleanup;
+     }
+ 
+-    mbedtls_mpi_init_mempool(&TA); mbedtls_mpi_init_mempool(&TU);
+-    mbedtls_mpi_init_mempool(&U1); mbedtls_mpi_init_mempool(&U2);
+-    mbedtls_mpi_init_mempool(&G); mbedtls_mpi_init_mempool(&TB);
+-    mbedtls_mpi_init_mempool(&TV); mbedtls_mpi_init_mempool(&V1);
+-    mbedtls_mpi_init_mempool(&V2);
++    MBEDTLS_MPI_CHK(mbedtls_mpi_copy(X, &T));
++
++cleanup:
++    mbedtls_mpi_free(&T);
++    mbedtls_mpi_free(&G);
++
++    return ret;
++}
++
++/*
++ * Compute X = A^-1 mod N with N even, A odd and 1 < A < N.
++ *
++ * This is not obvious because our constant-time modinv function only works with
++ * an odd modulus, and here the modulus is even. The idea is that computing a
++ * a^-1 mod b is really just computing the u coefficient in the Bézout relation
++ * a*u + b*v = 1 (assuming gcd(a,b) = 1, i.e. the inverse exists). But if we know
++ * one of u, v in this relation then the other is easy to find. So we can
++ * actually start by computing N^-1 mod A with gives us "the wrong half" of the
++ * Bézout relation, from which we'll deduce the interesting half A^-1 mod N.
++ *
++ * Return MBEDTLS_ERR_MPI_NOT_ACCEPTABLE if the inverse doesn't exist.
++ */
++int mbedtls_mpi_inv_mod_even_in_range(mbedtls_mpi *X,
++                                      mbedtls_mpi const *A,
++                                      mbedtls_mpi const *N)
++{
++    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
++    mbedtls_mpi I, G;
+ 
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_gcd(&G, A, N));
++    mbedtls_mpi_init_mempool(&I);
++    mbedtls_mpi_init_mempool(&G);
+ 
++    /* Set I = N^-1 mod A */
++    MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&I, N, A));
++    MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(&G, &I, &I, A));
+     if (mbedtls_mpi_cmp_int(&G, 1) != 0) {
+         ret = MBEDTLS_ERR_MPI_NOT_ACCEPTABLE;
+         goto cleanup;
+     }
+ 
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&TA, A, N));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&TU, &TA));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&TB, N));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_copy(&TV, N));
++    /* We know N * I = 1 + k * A for some k, which we can easily compute
++     * as k = (N*I - 1) / A (we know there will be no remainder). */
++    MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&I, &I, N));
++    MBEDTLS_MPI_CHK(mbedtls_mpi_sub_int(&I, &I, 1));
++    MBEDTLS_MPI_CHK(mbedtls_mpi_div_mpi(&G, NULL, &I, A));
+ 
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_lset(&U1, 1));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_lset(&U2, 0));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_lset(&V1, 0));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_lset(&V2, 1));
++    /* Now we have a Bézout relation N * (previous value of I) - G * A = 1,
++     * so A^-1 mod N is -G mod N, which is N - G.
++     * Note that 0 < k < N since 0 < I < A, so G (k) is already in range. */
++    MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(X, N, &G));
+ 
+-    do {
+-        while ((TU.p[0] & 1) == 0) {
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&TU, 1));
++cleanup:
++    mbedtls_mpi_free(&I);
++    mbedtls_mpi_free(&G);
++    return ret;
++}
+ 
+-            if ((U1.p[0] & 1) != 0 || (U2.p[0] & 1) != 0) {
+-                MBEDTLS_MPI_CHK(mbedtls_mpi_add_mpi(&U1, &U1, &TB));
+-                MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&U2, &U2, &TA));
+-            }
++/*
++ * Compute X = A^-1 mod N with N even and A odd (but in any range).
++ *
++ * Return MBEDTLS_ERR_MPI_NOT_ACCEPTABLE if the inverse doesn't exist.
++ */
++static int mbedtls_mpi_inv_mod_even(mbedtls_mpi *X,
++                                    mbedtls_mpi const *A,
++                                    mbedtls_mpi const *N)
++{
++    int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
++    mbedtls_mpi AA;
+ 
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&U1, 1));
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&U2, 1));
+-        }
++    mbedtls_mpi_init_mempool(&AA);
+ 
+-        while ((TV.p[0] & 1) == 0) {
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&TV, 1));
++    /* Bring A in the range [0, N). */
++    MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&AA, A, N));
+ 
+-            if ((V1.p[0] & 1) != 0 || (V2.p[0] & 1) != 0) {
+-                MBEDTLS_MPI_CHK(mbedtls_mpi_add_mpi(&V1, &V1, &TB));
+-                MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&V2, &V2, &TA));
+-            }
++    /* We know A >= 0 but the next function wants A > 1 */
++    int cmp = mbedtls_mpi_cmp_int(&AA, 1);
++    if (cmp < 0) { // AA == 0
++        ret = MBEDTLS_ERR_MPI_NOT_ACCEPTABLE;
++        goto cleanup;
++    }
++    if (cmp == 0) { // AA = 1
++        MBEDTLS_MPI_CHK(mbedtls_mpi_lset(X, 1));
++        goto cleanup;
++    }
+ 
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&V1, 1));
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_shift_r(&V2, 1));
+-        }
++    /* Now we know 1 < A < N, N is even and AA is still odd */
++    MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod_even_in_range(X, &AA, N));
+ 
+-        if (mbedtls_mpi_cmp_mpi(&TU, &TV) >= 0) {
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&TU, &TU, &TV));
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&U1, &U1, &V1));
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&U2, &U2, &V2));
+-        } else {
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&TV, &TV, &TU));
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&V1, &V1, &U1));
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&V2, &V2, &U2));
+-        }
+-    } while (mbedtls_mpi_cmp_int(&TU, 0) != 0);
++cleanup:
++    mbedtls_mpi_free(&AA);
++    return ret;
++}
+ 
+-    while (mbedtls_mpi_cmp_int(&V1, 0) < 0) {
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_add_mpi(&V1, &V1, N));
++/*
++ * Modular inverse: X = A^-1 mod N
++ *
++ * Wrapper around mbedtls_mpi_gcd_modinv_odd() that lifts its limitations.
++ */
++int mbedtls_mpi_inv_mod(mbedtls_mpi *X, const mbedtls_mpi *A, const mbedtls_mpi *N)
++{
++    if (mbedtls_mpi_cmp_int(N, 1) <= 0) {
++        return MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
+     }
+ 
+-    while (mbedtls_mpi_cmp_mpi(&V1, N) >= 0) {
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_sub_mpi(&V1, &V1, N));
++    if (mbedtls_mpi_get_bit(N, 0) == 1) {
++        return mbedtls_mpi_inv_mod_odd(X, A, N);
+     }
+ 
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_copy(X, &V1));
+-
+-cleanup:
+-
+-    mbedtls_mpi_free(&TA); mbedtls_mpi_free(&TU); mbedtls_mpi_free(&U1); mbedtls_mpi_free(&U2);
+-    mbedtls_mpi_free(&G); mbedtls_mpi_free(&TB); mbedtls_mpi_free(&TV);
+-    mbedtls_mpi_free(&V1); mbedtls_mpi_free(&V2);
++    if (mbedtls_mpi_get_bit(A, 0) == 1) {
++        return mbedtls_mpi_inv_mod_even(X, A, N);
++    }
+ 
+-    return ret;
++    /* If A and N are both even, 2 divides their GCD, so no inverse. */
++    return MBEDTLS_ERR_MPI_NOT_ACCEPTABLE;
+ }
+ 
+ #if defined(MBEDTLS_GENPRIME)
+diff --git a/lib/libmbedtls/mbedtls/library/bignum_core.c b/lib/libmbedtls/mbedtls/library/bignum_core.c
+index 88582c2d3..809169461 100644
+--- a/lib/libmbedtls/mbedtls/library/bignum_core.c
++++ b/lib/libmbedtls/mbedtls/library/bignum_core.c
+@@ -18,6 +18,7 @@
+ #include "mbedtls/platform.h"
+ 
+ #include "bignum_core.h"
++#include "bignum_core_invasive.h"
+ #include "bn_mul.h"
+ #include "constant_time_internal.h"
+ 
+@@ -1019,4 +1020,221 @@ void mbedtls_mpi_core_from_mont_rep(mbedtls_mpi_uint *X,
+     mbedtls_mpi_core_montmul(X, A, &Rinv, 1, N, AN_limbs, mm, T);
+ }
+ 
++/*
++ * Compute X = A - B mod N.
++ * Both A and B must be in [0, N) and so will the output.
++ */
++static void mpi_core_sub_mod(mbedtls_mpi_uint *X,
++                             const mbedtls_mpi_uint *A,
++                             const mbedtls_mpi_uint *B,
++                             const mbedtls_mpi_uint *N,
++                             size_t limbs)
++{
++    mbedtls_mpi_uint c = mbedtls_mpi_core_sub(X, A, B, limbs);
++    (void) mbedtls_mpi_core_add_if(X, N, limbs, (unsigned) c);
++}
++
++/*
++ * Divide X by 2 mod N in place, assuming N is odd.
++ * The input must be in [0, N) and so will the output.
++ */
++MBEDTLS_STATIC_TESTABLE
++void mbedtls_mpi_core_div2_mod_odd(mbedtls_mpi_uint *X,
++                                   const mbedtls_mpi_uint *N,
++                                   size_t limbs)
++{
++    /* If X is odd, add N to make it even before shifting. */
++    unsigned odd = (unsigned) X[0] & 1;
++    mbedtls_mpi_uint c = mbedtls_mpi_core_add_if(X, N, limbs, odd);
++    mbedtls_mpi_core_shift_r(X, limbs, 1);
++    X[limbs - 1] |= c << (biL - 1);
++}
++
++/*
++ * Constant-time GCD and modular inversion - odd modulus.
++ *
++ * Pre-conditions: see public documentation.
++ *
++ * See https://www.jstage.jst.go.jp/article/transinf/E106.D/9/E106.D_2022ICP0009/_pdf
++ *
++ * The paper gives two computationally equivalent algorithms: Alg 7 (readable)
++ * and Alg 8 (constant-time). We use a third version that's hopefully both:
++ *
++ *  u, v = A, N  # N is called p in the paper but doesn't have to be prime
++ *  q, r = 0, 1
++ *  repeat bits(A_limbs + N_limbs) times:
++ *      d = v - u  # t1 in Alg 7
++ *      t1 = (u and v both odd) ? u : d  # t1 in Alg 8
++ *      t2 = (u and v both odd) ? d : (u odd) ? v : u  # t2 in Alg 8
++ *      t2 >>= 1
++ *      swap = t1 > t2  # similar to s, z in Alg 8
++ *      u, v = (swap) ? t2, t1 : t1, t2
++ *
++ *      d = r - q mod N  # t2 in Alg 7
++ *      t1 = (u and v both odd) ? q : d  # t3 in Alg 8
++ *      t2 = (u and v both odd) ? d : (u odd) ? r : q  # t4 Alg 8
++ *      t2 /= 2 mod N  # see below (pre_com)
++ *      q, r = (swap) ? t2, t1 : t1, t2
++ *  return v, q  # v: GCD, see Alg 6; q: no mult by pre_com, see below
++ *
++ * The ternary operators in the above pseudo-code need to be realised in a
++ * constant-time fashion. We use conditional assign for t1, t2 and conditional
++ * swap for the final update. (Note: the similarity between branches of Alg 7
++ * are highlighted in tables 2 and 3 and the surrounding text.)
++ *
++ * Also, we re-order operations, grouping things related to the inverse, which
++ * facilitates making its computation optional, and requires fewer temporaries.
++ *
++ * The only actual change from the paper is dropping the trick with pre_com,
++ * which I think complicates things for no benefit.
++ * See the comment on the big I != NULL block below for details.
++ */
++void mbedtls_mpi_core_gcd_modinv_odd(mbedtls_mpi_uint *G,
++                                     mbedtls_mpi_uint *I,
++                                     const mbedtls_mpi_uint *A,
++                                     size_t A_limbs,
++                                     const mbedtls_mpi_uint *N,
++                                     size_t N_limbs,
++                                     mbedtls_mpi_uint *T)
++{
++    /* GCD and modinv, names common to Alg 7 and Alg 8 */
++    mbedtls_mpi_uint *u = T + 0 * N_limbs;
++    mbedtls_mpi_uint *v = G;
++
++    /* GCD and modinv, my name (t1, t2 from Alg 7) */
++    mbedtls_mpi_uint *d = T + 1 * N_limbs;
++
++    /* GCD and modinv, names from Alg 8 (note: t1, t2 from Alg 7 are d above) */
++    mbedtls_mpi_uint *t1 = T + 2 * N_limbs;
++    mbedtls_mpi_uint *t2 = T + 3 * N_limbs;
++
++    /* modinv only, names common to Alg 7 and Alg 8 */
++    mbedtls_mpi_uint *q = I;
++    mbedtls_mpi_uint *r = I != NULL ? T + 4 * N_limbs : NULL;
++
++    /*
++     * Initial values:
++     * u, v = A, N
++     * q, r = 0, 1
++     *
++     * We only write to G (aka v) after reading from inputs (A and N), which
++     * allows aliasing, except with N when I != NULL, as then we'll be operating
++     * mod N on q and r later - see the public documentation.
++     */
++    if (A_limbs > N_limbs) {
++        /* Violating this precondition should not result in memory errors. */
++        A_limbs = N_limbs;
++    }
++    memcpy(u, A, A_limbs * ciL);
++    memset((char *) u + A_limbs * ciL, 0, (N_limbs - A_limbs) * ciL);
++
++    /* Avoid possible UB with memcpy when src == dst. */
++    if (v != N) {
++        memcpy(v, N, N_limbs * ciL);
++    }
++
++    if (I != NULL) {
++        memset(q, 0, N_limbs * ciL);
++
++        memset(r, 0, N_limbs * ciL);
++        r[0] = 1;
++    }
++
++    /*
++     * At each step, out of u, v, v - u we keep one, shift another, and discard
++     * the third, then update (u, v) with the ordered result.
++     * Then we mirror those actions with q, r, r - q mod N.
++     *
++     * Loop invariants:
++     *  u <= v                  (on entry: A <= N)
++     *  GCD(u, v) == GCD(A, N)  (on entry: trivial)
++     *  v = A * q mod N         (on entry: N = A * 0 mod N)
++     *  u = A * r mod N         (on entry: A = A * 1 mod N)
++     *  q, r in [0, N)          (on entry: 0, 1)
++     *
++     * On exit:
++     *  u = 0
++     *  v = GCD(A, N) = A * q mod N
++     *  if v == 1 then 1 = A * q mod N ie q is A's inverse mod N
++     *  r = 0
++     *
++     * The exit state is a fixed point of the loop's body.
++     * Alg 7 and Alg 8 use 2 * bitlen(N) iterations but Theorem 2 (above in the
++     * paper) says bitlen(A) + bitlen(N) is actually enough.
++     */
++    for (size_t i = 0; i < (A_limbs + N_limbs) * biL; i++) {
++        /* s, z in Alg 8 - use meaningful names instead */
++        mbedtls_ct_condition_t u_odd = mbedtls_ct_bool(u[0] & 1);
++        mbedtls_ct_condition_t v_odd = mbedtls_ct_bool(v[0] & 1);
++
++        /* Other conditions that will be useful below */
++        mbedtls_ct_condition_t u_odd_v_odd = mbedtls_ct_bool_and(u_odd, v_odd);
++        mbedtls_ct_condition_t v_even = mbedtls_ct_bool_not(v_odd);
++        mbedtls_ct_condition_t u_odd_v_even = mbedtls_ct_bool_and(u_odd, v_even);
++
++        /* This is called t1 in Alg 7 (no name in Alg 8).
++         * We know that u <= v so there is no carry */
++        (void) mbedtls_mpi_core_sub(d, v, u, N_limbs);
++
++        /* t1 (the thing that's kept) can be d (default) or u (if t2 is d) */
++        memcpy(t1, d, N_limbs * ciL);
++        mbedtls_mpi_core_cond_assign(t1, u, N_limbs, u_odd_v_odd);
++
++        /* t2 (the thing that's shifted) can be u (if even), or v (if even),
++         * or d (which is even if both u and v were odd) */
++        memcpy(t2, u, N_limbs * ciL);
++        mbedtls_mpi_core_cond_assign(t2, v, N_limbs, u_odd_v_even);
++        mbedtls_mpi_core_cond_assign(t2, d, N_limbs, u_odd_v_odd);
++
++        mbedtls_mpi_core_shift_r(t2, N_limbs, 1); // t2 is even
++
++        /* Update u, v and re-order them if needed */
++        memcpy(u, t1, N_limbs * ciL);
++        memcpy(v, t2, N_limbs * ciL);
++        mbedtls_ct_condition_t swap = mbedtls_mpi_core_lt_ct(v, u, N_limbs);
++        mbedtls_mpi_core_cond_swap(u, v, N_limbs, swap);
++
++        /* Now, if modinv was requested, do the same with q, r, but:
++         * - decisions still based on u and v (their initial values);
++         * - operations are now mod N;
++         * - we re-use t1, t2 for what the paper calls t3, t4 in Alg 8.
++         *
++         * Here we slightly diverge from the paper and instead do the obvious
++         * thing that preserves the invariants involving q and r: mirror
++         * operations on u and v, ie also divide by 2 here (mod N).
++         *
++         * The paper uses a trick where it replaces division by 2 with
++         * multiplication by 2 here, and compensates in the end by multiplying
++         * by pre_com, which is probably intended as an optimisation.
++         *
++         * However I believe it's not actually an optimisation, since
++         * constant-time modular multiplication by 2 (left-shift + conditional
++         * subtract) is just as costly as constant-time modular division by 2
++         * (conditional add + right-shift). So, skip it and keep things simple.
++         */
++        if (I != NULL) {
++            /* This is called t2 in Alg 7 (no name in Alg 8). */
++            mpi_core_sub_mod(d, q, r, N, N_limbs);
++
++            /* t3 (the thing that's kept) */
++            memcpy(t1, d, N_limbs * ciL);
++            mbedtls_mpi_core_cond_assign(t1, r, N_limbs, u_odd_v_odd);
++
++            /* t4 (the thing that's shifted) */
++            memcpy(t2, r, N_limbs * ciL);
++            mbedtls_mpi_core_cond_assign(t2, q, N_limbs, u_odd_v_even);
++            mbedtls_mpi_core_cond_assign(t2, d, N_limbs, u_odd_v_odd);
++
++            mbedtls_mpi_core_div2_mod_odd(t2, N, N_limbs);
++
++            /* Update and possibly swap */
++            memcpy(r, t1, N_limbs * ciL);
++            memcpy(q, t2, N_limbs * ciL);
++            mbedtls_mpi_core_cond_swap(r, q, N_limbs, swap);
++        }
++    }
++
++    /* G and I already hold the correct values by virtue of being aliased */
++}
++
+ #endif /* MBEDTLS_BIGNUM_C */
+diff --git a/lib/libmbedtls/mbedtls/library/bignum_core.h b/lib/libmbedtls/mbedtls/library/bignum_core.h
+index 264ee6355..f044b33f9 100644
+--- a/lib/libmbedtls/mbedtls/library/bignum_core.h
++++ b/lib/libmbedtls/mbedtls/library/bignum_core.h
+@@ -822,4 +822,45 @@ void mbedtls_mpi_core_from_mont_rep(mbedtls_mpi_uint *X,
+                                     mbedtls_mpi_uint mm,
+                                     mbedtls_mpi_uint *T);
+ 
++/** Compute GCD(A, N) and optionally the inverse of A mod N if it exists.
++ *
++ * Requires N to be odd, 0 <= A <= N and A_limbs <= N_limbs.
++ * When I != NULL, N (the modulus) must be greater than 1.
++ *
++ * A and N may not alias each other.
++ * When I == NULL (computing only the GCD), G may alias A or N.
++ * When I != NULL (computing the modular inverse), G or I may alias A
++ * but none of them may alias N (the modulus).
++ *
++ * If any of the above preconditions is not met, output values are unspecified.
++ *
++ * \param[out]    G       The GCD of \p A and \p N.
++ *                        Must have the same number of limbs as \p N.
++ * \param[out]    I       The inverse of \p A modulo \p N if it exists (that is,
++ *                        if \p G above is 1 on exit); indeterminate otherwise.
++ *                        This must either be NULL (to only compute the GCD),
++ *                        or have the same number of limbs as \p N.
++ * \param[in]     A       The 1st operand of GCD and number to invert.
++ *                        This value must be less than or equal to \p N.
++ * \param         A_limbs The number of limbs of \p A.
++ *                        Must be less than or equal to \p N_limbs.
++ * \param[in]     N       The 2nd operand of GCD and modulus for inversion.
++ *                        This value must be odd.
++ *                        If I != NULL this value must be greater than 1.
++ * \param         N_limbs The number of limbs of \p N.
++ * \param[in,out] T       Temporary storage of size at least 5 * N_limbs limbs,
++ *                        or 4 * N_limbs if \p I is NULL (GCD only).
++ *                        Its initial content is unused and
++ *                        its final content is indeterminate.
++ *                        It must not alias or otherwise overlap any of the
++ *                        other parameters.
++ */
++void mbedtls_mpi_core_gcd_modinv_odd(mbedtls_mpi_uint *G,
++                                     mbedtls_mpi_uint *I,
++                                     const mbedtls_mpi_uint *A,
++                                     size_t A_limbs,
++                                     const mbedtls_mpi_uint *N,
++                                     size_t N_limbs,
++                                     mbedtls_mpi_uint *T);
++
+ #endif /* MBEDTLS_BIGNUM_CORE_H */
+diff --git a/lib/libmbedtls/mbedtls/library/bignum_core_invasive.h b/lib/libmbedtls/mbedtls/library/bignum_core_invasive.h
+index 167099dc9..a9d447f79 100644
+--- a/lib/libmbedtls/mbedtls/library/bignum_core_invasive.h
++++ b/lib/libmbedtls/mbedtls/library/bignum_core_invasive.h
+@@ -13,11 +13,26 @@
+ 
+ #include "bignum_core.h"
+ 
+-#if defined(MBEDTLS_TEST_HOOKS) && !defined(MBEDTLS_THREADING_C)
++#if defined(MBEDTLS_TEST_HOOKS)
++
++#if !defined(MBEDTLS_THREADING_C)
+ 
+ extern void (*mbedtls_safe_codepath_hook)(void);
+ extern void (*mbedtls_unsafe_codepath_hook)(void);
+ 
+-#endif /* MBEDTLS_TEST_HOOKS && !MBEDTLS_THREADING_C */
++#endif /* !MBEDTLS_THREADING_C */
++
++/** Divide X by 2 mod N in place, assuming N is odd.
++ *
++ * \param[in,out] X     The value to divide by 2 mod \p N.
++ * \param[in]     N     The modulus. Must be odd.
++ * \param[in]     limbs The number of limbs in \p X and \p N.
++ */
++MBEDTLS_STATIC_TESTABLE
++void mbedtls_mpi_core_div2_mod_odd(mbedtls_mpi_uint *X,
++                                   const mbedtls_mpi_uint *N,
++                                   size_t limbs);
++
++#endif /* MBEDTLS_TEST_HOOKS */
+ 
+ #endif /* MBEDTLS_BIGNUM_CORE_INVASIVE_H */
+diff --git a/lib/libmbedtls/mbedtls/library/bignum_internal.h b/lib/libmbedtls/mbedtls/library/bignum_internal.h
+index aceaf55ea..ba1c69d6b 100644
+--- a/lib/libmbedtls/mbedtls/library/bignum_internal.h
++++ b/lib/libmbedtls/mbedtls/library/bignum_internal.h
+@@ -47,4 +47,76 @@ int mbedtls_mpi_exp_mod_unsafe(mbedtls_mpi *X, const mbedtls_mpi *A,
+                                const mbedtls_mpi *E, const mbedtls_mpi *N,
+                                mbedtls_mpi *prec_RR);
+ 
++/**
++ * \brief          A wrapper around a constant time function to compute
++ *                 GCD(A, N) and/or A^-1 mod N if it exists.
++ *
++ * \warning        Requires N to be odd, and 0 <= A <= N. Additionally, if
++ *                 I != NULL, requires N > 1.
++ *                 The wrapper part of this function is not constant time.
++ *
++ * \note           A and N must not alias each other.
++ *                 When I == NULL (computing only the GCD), G can alias A or N.
++ *                 When I != NULL (computing the modular inverse), G or I can
++ *                 alias A, but neither of them can alias N (the modulus).
++ *
++ * \param[out] G   The GCD of \p A and \p N.
++ *                 This may be NULL, to only compute I.
++ * \param[out] I   The inverse of \p A modulo \p N if it exists (that is,
++ *                 if \p G above is 1 on exit), in the range [1, \p N);
++ *                 indeterminate otherwise.
++ *                 This may be NULL, to only compute G.
++ * \param[in] A    The 1st operand of GCD and number to invert.
++ *                 This value must be less than or equal to \p N.
++ * \param[in] N    The 2nd operand of GCD and modulus for inversion.
++ *                 Must be odd or the results are indeterminate.
++ *
++ * \return         \c 0 if successful.
++ * \return         #MBEDTLS_ERR_MPI_ALLOC_FAILED if a memory allocation failed.
++ * \return         #MBEDTLS_ERR_MPI_BAD_INPUT_DATA if preconditions were not
++ *                 met.
++ */
++int mbedtls_mpi_gcd_modinv_odd(mbedtls_mpi *G,
++                               mbedtls_mpi *I,
++                               const mbedtls_mpi *A,
++                               const mbedtls_mpi *N);
++
++/**
++ * \brief          Modular inverse: X = A^-1 mod N with N odd
++ *
++ * \param[out] X   The inverse of \p A modulo \p N in the range [1, \p N)
++ *                 on success; indeterminate otherwise.
++ * \param[in] A    The number to invert.
++ * \param[in] N    The modulus. Must be odd and greater than 1.
++ *
++ * \return         \c 0 if successful.
++ * \return         #MBEDTLS_ERR_MPI_ALLOC_FAILED if a memory allocation failed.
++ * \return         #MBEDTLS_ERR_MPI_BAD_INPUT_DATA if preconditions were not
++ *                 met.
++ * \return         #MBEDTLS_ERR_MPI_NOT_ACCEPTABLE if A is not invertible mod N.
++ */
++int mbedtls_mpi_inv_mod_odd(mbedtls_mpi *X,
++                            const mbedtls_mpi *A,
++                            const mbedtls_mpi *N);
++
++/**
++ * \brief          Modular inverse: X = A^-1 mod N with N even,
++ *                 A odd and 1 < A < N.
++ *
++ * \param[out] X   The inverse of \p A modulo \p N in the range [1, \p N)
++ *                 on success; indeterminate otherwise.
++ * \param[in] A    The number to invert. Must be odd, greated than 1
++ *                 and less than \p N.
++ * \param[in] N    The modulus. Must be even and greater than 1.
++ *
++ * \return         \c 0 if successful.
++ * \return         #MBEDTLS_ERR_MPI_ALLOC_FAILED if a memory allocation failed.
++ * \return         #MBEDTLS_ERR_MPI_BAD_INPUT_DATA if preconditions were not
++ *                 met.
++ * \return         #MBEDTLS_ERR_MPI_NOT_ACCEPTABLE if A is not invertible mod N.
++ */
++int mbedtls_mpi_inv_mod_even_in_range(mbedtls_mpi *X,
++                                      mbedtls_mpi const *A,
++                                      mbedtls_mpi const *N);
++
+ #endif /* bignum_internal.h */
+diff --git a/lib/libmbedtls/mbedtls/library/cipher.c b/lib/libmbedtls/mbedtls/library/cipher.c
+index c91e7b5f7..2a0b653f1 100644
+--- a/lib/libmbedtls/mbedtls/library/cipher.c
++++ b/lib/libmbedtls/mbedtls/library/cipher.c
+@@ -330,7 +330,7 @@ int mbedtls_cipher_setup_psa(mbedtls_cipher_context_t *ctx,
+ #endif /* MBEDTLS_USE_PSA_CRYPTO && !MBEDTLS_DEPRECATED_REMOVED */
+ 
+ int mbedtls_cipher_setup_info(mbedtls_cipher_context_t *ctx,
+-                              const mbedtls_cipher_info_t *cipher_info )
++                              const mbedtls_cipher_info_t *cipher_info)
+ {
+     if (NULL == cipher_info || NULL == ctx)
+         return MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA;
+@@ -885,7 +885,8 @@ static void add_pkcs_padding(unsigned char *output, size_t output_len,
+  */
+ MBEDTLS_STATIC_TESTABLE int mbedtls_get_pkcs_padding(unsigned char *input,
+                                                      size_t input_len,
+-                                                     size_t *data_len)
++                                                     size_t *data_len,
++                                                     size_t *invalid_padding)
+ {
+     size_t i, pad_idx;
+     unsigned char padding_len;
+@@ -911,7 +912,8 @@ MBEDTLS_STATIC_TESTABLE int mbedtls_get_pkcs_padding(unsigned char *input,
+     /* If the padding is invalid, set the output length to 0 */
+     *data_len = mbedtls_ct_if(bad, 0, input_len - padding_len);
+ 
+-    return mbedtls_ct_error_if_else_0(bad, MBEDTLS_ERR_CIPHER_INVALID_PADDING);
++    *invalid_padding = mbedtls_ct_size_if_else_0(bad, SIZE_MAX);
++    return 0;
+ }
+ #endif /* MBEDTLS_CIPHER_PADDING_PKCS7 */
+ 
+@@ -932,7 +934,7 @@ static void add_one_and_zeros_padding(unsigned char *output,
+ }
+ 
+ static int get_one_and_zeros_padding(unsigned char *input, size_t input_len,
+-                                     size_t *data_len)
++                                     size_t *data_len, size_t *invalid_padding)
+ {
+     if (NULL == input || NULL == data_len) {
+         return MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA;
+@@ -955,7 +957,8 @@ static int get_one_and_zeros_padding(unsigned char *input, size_t input_len,
+         in_padding = mbedtls_ct_bool_and(in_padding, mbedtls_ct_bool_not(is_nonzero));
+     }
+ 
+-    return mbedtls_ct_error_if_else_0(bad, MBEDTLS_ERR_CIPHER_INVALID_PADDING);
++    *invalid_padding = mbedtls_ct_size_if_else_0(bad, SIZE_MAX);
++    return 0;
+ }
+ #endif /* MBEDTLS_CIPHER_PADDING_ONE_AND_ZEROS */
+ 
+@@ -976,7 +979,7 @@ static void add_zeros_and_len_padding(unsigned char *output,
+ }
+ 
+ static int get_zeros_and_len_padding(unsigned char *input, size_t input_len,
+-                                     size_t *data_len)
++                                     size_t *data_len, size_t *invalid_padding)
+ {
+     size_t i, pad_idx;
+     unsigned char padding_len;
+@@ -1002,7 +1005,8 @@ static int get_zeros_and_len_padding(unsigned char *input, size_t input_len,
+         bad = mbedtls_ct_bool_or(bad, nonzero_pad_byte);
+     }
+ 
+-    return mbedtls_ct_error_if_else_0(bad, MBEDTLS_ERR_CIPHER_INVALID_PADDING);
++    *invalid_padding = mbedtls_ct_size_if_else_0(bad, SIZE_MAX);
++    return 0;
+ }
+ #endif /* MBEDTLS_CIPHER_PADDING_ZEROS_AND_LEN */
+ 
+@@ -1017,7 +1021,7 @@ static void add_zeros_padding(unsigned char *output,
+ }
+ 
+ static int get_zeros_padding(unsigned char *input, size_t input_len,
+-                             size_t *data_len)
++                             size_t *data_len, size_t *invalid_padding)
+ {
+     size_t i;
+     mbedtls_ct_condition_t done = MBEDTLS_CT_FALSE, prev_done;
+@@ -1033,6 +1037,7 @@ static int get_zeros_padding(unsigned char *input, size_t input_len,
+         *data_len = mbedtls_ct_size_if(mbedtls_ct_bool_ne(done, prev_done), i, *data_len);
+     }
+ 
++    *invalid_padding = 0;
+     return 0;
+ }
+ #endif /* MBEDTLS_CIPHER_PADDING_ZEROS */
+@@ -1044,20 +1049,21 @@ static int get_zeros_padding(unsigned char *input, size_t input_len,
+  * but a trivial get_padding function
+  */
+ static int get_no_padding(unsigned char *input, size_t input_len,
+-                          size_t *data_len)
++                          size_t *data_len, size_t *invalid_padding)
+ {
+     if (NULL == input || NULL == data_len) {
+         return MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA;
+     }
+ 
+     *data_len = input_len;
+-
++    *invalid_padding = 0;
+     return 0;
+ }
+ #endif /* MBEDTLS_CIPHER_MODE_WITH_PADDING */
+ 
+-int mbedtls_cipher_finish(mbedtls_cipher_context_t *ctx,
+-                          unsigned char *output, size_t *olen)
++int mbedtls_cipher_finish_padded(mbedtls_cipher_context_t *ctx,
++                                 unsigned char *output, size_t *olen,
++                                 size_t *invalid_padding)
+ {
+     if (ctx->cipher_info == NULL) {
+         return MBEDTLS_ERR_CIPHER_BAD_INPUT_DATA;
+@@ -1073,6 +1079,7 @@ int mbedtls_cipher_finish(mbedtls_cipher_context_t *ctx,
+ #endif /* MBEDTLS_USE_PSA_CRYPTO && !MBEDTLS_DEPRECATED_REMOVED */
+ 
+     *olen = 0;
++    *invalid_padding = 0;
+ 
+ #if defined(MBEDTLS_CIPHER_MODE_WITH_PADDING)
+     /* CBC mode requires padding so we make sure a call to
+@@ -1149,7 +1156,7 @@ int mbedtls_cipher_finish(mbedtls_cipher_context_t *ctx,
+         /* Set output size for decryption */
+         if (MBEDTLS_DECRYPT == ctx->operation) {
+             return ctx->get_padding(output, mbedtls_cipher_get_block_size(ctx),
+-                                    olen);
++                                    olen, invalid_padding);
+         }
+ 
+         /* Set output size for encryption */
+@@ -1163,6 +1170,19 @@ int mbedtls_cipher_finish(mbedtls_cipher_context_t *ctx,
+     return MBEDTLS_ERR_CIPHER_FEATURE_UNAVAILABLE;
+ }
+ 
++int mbedtls_cipher_finish(mbedtls_cipher_context_t *ctx,
++                          unsigned char *output, size_t *olen)
++{
++    size_t invalid_padding = 0;
++    int ret = mbedtls_cipher_finish_padded(ctx, output, olen,
++                                           &invalid_padding);
++    if (ret == 0) {
++        ret = mbedtls_ct_error_if_else_0(invalid_padding,
++                                         MBEDTLS_ERR_CIPHER_INVALID_PADDING);
++    }
++    return ret;
++}
++
+ #if defined(MBEDTLS_CIPHER_MODE_WITH_PADDING)
+ int mbedtls_cipher_set_padding_mode(mbedtls_cipher_context_t *ctx,
+                                     mbedtls_cipher_padding_t mode)
+@@ -1432,14 +1452,17 @@ int mbedtls_cipher_crypt(mbedtls_cipher_context_t *ctx,
+         return ret;
+     }
+ 
+-    if ((ret = mbedtls_cipher_finish(ctx, output + *olen,
+-                                     &finish_olen)) != 0) {
++    size_t invalid_padding = 0;
++    if ((ret = mbedtls_cipher_finish_padded(ctx, output + *olen,
++                                            &finish_olen,
++                                            &invalid_padding)) != 0) {
+         return ret;
+     }
+-
+     *olen += finish_olen;
+ 
+-    return 0;
++    ret = mbedtls_ct_error_if_else_0(invalid_padding,
++                                     MBEDTLS_ERR_CIPHER_INVALID_PADDING);
++    return ret;
+ }
+ 
+ #if defined(MBEDTLS_CIPHER_MODE_AEAD)
+diff --git a/lib/libmbedtls/mbedtls/library/cipher_invasive.h b/lib/libmbedtls/mbedtls/library/cipher_invasive.h
+index 702f8f73e..e82a0a7f9 100644
+--- a/lib/libmbedtls/mbedtls/library/cipher_invasive.h
++++ b/lib/libmbedtls/mbedtls/library/cipher_invasive.h
+@@ -20,7 +20,8 @@
+ 
+ MBEDTLS_STATIC_TESTABLE int mbedtls_get_pkcs_padding(unsigned char *input,
+                                                      size_t input_len,
+-                                                     size_t *data_len);
++                                                     size_t *data_len,
++                                                     size_t *invalid_padding);
+ 
+ #endif
+ 
+diff --git a/lib/libmbedtls/mbedtls/library/cipher_wrap.h b/lib/libmbedtls/mbedtls/library/cipher_wrap.h
+index 08298fc87..ffd252696 100644
+--- a/lib/libmbedtls/mbedtls/library/cipher_wrap.h
++++ b/lib/libmbedtls/mbedtls/library/cipher_wrap.h
+@@ -135,7 +135,7 @@ struct mbedtls_cipher_base_t {
+     void * (*ctx_alloc_func)(void);
+ 
+     /** Clone context **/
+-    void (*ctx_clone_func)( void *dst, const void *src );
++    void (*ctx_clone_func)(void *dst, const void *src);
+ 
+     /** Free the given context */
+     void (*ctx_free_func)(void *ctx);
+diff --git a/lib/libmbedtls/mbedtls/library/cmac.c b/lib/libmbedtls/mbedtls/library/cmac.c
+index a1ef94759..681c62c77 100644
+--- a/lib/libmbedtls/mbedtls/library/cmac.c
++++ b/lib/libmbedtls/mbedtls/library/cmac.c
+@@ -157,8 +157,10 @@ int mbedtls_cipher_cmac_setup(mbedtls_cipher_context_t *ctx)
+ {
+     mbedtls_cmac_context_t *cmac_ctx;
+ 
+-    /* Allocated and initialise in the cipher context memory for the CMAC
+-     * context */
++    /*
++     * Allocate and initialise in the cipher context memory for the CMAC
++     * context
++     */
+     cmac_ctx = mbedtls_calloc(1, sizeof(mbedtls_cmac_context_t));
+     if (cmac_ctx == NULL)
+         return MBEDTLS_ERR_CIPHER_ALLOC_FAILED;
+diff --git a/lib/libmbedtls/mbedtls/library/common.h b/lib/libmbedtls/mbedtls/library/common.h
+index 7507f2974..9453ffb4f 100644
+--- a/lib/libmbedtls/mbedtls/library/common.h
++++ b/lib/libmbedtls/mbedtls/library/common.h
+@@ -215,7 +215,8 @@ static inline void mbedtls_xor(unsigned char *r,
+      * For other compilers (e.g. recent gcc and clang) it makes no difference if n is a compile-time
+      * constant, and is a very small perf regression if n is not a compile-time constant.
+      * GCC 14.2 outputs a warning "array subscript 48 is outside array bounds" if we don't return
+-     * early. */
++     * early.
++     */
+     if (n % 16 == 0) {
+         return;
+     }
+diff --git a/lib/libmbedtls/mbedtls/library/dhm.c b/lib/libmbedtls/mbedtls/library/dhm.c
+index bcc07f544..941a89da8 100644
+--- a/lib/libmbedtls/mbedtls/library/dhm.c
++++ b/lib/libmbedtls/mbedtls/library/dhm.c
+@@ -18,6 +18,7 @@
+ #if defined(MBEDTLS_DHM_C)
+ 
+ #include "mbedtls/dhm.h"
++#include "bignum_internal.h"
+ #include "mbedtls/platform_util.h"
+ #include "mbedtls/error.h"
+ 
+@@ -344,9 +345,6 @@ static int dhm_update_blinding(mbedtls_dhm_context *ctx,
+                                int (*f_rng)(void *, unsigned char *, size_t), void *p_rng)
+ {
+     int ret;
+-    mbedtls_mpi R;
+-
+-    mbedtls_mpi_init(&R);
+ 
+     /*
+      * Don't use any blinding the first time a particular X is used,
+@@ -381,21 +379,11 @@ static int dhm_update_blinding(mbedtls_dhm_context *ctx,
+     /* Vi = random( 2, P-2 ) */
+     MBEDTLS_MPI_CHK(dhm_random_below(&ctx->Vi, &ctx->P, f_rng, p_rng));
+ 
+-    /* Vf = Vi^-X mod P
+-     * First compute Vi^-1 = R * (R Vi)^-1, (avoiding leaks from inv_mod),
+-     * then elevate to the Xth power. */
+-    MBEDTLS_MPI_CHK(dhm_random_below(&R, &ctx->P, f_rng, p_rng));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&ctx->Vf, &ctx->Vi, &R));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->P));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod(&ctx->Vf, &ctx->Vf, &ctx->P));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&ctx->Vf, &ctx->Vf, &R));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&ctx->Vf, &ctx->Vf, &ctx->P));
+-
++    /* Vf = Vi^-X = (Vi^-1)^X mod P */
++    MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(NULL, &ctx->Vf, &ctx->Vi, &ctx->P));
+     MBEDTLS_MPI_CHK(mbedtls_mpi_exp_mod(&ctx->Vf, &ctx->Vf, &ctx->X, &ctx->P, &ctx->RP));
+ 
+ cleanup:
+-    mbedtls_mpi_free(&R);
+-
+     return ret;
+ }
+ 
+diff --git a/lib/libmbedtls/mbedtls/library/ecdsa.c b/lib/libmbedtls/mbedtls/library/ecdsa.c
+index 2f7a996a7..a2d1eea6d 100644
+--- a/lib/libmbedtls/mbedtls/library/ecdsa.c
++++ b/lib/libmbedtls/mbedtls/library/ecdsa.c
+@@ -17,6 +17,7 @@
+ 
+ #include "mbedtls/ecdsa.h"
+ #include "mbedtls/asn1write.h"
++#include "bignum_internal.h"
+ 
+ #include <string.h>
+ 
+@@ -251,7 +252,7 @@ int mbedtls_ecdsa_sign_restartable(mbedtls_ecp_group *grp,
+     int ret, key_tries, sign_tries;
+     int *p_sign_tries = &sign_tries, *p_key_tries = &key_tries;
+     mbedtls_ecp_point R;
+-    mbedtls_mpi k, e, t;
++    mbedtls_mpi k, e;
+     mbedtls_mpi *pk = &k, *pr = r;
+ 
+     /* Fail cleanly on curves such as Curve25519 that can't be used for ECDSA */
+@@ -265,7 +266,7 @@ int mbedtls_ecdsa_sign_restartable(mbedtls_ecp_group *grp,
+     }
+ 
+     mbedtls_ecp_point_init(&R);
+-    mbedtls_mpi_init(&k); mbedtls_mpi_init(&e); mbedtls_mpi_init(&t);
++    mbedtls_mpi_init(&k); mbedtls_mpi_init(&e);
+ 
+     ECDSA_RS_ENTER(sig);
+ 
+@@ -340,21 +341,11 @@ modn:
+         MBEDTLS_MPI_CHK(derive_mpi(grp, &e, buf, blen));
+ 
+         /*
+-         * Generate a random value to blind inv_mod in next step,
+-         * avoiding a potential timing leak.
+-         */
+-        MBEDTLS_MPI_CHK(mbedtls_ecp_gen_privkey(grp, &t, f_rng_blind,
+-                                                p_rng_blind));
+-
+-        /*
+-         * Step 6: compute s = (e + r * d) / k = t (e + rd) / (kt) mod n
++         * Step 6: compute s = (e + r * d) / k
+          */
+         MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(s, pr, d));
+         MBEDTLS_MPI_CHK(mbedtls_mpi_add_mpi(&e, &e, s));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&e, &e, &t));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(pk, pk, &t));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(pk, pk, &grp->N));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod(s, pk, &grp->N));
++        MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(NULL, s, pk, &grp->N));
+         MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(s, s, &e));
+         MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(s, s, &grp->N));
+     } while (mbedtls_mpi_cmp_int(s, 0) == 0);
+@@ -367,7 +358,7 @@ modn:
+ 
+ cleanup:
+     mbedtls_ecp_point_free(&R);
+-    mbedtls_mpi_free(&k); mbedtls_mpi_free(&e); mbedtls_mpi_free(&t);
++    mbedtls_mpi_free(&k); mbedtls_mpi_free(&e);
+ 
+     ECDSA_RS_LEAVE(sig);
+ 
+@@ -540,7 +531,7 @@ int mbedtls_ecdsa_verify_restartable(mbedtls_ecp_group *grp,
+      */
+     ECDSA_BUDGET(MBEDTLS_ECP_OPS_CHK + MBEDTLS_ECP_OPS_INV + 2);
+ 
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod(&s_inv, s, &grp->N));
++    MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(NULL, &s_inv, s, &grp->N));
+ 
+     MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(pu1, &e, &s_inv));
+     MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(pu1, pu1, &grp->N));
+diff --git a/lib/libmbedtls/mbedtls/library/ecp.c b/lib/libmbedtls/mbedtls/library/ecp.c
+index b256173be..b5228889f 100644
+--- a/lib/libmbedtls/mbedtls/library/ecp.c
++++ b/lib/libmbedtls/mbedtls/library/ecp.c
+@@ -68,6 +68,7 @@
+ #include "mbedtls/error.h"
+ 
+ #include "bn_mul.h"
++#include "bignum_internal.h"
+ #include "ecp_invasive.h"
+ 
+ #include <string.h>
+@@ -1177,7 +1178,7 @@ cleanup:
+     MBEDTLS_MPI_CHK(mbedtls_mpi_mul_int_mod(grp, X, A, c))
+ 
+ #define MPI_ECP_INV(dst, src)                                                 \
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod((dst), (src), &grp->P))
++    MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(NULL, (dst), (src), &grp->P))
+ 
+ #define MPI_ECP_MOV(X, A)                                                     \
+     MBEDTLS_MPI_CHK(mbedtls_mpi_copy(X, A))
+@@ -2205,21 +2206,6 @@ static int ecp_mul_comb_after_precomp(const mbedtls_ecp_group *grp,
+ final_norm:
+     MBEDTLS_ECP_BUDGET(MBEDTLS_ECP_OPS_INV);
+ #endif
+-    /*
+-     * Knowledge of the jacobian coordinates may leak the last few bits of the
+-     * scalar [1], and since our MPI implementation isn't constant-flow,
+-     * inversion (used for coordinate normalization) may leak the full value
+-     * of its input via side-channels [2].
+-     *
+-     * [1] https://eprint.iacr.org/2003/191
+-     * [2] https://eprint.iacr.org/2020/055
+-     *
+-     * Avoid the leak by randomizing coordinates before we normalize them.
+-     */
+-    if (f_rng != 0) {
+-        MBEDTLS_MPI_CHK(ecp_randomize_jac(grp, RR, f_rng, p_rng));
+-    }
+-
+     MBEDTLS_MPI_CHK(ecp_normalize_jac(grp, RR));
+ 
+ #if defined(MBEDTLS_ECP_RESTARTABLE)
+@@ -2598,18 +2584,6 @@ static int ecp_mul_mxz(mbedtls_ecp_group *grp, mbedtls_ecp_point *R,
+         MPI_ECP_COND_SWAP(&R->Z, &RP.Z, b);
+     }
+ 
+-    /*
+-     * Knowledge of the projective coordinates may leak the last few bits of the
+-     * scalar [1], and since our MPI implementation isn't constant-flow,
+-     * inversion (used for coordinate normalization) may leak the full value
+-     * of its input via side-channels [2].
+-     *
+-     * [1] https://eprint.iacr.org/2003/191
+-     * [2] https://eprint.iacr.org/2020/055
+-     *
+-     * Avoid the leak by randomizing coordinates before we normalize them.
+-     */
+-    MBEDTLS_MPI_CHK(ecp_randomize_mxz(grp, R, f_rng, p_rng));
+     MBEDTLS_MPI_CHK(ecp_normalize_mxz(grp, R));
+ 
+ cleanup:
+diff --git a/lib/libmbedtls/mbedtls/library/psa_crypto.c b/lib/libmbedtls/mbedtls/library/psa_crypto.c
+index 9c28609d7..9e17e27f2 100644
+--- a/lib/libmbedtls/mbedtls/library/psa_crypto.c
++++ b/lib/libmbedtls/mbedtls/library/psa_crypto.c
+@@ -73,6 +73,8 @@
+ #include "mbedtls/psa_util.h"
+ #include "mbedtls/threading.h"
+ 
++#include "constant_time_internal.h"
++
+ #if defined(MBEDTLS_PSA_BUILTIN_ALG_HKDF) ||          \
+     defined(MBEDTLS_PSA_BUILTIN_ALG_HKDF_EXTRACT) ||  \
+     defined(MBEDTLS_PSA_BUILTIN_ALG_HKDF_EXPAND)
+@@ -1494,8 +1496,8 @@ psa_status_t psa_export_key_internal(
+             key_buffer, key_buffer_size,
+             data, data_size, data_length);
+     } else {
+-        /* This shouldn't happen in the reference implementation, but
+-           it is valid for a special-purpose implementation to omit
++        /* This shouldn't happen in the built-in implementation, but
++           it is valid for a special-purpose drivers to omit
+            support for exporting certain key types. */
+         return PSA_ERROR_NOT_SUPPORTED;
+     }
+@@ -4692,12 +4694,26 @@ psa_status_t psa_cipher_finish(psa_cipher_operation_t *operation,
+                                               output_length);
+ 
+ exit:
+-    if (status == PSA_SUCCESS) {
+-        status = psa_cipher_abort(operation);
+-    } else {
+-        *output_length = 0;
+-        (void) psa_cipher_abort(operation);
+-    }
++    /* C99 doesn't allow a declaration to follow a label */;
++    psa_status_t abort_status = psa_cipher_abort(operation);
++    /* Normally abort shouldn't fail unless the operation is in a bad
++     * state, in which case we'd expect finish to fail with the same error.
++     * So it doesn't matter much which call's error code we pick when both
++     * fail. However, in unauthenticated decryption specifically, the
++     * distinction between PSA_SUCCESS and PSA_ERROR_INVALID_PADDING is
++     * security-sensitive (risk of a padding oracle attack), so here we
++     * must not have a code path that depends on the value of status. */
++    if (abort_status != PSA_SUCCESS) {
++        status = abort_status;
++    }
++
++    /* Set *output_length to 0 if status != PSA_SUCCESS, without
++     * leaking the value of status through a timing side channel
++     * (status == PSA_ERROR_INVALID_PADDING is sensitive when doing
++     * unpadded decryption, due to the risk of padding oracle attack). */
++    mbedtls_ct_condition_t success =
++        mbedtls_ct_bool_not(mbedtls_ct_bool(status));
++    *output_length = mbedtls_ct_size_if_else_0(success, *output_length);
+ 
+     LOCAL_OUTPUT_FREE(output_external, output);
+ 
+@@ -4841,13 +4857,17 @@ psa_status_t psa_cipher_decrypt(mbedtls_svc_key_id_t key,
+ 
+ exit:
+     unlock_status = psa_unregister_read_under_mutex(slot);
+-    if (status == PSA_SUCCESS) {
++    if (unlock_status != PSA_SUCCESS) {
+         status = unlock_status;
+     }
+ 
+-    if (status != PSA_SUCCESS) {
+-        *output_length = 0;
+-    }
++    /* Set *output_length to 0 if status != PSA_SUCCESS, without
++     * leaking the value of status through a timing side channel
++     * (status == PSA_ERROR_INVALID_PADDING is sensitive when doing
++     * unpadded decryption, due to the risk of padding oracle attack). */
++    mbedtls_ct_condition_t success =
++        mbedtls_ct_bool_not(mbedtls_ct_bool(status));
++    *output_length = mbedtls_ct_size_if_else_0(success, *output_length);
+ 
+     LOCAL_INPUT_FREE(input_external, input);
+     LOCAL_OUTPUT_FREE(output_external, output);
+diff --git a/lib/libmbedtls/mbedtls/library/psa_crypto_cipher.c b/lib/libmbedtls/mbedtls/library/psa_crypto_cipher.c
+index efc5813ff..7f691c1d9 100644
+--- a/lib/libmbedtls/mbedtls/library/psa_crypto_cipher.c
++++ b/lib/libmbedtls/mbedtls/library/psa_crypto_cipher.c
+@@ -13,6 +13,7 @@
+ #include "psa_crypto_cipher.h"
+ #include "psa_crypto_core.h"
+ #include "psa_crypto_random_impl.h"
++#include "constant_time_internal.h"
+ 
+ #include "mbedtls/cipher.h"
+ #include "mbedtls/error.h"
+@@ -551,7 +552,19 @@ psa_status_t mbedtls_psa_cipher_finish(
+     uint8_t *output, size_t output_size, size_t *output_length)
+ {
+     psa_status_t status = PSA_ERROR_GENERIC_ERROR;
+-    uint8_t temp_output_buffer[MBEDTLS_MAX_BLOCK_LENGTH];
++    size_t invalid_padding = 0;
++
++    /* We will copy output_size bytes from temp_output_buffer to the
++     * output buffer. We can't use *output_length to determine how
++     * much to copy because we must not leak that value through timing
++     * when doing decryption with unpadding. But the underlying function
++     * is not guaranteed to write beyond *output_length. To ensure we don't
++     * leak the former content of the stack to the caller, wipe that
++     * former content. */
++    uint8_t temp_output_buffer[MBEDTLS_MAX_BLOCK_LENGTH] = { 0 };
++    if (output_size > sizeof(temp_output_buffer)) {
++        output_size = sizeof(temp_output_buffer);
++    }
+ 
+     if (operation->ctx.cipher.unprocessed_len != 0) {
+         if (operation->alg == PSA_ALG_ECB_NO_PADDING ||
+@@ -562,25 +575,34 @@ psa_status_t mbedtls_psa_cipher_finish(
+     }
+ 
+     status = mbedtls_to_psa_error(
+-        mbedtls_cipher_finish(&operation->ctx.cipher,
+-                              temp_output_buffer,
+-                              output_length));
++        mbedtls_cipher_finish_padded(&operation->ctx.cipher,
++                                     temp_output_buffer,
++                                     output_length,
++                                     &invalid_padding));
+     if (status != PSA_SUCCESS) {
+         goto exit;
+     }
+ 
+-    if (*output_length == 0) {
++    if (output_size == 0) {
+         ; /* Nothing to copy. Note that output may be NULL in this case. */
+-    } else if (output_size >= *output_length) {
+-        memcpy(output, temp_output_buffer, *output_length);
+     } else {
+-        status = PSA_ERROR_BUFFER_TOO_SMALL;
++        /* Do not use the value of *output_length to determine how much
++         * to copy. When decrypting a padded cipher, the output length is
++         * sensitive, and leaking it could allow a padding oracle attack. */
++        memcpy(output, temp_output_buffer, output_size);
+     }
+ 
++    status = mbedtls_ct_error_if_else_0(invalid_padding,
++                                        PSA_ERROR_INVALID_PADDING);
++    mbedtls_ct_condition_t buffer_too_small =
++        mbedtls_ct_uint_lt(output_size, *output_length);
++    status = mbedtls_ct_error_if(buffer_too_small,
++                                 PSA_ERROR_BUFFER_TOO_SMALL,
++                                 status);
++
+ exit:
+     mbedtls_platform_zeroize(temp_output_buffer,
+                              sizeof(temp_output_buffer));
+-
+     return status;
+ }
+ 
+@@ -701,17 +723,21 @@ psa_status_t mbedtls_psa_cipher_decrypt(
+         &operation,
+         mbedtls_buffer_offset(output, accumulated_length),
+         output_size - accumulated_length, &olength);
+-    if (status != PSA_SUCCESS) {
+-        goto exit;
+-    }
+ 
+     *output_length = accumulated_length + olength;
+ 
+ exit:
+-    if (status == PSA_SUCCESS) {
+-        status = mbedtls_psa_cipher_abort(&operation);
+-    } else {
+-        mbedtls_psa_cipher_abort(&operation);
++    /* C99 doesn't allow a declaration to follow a label */;
++    psa_status_t abort_status = mbedtls_psa_cipher_abort(&operation);
++    /* Normally abort shouldn't fail unless the operation is in a bad
++     * state, in which case we'd expect finish to fail with the same error.
++     * So it doesn't matter much which call's error code we pick when both
++     * fail. However, in unauthenticated decryption specifically, the
++     * distinction between PSA_SUCCESS and PSA_ERROR_INVALID_PADDING is
++     * security-sensitive (risk of a padding oracle attack), so here we
++     * must not have a code path that depends on the value of status. */
++    if (abort_status != PSA_SUCCESS) {
++        status = abort_status;
+     }
+ 
+     return status;
+diff --git a/lib/libmbedtls/mbedtls/library/psa_crypto_core.h b/lib/libmbedtls/mbedtls/library/psa_crypto_core.h
+index c3c077014..ac92ea2b3 100644
+--- a/lib/libmbedtls/mbedtls/library/psa_crypto_core.h
++++ b/lib/libmbedtls/mbedtls/library/psa_crypto_core.h
+@@ -24,18 +24,6 @@
+ #include "mbedtls/threading.h"
+ #endif
+ 
+-/**
+- * Tell if PSA is ready for this cipher.
+- *
+- * \note            For now, only checks the state of the driver subsystem,
+- *                  not the algorithm. Might do more in the future.
+- *
+- * \param cipher_alg  The cipher algorithm (ignored for now).
+- *
+- * \return 1 if the driver subsytem is ready, 0 otherwise.
+- */
+-int psa_can_do_cipher(psa_key_type_t key_type, psa_algorithm_t cipher_alg);
+-
+ typedef enum {
+     PSA_SLOT_EMPTY = 0,
+     PSA_SLOT_FILLING,
+diff --git a/lib/libmbedtls/mbedtls/library/rsa.c b/lib/libmbedtls/mbedtls/library/rsa.c
+index dbf934f24..68b4f7a87 100644
+--- a/lib/libmbedtls/mbedtls/library/rsa.c
++++ b/lib/libmbedtls/mbedtls/library/rsa.c
+@@ -1049,7 +1049,7 @@ int mbedtls_rsa_gen_key(mbedtls_rsa_context *ctx,
+                         unsigned int nbits, int exponent)
+ {
+     int ret = MBEDTLS_ERR_ERROR_CORRUPTION_DETECTED;
+-    mbedtls_mpi H, G, L;
++    mbedtls_mpi H;
+     int prime_quality = 0;
+ 
+     /*
+@@ -1062,8 +1062,6 @@ int mbedtls_rsa_gen_key(mbedtls_rsa_context *ctx,
+     }
+ 
+     mbedtls_mpi_init(&H);
+-    mbedtls_mpi_init(&G);
+-    mbedtls_mpi_init(&L);
+ 
+     if (exponent < 3 || nbits % 2 != 0) {
+         ret = MBEDTLS_ERR_RSA_BAD_INPUT_DATA;
+@@ -1101,35 +1099,28 @@ int mbedtls_rsa_gen_key(mbedtls_rsa_context *ctx,
+             mbedtls_mpi_swap(&ctx->P, &ctx->Q);
+         }
+ 
+-        /* Temporarily replace P,Q by P-1, Q-1 */
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_sub_int(&ctx->P, &ctx->P, 1));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_sub_int(&ctx->Q, &ctx->Q, 1));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&H, &ctx->P, &ctx->Q));
+-
+-        /* check GCD( E, (P-1)*(Q-1) ) == 1 (FIPS 186-4 §B.3.1 criterion 2(a)) */
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_gcd(&G, &ctx->E, &H));
+-        if (mbedtls_mpi_cmp_int(&G, 1) != 0) {
++        /* Compute D = E^-1 mod LCM(P-1, Q-1) (FIPS 186-4 §B.3.1 criterion 3(b))
++         * if it exists (FIPS 186-4 §B.3.1 criterion 2(a)) */
++        ret = mbedtls_rsa_deduce_private_exponent(&ctx->P, &ctx->Q, &ctx->E, &ctx->D);
++        if (ret == MBEDTLS_ERR_MPI_NOT_ACCEPTABLE) {
++            mbedtls_mpi_lset(&ctx->D, 0); /* needed for the next call */
+             continue;
+         }
++        if (ret != 0) {
++            goto cleanup;
++        }
+ 
+-        /* compute smallest possible D = E^-1 mod LCM(P-1, Q-1) (FIPS 186-4 §B.3.1 criterion 3(b)) */
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_gcd(&G, &ctx->P, &ctx->Q));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_div_mpi(&L, NULL, &H, &G));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod(&ctx->D, &ctx->E, &L));
+-
+-        if (mbedtls_mpi_bitlen(&ctx->D) <= ((nbits + 1) / 2)) {      // (FIPS 186-4 §B.3.1 criterion 3(a))
++        /* (FIPS 186-4 §B.3.1 criterion 3(a)) */
++        if (mbedtls_mpi_bitlen(&ctx->D) <= ((nbits + 1) / 2)) {
+             continue;
+         }
+ 
+         break;
+     } while (1);
+ 
+-    /* Restore P,Q */
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_add_int(&ctx->P,  &ctx->P, 1));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_add_int(&ctx->Q,  &ctx->Q, 1));
+ 
++    /* N = P * Q */
+     MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&ctx->N, &ctx->P, &ctx->Q));
+-
+     ctx->len = mbedtls_mpi_size(&ctx->N);
+ 
+ #if !defined(MBEDTLS_RSA_NO_CRT)
+@@ -1148,8 +1139,6 @@ int mbedtls_rsa_gen_key(mbedtls_rsa_context *ctx,
+ cleanup:
+ 
+     mbedtls_mpi_free(&H);
+-    mbedtls_mpi_free(&G);
+-    mbedtls_mpi_free(&L);
+ 
+     if (ret != 0) {
+         mbedtls_rsa_free(ctx);
+@@ -1306,33 +1295,16 @@ static int rsa_prepare_blinding(mbedtls_rsa_context *ctx,
+     }
+ 
+     /* Unblinding value: Vf = random number, invertible mod N */
++    mbedtls_mpi_lset(&R, 0);
+     do {
+         if (count++ > 10) {
+             ret = MBEDTLS_ERR_RSA_RNG_FAILED;
+             goto cleanup;
+         }
+ 
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_fill_random(&ctx->Vf, ctx->len - 1, f_rng, p_rng));
+-
+-        /* Compute Vf^-1 as R * (R Vf)^-1 to avoid leaks from inv_mod. */
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_fill_random(&R, ctx->len - 1, f_rng, p_rng));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&ctx->Vi, &ctx->Vf, &R));
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->N));
+-
+-        /* At this point, Vi is invertible mod N if and only if both Vf and R
+-         * are invertible mod N. If one of them isn't, we don't need to know
+-         * which one, we just loop and choose new values for both of them.
+-         * (Each iteration succeeds with overwhelming probability.) */
+-        ret = mbedtls_mpi_inv_mod(&ctx->Vi, &ctx->Vi, &ctx->N);
+-        if (ret != 0 && ret != MBEDTLS_ERR_MPI_NOT_ACCEPTABLE) {
+-            goto cleanup;
+-        }
+-
+-    } while (ret == MBEDTLS_ERR_MPI_NOT_ACCEPTABLE);
+-
+-    /* Finish the computation of Vf^-1 = R * (R Vf)^-1 */
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&ctx->Vi, &ctx->Vi, &R));
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_mod_mpi(&ctx->Vi, &ctx->Vi, &ctx->N));
++        MBEDTLS_MPI_CHK(mbedtls_mpi_random(&ctx->Vf, 1, &ctx->N, f_rng, p_rng));
++        MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(&R, &ctx->Vi, &ctx->Vf, &ctx->N));
++    } while (mbedtls_mpi_cmp_int(&R, 1) != 0);
+ 
+     /* Blinding value: Vi = Vf^(-e) mod N
+      * (Vi already contains Vf^-1 at this point) */
+diff --git a/lib/libmbedtls/mbedtls/library/rsa_alt_helpers.c b/lib/libmbedtls/mbedtls/library/rsa_alt_helpers.c
+index 5c265a992..50a5c4e0d 100644
+--- a/lib/libmbedtls/mbedtls/library/rsa_alt_helpers.c
++++ b/lib/libmbedtls/mbedtls/library/rsa_alt_helpers.c
+@@ -12,6 +12,7 @@
+ 
+ #include "mbedtls/rsa.h"
+ #include "mbedtls/bignum.h"
++#include "bignum_internal.h"
+ #include "rsa_alt_helpers.h"
+ 
+ /*
+@@ -117,7 +118,7 @@ int mbedtls_rsa_deduce_primes(mbedtls_mpi const *N,
+         MBEDTLS_MPI_CHK(mbedtls_mpi_lset(&K, primes[attempt]));
+ 
+         /* Check if gcd(K,N) = 1 */
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_gcd(P, &K, N));
++        MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(P, NULL, &K, N));
+         if (mbedtls_mpi_cmp_int(P, 1) != 0) {
+             continue;
+         }
+@@ -136,7 +137,7 @@ int mbedtls_rsa_deduce_primes(mbedtls_mpi const *N,
+             }
+ 
+             MBEDTLS_MPI_CHK(mbedtls_mpi_add_int(&K, &K, 1));
+-            MBEDTLS_MPI_CHK(mbedtls_mpi_gcd(P, &K, N));
++            MBEDTLS_MPI_CHK(mbedtls_mpi_gcd_modinv_odd(P, NULL, &K, N));
+ 
+             if (mbedtls_mpi_cmp_int(P, 1) ==  1 &&
+                 mbedtls_mpi_cmp_mpi(P, N) == -1) {
+@@ -197,6 +198,10 @@ int mbedtls_rsa_deduce_private_exponent(mbedtls_mpi const *P,
+         return MBEDTLS_ERR_MPI_BAD_INPUT_DATA;
+     }
+ 
++    if (mbedtls_mpi_get_bit(E, 0) != 1) {
++        return MBEDTLS_ERR_MPI_NOT_ACCEPTABLE;
++    }
++
+     mbedtls_mpi_init(&K);
+     mbedtls_mpi_init(&L);
+ 
+@@ -211,8 +216,11 @@ int mbedtls_rsa_deduce_private_exponent(mbedtls_mpi const *P,
+     MBEDTLS_MPI_CHK(mbedtls_mpi_mul_mpi(&K, &K, &L));
+     MBEDTLS_MPI_CHK(mbedtls_mpi_div_mpi(&K, NULL, &K, D));
+ 
+-    /* Compute modular inverse of E in LCM(P-1, Q-1) */
+-    MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod(D, E, &K));
++    /* Compute modular inverse of E mod LCM(P-1, Q-1)
++     * This is FIPS 186-4 §B.3.1 criterion 3(b).
++     * This will return MBEDTLS_ERR_MPI_NOT_ACCEPTABLE if E is not coprime to
++     * (P-1)(Q-1), also validating FIPS 186-4 §B.3.1 criterion 2(a). */
++    MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod_even_in_range(D, E, &K));
+ 
+ cleanup:
+ 
+@@ -244,7 +252,7 @@ int mbedtls_rsa_deduce_crt(const mbedtls_mpi *P, const mbedtls_mpi *Q,
+ 
+     /* QP = Q^{-1} mod P */
+     if (QP != NULL) {
+-        MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod(QP, Q, P));
++        MBEDTLS_MPI_CHK(mbedtls_mpi_inv_mod_odd(QP, Q, P));
+     }
+ 
+ cleanup:
+diff --git a/lib/libmbedtls/mbedtls/library/rsa_alt_helpers.h b/lib/libmbedtls/mbedtls/library/rsa_alt_helpers.h
+index 052b02491..8ff74a02b 100644
+--- a/lib/libmbedtls/mbedtls/library/rsa_alt_helpers.h
++++ b/lib/libmbedtls/mbedtls/library/rsa_alt_helpers.h
+@@ -89,12 +89,15 @@ int mbedtls_rsa_deduce_primes(mbedtls_mpi const *N, mbedtls_mpi const *E,
+  * \param P        First prime factor of RSA modulus
+  * \param Q        Second prime factor of RSA modulus
+  * \param E        RSA public exponent
+- * \param D        Pointer to MPI holding the private exponent on success.
+- *
+- * \return
+- *                 - 0 if successful. In this case, D is set to a simultaneous
+- *                   modular inverse of E modulo both P-1 and Q-1.
+- *                 - A non-zero error code otherwise.
++ * \param D        Pointer to MPI holding the private exponent on success,
++ *                 i.e. the modular inverse of E modulo LCM(P-1,Q-1).
++ *
++ * \return         \c 0 if successful.
++ * \return         #MBEDTLS_ERR_MPI_ALLOC_FAILED if a memory allocation failed.
++ * \return         #MBEDTLS_ERR_MPI_NOT_ACCEPTABLE if E is not coprime to P-1
++ *                 and Q-1, that is, if GCD( E, (P-1)*(Q-1) ) != 1.
++ * \return         #MBEDTLS_ERR_MPI_BAD_INPUT_DATA if inputs are otherwise
++ *                 invalid.
+  *
+  * \note           This function does not check whether P and Q are primes.
+  *
+diff --git a/lib/libmbedtls/mbedtls/library/ssl_msg.c b/lib/libmbedtls/mbedtls/library/ssl_msg.c
+index 9f50c8e54..38fd262bc 100644
+--- a/lib/libmbedtls/mbedtls/library/ssl_msg.c
++++ b/lib/libmbedtls/mbedtls/library/ssl_msg.c
+@@ -4461,7 +4461,7 @@ static int ssl_load_buffered_message(mbedtls_ssl_context *ssl)
+         ret = 0;
+         goto exit;
+     } else {
+-        MBEDTLS_SSL_DEBUG_MSG(2, ("Next handshake message %u not or only partially bufffered",
++        MBEDTLS_SSL_DEBUG_MSG(2, ("Next handshake message %u not or only partially buffered",
+                                   hs->in_msg_seq));
+     }
+ 
+@@ -6275,7 +6275,7 @@ int mbedtls_ssl_write_early_data(mbedtls_ssl_context *ssl,
+     } else {
+         /*
+          * If we are past the point where we can send early data or we have
+-         * already reached the maximum early data size, return immediatly.
++         * already reached the maximum early data size, return immediately.
+          * Otherwise, progress the handshake as much as possible to not delay
+          * it too much. If we reach a point where we can still send early data,
+          * then we will send some.
+diff --git a/lib/libmbedtls/mbedtls/library/ssl_tls.c b/lib/libmbedtls/mbedtls/library/ssl_tls.c
+index b5bea7521..30cde2792 100644
+--- a/lib/libmbedtls/mbedtls/library/ssl_tls.c
++++ b/lib/libmbedtls/mbedtls/library/ssl_tls.c
+@@ -3627,7 +3627,7 @@ static int ssl_tls12_session_load(mbedtls_ssl_session *session,
+     start = MBEDTLS_GET_UINT64_BE(p, 0);
+     p += 8;
+ 
+-    session->start = (time_t) start;
++    session->start = (mbedtls_time_t) start;
+ #endif /* MBEDTLS_HAVE_TIME */
+ 
+     /*
+diff --git a/lib/libmbedtls/mbedtls/library/ssl_tls12_client.c b/lib/libmbedtls/mbedtls/library/ssl_tls12_client.c
+index 791b84ee3..65d6dbd1a 100644
+--- a/lib/libmbedtls/mbedtls/library/ssl_tls12_client.c
++++ b/lib/libmbedtls/mbedtls/library/ssl_tls12_client.c
+@@ -2024,7 +2024,7 @@ static int ssl_get_ecdh_params_from_cert(mbedtls_ssl_context *ssl)
+ 
+     tls_id = mbedtls_ssl_get_tls_id_from_ecp_group_id(grp_id);
+     if (tls_id == 0) {
+-        MBEDTLS_SSL_DEBUG_MSG(1, ("ECC group %u not suported",
++        MBEDTLS_SSL_DEBUG_MSG(1, ("ECC group %u not supported",
+                                   grp_id));
+         return MBEDTLS_ERR_SSL_ILLEGAL_PARAMETER;
+     }
+diff --git a/lib/libmbedtls/mbedtls/library/threading.c b/lib/libmbedtls/mbedtls/library/threading.c
+index fde7cea1d..ff8183ed1 100644
+--- a/lib/libmbedtls/mbedtls/library/threading.c
++++ b/lib/libmbedtls/mbedtls/library/threading.c
+@@ -17,7 +17,7 @@
+ 
+ #if defined(MBEDTLS_THREADING_C)
+ 
+-#include "mbedtls/threading.h"
++#include "threading_internal.h"
+ 
+ #if defined(MBEDTLS_HAVE_TIME_DATE) && !defined(MBEDTLS_PLATFORM_GMTIME_R_ALT)
+ 
+diff --git a/lib/libmbedtls/mbedtls/library/threading_internal.h b/lib/libmbedtls/mbedtls/library/threading_internal.h
+new file mode 100644
+index 000000000..21b57c97c
+--- /dev/null
++++ b/lib/libmbedtls/mbedtls/library/threading_internal.h
+@@ -0,0 +1,28 @@
++/**
++ * \file threading_internal.h
++ *
++ * \brief Threading interfaces used by the test framework
++ */
++/*
++ *  Copyright The Mbed TLS Contributors
++ *  SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
++ */
++
++#ifndef MBEDTLS_THREADING_INTERNAL_H
++#define MBEDTLS_THREADING_INTERNAL_H
++
++#include "common.h"
++
++#include <mbedtls/threading.h>
++
++/* A version number for the internal threading interface.
++ * This is meant to allow the framework to remain compatible with
++ * multiple versions, to facilitate transitions.
++ *
++ * Conventionally, this is the Mbed TLS version number when the
++ * threading interface was last changed in a way that may impact the
++ * test framework, with the lower byte incremented as necessary
++ * if multiple changes happened between releases. */
++#define MBEDTLS_THREADING_INTERNAL_VERSION 0x03060000
++
++#endif /* MBEDTLS_THREADING_INTERNAL_H */
+-- 
+2.53.0
+

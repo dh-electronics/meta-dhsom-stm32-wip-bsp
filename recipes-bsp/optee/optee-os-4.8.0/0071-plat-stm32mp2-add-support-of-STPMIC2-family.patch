@@ -1,0 +1,2469 @@
+From 8066ede024f2dced0a2bfa0fd8e1b552d70cc7d3 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 23 Oct 2025 13:28:42 +0200
+Subject: [PATCH 071/913] plat-stm32mp2: add support of STPMIC2 family
+
+Introduce STPMIC2 driver that controls voltage regulators.
+The low level I2C access are handled by the file stpmic2.c.
+The file stm32mp_pmic2.c is the driver supporting the 3 PMICs from the
+STPMIC2 family:
+- stpmic25
+- stpmic1l
+- stpmic2l
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 475abaf4c40005b7d1d305afefe18d53de99b1ed plat-stm32mp2: add support of STPMIC2 family]
+Change-Id: I4588dc70aee16156c9685bdee47740b722d723c3
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/conf.mk           |    3 +
+ .../plat-stm32mp2/drivers/stm32mp2_pmic2.c    |  120 ++
+ core/arch/arm/plat-stm32mp2/drivers/sub.mk    |    1 +
+ core/arch/arm/plat-stm32mp2/stm32_util.h      |    8 +
+ core/drivers/stm32mp_pmic2.c                  | 1058 +++++++++++++++++
+ core/drivers/stpmic2.c                        |  738 ++++++++++++
+ core/drivers/sub.mk                           |    2 +
+ core/include/drivers/stpmic2.h                |  385 ++++++
+ core/include/dt-bindings/mfd/st,stpmic2.h     |   40 +
+ 9 files changed, 2355 insertions(+)
+ create mode 100644 core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic2.c
+ create mode 100644 core/drivers/stm32mp_pmic2.c
+ create mode 100644 core/drivers/stpmic2.c
+ create mode 100644 core/include/drivers/stpmic2.h
+ create mode 100644 core/include/dt-bindings/mfd/st,stpmic2.h
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index 526a1ddb1..543d65112 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -121,6 +121,7 @@ CFG_STM32_FMC ?= y
+ CFG_STM32_GPIO ?= y
+ CFG_STM32_HPDMA ?= y
+ CFG_STM32_HSEM ?= y
++CFG_STM32_I2C ?= y
+ CFG_STM32_IAC ?= y
+ CFG_STM32_IPCC ?= y
+ CFG_STM32_IWDG ?= y
+@@ -134,7 +135,9 @@ CFG_STM32_RTC ?= y
+ CFG_STM32_SERC ?= y
+ CFG_STM32_TAMP ?= y
+ CFG_STM32_UART ?= y
++CFG_STPMIC2 ?= y
+ 
++CFG_DRIVERS_I2C ?= $(CFG_STM32_I2C)
+ CFG_REGULATOR_FIXED ?= y
+ CFG_REGULATOR_GPIO ?= y
+ 
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic2.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic2.c
+new file mode 100644
+index 000000000..d8ea06fd1
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic2.c
+@@ -0,0 +1,120 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2022-2024, STMicroelectronics
++ */
++
++#include <config.h>
++#include <drivers/regulator.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stpmic2.h>
++#include <kernel/pm.h>
++#include <platform_config.h>
++#include <stm32mp_pm.h>
++#include <trace.h>
++
++/*
++ * Low power configurations:
++ *
++ * STM32_PM_DEFAULT
++ *   "default" sub nodes in device-tree
++ *   is applied at probe, and re-applied at PM resume.
++ *   should support STOP1, LP-STOP1, STOP2, LP-STOP2
++ *
++ * STM32_PM_LPLV
++ *   "lplv" sub nodes in device-tree
++ *   should support STOP1, LPLV-STOP1, STOP2, LPLV-STOP2
++ *
++ * STM32_PM_STANDBY
++ *   "standby" sub nodes in device-tree
++ *   should support STANDBY1-DDR-SR
++ *   is applied in pm suspend call back
++ *
++ * STM32_PM_OFF
++ *   "off" sub nodes in device-tree
++ *   should support STANDBY-DDR-OFF mode
++ *   and should be applied before shutdown
++ *
++ */
++#define STM32_PM_DEFAULT		0
++#define STM32_PM_LPLV			1
++#define STM32_PM_STANDBY		2
++#define STM32_PM_OFF			3
++#define STM32_PM_NB_SOC_MODES		4
++
++size_t plat_pmic2_get_lp_mode_count(void)
++{
++	return STM32_PM_NB_SOC_MODES;
++}
++
++const char *plat_pmic2_get_lp_mode_name(int mode)
++{
++	switch (mode) {
++	case STM32_PM_DEFAULT:
++		return "default";
++	case STM32_PM_LPLV:
++		return "lplv";
++	case STM32_PM_STANDBY:
++		return "standby";
++	case STM32_PM_OFF:
++		return "off";
++	default:
++		EMSG("Invalid lp mode %d", mode);
++		panic();
++	}
++}
++
++static TEE_Result pmic_regu_pm(enum pm_op op, uint32_t pm_hint,
++			       const struct pm_callback_handle *pm_handle)
++{
++	struct regulator *regulator = pm_handle->handle;
++	unsigned int pwrlvl = PM_HINT_PLATFORM_STATE(pm_hint);
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (op == PM_OP_SUSPEND) {
++		uint8_t mode = STM32_PM_DEFAULT;
++
++		/* configure PMIC level according MAX PM domain OFF */
++		switch (pwrlvl) {
++		case PM_D1_LEVEL:
++		case PM_D2_LEVEL:
++			mode = STM32_PM_LPLV;
++			break;
++		case PM_D2_LPLV_LEVEL:
++			mode = STM32_PM_STANDBY;
++			break;
++		case PM_MAX_LEVEL:
++			mode = STM32_PM_OFF;
++			break;
++		default:
++			mode = STM32_PM_DEFAULT;
++			break;
++		}
++		res = stm32_pmic2_apply_pm_state(regulator, mode);
++
++	} else if (op == PM_OP_RESUME) {
++		res = stm32_pmic2_resume_regulator(regulator);
++		if (res)
++			return res;
++
++		res = stm32_pmic2_apply_pm_state(regulator, STM32_PM_DEFAULT);
++	}
++
++	return res;
++}
++
++TEE_Result plat_pmic2_supplied_init(struct regulator *regulator)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	res = stm32_pmic2_apply_pm_state(regulator, STM32_PM_DEFAULT);
++	if (res) {
++		EMSG("Failed to prepare regu suspend %s",
++		     regulator_name(regulator));
++		return res;
++	}
++
++	register_pm_core_service_cb(pmic_regu_pm, regulator,
++				    regulator_name(regulator));
++
++	return TEE_SUCCESS;
++}
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/sub.mk b/core/arch/arm/plat-stm32mp2/drivers/sub.mk
+index 224c9eb9e..60fe67e9e 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/sub.mk
++++ b/core/arch/arm/plat-stm32mp2/drivers/sub.mk
+@@ -1,3 +1,4 @@
+ srcs-y += stm32mp25_syscfg.c
+ srcs-$(CFG_STM32_PWR) += stm32mp25_pwr.c
+ srcs-$(CFG_STM32_PWR_REGUL) += stm32mp25_pwr_regul.c
++srcs-$(CFG_STPMIC2) += stm32mp2_pmic2.c
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+index 225ba3797..7306f2401 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -20,4 +20,12 @@ bool stm32mp_allow_probe_shared_device(const void *fdt, int node);
+ /* Print a message and reset the system */
+ void __noreturn do_reset(const char *str);
+ 
++#ifdef CFG_STPMIC2
++bool stm32_stpmic2_is_present(void);
++#else
++static inline bool stm32_stpmic2_is_present(void)
++{
++	return false;
++}
++#endif
+ #endif /*__STM32_UTIL_H__*/
+diff --git a/core/drivers/stm32mp_pmic2.c b/core/drivers/stm32mp_pmic2.c
+new file mode 100644
+index 000000000..4a9cea1e4
+--- /dev/null
++++ b/core/drivers/stm32mp_pmic2.c
+@@ -0,0 +1,1058 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2022-2024, STMicroelectronics
++ */
++
++#include <config.h>
++#include <drivers/regulator.h>
++#include <drivers/stm32_i2c.h>
++#include <drivers/stpmic2.h>
++#include <keep.h>
++#include <kernel/boot.h>
++#include <kernel/dt.h>
++#include <kernel/interrupt.h>
++#include <kernel/notif.h>
++#include <kernel/panic.h>
++#include <kernel/pm.h>
++#include <libfdt.h>
++#include <platform_config.h>
++#include <stdbool.h>
++#include <stm32_util.h>
++#include <stm32mp_pm.h>
++#include <trace.h>
++#include <util.h>
++
++/* I2C transfer trial configuration */
++#define PMIC_I2C_TRIALS			U(1)
++#define PMIC_I2C_TIMEOUT_BUSY_MS	U(5)
++
++static bool stm32_pmic2;
++
++#define STPMIC2_LP_STATE_OFF		BIT(0)
++#define STPMIC2_LP_STATE_ON		BIT(1)
++#define STPMIC2_LP_STATE_UNMODIFIED	BIT(2)
++#define STPMIC2_LP_STATE_SET_VOLT	BIT(3)
++#define STPMIC2_LP_STATE_INVALID	-1
++
++
++/*
++ * struct pmic_regu - STPMIC2 regulator instance
++ *
++ * @pmic: Handle to PMIC device
++ * @id: ID in PMIC device of the regulator controllers
++ * @bypass_uv: 0 if not used, else is the voltage level to switch to bypass mode
++ * @lp_state: Regulator mode during PM low power state, per PM states
++ * @lp_level_uv: Regulator voltage level during PM low power state, per PM state
++ * @last_lp_mode: Last low power mode selected
++ * @levels_desc: Description of the supported voltage levels
++ * @levels: Voltage level value array related to description @levels_desc
++ * @power_control_en: PWRCTRL input line is enabled
++ * @forced_off: Regulator was forced off at suspend
++ */
++struct pmic_regu {
++	struct stpmic2 *pmic;
++	uint32_t id;
++	int bypass_uv;
++	uint8_t *lp_state;
++	int *lp_level_uv;
++	int last_lp_mode;
++	struct regulator_voltages_desc levels_desc;
++	int *levels;
++	bool power_control_en;
++	bool forced_off;
++};
++
++/*
++ * struct pmic_compat_data - pmic specificity helper
++ * @desc_table: description table of each regulator
++ * @desc_len: len of the description table
++ * @ref_id: value of PMIC_REF_ID in PRODUCT_ID_SR
++ */
++struct pmic_compat_data {
++	const struct regu_dt_desc *desc_table;
++	size_t desc_len;
++	uint8_t ref_id;
++};
++
++/*
++ * struct regu_dt_property - DT property helper
++ * @name: DT property string name
++ * @prop: Property decimal identifier
++ */
++struct regu_dt_property {
++	const char *name;
++	enum stpmic2_prop_id prop;
++};
++
++static const struct regu_dt_property prop_table[] = {
++	{
++		.name = "st,mask-reset",
++		.prop = STPMIC2_MASK_RESET,
++	},
++	{
++		.name = "st,pwrctrl-enable",
++		.prop = STPMIC2_PWRCTRL_EN,
++	},
++	{
++		.name = "st,pwrctrl-reset",
++		.prop = STPMIC2_PWRCTRL_RS,
++	},
++	{
++		.name = "st,pwrctrl-sel",
++		.prop = STPMIC2_PWRCTRL_SEL,
++	},
++	{
++		.name = "st,alternate-input-source",
++		.prop = STPMIC2_ALTERNATE_INPUT_SOURCE,
++	},
++};
++
++static void lock_unlock(bool lock_not_unlock)
++{
++	static struct mutex pmic_mu = MUTEX_INITIALIZER;
++
++	if (thread_get_id_may_fail() != THREAD_ID_INVALID) {
++		if (lock_not_unlock)
++			mutex_lock(&pmic_mu);
++		else
++			mutex_unlock(&pmic_mu);
++	}
++}
++
++static void lock_pmic_access(void)
++{
++	lock_unlock(true);
++}
++
++static void unlock_pmic_access(void)
++{
++	lock_unlock(false);
++}
++
++/*
++ * Regulator operation handler
++ */
++static TEE_Result pmic_set_state(struct regulator *regulator, bool enable)
++{
++	struct pmic_regu *regu = regulator->priv;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	FMSG("%s: set state to %u", regulator_name(regulator), enable);
++
++	lock_pmic_access();
++	res = stpmic2_regulator_set_state(regu->pmic, regu->id, enable);
++	unlock_pmic_access();
++
++	return res;
++}
++
++static TEE_Result pmic_get_state(struct regulator *regulator, bool *enabled)
++{
++	struct pmic_regu *regu = regulator->priv;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	FMSG("%s: get state", regulator_name(regulator));
++
++	lock_pmic_access();
++	res = stpmic2_regulator_get_state(regu->pmic, regu->id, enabled);
++	unlock_pmic_access();
++
++	return res;
++}
++
++static TEE_Result pmic_get_voltage(struct regulator *regulator, int *level_uv)
++{
++	struct pmic_regu *regu = regulator->priv;
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint16_t val = 0;
++
++	lock_pmic_access();
++
++	if (regu->bypass_uv) {
++		uint8_t arg = 0;
++
++		/* If the regul is in bypass mode, return bypass value */
++		res = stpmic2_regulator_get_prop(regu->pmic, regu->id,
++						 STPMIC2_BYPASS, &arg);
++		if (res)
++			goto out;
++
++		if (arg == PROP_BYPASS_SET) {
++			*level_uv = regu->bypass_uv;
++			goto out;
++		}
++	}
++
++	res = stpmic2_regulator_get_voltage(regu->pmic, regu->id, &val);
++	if (res)
++		goto out;
++
++	*level_uv = (int)val * 1000;
++
++	FMSG("%s: get voltage: %d uV", regulator_name(regulator), *level_uv);
++out:
++	unlock_pmic_access();
++
++	return res;
++}
++
++static TEE_Result pmic_set_voltage(struct regulator *regulator, int level_uv)
++{
++	struct pmic_regu *regu = regulator->priv;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	FMSG("%s: set volt to %d mV", regulator_name(regulator), level_uv);
++
++	lock_pmic_access();
++
++	if (level_uv == regu->bypass_uv) {
++		res = stpmic2_regulator_set_prop(regu->pmic, regu->id,
++						 STPMIC2_BYPASS,
++						 PROP_BYPASS_SET);
++		/* Do not set voltage in the register */
++		goto out;
++	}
++
++	res = stpmic2_regulator_set_voltage(regu->pmic, regu->id,
++					    level_uv / 1000);
++	if (res)
++		goto out;
++
++	/* disable bypass after set voltage ; wait settling time ? */
++	if (regu->bypass_uv && level_uv != regu->bypass_uv)
++		res = stpmic2_regulator_set_prop(regu->pmic, regu->id,
++						 STPMIC2_BYPASS,
++						 PROP_BYPASS_RESET);
++out:
++	unlock_pmic_access();
++
++	return res;
++}
++
++static size_t refine_levels_array(size_t count, int *levels_uv,
++				  int min_uv, int max_uv)
++{
++	size_t n = 0;
++	size_t m = 0;
++
++	qsort_int(levels_uv, count);
++
++	/* Remove duplicates and return optimized count */
++	for (n = 1; n < count; n++) {
++		if (levels_uv[m] != levels_uv[n]) {
++			if (m + 1 != n)
++				levels_uv[m + 1] = levels_uv[n];
++			m++;
++		}
++	}
++	count = m + 1;
++
++	/* Find max voltage index */
++	for (n = count; n; n--)
++		if (levels_uv[n - 1] <= max_uv)
++			break;
++	count = n;
++
++	for (n = 0; n < count; n++)
++		if (levels_uv[n] >= min_uv)
++			break;
++	count -= n;
++
++	memmove(levels_uv, levels_uv + n, count * sizeof(*levels_uv));
++
++	return count;
++}
++
++static TEE_Result pmic_list_voltages(struct regulator *regulator,
++				     struct regulator_voltages_desc **out_desc,
++				     const int **out_levels)
++{
++	struct pmic_regu *regu = regulator->priv;
++
++	FMSG("%s: list volt", regulator_name(regulator));
++
++	if (!regu->levels) {
++		TEE_Result res = TEE_ERROR_GENERIC;
++		const uint16_t *level_ref = NULL;
++		size_t level_count = 0;
++		size_t count_ref = 0;
++		int *levels2 = NULL;
++		int *levels = NULL;
++		size_t n = 0;
++
++		/*
++		 * Allocate and build a consise and ordered voltage list
++		 * based on the voltage list provided by stpmic2 driver.
++		 * Also add bypass voltage to the list.
++		 */
++		res = stpmic2_regulator_levels_mv(regu->pmic, regu->id,
++						  &level_ref, &count_ref);
++		if (res)
++			return res;
++
++		if (regu->bypass_uv)
++			level_count = count_ref + 1;
++		else
++			level_count = count_ref;
++
++		levels = calloc(level_count, sizeof(*levels));
++		if (!levels)
++			return TEE_ERROR_OUT_OF_MEMORY;
++
++		for (n = 0; n < count_ref; n++)
++			levels[n] = level_ref[n] * 1000;
++
++		if (regu->bypass_uv)
++			levels[n] = regu->bypass_uv;
++
++		level_count = refine_levels_array(level_count, levels,
++						  regulator->min_uv,
++						  regulator->max_uv);
++
++		/* Shrink levels array to not waste heap memory */
++		levels2 = realloc(levels, sizeof(*levels) * level_count);
++		if (!levels2) {
++			free(levels);
++			return TEE_ERROR_OUT_OF_MEMORY;
++		}
++
++		regu->levels_desc.type = VOLTAGE_TYPE_FULL_LIST;
++		regu->levels_desc.num_levels = level_count;
++		regu->levels = levels2;
++	}
++
++	*out_desc = &regu->levels_desc;
++	*out_levels = regu->levels;
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator, uint8_t mode)
++{
++	struct pmic_regu *regu = regulator->priv;
++	uint8_t state = regu->lp_state[mode];
++	int lp_level_uv = regu->lp_level_uv[mode];
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	FMSG("%s: suspend state:%#"PRIx8" %d uV",
++	     regulator_name(regulator), state, lp_level_uv);
++
++	/*
++	 * If the LP state is controlled by the consumer (power control line
++	 * disabled), and the suspend state was requested as OFF in device tree,
++	 * then disable the regulator and put a message.
++	 */
++	if (!regu->power_control_en && (state & STPMIC2_LP_STATE_OFF)) {
++		bool enabled;
++
++		res = stpmic2_regulator_get_state(regu->pmic, regu->id,
++						  &enabled);
++		if (res)
++			return res;
++
++		if (enabled) {
++			res = stpmic2_regulator_set_state(regu->pmic, regu->id,
++							  false);
++			if (res)
++				return res;
++
++			IMSG("regulator %s forced OFF",
++			     regulator_name(regulator));
++
++			regu->forced_off = true;
++		} else {
++			regu->forced_off = false;
++		}
++
++		return TEE_SUCCESS;
++	}
++
++	if (mode == regu->last_lp_mode)
++		return TEE_SUCCESS;
++
++	if (state & STPMIC2_LP_STATE_OFF) {
++		res = stpmic2_lp_set_state(regu->pmic, regu->id, false);
++		if (res)
++			return res;
++	}
++
++	if (state & STPMIC2_LP_STATE_ON) {
++		res = stpmic2_lp_set_state(regu->pmic, regu->id, true);
++		if (res)
++			return res;
++
++		if (state & STPMIC2_LP_STATE_SET_VOLT &&
++		    regulator->ops->set_voltage)  {
++			res = stpmic2_lp_set_voltage(regu->pmic, regu->id,
++						     lp_level_uv / 1000);
++			if (res)
++				return res;
++		}
++	}
++
++	regu->last_lp_mode = mode;
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stm32_pmic2_resume_regulator(struct regulator *regulator)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct pmic_regu *regu = regulator->priv;
++
++	if (regu->forced_off) {
++		/* Re-enable a regulator that was forced off in suspend */
++		res = stpmic2_regulator_set_state(regu->pmic, regu->id, true);
++		if (res)
++			return res;
++
++		regu->forced_off = false;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result pmic_init(struct regulator *regulator)
++{
++	/* default configuration for STPMIC regulator */
++	regulator->ramp_delay_uv_per_us = U(2200);
++	regulator->enable_ramp_delay_us = U(1000);
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result pmic_supplied_init(struct regulator *regulator,
++				     const void *fdt, int node)
++{
++	struct pmic_regu *regu = regulator->priv;
++	const struct regu_dt_property *p = NULL;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (regulator->flags & REGULATOR_PULL_DOWN) {
++		res = stpmic2_regulator_set_prop(regu->pmic, regu->id,
++						 STPMIC2_PULL_DOWN, 0);
++		if (res)
++			return res;
++	}
++
++	if (regulator->flags & REGULATOR_OVER_CURRENT) {
++		res = stpmic2_regulator_set_prop(regu->pmic, regu->id,
++						 STPMIC2_OCP, 0);
++		if (res)
++			return res;
++	}
++
++	for (p = prop_table; p < (prop_table + ARRAY_SIZE(prop_table)); p++) {
++		const fdt32_t *cuint = NULL;
++		uint32_t value = 0;
++
++		cuint = fdt_getprop(fdt, node, p->name, NULL);
++		if (!cuint)
++			continue;
++
++		if (p->prop == STPMIC2_PWRCTRL_EN)
++			regu->power_control_en = true;
++
++		value = fdt32_to_cpu(*cuint);
++		FMSG("%s: %d, %#"PRIx32, regulator_name(regulator), p->prop,
++		     value);
++
++		res = stpmic2_regulator_set_prop(regu->pmic, regu->id,
++						 p->prop, value);
++		if (res)
++			return res;
++	}
++
++	res = plat_pmic2_supplied_init(regulator);
++	if (res) {
++		free(regu);
++		return res;
++	}
++
++	return TEE_SUCCESS;
++}
++
++const struct regulator_ops pmic2_regu_ops = {
++	.set_state = pmic_set_state,
++	.get_state = pmic_get_state,
++	.set_voltage = pmic_set_voltage,
++	.get_voltage = pmic_get_voltage,
++	.supported_voltages = pmic_list_voltages,
++	.init = pmic_init,
++	.supplied_init = pmic_supplied_init,
++};
++
++const struct regulator_ops pmic2_switch_ops = {
++	.set_state = pmic_set_state,
++	.get_state = pmic_get_state,
++	.init = pmic_init,
++	.supplied_init = pmic_supplied_init,
++};
++
++static void pmic_parse_regu_node(struct regu_dt_desc *regu_desc,
++				 const void *fdt, int node)
++{
++	struct pmic_regu *regu = regu_desc->priv;
++	const fdt32_t *cuint = NULL;
++	const char __maybe_unused *regu_name = regu_desc->name;
++
++	cuint = fdt_getprop(fdt, node, "st,regulator-bypass-microvolt", NULL);
++	if (!cuint)
++		return;
++
++	regu->bypass_uv = fdt32_to_cpu(*cuint);
++	FMSG("%s: bypass= %#"PRIx32"uV", regu_name, regu->bypass_uv);
++}
++
++static void parse_low_power_mode(const void *fdt, int node,
++				 struct regu_dt_desc *regu_desc, int mode)
++{
++	struct pmic_regu *regu = regu_desc->priv;
++	const fdt32_t *cuint = NULL;
++	const char __maybe_unused *regu_name = regu_desc->name;
++
++	regu->last_lp_mode = STPMIC2_LP_STATE_INVALID;
++	regu->lp_state[mode] = 0;
++
++	if (fdt_getprop(fdt, node, "regulator-off-in-suspend", NULL)) {
++		FMSG("%s: mode:%d OFF", regu_name, mode);
++		regu->lp_state[mode] |= STPMIC2_LP_STATE_OFF;
++	} else if (fdt_getprop(fdt, node, "regulator-on-in-suspend", NULL)) {
++		FMSG("%s: mode:%d ON", regu_name, mode);
++		regu->lp_state[mode] |= STPMIC2_LP_STATE_ON;
++	} else {
++		regu->lp_state[mode] |= STPMIC2_LP_STATE_UNMODIFIED;
++	}
++
++	cuint = fdt_getprop(fdt, node, "regulator-suspend-microvolt", NULL);
++	if (cuint) {
++		int level_uv = (int)fdt32_to_cpu(*cuint);
++
++		FMSG("%s: mode:%d suspend to %d uV", regu_name, mode, level_uv);
++
++		regu->lp_state[mode] |= STPMIC2_LP_STATE_SET_VOLT;
++		regu->lp_level_uv[mode] = level_uv;
++	}
++}
++
++static void parse_low_power_modes(const void *fdt, int node,
++				  struct regu_dt_desc *regu_desc)
++{
++	unsigned int mode = 0;
++
++	for (mode = 0; mode < plat_pmic2_get_lp_mode_count(); mode++) {
++		const char *lp_mode_name = plat_pmic2_get_lp_mode_name(mode);
++
++		if (lp_mode_name) {
++			int n = 0;
++
++			/* Get the configs from regulator_state_node subnode */
++			n = fdt_subnode_offset(fdt, node, lp_mode_name);
++			if (n >= 0)
++				parse_low_power_mode(fdt, n, regu_desc, mode);
++		}
++	}
++}
++
++static TEE_Result register_pmic_regulator(const void *fdt, struct stpmic2 *pmic,
++					  const char *regu_name, int node,
++					  int parent_node)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	const struct pmic_compat_data *cdata = pmic->compat_data;
++	struct regu_dt_desc desc = { };
++	struct pmic_regu *regu = NULL;
++	uint32_t index = 0;
++	uint8_t id = 0;
++	const char *desc_name = regu_name;
++
++	FMSG("Stpmic2 register %s", desc_name);
++
++	/* In case of PMIC1L PMIC2L */
++	if (!strcmp(desc_name, "buck1")) {
++		bool high = false;
++
++		res = stpmic2_is_buck1_high_voltage(pmic, &high);
++		if (res) {
++			EMSG("Failed to get %s id", desc_name);
++			return res;
++		}
++
++		if (high) {
++			FMSG("Buck1 in high voltage range");
++			desc_name = "buck1h";
++		}
++	}
++
++	/* Find the regulator platform description */
++	for (index = 0; index < cdata->desc_len; index++)
++		if (!strcmp(cdata->desc_table[index].name, desc_name))
++			break;
++	assert(index < cdata->desc_len);
++
++	desc = cdata->desc_table[index];
++
++	/* Find the pmic2 regulator id */
++	res = stpmic2_regulator_get_id(desc_name, &id);
++	if (res) {
++		EMSG("Failed to get %s id", desc_name);
++		return res;
++	}
++
++	regu = calloc(1, sizeof(*regu));
++	if (!regu)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	regu->pmic = pmic;
++	regu->id = id;
++
++	regu->lp_state = calloc(plat_pmic2_get_lp_mode_count(),
++				sizeof(*regu));
++	if (!regu->lp_state) {
++		free(regu);
++		return TEE_ERROR_OUT_OF_MEMORY;
++	}
++
++	regu->lp_level_uv = calloc(plat_pmic2_get_lp_mode_count(),
++				   sizeof(*regu));
++	if (!regu->lp_level_uv) {
++		free(regu->lp_state);
++		free(regu);
++		return TEE_ERROR_OUT_OF_MEMORY;
++	}
++
++	desc.priv = regu;
++
++	pmic_parse_regu_node(&desc, fdt, node);
++
++	parse_low_power_modes(fdt, node, &desc);
++
++	res = regulator_dt_register(fdt, node, parent_node, &desc);
++	if (res) {
++		EMSG("Failed to register %s", regu_name);
++		free(regu->lp_level_uv);
++		free(regu->lp_state);
++		free(regu);
++		return res;
++	}
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result parse_regulator_fdt_nodes(const void *fdt, int node,
++					    struct stpmic2 *pmic)
++{
++	int regulators_node = 0;
++	int regu_node = 0;
++
++	regulators_node = fdt_subnode_offset(fdt, node, "regulators");
++	if (regulators_node < 0)
++		panic();
++
++	fdt_for_each_subnode(regu_node, fdt, regulators_node) {
++		TEE_Result res = TEE_ERROR_GENERIC;
++		int status = fdt_get_status(fdt, regu_node);
++		const char *regu_name = NULL;
++
++		assert(status >= 0);
++		if (status == DT_STATUS_DISABLED)
++			continue;
++
++		regu_name = fdt_get_name(fdt, regu_node, NULL);
++		assert(regu_name);
++
++		res = register_pmic_regulator(fdt, pmic, regu_name, regu_node,
++					      regulators_node);
++		if (res) {
++			EMSG("Failed to register %s", regu_name);
++			return res;
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
++#ifdef CFG_STM32_PWR_IRQ
++
++/* We expect a single instance of STPMIC2, if any */
++static struct stpmic2 *stpmic2;
++
++static void pmic_event_handler(void)
++{
++	assert(stpmic2);
++
++	if (stpmic2_handle_irq(stpmic2))
++		panic("STPMIC2 interrupts");
++}
++
++static void enable_stpmic2_interrupt(struct stpmic2 *pmic)
++{
++	struct pmic_it_handle_s *prv = NULL;
++
++	SLIST_FOREACH(prv, &pmic->it_list, link) {
++		if (stpmic2_set_irq_mask(pmic, prv->pmic_it, false)) {
++			EMSG("Failed to enable STPMIC2 interrupt %u",
++			     prv->pmic_it);
++			panic();
++		}
++	}
++
++	/* Unmask all over-current interrupts */
++	if (stpmic2_register_write(pmic, INT_MASK_R3, 0x00))
++		panic();
++
++	if (stpmic2_register_write(pmic, INT_MASK_R4, 0x00))
++		panic();
++}
++
++static void yielding_stm32mp2_stpmic2_notif(struct notif_driver *ndrv __unused,
++					    enum notif_event ev)
++{
++	switch (ev) {
++	case NOTIF_EVENT_DO_BOTTOM_HALF:
++		pmic_event_handler();
++		break;
++	case NOTIF_EVENT_STOPPED:
++		/*
++		 * Treat events pending by the time NOTIF_EVENT_SOPPED
++		 * is handled by OP-TEE notif framework.
++		 */
++		pmic_event_handler();
++		break;
++	default:
++		EMSG("Unknown event %d", ev);
++		panic();
++	}
++}
++
++static void atomic_stm32mp2_stpmic2_notif(struct notif_driver *ndrv __unused,
++					  enum notif_event ev __maybe_unused,
++					  uint16_t guest_id __unused)
++{
++	assert(ev == NOTIF_EVENT_STARTED);
++}
++DECLARE_KEEP_PAGER(atomic_stm32mp2_stpmic2_notif);
++
++/* Structure below is not const to prevent it spreads in the unpaged sections */
++static struct notif_driver stm32mp2_stpmic2_notif = {
++	.atomic_cb = atomic_stm32mp2_stpmic2_notif,
++	.yielding_cb = yielding_stm32mp2_stpmic2_notif,
++};
++
++static enum itr_return pmic_it_handler(struct itr_handler *handler __unused)
++{
++	if (notif_async_is_started(0))
++		notif_send_async(NOTIF_VALUE_DO_BOTTOM_HALF, 0);
++	else
++		pmic_event_handler();
++
++	return ITRR_HANDLED;
++}
++DECLARE_KEEP_PAGER(pmic_it_handler);
++
++enum itr_return stpmic2_irq_callback(struct stpmic2 *pmic, uint8_t it_id)
++{
++	struct pmic_it_handle_s *prv = NULL;
++
++	assert(pmic == stpmic2);
++
++	FMSG("Stpmic2 it id %d", (int)it_id);
++
++	SLIST_FOREACH(prv, &pmic->it_list, link)
++		if (prv->pmic_it == it_id) {
++			FMSG("STPMIC2 send notif %u", prv->notif_id);
++
++			notif_send_it(prv->notif_id, 0);
++
++			return ITRR_HANDLED;
++		}
++
++	return ITRR_NONE;
++}
++
++static TEE_Result initialize_pmic2_irq(const void *fdt, int node,
++				       struct stpmic2 *pmic)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	const uint32_t *notif_ids = NULL;
++	struct itr_chip *itr_chip = NULL;
++	size_t itr_num = 0;
++	int nb_notif = 0;
++
++	FMSG("Init stpmic2 irq");
++
++	res = interrupt_dt_get(fdt, node, &itr_chip, &itr_num);
++	if (res)
++		return res;
++
++	res = interrupt_create_handler(itr_chip, itr_num, pmic_it_handler,
++				       NULL, 0, NULL);
++	if (res)
++		panic("pmic: Could not create interrupt handler");
++
++	SLIST_INIT(&pmic->it_list);
++
++	if (IS_ENABLED(CFG_CORE_ASYNC_NOTIF))
++		notif_register_driver(&stm32mp2_stpmic2_notif);
++
++	notif_ids = fdt_getprop(fdt, node, "st,notif-it-id", &nb_notif);
++
++	if (nb_notif > 0) {
++		struct pmic_it_handle_s *prv = NULL;
++		unsigned int i = 0;
++		const uint32_t *pmic_its = NULL;
++		int nb_it = 0;
++
++		pmic_its = fdt_getprop(fdt, node, "st,pmic-it-id", &nb_it);
++		if (!pmic_its) {
++			EMSG("Missing property st,pmic-it-id on node %s",
++			     fdt_get_name(fdt, node, NULL));
++			panic();
++		}
++
++		if (nb_it != nb_notif)
++			panic("st,notif-it-id incorrect description");
++
++		for (i = 0; i < (nb_notif / sizeof(uint32_t)); i++) {
++			uint8_t pmic_it = 0;
++
++			prv = calloc(1, sizeof(*prv));
++			if (!prv)
++				panic("pmic: Could not allocate pmic it");
++
++			pmic_it = fdt32_to_cpu(pmic_its[i]);
++
++			assert(pmic_it <= IT_LDO8_OCP);
++
++			prv->pmic_it = pmic_it;
++			prv->notif_id = fdt32_to_cpu(notif_ids[i]);
++
++			SLIST_INSERT_HEAD(&pmic->it_list, prv, link);
++
++			FMSG("STPMIC2 forwards pmic_it:%u as notif:%u",
++			     prv->pmic_it, prv->notif_id);
++		}
++	}
++
++	stm32_i2c_interrupt_access_lockdeps(pmic->pmic_i2c_handle, itr_chip,
++					    itr_num);
++
++	stpmic2 = pmic;
++
++	enable_stpmic2_interrupt(pmic);
++
++	interrupt_enable(itr_chip, itr_num);
++	if (fdt_getprop(fdt, node, "wakeup-source", NULL)) {
++		if (interrupt_can_set_wake(itr_chip))
++			interrupt_set_wake(itr_chip, itr_num, true);
++		else
++			DMSG("PMIC wakeup source ignored");
++	}
++
++	return TEE_SUCCESS;
++}
++#endif
++
++static void initialize_pmic2_i2c(const void *fdt, int node,
++				 struct stpmic2 *pmic, struct i2c_handle_s *i2c)
++{
++	const fdt32_t *cuint = NULL;
++	uint32_t pmic_i2c_addr = 0;
++
++	cuint = fdt_getprop(fdt, node, "reg", NULL);
++	if (!cuint)
++		panic("PMIC configuration failed on reg property");
++
++	pmic_i2c_addr = fdt32_to_cpu(*cuint) << 1;
++	if (pmic_i2c_addr > UINT16_MAX)
++		panic("PMIC configuration failed on i2c address translation");
++
++	if (!stm32_i2c_is_device_ready(i2c, pmic_i2c_addr, PMIC_I2C_TRIALS,
++				       PMIC_I2C_TIMEOUT_BUSY_MS))
++		panic("PMIC2 I2C init failed");
++
++	pmic->pmic_i2c_handle = i2c;
++	pmic->pmic_i2c_addr = pmic_i2c_addr;
++}
++
++/*
++ * PMIC and resource initialization
++ */
++static void initialize_pmic2(const void *fdt, int node,
++			     struct stpmic2 *pmic, struct i2c_handle_s *i2c)
++{
++	const struct pmic_compat_data __maybe_unused *cdata = pmic->compat_data;
++	uint8_t ver = 0;
++	uint8_t pid = 0;
++
++	FMSG("Initialize stpmic2");
++
++	initialize_pmic2_i2c(fdt, node, pmic, i2c);
++
++	if (stpmic2_get_product_id(pmic, &pid) ||
++	    stpmic2_get_version(pmic, &ver))
++		panic("Failed to access PMIC");
++
++	pmic->ref_id = ((pid & PMIC_REF_ID_MASK) >> PMIC_REF_ID_SHIFT);
++
++	/* NVM version A stands for NVM_ID=1 */
++	IMSG("PMIC STPMIC REFID:%"PRIu8".%c V%"PRIu8".%"PRIu8,
++	     pmic->ref_id,
++	     'A' + (pid & PMIC_NVM_ID_MASK) - U(1),
++	     (ver & MAJOR_VERSION_MASK) >> MAJOR_VERSION_SHIFT,
++	     ver & MINOR_VERSION_MASK);
++
++	assert(pmic->ref_id == cdata->ref_id);
++
++	stpmic2_dump_regulators(pmic);
++}
++
++static TEE_Result stm32_pmic2_probe(const void *fdt, int node,
++				    const void *compat_data)
++{
++	struct stm32_i2c_dev *stm32_i2c_dev = NULL;
++	struct i2c_dev *i2c_dev = NULL;
++	struct stpmic2 *pmic = NULL;
++	TEE_Result res = TEE_SUCCESS;
++
++	FMSG("Probe stpmic2");
++
++	res = i2c_dt_get_dev(fdt, node, &i2c_dev);
++	if (res)
++		return res;
++
++	stm32_i2c_dev = container_of(i2c_dev, struct stm32_i2c_dev, i2c_dev);
++
++	pmic = calloc(1, sizeof(*pmic));
++	if (!pmic)
++		panic();
++
++	pmic->compat_data = compat_data;
++
++	initialize_pmic2(fdt, node, pmic, stm32_i2c_dev->handle);
++
++#ifdef CFG_STM32_PWR_IRQ
++	res = initialize_pmic2_irq(fdt, node, pmic);
++	if (res) {
++		free(pmic);
++		return res;
++	}
++#endif
++
++	res = parse_regulator_fdt_nodes(fdt, node, pmic);
++	if (res)
++		panic();
++
++	stm32_pmic2 = true;
++
++	return TEE_SUCCESS;
++}
++
++#define DEFINE_REGU(_name) { \
++		.name = (_name), \
++		.ops = &pmic2_regu_ops, \
++	}
++
++#define DEFINE_SWITCH(_name) { \
++		.name = (_name), \
++		.ops = &pmic2_switch_ops, \
++	}
++
++const struct regu_dt_desc pmic25_reguls[] = {
++	DEFINE_REGU("buck1"),
++	DEFINE_REGU("buck2"),
++	DEFINE_REGU("buck3"),
++	DEFINE_REGU("buck4"),
++	DEFINE_REGU("buck5"),
++	DEFINE_REGU("buck6"),
++	DEFINE_REGU("buck7"),
++	DEFINE_REGU("ldo1"),
++	DEFINE_REGU("ldo2"),
++	DEFINE_REGU("ldo3"),
++	DEFINE_REGU("ldo4"),
++	DEFINE_REGU("ldo5"),
++	DEFINE_REGU("ldo6"),
++	DEFINE_REGU("ldo7"),
++	DEFINE_REGU("ldo8"),
++	DEFINE_SWITCH("refddr"),
++};
++DECLARE_KEEP_PAGER_PM(pmic25_reguls);
++
++const struct regu_dt_desc pmic1l_reguls[] = {
++	DEFINE_REGU("buck1"),
++	DEFINE_REGU("buck1h"),
++	DEFINE_REGU("buck2"),
++	DEFINE_REGU("ldo2"),
++	DEFINE_REGU("ldo3"),
++	DEFINE_REGU("ldo4"),
++	DEFINE_REGU("ldo5"),
++	DEFINE_SWITCH("gpo1"),
++	DEFINE_SWITCH("gpo2"),
++};
++DECLARE_KEEP_PAGER_PM(pmic1l_reguls);
++
++const struct regu_dt_desc pmic2l_reguls[] = {
++	DEFINE_REGU("buck1"),
++	DEFINE_REGU("buck1h"),
++	DEFINE_REGU("buck2"),
++	DEFINE_REGU("buck3"),
++	DEFINE_REGU("ldo1"),
++	DEFINE_REGU("ldo2"),
++	DEFINE_REGU("ldo3"),
++	DEFINE_REGU("ldo4"),
++	DEFINE_REGU("ldo5"),
++	DEFINE_REGU("ldo6"),
++	DEFINE_REGU("ldo7"),
++	DEFINE_SWITCH("gpo1"),
++	DEFINE_SWITCH("gpo2"),
++	DEFINE_SWITCH("gpo3"),
++	DEFINE_SWITCH("gpo4"),
++	DEFINE_SWITCH("gpo5"),
++};
++DECLARE_KEEP_PAGER_PM(pmic2l_reguls);
++
++static const struct pmic_compat_data stm32_pmic25_cdata = {
++	.desc_table = pmic25_reguls,
++	.desc_len = ARRAY_SIZE(pmic25_reguls),
++	.ref_id =  PMIC_REF_ID_STPMIC25,
++};
++
++static const struct pmic_compat_data stm32_pmic1l_cdata = {
++	.desc_table = pmic1l_reguls,
++	.desc_len = ARRAY_SIZE(pmic1l_reguls),
++	.ref_id =  PMIC_REF_ID_STPMIC1L,
++};
++
++static const struct pmic_compat_data stm32_pmic2l_cdata = {
++	.desc_table = pmic2l_reguls,
++	.desc_len = ARRAY_SIZE(pmic2l_reguls),
++	.ref_id =  PMIC_REF_ID_STPMIC2L,
++};
++
++static const struct dt_device_match stm32_pmic2_match_table[] = {
++	{
++		.compatible = "st,stpmic2",
++		.compat_data = &stm32_pmic25_cdata,
++	},
++	{
++		.compatible = "st,stpmic1l",
++		.compat_data = &stm32_pmic1l_cdata,
++	},
++	{
++		.compatible = "st,stpmic2l",
++		.compat_data = &stm32_pmic2l_cdata,
++	},
++	{ }
++};
++
++DEFINE_DT_DRIVER(stm32_pmic2_dt_driver) = {
++	.name = "stm32_pmic2",
++	.match_table = stm32_pmic2_match_table,
++	.probe = stm32_pmic2_probe,
++};
++
++bool stm32_stpmic2_is_present(void)
++{
++	return stm32_pmic2;
++}
++
+diff --git a/core/drivers/stpmic2.c b/core/drivers/stpmic2.c
+new file mode 100644
+index 000000000..b709a10c1
+--- /dev/null
++++ b/core/drivers/stpmic2.c
+@@ -0,0 +1,738 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2022-2023, STMicroelectronics - All Rights Reserved
++ */
++
++#include <assert.h>
++#include <drivers/stpmic2.h>
++#include <kernel/panic.h>
++#include <platform_config.h>
++#include <stdint.h>
++#include <string.h>
++#include <trace.h>
++#include <util.h>
++
++#define VOLTAGE_INDEX_INVALID		((size_t)~(U(0)))
++
++struct regul_struct {
++	const char *name;
++	const uint16_t *volt_table;
++	uint8_t volt_table_size;
++	uint8_t volt_cr;
++	uint8_t volt_shift;
++	uint8_t en_cr;
++	uint8_t alt_en_cr;
++	uint8_t alt_volt_cr;
++	uint8_t pwrctrl_cr;
++	uint8_t msrt_reg;
++	uint8_t msrt_mask;
++	uint8_t pd_reg;
++	uint8_t pd_val;
++	uint8_t pd_mask;
++	uint8_t ocp_reg;
++	uint8_t ocp_mask;
++};
++
++#define BUCK_VOLT_TABLE_SIZE 128
++#define LDO235678_VOLT_TABLE_SIZE 32
++#define LDO_SINGLE_VOLT_TABLE_SIZE 1
++
++/* Voltage tables in mV */
++static const uint16_t buck_low_volt_table[BUCK_VOLT_TABLE_SIZE] = {
++	U(500), U(510), U(520), U(530), U(540),
++	U(550), U(560), U(570), U(580), U(590),
++	U(600), U(610), U(620), U(630), U(640),
++	U(650), U(660), U(670), U(680), U(690),
++	U(700), U(710), U(720), U(730), U(740),
++	U(750), U(760), U(770), U(780), U(790),
++	U(800), U(810), U(820), U(830), U(840),
++	U(850), U(860), U(870), U(880), U(890),
++	U(900), U(910), U(920), U(930), U(940),
++	U(950), U(960), U(970), U(980), U(990),
++	U(1000), U(1010), U(1020), U(1030), U(1040),
++	U(1050), U(1060), U(1070), U(1080), U(1090),
++	U(1100), U(1110), U(1120), U(1130), U(1140),
++	U(1150), U(1160), U(1170), U(1180), U(1190),
++	U(1200), U(1210), U(1220), U(1230), U(1240),
++	U(1250), U(1260), U(1270), U(1280), U(1290),
++	U(1300), U(1310), U(1320), U(1330), U(1340),
++	U(1350), U(1360), U(1370), U(1380), U(1390),
++	U(1400), U(1410), U(1420), U(1430), U(1440),
++	U(1450), U(1460), U(1470), U(1480), U(1490),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500)
++};
++
++static const uint16_t buck_high_volt_table[BUCK_VOLT_TABLE_SIZE] = {
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1500), U(1500), U(1500), U(1500),
++	U(1500), U(1600), U(1700), U(1800), U(1900),
++	U(2000), U(2100), U(2200), U(2300), U(2400),
++	U(2500), U(2600), U(2700), U(2800), U(2900),
++	U(3000), U(3100), U(3200), U(3300), U(3400),
++	U(3500), U(3600), U(3700), U(3800), U(3900),
++	U(4000), U(4100), U(4200)
++};
++
++static const uint16_t ldo235678_volt_table[LDO235678_VOLT_TABLE_SIZE] = {
++	U(900), U(1000), U(1100), U(1200), U(1300),
++	U(1400), U(1500), U(1600), U(1700), U(1800),
++	U(1900), U(2000), U(2100), U(2200), U(2300),
++	U(2400), U(2500), U(2600), U(2700), U(2800),
++	U(2900), U(3000), U(3100), U(3200), U(3300),
++	U(3400), U(3500), U(3600), U(3700), U(3800),
++	U(3900), U(4000)
++};
++
++static const uint16_t ldo1_volt_table[LDO_SINGLE_VOLT_TABLE_SIZE] = {
++	U(1800),
++};
++
++static const uint16_t ldo4_volt_table[LDO_SINGLE_VOLT_TABLE_SIZE] = {
++	U(3300),
++};
++
++static const uint16_t refddr_volt_table[LDO_SINGLE_VOLT_TABLE_SIZE] = {
++	U(0),
++};
++
++#define DEFINE_BUCK(regu_name, ID, pd, table) { \
++	.name			= regu_name, \
++	.volt_table		= table, \
++	.volt_table_size	= BUCK_VOLT_TABLE_SIZE, \
++	.en_cr			= ID ## _MAIN_CR2, \
++	.volt_cr		= ID ## _MAIN_CR1, \
++	.alt_en_cr		= ID ## _ALT_CR2, \
++	.alt_volt_cr		= ID ## _ALT_CR1, \
++	.pwrctrl_cr		= ID ## _PWRCTRL_CR, \
++	.msrt_reg		= BUCKS_MRST_CR, \
++	.msrt_mask		= ID ## _MRST, \
++	.pd_reg			= pd, \
++	.pd_val			= ID ## _PD_FAST, \
++	.pd_mask		= ID ## _PD_MASK, \
++	.ocp_reg		= FS_OCP_CR1, \
++	.ocp_mask		= FS_OCP_ ## ID, \
++}
++
++#define DEFINE_LDOx(regu_name, ID, table, size) { \
++	.name			= regu_name, \
++	.volt_table		= table, \
++	.volt_table_size	= size, \
++	.volt_shift		= LDO_VOLT_SHIFT, \
++	.en_cr			= ID ## _MAIN_CR, \
++	.volt_cr		= ID ## _MAIN_CR, \
++	.alt_en_cr		= ID ## _ALT_CR, \
++	.alt_volt_cr		= ID ## _ALT_CR, \
++	.pwrctrl_cr		= ID ## _PWRCTRL_CR, \
++	.msrt_reg		= LDOS_MRST_CR, \
++	.msrt_mask		= ID ## _MRST, \
++	.pd_reg			= LDOS_PD_CR1, \
++	.pd_val			= ID ## _PD, \
++	.pd_mask		= ID ## _PD, \
++	.ocp_reg		= FS_OCP_CR2, \
++	.ocp_mask		= FS_OCP_ ## ID, \
++}
++
++#define DEFINE_REFDDR(regu_name, ID, table) { \
++	.name			= regu_name, \
++	.volt_table		= table, \
++	.volt_table_size	= LDO_SINGLE_VOLT_TABLE_SIZE, \
++	.en_cr			= ID ## _MAIN_CR, \
++	.volt_cr		= ID ## _MAIN_CR, \
++	.alt_en_cr		= ID ## _ALT_CR, \
++	.alt_volt_cr		= ID ## _ALT_CR, \
++	.pwrctrl_cr		= ID ## _PWRCTRL_CR, \
++	.msrt_reg		= BUCKS_MRST_CR, \
++	.msrt_mask		= ID ## _MRST, \
++	.pd_reg			= LDOS_PD_CR2, \
++	.pd_val			= ID ## _PD, \
++	.pd_mask		= ID ## _PD, \
++	.ocp_reg		= FS_OCP_CR1, \
++	.ocp_mask		= FS_OCP_ ## ID, \
++}
++
++#define DEFINE_GPOx(regu_name, ID) { \
++	.name			= regu_name, \
++	.en_cr			= ID ## _MAIN_CR, \
++	.alt_en_cr		= ID ## _ALT_CR, \
++	.pwrctrl_cr		= ID ## _PWRCTRL_CR, \
++	.msrt_reg		= GPO_MRST_CR, \
++	.msrt_mask		= ID ## _MRST, \
++}
++
++/* Table of Regulators in PMIC SoC */
++static const struct regul_struct regul_table[] = {
++	[STPMIC2_BUCK1] = DEFINE_BUCK("buck1", BUCK1, BUCKS_PD_CR1,
++				      buck_low_volt_table),
++	[STPMIC2_BUCK1H] = DEFINE_BUCK("buck1h", BUCK1, BUCKS_PD_CR1,
++				      buck_high_volt_table),
++	[STPMIC2_BUCK2] = DEFINE_BUCK("buck2", BUCK2, BUCKS_PD_CR1,
++				      buck_low_volt_table),
++	[STPMIC2_BUCK3] = DEFINE_BUCK("buck3", BUCK3, BUCKS_PD_CR1,
++				      buck_low_volt_table),
++	[STPMIC2_BUCK4] = DEFINE_BUCK("buck4", BUCK4, BUCKS_PD_CR1,
++				      buck_high_volt_table),
++	[STPMIC2_BUCK5] = DEFINE_BUCK("buck5", BUCK5, BUCKS_PD_CR2,
++				      buck_high_volt_table),
++	[STPMIC2_BUCK6] = DEFINE_BUCK("buck6", BUCK6, BUCKS_PD_CR2,
++				      buck_low_volt_table),
++	[STPMIC2_BUCK7] = DEFINE_BUCK("buck7", BUCK7, BUCKS_PD_CR2,
++				      buck_high_volt_table),
++
++	[STPMIC2_REFDDR] = DEFINE_REFDDR("refddr", REFDDR, refddr_volt_table),
++
++	[STPMIC2_LDO1] = DEFINE_LDOx("ldo1", LDO1, ldo1_volt_table,
++				     LDO_SINGLE_VOLT_TABLE_SIZE),
++	[STPMIC2_LDO2] = DEFINE_LDOx("ldo2", LDO2, ldo235678_volt_table,
++				     LDO235678_VOLT_TABLE_SIZE),
++	[STPMIC2_LDO3] = DEFINE_LDOx("ldo3", LDO3, ldo235678_volt_table,
++				     LDO235678_VOLT_TABLE_SIZE),
++	[STPMIC2_LDO4] = DEFINE_LDOx("ldo4", LDO4, ldo4_volt_table,
++				     LDO_SINGLE_VOLT_TABLE_SIZE),
++	[STPMIC2_LDO5] = DEFINE_LDOx("ldo5", LDO5, ldo235678_volt_table,
++				     LDO235678_VOLT_TABLE_SIZE),
++	[STPMIC2_LDO6] = DEFINE_LDOx("ldo6", LDO6, ldo235678_volt_table,
++				     LDO235678_VOLT_TABLE_SIZE),
++	[STPMIC2_LDO7] = DEFINE_LDOx("ldo7", LDO7, ldo235678_volt_table,
++				     LDO235678_VOLT_TABLE_SIZE),
++	[STPMIC2_LDO8] = DEFINE_LDOx("ldo8", LDO8, ldo235678_volt_table,
++				     LDO235678_VOLT_TABLE_SIZE),
++
++	[STPMIC2_GPO1] = DEFINE_GPOx("gpo1", GPO1),
++	[STPMIC2_GPO2] = DEFINE_GPOx("gpo2", GPO2),
++	[STPMIC2_GPO3] = DEFINE_GPOx("gpo3", GPO3),
++	[STPMIC2_GPO4] = DEFINE_GPOx("gpo4", GPO4),
++	[STPMIC2_GPO5] = DEFINE_GPOx("gpo5", GPO5),
++};
++
++TEE_Result stpmic2_regulator_get_id(const char *regu_name, uint8_t *id)
++{
++	uint8_t i = 0;
++
++	FMSG("Stpmic2 get id %s", regu_name);
++
++	for (i = 0; i < ARRAY_SIZE(regul_table); i++)
++		if (!strcmp(regul_table[i].name, regu_name)) {
++			*id = i;
++			return TEE_SUCCESS;
++		}
++
++	return TEE_ERROR_ITEM_NOT_FOUND;
++}
++
++TEE_Result stpmic2_register_read(struct stpmic2 *pmic,
++				 uint8_t register_id, uint8_t *value)
++{
++	int rc = 0;
++
++	rc = stm32_i2c_read_write_membyte(pmic->pmic_i2c_handle,
++					  pmic->pmic_i2c_addr,
++					  register_id, value,
++					  false /* !write */);
++	if (rc) {
++		EMSG("Failed to read register %#"PRIx8, register_id);
++		return TEE_ERROR_COMMUNICATION;
++	}
++
++	FMSG("REG[%#"PRIx8" v=%#"PRIx8, register_id, *value);
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stpmic2_register_write(struct stpmic2 *pmic, uint8_t register_id,
++				  uint8_t value)
++{
++	int rc = 0;
++
++	rc = stm32_i2c_read_write_membyte(pmic->pmic_i2c_handle,
++					  pmic->pmic_i2c_addr,
++					  register_id, &value,
++					  true /* write */);
++	if (rc) {
++		EMSG("Failed to write reg: %#"PRIx8, register_id);
++		return TEE_ERROR_COMMUNICATION;
++	}
++
++	FMSG("REG:%#"PRIx8" written v=%#"PRIx8, register_id, value);
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stpmic2_register_update(struct stpmic2 *pmic, uint8_t register_id,
++				   uint8_t value, uint8_t mask)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint8_t val = 0;
++
++	res = stpmic2_register_read(pmic, register_id, &val);
++	if (res)
++		return res;
++
++	val = (val & ~mask) | (value & mask);
++
++	FMSG("REG:%#"PRIx8" v=%#"PRIx8" mask=%#"PRIx8" -> %#"PRIx8,
++	     register_id, value, mask, val);
++
++	return stpmic2_register_write(pmic, register_id, val);
++}
++
++TEE_Result stpmic2_regulator_set_state(struct stpmic2 *pmic, uint8_t id,
++				       bool enable)
++{
++	const struct regul_struct *regul = regul_table + id;
++
++	if (enable)
++		return stpmic2_register_update(pmic, regul->en_cr, 1, 1);
++	else
++		return stpmic2_register_update(pmic, regul->en_cr, 0, 1);
++}
++
++TEE_Result stpmic2_regulator_get_state(struct stpmic2 *pmic,
++				       uint8_t id, bool *enabled)
++{
++	const struct regul_struct *regul = regul_table + id;
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint8_t val = 0;
++
++	res = stpmic2_register_read(pmic, regul->en_cr, &val);
++	if (res)
++		return res;
++
++	*enabled = val & 1;
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stpmic2_regulator_levels_mv(struct stpmic2 *pmic __unused,
++				       uint8_t id, const uint16_t **levels,
++				       size_t *levels_count)
++{
++	const struct regul_struct *regul = regul_table + id;
++
++	if (!regul)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (levels_count)
++		*levels_count = regul->volt_table_size;
++	if (levels)
++		*levels = regul->volt_table;
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stpmic2_regulator_get_voltage(struct stpmic2 *pmic, uint8_t id,
++					 uint16_t *val)
++{
++	const struct regul_struct *regul = regul_table + id;
++	uint8_t value = 0;
++	uint8_t mask = 0;
++
++	if (!regul->volt_table_size)
++		return TEE_ERROR_GENERIC;
++
++	mask = regul->volt_table_size - 1;
++	if (mask) {
++		TEE_Result res = stpmic2_register_read(pmic, regul->volt_cr,
++						       &value);
++		if (res)
++			return res;
++
++		value = (value >> regul->volt_shift) & mask;
++	}
++
++	if (value > regul->volt_table_size)
++		panic();
++
++	*val = regul->volt_table[value];
++
++	return TEE_SUCCESS;
++}
++
++static size_t voltage_to_index(const struct regul_struct *regul,
++			       uint16_t millivolts)
++{
++	unsigned int i = 0;
++
++	assert(regul->volt_table);
++	for (i = 0; i < regul->volt_table_size; i++)
++		if (regul->volt_table[i] == millivolts)
++			return i;
++
++	return VOLTAGE_INDEX_INVALID;
++}
++
++TEE_Result stpmic2_regulator_set_voltage(struct stpmic2 *pmic, uint8_t id,
++					 uint16_t millivolts)
++{
++	const struct regul_struct *regul = regul_table + id;
++	size_t index = 0;
++	uint8_t mask = 0;
++
++	if (!regul->volt_table_size)
++		return TEE_SUCCESS;
++
++	mask = regul->volt_table_size - 1;
++
++	index = voltage_to_index(regul, millivolts);
++	if (index == VOLTAGE_INDEX_INVALID)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	return stpmic2_register_update(pmic, regul->volt_cr,
++				       index << regul->volt_shift,
++				       mask << regul->volt_shift);
++}
++
++/* update both normal and alternate register */
++static TEE_Result stpmic2_update_en_crs(struct stpmic2 *pmic, uint8_t id,
++					uint8_t value, uint8_t mask)
++{
++	const struct regul_struct *regul = regul_table + id;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	res = stpmic2_register_update(pmic, regul->en_cr, value, mask);
++	if (res)
++		return res;
++
++	return stpmic2_register_update(pmic, regul->alt_en_cr, value, mask);
++}
++
++TEE_Result stpmic2_regulator_get_prop(struct stpmic2 *pmic, uint8_t id,
++				      enum stpmic2_prop_id prop, uint8_t *arg)
++{
++	const struct regul_struct *regul = regul_table + id;
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint8_t val = 0;
++
++	DMSG("%s: get prop %d", regul->name, prop);
++
++	switch (prop) {
++	case STPMIC2_BYPASS:
++		*arg = PROP_BYPASS_RESET;
++
++		if (id <= STPMIC2_BUCK7 || id == STPMIC2_LDO1 ||
++		    id == STPMIC2_LDO4 || id == STPMIC2_REFDDR ||
++		    pmic->ref_id != PMIC_REF_ID_STPMIC25)
++			return TEE_SUCCESS;
++
++		res = stpmic2_register_read(pmic, regul->en_cr, &val);
++		if (res)
++			return res;
++
++		if (val & LDO_BYPASS)
++			*arg = PROP_BYPASS_SET;
++
++		break;
++	default:
++		EMSG("Invalid prop %d", prop);
++		panic();
++	}
++
++	return TEE_SUCCESS;
++}
++
++TEE_Result stpmic2_regulator_set_prop(struct stpmic2 *pmic, uint8_t id,
++				      enum stpmic2_prop_id prop, uint8_t arg)
++{
++	const struct regul_struct *regul = regul_table + id;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	DMSG("%s: set prop %d arg=%"PRIu8, regul->name, prop, arg);
++
++	switch (prop) {
++	case STPMIC2_PULL_DOWN:
++		return stpmic2_register_update(pmic, regul->pd_reg,
++					       regul->pd_val,
++					       regul->pd_val);
++	case STPMIC2_MASK_RESET:
++		if (!regul->msrt_mask)
++			return TEE_ERROR_BAD_PARAMETERS;
++		/* enable mask reset */
++		return stpmic2_register_update(pmic, regul->msrt_reg,
++					       regul->msrt_mask,
++					       regul->msrt_mask);
++	case STPMIC2_BYPASS:
++		if (id <= STPMIC2_BUCK7 || id == STPMIC2_LDO1 ||
++		    id == STPMIC2_LDO4 || id == STPMIC2_REFDDR ||
++		    pmic->ref_id != PMIC_REF_ID_STPMIC25)
++			return TEE_ERROR_BAD_PARAMETERS;
++
++		/* clear sink source mode */
++		if (id == STPMIC2_LDO3) {
++			res = stpmic2_update_en_crs(pmic, id, 0, LDO3_SNK_SRC);
++			if (res)
++				return res;
++		}
++
++		/* set or reset bypass mode */
++		return stpmic2_update_en_crs(pmic, id,
++					     (arg == PROP_BYPASS_SET) ?
++					     LDO_BYPASS : 0, LDO_BYPASS);
++	case STPMIC2_SINK_SOURCE:
++		if (id != STPMIC2_LDO3)
++			return TEE_ERROR_BAD_PARAMETERS;
++
++		/* clear bypass mode */
++		res = stpmic2_update_en_crs(pmic, id, 0, LDO_BYPASS);
++		if (res)
++			return res;
++
++		return stpmic2_update_en_crs(pmic, id, LDO3_SNK_SRC,
++					     LDO3_SNK_SRC);
++	case STPMIC2_OCP:
++		if (!regul->ocp_reg)
++			return TEE_ERROR_BAD_PARAMETERS;
++		/* enable mask reset */
++		return stpmic2_register_update(pmic, regul->ocp_reg,
++					       U(0), regul->ocp_mask);
++	case STPMIC2_PWRCTRL_EN:
++		if (!regul->pwrctrl_cr)
++			return TEE_ERROR_BAD_PARAMETERS;
++		/* set pwrctrl eable, disable pwrctrl reset */
++		return stpmic2_register_update(pmic, regul->pwrctrl_cr,
++					       PWRCTRL_EN,
++					       PWRCTRL_EN | PWRCTRL_RS);
++	case STPMIC2_PWRCTRL_RS:
++		if (!regul->pwrctrl_cr)
++			return TEE_ERROR_BAD_PARAMETERS;
++		/* set pwrctrl reset, disable pwrctrl enable */
++		return stpmic2_register_update(pmic, regul->pwrctrl_cr,
++					       PWRCTRL_RS,
++					       PWRCTRL_EN | PWRCTRL_RS);
++	case STPMIC2_PWRCTRL_SEL:
++		if (!regul->pwrctrl_cr) /* fixme : useless */
++			return TEE_ERROR_BAD_PARAMETERS;
++		/* select pwr control line */
++		return stpmic2_register_update(pmic, regul->pwrctrl_cr,
++					       arg << PWRCTRL_SEL_SHIFT,
++					       PWRCTRL_SEL_MASK);
++	case STPMIC2_MAIN_PREG_MODE:
++		/* only a buck has preg mode */
++		if (id > STPMIC2_BUCK7)
++			return TEE_ERROR_BAD_PARAMETERS;
++		if (arg > 2)
++			return TEE_ERROR_BAD_PARAMETERS;
++		/* set preg mode on BUCKx_MAIN_CR2 */
++		return stpmic2_register_update(pmic, regul->en_cr,
++					       arg << PREG_MODE_SHIFT,
++					       PREG_MODE_MASK);
++	case STPMIC2_ALT_PREG_MODE:
++		/* only a buck has preg mode */
++		if (id > STPMIC2_BUCK7)
++			return TEE_ERROR_BAD_PARAMETERS;
++		if (arg > 2)
++			return TEE_ERROR_BAD_PARAMETERS;
++		/* set preg mode on BUCKx_MAIN_CR2 */
++		return stpmic2_register_update(pmic, regul->alt_en_cr,
++					       arg << PREG_MODE_SHIFT,
++					       PREG_MODE_MASK);
++	case STPMIC2_ALTERNATE_INPUT_SOURCE:
++		if (id != STPMIC2_LDO1)
++			return TEE_ERROR_BAD_PARAMETERS;
++
++		return stpmic2_update_en_crs(pmic, id,
++					     LDO1_INPUT_SRC, LDO1_INPUT_SRC);
++	default:
++		EMSG("Invalid prop %d", prop);
++		panic();
++	}
++
++	return 0;
++}
++
++void stpmic2_dump_regulators(struct stpmic2 *pmic)
++{
++	size_t i = 0;
++
++	assert(pmic);
++
++	if (CFG_TEE_CORE_LOG_LEVEL < TRACE_DEBUG)
++		return;
++
++	for (i = 0; i < ARRAY_SIZE(regul_table); i++) {
++		bool state = false;
++		uint16_t val = 0;
++		uint8_t arg = 0;
++
++		if (!regul_table[i].volt_cr)
++			continue;
++
++		stpmic2_regulator_get_voltage(pmic, i, &val);
++		stpmic2_regulator_get_state(pmic, i, &state);
++		stpmic2_regulator_get_prop(pmic, i, STPMIC2_BYPASS, &arg);
++
++		DMSG("PMIC regul %s: %s%s, %"PRIu16"mV", regul_table[i].name,
++		     state ? "EN" : "DIS",
++		     arg == PROP_BYPASS_SET ? " BYPASS" : "",  val);
++	}
++}
++
++TEE_Result stpmic2_get_version(struct stpmic2 *pmic, uint8_t *val)
++{
++	return stpmic2_register_read(pmic, VERSION_SR, val);
++}
++
++TEE_Result stpmic2_get_product_id(struct stpmic2 *pmic, uint8_t *val)
++{
++	return stpmic2_register_read(pmic, PRODUCT_ID, val);
++}
++
++TEE_Result stpmic2_is_buck1_high_voltage(struct stpmic2 *pmic, bool *high)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint8_t val = 0;
++
++	if (pmic->ref_id == PMIC_REF_ID_STPMIC25) {
++		*high = false;
++		return TEE_SUCCESS;
++	}
++
++	res = stpmic2_register_read(pmic,  NVM_BUCK1_VOUT_SHR, &val);
++
++	*high = val & BUCK1_VRANGE_CFG;
++
++	return res;
++}
++
++/*
++ *
++ * Low Power
++ *
++ */
++TEE_Result stpmic2_lp_set_state(struct stpmic2 *pmic, uint8_t id, bool enable)
++{
++	const struct regul_struct *regul = regul_table + id;
++
++	if (enable)
++		return stpmic2_register_update(pmic, regul->alt_en_cr, 1, 1);
++	else
++		return stpmic2_register_update(pmic, regul->alt_en_cr, 0, 1);
++}
++
++TEE_Result stpmic2_lp_set_voltage(struct stpmic2 *pmic, uint8_t id, uint16_t mv)
++{
++	const struct regul_struct *regul = regul_table + id;
++	size_t index = 0;
++	uint8_t mask = 0;
++
++	if (!regul->volt_table_size)
++		return TEE_SUCCESS;
++
++	mask = regul->volt_table_size - U(1);
++
++	index = voltage_to_index(regul, mv);
++	if (index == VOLTAGE_INDEX_INVALID)
++		return TEE_ERROR_GENERIC;
++
++	return stpmic2_register_update(pmic, regul->alt_volt_cr,
++				       index << regul->volt_shift,
++				       mask << regul->volt_shift);
++}
++
++/*
++ *
++ * Interrupt handling
++ *
++ */
++ #ifdef CFG_STM32_PWR_IRQ
++TEE_Result stpmic2_set_irq_mask(struct stpmic2 *pmic, uint8_t num, bool state)
++{
++	uint8_t reg = INT_MASK_R1 + num / 8;
++	uint8_t mask = BIT(num % 8);
++	uint8_t val = state ? mask : 0;
++
++	return stpmic2_register_update(pmic, reg, val, mask);
++}
++
++TEE_Result stpmic2_irq_gen(struct stpmic2 *pmic, uint8_t num)
++{
++	uint8_t reg = INT_DBG_LATCH_R1 + num / 8;
++	uint8_t mask = BIT(num % 8);
++
++	return stpmic2_register_update(pmic, reg, mask, mask);
++}
++
++static void stpmic2_handle_irq_reg(struct stpmic2 *pmic,
++				   uint8_t reg_index, uint8_t val)
++{
++	int i = 0;
++
++	for (i = 0; i < 7; i++) {
++		if (val & BIT(i)) {
++			uint8_t it_id = reg_index * U(8) + i;
++			enum itr_return res;
++
++			res = stpmic2_irq_callback(pmic, it_id);
++
++			/* handle over-current protection */
++			if (res != ITRR_HANDLED && it_id >= IT_BUCK1_OCP) {
++				uint8_t regu_id = it_id - IT_BUCK1_OCP +
++						  STPMIC2_BUCK1;
++
++				/* handle Offset due to BUCK1H */
++				if (it_id >= IT_BUCK2_OCP)
++					regu_id = it_id - IT_BUCK2_OCP +
++						   STPMIC2_BUCK2;
++
++				EMSG("Overcurrent on %s, disable regulator",
++				     regul_table[regu_id].name);
++
++				stpmic2_regulator_set_state(pmic, regu_id,
++							    false);
++				panic();
++			}
++		}
++	}
++}
++
++int stpmic2_handle_irq(struct stpmic2 *pmic)
++{
++	uint8_t read_val = U(0);
++	int i = 0;
++
++	FMSG("Stpmic2 irq handler");
++
++	for (i = 0; i < 4; i++) {
++		if (stpmic2_register_read(pmic, INT_PENDING_R1 + i,
++					  &read_val))
++			panic();
++
++		if (read_val) {
++			FMSG("Stpmic2 irq pending reg=%u irq=0x%x", i,
++			     read_val);
++
++			pmic->irq_count++;
++
++			stpmic2_handle_irq_reg(pmic, i, read_val);
++
++			if (stpmic2_register_write(pmic,  INT_CLEAR_R1 + i,
++						   read_val)) {
++				panic();
++			}
++		}
++	}
++
++	return 0;
++}
++#endif
+diff --git a/core/drivers/sub.mk b/core/drivers/sub.mk
+index 738fc15f6..07b2d0a64 100644
+--- a/core/drivers/sub.mk
++++ b/core/drivers/sub.mk
+@@ -52,6 +52,8 @@ srcs-$(CFG_STM32_SHARED_IO) += stm32_shared_io.c
+ srcs-$(CFG_STM32_TAMP) += stm32_tamp.c
+ srcs-$(CFG_STM32_UART) += stm32_uart.c
+ srcs-$(CFG_STPMIC1) += stpmic1.c
++srcs-$(CFG_STPMIC2) += stpmic2.c
++srcs-$(CFG_STPMIC2) += stm32mp_pmic2.c
+ srcs-$(CFG_BCM_HWRNG) += bcm_hwrng.c
+ srcs-$(CFG_BCM_SOTP) += bcm_sotp.c
+ srcs-$(CFG_BCM_GPIO) += bcm_gpio.c
+diff --git a/core/include/drivers/stpmic2.h b/core/include/drivers/stpmic2.h
+new file mode 100644
+index 000000000..b37862d25
+--- /dev/null
++++ b/core/include/drivers/stpmic2.h
+@@ -0,0 +1,385 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2022-2024, STMicroelectronics
++ */
++
++#ifndef __DRIVERS_STPMIC2_H
++#define __DRIVERS_STPMIC2_H
++
++#include <kernel/interrupt.h>
++#include <drivers/regulator.h>
++#include <drivers/stm32_i2c.h>
++#include <dt-bindings/mfd/st,stpmic2.h>
++#include <util.h>
++
++enum {
++	STPMIC2_BUCK1 = 0,
++	STPMIC2_BUCK1H,
++	STPMIC2_BUCK2,
++	STPMIC2_BUCK3,
++	STPMIC2_BUCK4,
++	STPMIC2_BUCK5,
++	STPMIC2_BUCK6,
++	STPMIC2_BUCK7,
++	STPMIC2_REFDDR,
++	STPMIC2_LDO1,
++	STPMIC2_LDO2,
++	STPMIC2_LDO3,
++	STPMIC2_LDO4,
++	STPMIC2_LDO5,
++	STPMIC2_LDO6,
++	STPMIC2_LDO7,
++	STPMIC2_LDO8,
++	STPMIC2_GPO1,
++	STPMIC2_GPO2,
++	STPMIC2_GPO3,
++	STPMIC2_GPO4,
++	STPMIC2_GPO5,
++	STPMIC2_NB_REG,
++};
++
++/* Status Registers */
++#define PRODUCT_ID		U(0x00)
++#define VERSION_SR		U(0x01)
++#define TURN_ON_SR		U(0x02)
++#define TURN_OFF_SR		U(0x03)
++#define RESTART_SR		U(0x04)
++#define OCP_SR1			U(0x05)
++#define OCP_SR2			U(0x06)
++#define EN_SR1			U(0x07)
++#define EN_SR2			U(0x08)
++#define FS_CNT_SR1		U(0x09)
++#define FS_CNT_SR2		U(0x0A)
++#define FS_CNT_SR3		U(0x0B)
++#define MODE_SR			U(0x0C)
++/* Control Registers */
++#define MAIN_CR			U(0x10)
++#define VINLOW_CR		U(0x11)
++#define PKEY_LKP_CR		U(0x12)
++#define WDG_CR			U(0x13)
++#define WDG_TMR_CR		U(0x14)
++#define WDG_TMR_SR		U(0x15)
++#define FS_OCP_CR1		U(0x16)
++#define FS_OCP_CR2		U(0x17)
++#define PADS_PULL_CR		U(0x18)
++#define BUCKS_PD_CR1		U(0x19)
++#define BUCKS_PD_CR2		U(0x1A)
++#define LDOS_PD_CR1		U(0x1B)
++#define LDOS_PD_CR2		U(0x1C)
++#define GPO_MRST_CR		U(0x1C)
++#define BUCKS_MRST_CR		U(0x1D)
++#define LDOS_MRST_CR		U(0x1E)
++/* Buck CR */
++#define BUCK1_MAIN_CR1		U(0x20)
++#define BUCK1_MAIN_CR2		U(0x21)
++#define BUCK1_ALT_CR1		U(0x22)
++#define BUCK1_ALT_CR2		U(0x23)
++#define BUCK1_PWRCTRL_CR	U(0x24)
++#define BUCK2_MAIN_CR1		U(0x25)
++#define BUCK2_MAIN_CR2		U(0x26)
++#define BUCK2_ALT_CR1		U(0x27)
++#define BUCK2_ALT_CR2		U(0x28)
++#define BUCK2_PWRCTRL_CR	U(0x29)
++#define BUCK3_MAIN_CR1		U(0x2A)
++#define BUCK3_MAIN_CR2		U(0x2B)
++#define BUCK3_ALT_CR1		U(0x2C)
++#define BUCK3_ALT_CR2		U(0x2D)
++#define BUCK3_PWRCTRL_CR	U(0x2E)
++#define BUCK4_MAIN_CR1		U(0x2F)
++#define BUCK4_MAIN_CR2		U(0x30)
++#define BUCK4_ALT_CR1		U(0x31)
++#define BUCK4_ALT_CR2		U(0x32)
++#define BUCK4_PWRCTRL_CR	U(0x33)
++#define BUCK5_MAIN_CR1		U(0x34)
++#define BUCK5_MAIN_CR2		U(0x35)
++#define BUCK5_ALT_CR1		U(0x36)
++#define BUCK5_ALT_CR2		U(0x37)
++#define BUCK5_PWRCTRL_CR	U(0x38)
++#define BUCK6_MAIN_CR1		U(0x39)
++#define BUCK6_MAIN_CR2		U(0x3A)
++#define BUCK6_ALT_CR1		U(0x3B)
++#define BUCK6_ALT_CR2		U(0x3C)
++#define BUCK6_PWRCTRL_CR	U(0x3D)
++#define BUCK7_MAIN_CR1		U(0x3E)
++#define BUCK7_MAIN_CR2		U(0x3F)
++#define BUCK7_ALT_CR1		U(0x40)
++#define BUCK7_ALT_CR2		U(0x41)
++#define BUCK7_PWRCTRL_CR	U(0x42)
++/* GPO CR used only on PMIC1L and PMIC2L*/
++#define GPO1_MAIN_CR		U(0x43)
++#define GPO1_ALT_CR		U(0x44)
++#define GPO1_PWRCTRL_CR		U(0x45)
++#define GPO2_MAIN_CR		U(0x46)
++#define GPO2_ALT_CR		U(0x47)
++#define GPO2_PWRCTRL_CR		U(0x48)
++/* LDO CR */
++#define LDO1_MAIN_CR		U(0x4C)
++#define LDO1_ALT_CR		U(0x4D)
++#define LDO1_PWRCTRL_CR		U(0x4E)
++#define LDO2_MAIN_CR		U(0x4F)
++#define LDO2_ALT_CR		U(0x50)
++#define LDO2_PWRCTRL_CR		U(0x51)
++#define LDO3_MAIN_CR		U(0x52)
++#define LDO3_ALT_CR		U(0x53)
++#define LDO3_PWRCTRL_CR		U(0x54)
++#define LDO4_MAIN_CR		U(0x55)
++#define LDO4_ALT_CR		U(0x56)
++#define LDO4_PWRCTRL_CR		U(0x57)
++#define LDO5_MAIN_CR		U(0x58)
++#define LDO5_ALT_CR		U(0x59)
++#define LDO5_PWRCTRL_CR		U(0x5A)
++#define LDO6_MAIN_CR		U(0x5B)
++#define LDO6_ALT_CR		U(0x5C)
++#define LDO6_PWRCTRL_CR		U(0x5D)
++#define LDO7_MAIN_CR		U(0x5E)
++#define LDO7_ALT_CR		U(0x5F)
++#define LDO7_PWRCTRL_CR		U(0x60)
++#define LDO8_MAIN_CR		U(0x61)
++#define LDO8_ALT_CR		U(0x62)
++#define LDO8_PWRCTRL_CR		U(0x63)
++#define REFDDR_MAIN_CR		U(0x64)
++#define REFDDR_ALT_CR		U(0x65)
++#define REFDDR_PWRCTRL_CR	U(0x66)
++/* GPO CR used only on PMIC1L and PMIC2L*/
++#define GPO3_MAIN_CR		U(0x67)
++#define GPO3_ALT_CR		U(0x68)
++#define GPO3_PWRCTRL_CR		U(0x69)
++#define GPO4_MAIN_CR		U(0x6A)
++#define GPO4_ALT_CR		U(0x6B)
++#define GPO4_PWRCTRL_CR		U(0x6C)
++#define GPO5_MAIN_CR		U(0x6D)
++#define GPO5_ALT_CR		U(0x6E)
++#define GPO5_PWRCTRL_CR		U(0x6F)
++/* INTERRUPT CR */
++#define INT_PENDING_R1		U(0x70)
++#define INT_PENDING_R2		U(0x71)
++#define INT_PENDING_R3		U(0x72)
++#define INT_PENDING_R4		U(0x73)
++#define INT_CLEAR_R1		U(0x74)
++#define INT_CLEAR_R2		U(0x75)
++#define INT_CLEAR_R3		U(0x76)
++#define INT_CLEAR_R4		U(0x77)
++#define INT_MASK_R1		U(0x78)
++#define INT_MASK_R2		U(0x79)
++#define INT_MASK_R3		U(0x7A)
++#define INT_MASK_R4		U(0x7B)
++#define INT_SRC_R1		U(0x7C)
++#define INT_SRC_R2		U(0x7D)
++#define INT_SRC_R3		U(0x7E)
++#define INT_SRC_R4		U(0x7F)
++#define INT_DBG_LATCH_R1	U(0x80)
++#define INT_DBG_LATCH_R2	U(0x81)
++#define INT_DBG_LATCH_R3	U(0x82)
++#define INT_DBG_LATCH_R4	U(0x83)
++
++/* NVMEM shadow registers */
++#define NVM_BUCK1_VOUT_SHR	U(0x9C)
++
++/* PRODUCT_ID bits definition */
++#define PMIC_NVM_ID_MASK	GENMASK_32(3, 0)
++#define PMIC_REF_ID_MASK	GENMASK_32(7, 4)
++#define PMIC_REF_ID_SHIFT	4
++#define PMIC_REF_ID_STPMIC1L	U(1)
++#define PMIC_REF_ID_STPMIC25	U(2)
++#define PMIC_REF_ID_STPMIC2L	U(3)
++
++/* VERSION_SR bits definition */
++#define MINOR_VERSION_MASK	GENMASK_32(3, 0)
++#define MAJOR_VERSION_MASK	GENMASK_32(7, 4)
++#define MAJOR_VERSION_SHIFT	4
++
++/* BUCKS_MRST_CR bits definition */
++#define BUCK1_MRST		BIT(0)
++#define BUCK2_MRST		BIT(1)
++#define BUCK3_MRST		BIT(2)
++#define BUCK4_MRST		BIT(3)
++#define BUCK5_MRST		BIT(4)
++#define BUCK6_MRST		BIT(5)
++#define BUCK7_MRST		BIT(6)
++#define REFDDR_MRST		BIT(7)
++
++/* LDOS_MRST_CR bits definition */
++#define LDO1_MRST		BIT(0)
++#define LDO2_MRST		BIT(1)
++#define LDO3_MRST		BIT(2)
++#define LDO4_MRST		BIT(3)
++#define LDO5_MRST		BIT(4)
++#define LDO6_MRST		BIT(5)
++#define LDO7_MRST		BIT(6)
++#define LDO8_MRST		BIT(7)
++
++/* GPO_MRST_CR bits definition */
++#define GPO1_MRST		BIT(1)
++#define GPO2_MRST		BIT(2)
++#define GPO3_MRST		BIT(3)
++#define GPO4_MRST		BIT(4)
++#define GPO5_MRST		BIT(5)
++
++/* LDOx_MAIN_CR */
++#define LDO_VOLT_SHIFT		1
++#define LDO_BYPASS		BIT(6)
++#define LDO1_INPUT_SRC		BIT(7)
++#define LDO3_SNK_SRC		BIT(7)
++#define LDO4_INPUT_SRC_SHIFT	6
++#define LDO4_INPUT_SRC_MASK	GENMASK_32(7, 6)
++
++/* PWRCTRL register bit definition */
++#define PWRCTRL_EN		BIT(0)
++#define PWRCTRL_RS		BIT(1)
++#define PWRCTRL_SEL_SHIFT	2
++#define PWRCTRL_SEL_MASK	GENMASK_32(3, 2)
++
++/* BUCKx_MAIN_CR2 */
++#define PREG_MODE_SHIFT		1
++#define PREG_MODE_MASK		GENMASK_32(2, 1)
++
++/* BUCKS_PD_CR1 */
++#define BUCK1_PD_MASK		GENMASK_32(1, 0)
++#define BUCK2_PD_MASK		GENMASK_32(3, 2)
++#define BUCK3_PD_MASK		GENMASK_32(5, 4)
++#define BUCK4_PD_MASK		GENMASK_32(7, 6)
++
++#define BUCK1_PD_FAST		BIT(1)
++#define BUCK2_PD_FAST		BIT(3)
++#define BUCK3_PD_FAST		BIT(5)
++#define BUCK4_PD_FAST		BIT(7)
++
++/* BUCKS_PD_CR2 */
++#define BUCK5_PD_MASK		GENMASK_32(1, 0)
++#define BUCK6_PD_MASK		GENMASK_32(3, 2)
++#define BUCK7_PD_MASK		GENMASK_32(5, 4)
++
++#define BUCK5_PD_FAST		BIT(1)
++#define BUCK6_PD_FAST		BIT(3)
++#define BUCK7_PD_FAST		BIT(5)
++
++/* LDOS_PD_CR1 */
++#define LDO1_PD			BIT(0)
++#define LDO2_PD			BIT(1)
++#define LDO3_PD			BIT(2)
++#define LDO4_PD			BIT(3)
++#define LDO5_PD			BIT(4)
++#define LDO6_PD			BIT(5)
++#define LDO7_PD			BIT(6)
++#define LDO8_PD			BIT(7)
++
++/* LDOS_PD_CR2 */
++#define REFDDR_PD		BIT(0)
++
++/* FS_OCP_CR1 */
++#define FS_OCP_BUCK1		BIT(0)
++#define FS_OCP_BUCK2		BIT(1)
++#define FS_OCP_BUCK3		BIT(2)
++#define FS_OCP_BUCK4		BIT(3)
++#define FS_OCP_BUCK5		BIT(4)
++#define FS_OCP_BUCK6		BIT(5)
++#define FS_OCP_BUCK7		BIT(6)
++#define FS_OCP_REFDDR		BIT(7)
++
++/* FS_OCP_CR2 */
++#define FS_OCP_LDO1		BIT(0)
++#define FS_OCP_LDO2		BIT(1)
++#define FS_OCP_LDO3		BIT(2)
++#define FS_OCP_LDO4		BIT(3)
++#define FS_OCP_LDO5		BIT(4)
++#define FS_OCP_LDO6		BIT(5)
++#define FS_OCP_LDO7		BIT(6)
++#define FS_OCP_LDO8		BIT(7)
++
++/* NVM_BUCK1_VOUT_SHR */
++#define BUCK1_VRANGE_CFG	BIT(7)
++
++enum stpmic2_prop_id {
++	STPMIC2_MASK_RESET = 0,
++	STPMIC2_PULL_DOWN,
++	STPMIC2_BYPASS,
++	STPMIC2_SINK_SOURCE,
++	STPMIC2_OCP,
++	STPMIC2_PWRCTRL_EN,
++	STPMIC2_PWRCTRL_RS,
++	STPMIC2_PWRCTRL_SEL,	/* takes arg = pwrctrl line number */
++	STPMIC2_MAIN_PREG_MODE,	/* takes arg = preg mode HP=1, CCM=2 */
++	STPMIC2_ALT_PREG_MODE,	/* takes arg = preg mode HP=1, CCM=2 */
++	STPMIC2_ALTERNATE_INPUT_SOURCE,
++};
++
++#define PROP_BYPASS_RESET	U(0)
++#define PROP_BYPASS_SET		U(1)
++
++#ifdef CFG_STM32_PWR_IRQ
++struct pmic_it_handle_s {
++	uint8_t pmic_it;
++	uint8_t notif_id;
++
++	SLIST_ENTRY(pmic_it_handle_s) link;
++};
++#endif
++
++/*
++ * struct stpmic2 - STPMIC2 device instance
++ */
++struct stpmic2 {
++	struct i2c_handle_s *pmic_i2c_handle;
++	const void *compat_data;
++	uint16_t pmic_i2c_addr;
++	uint16_t irq_count;
++#ifdef CFG_STM32_PWR_IRQ
++	SLIST_HEAD(, pmic_it_handle_s) it_list;
++#endif
++	uint8_t ref_id;
++};
++
++TEE_Result stpmic2_regulator_get_id(const char *regu_name, uint8_t *id);
++
++TEE_Result stpmic2_register_read(struct stpmic2 *pmic, uint8_t register_id,
++				 uint8_t *value);
++TEE_Result stpmic2_register_write(struct stpmic2 *pmic, uint8_t register_id,
++				  uint8_t value);
++TEE_Result stpmic2_register_update(struct stpmic2 *pmic, uint8_t register_id,
++				   uint8_t value, uint8_t mask);
++
++TEE_Result stpmic2_regulator_set_state(struct stpmic2 *pmic, uint8_t id,
++				       bool enable);
++TEE_Result stpmic2_regulator_get_state(struct stpmic2 *pmic, uint8_t id,
++				       bool *enabled);
++
++TEE_Result stpmic2_regulator_levels_mv(struct stpmic2 *pmic, uint8_t id,
++				       const uint16_t **levels,
++				       size_t *levels_count);
++TEE_Result stpmic2_regulator_get_voltage(struct stpmic2 *pmic, uint8_t id,
++					 uint16_t *val);
++TEE_Result stpmic2_regulator_set_voltage(struct stpmic2 *pmic, uint8_t id,
++					 uint16_t millivolts);
++
++TEE_Result stpmic2_regulator_get_prop(struct stpmic2 *pmic, uint8_t id,
++				      enum stpmic2_prop_id prop, uint8_t *arg);
++TEE_Result stpmic2_regulator_set_prop(struct stpmic2 *pmic, uint8_t id,
++				      enum stpmic2_prop_id prop, uint8_t arg);
++
++void stpmic2_dump_regulators(struct stpmic2 *pmic);
++TEE_Result stpmic2_get_version(struct stpmic2 *pmic, uint8_t *val);
++TEE_Result stpmic2_get_product_id(struct stpmic2 *pmic, uint8_t *val);
++TEE_Result stpmic2_is_buck1_high_voltage(struct stpmic2 *pmic, bool *high);
++
++/* Low Power handling */
++TEE_Result stpmic2_lp_set_state(struct stpmic2 *pmic, uint8_t id, bool enable);
++TEE_Result stpmic2_lp_set_voltage(struct stpmic2 *pmic, uint8_t id,
++				  uint16_t mv);
++
++/* Interrupt Handling */
++enum itr_return stpmic2_irq_callback(struct stpmic2 *pmic, uint8_t it_id);
++TEE_Result stpmic2_set_irq_mask(struct stpmic2 *pmic, uint8_t num, bool state);
++TEE_Result stpmic2_irq_gen(struct stpmic2 *pmic, uint8_t num);
++int stpmic2_handle_irq(struct stpmic2 *pmic);
++
++size_t plat_pmic2_get_lp_mode_count(void);
++const char *plat_pmic2_get_lp_mode_name(int mode);
++
++TEE_Result plat_pmic2_supplied_init(struct regulator *regulator);
++
++TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator,
++				      uint8_t mode);
++
++TEE_Result stm32_pmic2_resume_regulator(struct regulator *regulator);
++
++#endif /*__DRIVERS_STPMIC2_H*/
+diff --git a/core/include/dt-bindings/mfd/st,stpmic2.h b/core/include/dt-bindings/mfd/st,stpmic2.h
+new file mode 100644
+index 000000000..12196b119
+--- /dev/null
++++ b/core/include/dt-bindings/mfd/st,stpmic2.h
+@@ -0,0 +1,40 @@
++/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause) */
++/*
++ * Copyright (C) STMicroelectronics 2024 - All Rights Reserved
++ */
++
++#ifndef __DT_BINDINGS_STPMIC2_H__
++#define __DT_BINDINGS_STPMIC2_H__
++
++/* IRQ definitions */
++#define IT_PKEY_FA		0
++#define IT_PKEY_RI		1
++#define IT_WKP_FA		2
++#define IT_WKP_RI		3
++#define IT_VINLOW_FA		4
++#define IT_VINLOW_RI		5
++#define IT_VBUS_FA		6
++#define IT_VBUS_RI		7
++
++#define IT_THW_FA		8
++#define IT_THW_RI		9
++
++#define IT_BUCK1_OCP		16
++#define IT_BUCK2_OCP		17
++#define IT_BUCK3_OCP		18
++#define IT_BUCK4_OCP		19
++#define IT_BUCK5_OCP		20
++#define IT_BUCK6_OCP		21
++#define IT_BUCK7_OCP		22
++#define IT_REFDDR_OCP		23
++
++#define IT_LDO1_OCP		24
++#define IT_LDO2_OCP		25
++#define IT_LDO3_OCP		26
++#define IT_LDO4_OCP		27
++#define IT_LDO5_OCP		28
++#define IT_LDO6_OCP		29
++#define IT_LDO7_OCP		30
++#define IT_LDO8_OCP		31
++
++#endif /* __DT_BINDINGS_STPMIC2_H__ */
+-- 
+2.53.0
+

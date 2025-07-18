@@ -1,0 +1,69 @@
+From db0d540a3fa63db291fa0b9a3c715fa338181836 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 24 Mar 2026 08:48:49 +0100
+Subject: [PATCH 208/913] clk: stm32mp25: align RCC/TDCID ownership and
+ protection
+
+Improve STM32MP25 clock handling to respect TDCID ownership and avoid
+unauthorized RCC/SYSCFG accesses and unsafe clock reconfiguration.
+
+- Do not reset flexgen crossbar input when not TDCID, letting TDCID define
+  the default crossbar channel selection
+- Remove C1MSRD and safe reset support for M33-TD flavor, as RCC_C1MSRDCR
+  and SYSCFG_SAFERSTCR are TDCID-only registers
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c8f25aefa7bb004a110629be2ba45a4207b2bbc7 clk: stm32mp25: align RCC/TDCID ownership and protection
+5a05d3274e646c6d08bd1bff9f71eb6489890f5a clk: stm32mp25: align RCC/TDCID ownership and protection]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Ic5d0cde998fc202172fcb9bc1538dd381602c58c
+---
+ core/drivers/clk/clk-stm32mp21.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index 3207921d8..e5a2ec505 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -199,7 +199,9 @@ struct stm32_clk_platdata {
+ 	uint32_t *kernelclk;
+ 	uint32_t nflexgen;
+ 	uint32_t *flexgen;
++#ifndef CFG_STM32_CM33TDCID
+ 	uint32_t c1msrd;
++#endif
+ };
+ 
+ /*
+@@ -1249,7 +1251,9 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
+ 	if (err)
+ 		return err;
+ 
++#ifndef CFG_STM32_CM33TDCID
+ 	pdata->c1msrd = fdt_read_uint32_default(fdt, node, "st,c1msrd", 0);
++#endif
+ 
+ 	pdata->rcc_base = stm32_rcc_base();
+ 
+@@ -1552,6 +1556,9 @@ static void stm32mp2_clk_xbar_on_hsi(struct clk_stm32_priv *priv)
+ 	uintptr_t xbar0cfgr = priv->base + RCC_XBAR0CFGR;
+ 	uint32_t i = 0;
+ 
++	if (IS_ENABLED(CFG_STM32_CM33TDCID))
++		return;
++
+ 	for (i = 0; i < XBAR_ROOT_CHANNEL_NB; i++)
+ 		io_clrsetbits32(xbar0cfgr + (0x4 * i),
+ 				RCC_XBAR0CFGR_XBAR0SEL_MASK, XBAR_SRC_HSI);
+@@ -4495,7 +4502,8 @@ static TEE_Result stm32mp21_clk_probe(const void *fdt, int node,
+ 
+ 	clk_stm32_init_oscillators(fdt, node);
+ 
+-	stm32mp25_syscfg_set_safe_reset(true);
++	if (!IS_ENABLED(CFG_STM32_CM33TDCID))
++		stm32mp25_syscfg_set_safe_reset(true);
+ 
+ 	stm32mp_clk_provider_probe_final(fdt, node, priv);
+ 
+-- 
+2.53.0
+

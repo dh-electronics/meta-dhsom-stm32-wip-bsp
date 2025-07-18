@@ -1,0 +1,73 @@
+From 7584f184c0fc6f9cb71edbae8712200a9a78bd52 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 13 Jun 2025 15:23:33 +0200
+Subject: [PATCH 283/913] core: arm: psci: implement PSCI_SET_SUSPEND_MODE
+ command
+
+This API allows setting the mode used by CPU_SUSPEND to coordinate power
+states.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0ca9d357adc85d36f3a9ffc82990e72a27361977 core: arm: psci: implement PSCI_SET_SUSPEND_MODE command]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I8eb42b02005c051ca707a88f6a19880e0ac5284a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/501254
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/include/sm/psci.h | 4 ++++
+ core/arch/arm/sm/psci.c         | 8 ++++++++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/core/arch/arm/include/sm/psci.h b/core/arch/arm/include/sm/psci.h
+index 95ccdfa4c..60acb4df6 100644
+--- a/core/arch/arm/include/sm/psci.h
++++ b/core/arch/arm/include/sm/psci.h
+@@ -52,6 +52,9 @@
+ #define PSCI_POWER_STATE_TYPE_STANDBY		U(0)
+ #define PSCI_POWER_STATE_TYPE_POWER_DOWN	U(1)
+ 
++#define PSCI_SUSPEND_MODE_PLATFORM_COORDINATED	U(0)
++#define PSCI_SUSPEND_MODE_OS_INITIATED		U(1)
++
+ #define PSCI_RET_SUCCESS		(0)
+ #define PSCI_RET_NOT_SUPPORTED		(-1)
+ #define PSCI_RET_INVALID_PARAMETERS	(-2)
+@@ -79,6 +82,7 @@ int psci_system_reset2(uint32_t reset_type, uint32_t cookie);
+ int psci_mem_protect(uint32_t enable);
+ int psci_mem_chk_range(paddr_t base, size_t length);
+ int psci_node_hw_state(uint32_t cpu_id, uint32_t power_level);
++int psci_set_system_suspend_mode(uint32_t mode);
+ int psci_system_suspend(uintptr_t entry, uint32_t context_id,
+ 			struct sm_nsec_ctx *nsec);
+ int psci_stat_residency(uint32_t cpu_id, uint32_t power_state);
+diff --git a/core/arch/arm/sm/psci.c b/core/arch/arm/sm/psci.c
+index 167ef142a..aff45bf1d 100644
+--- a/core/arch/arm/sm/psci.c
++++ b/core/arch/arm/sm/psci.c
+@@ -118,6 +118,11 @@ __weak int psci_node_hw_state(uint32_t cpu_id __unused,
+ 	return PSCI_RET_NOT_SUPPORTED;
+ }
+ 
++__weak int psci_set_system_suspend_mode(uint32_t mode __unused)
++{
++	return PSCI_RET_NOT_SUPPORTED;
++}
++
+ __weak int psci_system_suspend(uintptr_t entry __unused,
+ 			       uint32_t context_id __unused,
+ 			       struct sm_nsec_ctx *nsec __unused)
+@@ -197,6 +202,9 @@ void tee_psci_handler(struct thread_smc_args *args, struct sm_nsec_ctx *nsec)
+ 	case PSCI_SYSTEM_SUSPEND:
+ 		args->a0 = psci_system_suspend(a1, a2, nsec);
+ 		break;
++	case PSCI_PSCI_SET_SUSPEND_MODE:
++		args->a0 = psci_set_system_suspend_mode(a1);
++		break;
+ 	default:
+ 		args->a0 = OPTEE_SMC_RETURN_UNKNOWN_FUNCTION;
+ 		break;
+-- 
+2.53.0
+

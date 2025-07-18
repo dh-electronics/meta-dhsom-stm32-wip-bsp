@@ -1,0 +1,60 @@
+From 67d8f8c27f3938455da11ca64ff8a18b0eb6f515 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 12 Sep 2024 17:47:45 +0200
+Subject: [PATCH 521/913] plat-stm32mp2: add GPU to probe bus RIF exceptions
+
+GPU driver is probed to support GPU OPP.
+GPU is configured for non secure. Hence add compatible "vivante,gc" to
+the list of RIF exception to allow the probe of this non secure IP.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0131ded3e1f92bf415a75d4e4ff474aa7b1dd847 plat-stm32mp2: add GPU to probe bus RIF exceptions]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: I0aba512e2258858fbfd2a15a22c0867794a4555c
+---
+ core/arch/arm/plat-stm32mp2/main.c | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 982575043..7a73f5d76 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -24,9 +24,11 @@
+ #include <kernel/interrupt.h>
+ #include <kernel/misc.h>
+ #include <kernel/spinlock.h>
++#include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
+ #include <stm32_util.h>
++#include <string.h>
+ #include <trace.h>
+ #include <util.h>
+ 
+@@ -157,6 +159,7 @@ void stm32_rif_access_violation_action(void)
+ bool stm32mp_allow_probe_shared_device(const void *fdt, int node)
+ {
+ 	static int uart_console_node = -1;
++	const char *compat = NULL;
+ 	static bool once;
+ 
+ 	if (!once) {
+@@ -165,8 +168,14 @@ bool stm32mp_allow_probe_shared_device(const void *fdt, int node)
+ 		once = true;
+ 	}
+ 
+-	/* Allow OP-TEE console to be shared with non-secure world */
+-	if (node == uart_console_node)
++	compat = fdt_stringlist_get(fdt, node, "compatible", 0, NULL);
++
++	/*
++	 * Allow OP-TEE console to be shared with non-secure world.
++	 * Allow GPU to be probed to handle GPU OPP.
++	 */
++	if (node == uart_console_node ||
++	    !strcmp(compat, "vivante,gc"))
+ 		return true;
+ 
+ 	return false;
+-- 
+2.53.0
+

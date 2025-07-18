@@ -1,0 +1,58 @@
+From c173b6006e4fa8b4785ef5c2132e82d7c5869ef3 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 9 Sep 2026 18:24:28 +0200
+Subject: [PATCH 849/913] plat-stm32mp1: add trace in
+ stm32mp1_get_lp_soc_mode()
+
+For PSCI_SYSTEM_SUPSPEND request, when Standby is limited by OP-TEE
+(so without the power domain based on SMC), it is difficult to
+understood the cause of the issue without modifying the code.
+
+This patch allows to have the minimal information in console needed to
+understood this restriction, when the console is not suspended by Linux
+kernel during system suspend request with:
+
+echo N > /sys/module/printk/parameters/console_suspend
+
+By default the console is suspended in suspend mode and the trace is
+not displayed and the added latency for trace is acceptable for this
+use case (vs time to freeze linux tasks).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8e99a91c36ca2ba1f198588d67d934c39f71f382 plat-stm32mp1: add trace in stm32mp1_get_lp_soc_mode()]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I1eb3337354ec377b27ddd3f03f8c188e81c66941
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/610145
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/pm/power_config.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/pm/power_config.c b/core/arch/arm/plat-stm32mp1/pm/power_config.c
+index 377379ca6..f99227042 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/power_config.c
++++ b/core/arch/arm/plat-stm32mp1/pm/power_config.c
+@@ -335,6 +335,18 @@ uint32_t stm32mp1_get_lp_soc_mode(void)
+ 	    !stm32mp1_lp_soc_mode_is_supported(mode))
+ 		mode = STM32_PM_CSLEEP_RUN;
+ 
++#ifndef CFG_STM32_LOWPOWER_SIP
++	/* Trace to debug low power mode restriction (no Standby) */
++	if (mode != STM32_PM_CSTANDBY_ALLOW_STANDBY_DDR_SR) {
++		IMSG("EXTI C1IMR1=%x C1IMR2=%x C1IMR3=%x\n",
++		     exti_read_imr(0), exti_read_imr(1), exti_read_imr(2));
++		IMSG("mode=%x for power domain: CORE=%d CORE_RET=%d\n",
++		     mode,
++		     get_pm_domain_state(STM32MP1_PD_CORE),
++		     get_pm_domain_state(STM32MP1_PD_CORE_RET));
++	}
++#endif
++
+ 	return mode;
+ }
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,70 @@
+From 79e02ec20f364dc31f0c491e7769fa524a86cb8a Mon Sep 17 00:00:00 2001
+From: Jens Wiklander <jenswi@kernel.org>
+Date: Tue, 16 Jun 2026 08:05:01 +0200
+Subject: [PATCH 740/913] libutils: fix nesting of MIN() and MAX() macros
+
+Fix the MIN() and MAX() macros to allow nesting, like:
+MIN(MIN(1, 2), 3)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d77b038fe0ddad05a2191c6456e46bd54d528444 libutils: fix nesting of MIN() and MAX() macros]
+Change-Id: Idb2c9a61ce3b92e728f9ae5e328dff30b010b9c2
+Signed-off-by: Jens Wiklander <jenswi@kernel.org>
+Reviewed-by: Rouven Czerwinski <rouven.czerwinski@linaro.org>
+(cherry picked from commit 0ad8c94c9335149b85a2c0493fd3ea9f667f9e0f)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/583200
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ lib/libutils/ext/include/util.h | 29 ++++++++++++++++++-----------
+ 1 file changed, 18 insertions(+), 11 deletions(-)
+
+diff --git a/lib/libutils/ext/include/util.h b/lib/libutils/ext/include/util.h
+index 256849fb9..c2af220b6 100644
+--- a/lib/libutils/ext/include/util.h
++++ b/lib/libutils/ext/include/util.h
+@@ -22,20 +22,27 @@
+ 
+ #ifndef MAX
+ #ifndef __ASSEMBLER__
+-#define MAX(a, b) \
+-	(__extension__({ __typeof__(a) _a = (a); \
+-	   __typeof__(b) _b = (b); \
+-	 _a > _b ? _a : _b; }))
+-
+-#define MIN(a, b) \
+-	(__extension__({ __typeof__(a) _a = (a); \
+-	   __typeof__(b) _b = (b); \
+-	 _a < _b ? _a : _b; }))
++#define __MAX(a, b, ua, ub) \
++	(__extension__({ __typeof__(a) ua = (a); \
++	   __typeof__(b) ub = (b); \
++	 ua > ub ? ua : ub; }))
++
++#define __MIN(a, b, ua, ub) \
++	(__extension__({ __typeof__(a) ua = (a); \
++	   __typeof__(b) ub = (b); \
++	 ua < ub ? ua : ub; }))
++
++#define MAX(a, b)	__MAX((a), (b), \
++			      CONCAT(__max_a, __COUNTER__), \
++			      CONCAT(__max_b, __COUNTER__))
++#define MIN(a, b)	__MIN((a), (b), \
++			      CONCAT(__min_a, __COUNTER__), \
++			      CONCAT(__min_b, __COUNTER__))
+ #else
+ #define MAX(a, b)	(((a) > (b)) ? (a) : (b))
+ #define MIN(a, b)	(((a) < (b)) ? (a) : (b))
+-#endif
+-#endif
++#endif	/* __ASSEMBLER__ */
++#endif	/* MAX */
+ 
+ /*
+  * In some particular conditions MAX and MIN macros fail to
+-- 
+2.53.0
+

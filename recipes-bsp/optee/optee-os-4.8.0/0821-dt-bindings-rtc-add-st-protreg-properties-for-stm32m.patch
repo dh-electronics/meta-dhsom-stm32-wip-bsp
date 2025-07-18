@@ -1,0 +1,98 @@
+From 5a8c2b280d440b131a6829836290e67c023a9aaa Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 2 Jul 2026 18:46:44 +0200
+Subject: [PATCH 821/913] dt-bindings: rtc: add st,protreg properties for
+ stm32mp25-rtc
+
+Add description of the properties "st,protreg" for the firewall
+configuration.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 039909b8da236dae0aca5b7aeac4b1c08a5b3318 dt-bindings: rtc: add st,protreg properties for stm32mp25-rtc]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I7be8df61e951ed9d88010c37499adaf491d279c8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/584309
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../devicetree/bindings/rtc/st,stm32-rtc.yaml | 56 +++++++++++++++++++
+ 1 file changed, 56 insertions(+)
+
+diff --git a/documentation/devicetree/bindings/rtc/st,stm32-rtc.yaml b/documentation/devicetree/bindings/rtc/st,stm32-rtc.yaml
+index aae06e570..e01a95cb1 100644
+--- a/documentation/devicetree/bindings/rtc/st,stm32-rtc.yaml
++++ b/documentation/devicetree/bindings/rtc/st,stm32-rtc.yaml
+@@ -53,6 +53,51 @@ properties:
+       override default rtc_ck parent clock phandle of the new parent clock of rtc_ck
+     maxItems: 1
+ 
++  st,protreg:
++    minItems: 1
++    maxItems: 6
++    $ref: "/schemas/types.yaml#/definitions/uint32-array"
++    description:
++      Describes the firewall hardware configuration to apply for a given
++      resource.
++
++      RIFPROT(rtc_res_id, sem_list, lock, sec, priv, scid, sem_en, cfen)
++
++      When a field isn't effective, it should be filled with RIF_UNUSED.
++
++        "rtc_res_id" The RTC resource number.
++
++        "sem_list" This peripheral does not support semaphores.
++                   This field must be set to RIF_UNUSED.
++
++        "lock" This peripheral does not support configuration locking.
++               This field must be set to RIF_UNUSED.
++
++        "sec" Configures secure-only access to the resource.
++          RIF_SEC, only secure access is granted to the resource
++          RIF_NSEC, secure/non-secure access is granted to the
++                    resource
++
++        "priv" Configures the privilege level needed to access this
++               resource.
++          RIF_PRIV, only privileged access is granted to the resource
++          RIF_NPRIV, privileged/Unprivileged access is granted to the
++                     resource
++
++        "scid" Configures the static CID that is allowed to access the
++               resource. Note that the static CID configuration is
++               ineffective if the semaphore mode is enabled. Mandates CID
++               filtering enabled to be effective.
++          RIF_CID1 allows CID 1 to access the resource
++          RIF_CID2 allows CID 2 to access the resource ...
++
++        "sem_en" This peripheral does not support semaphores.
++                 This field must be set to RIF_UNUSED.
++
++        "cfen" Enable/disable the CID filtering for this resource.
++          RIF_CFEN, enables the CID filtering
++          RIF_CFDIS, disables the CID filtering
++
+ patternProperties:
+   "^rtc-[a-z]+-[0-9]+$":
+     type: object
+@@ -96,6 +141,17 @@ allOf:
+       required:
+         - st,syscfg
+ 
++  - if:
++      not:
++        properties:
++          compatible:
++            contains:
++              const: st,stm32mp25-rtc
++
++    then:
++      properties:
++        st,protreg: false
++
+   - if:
+       properties:
+         compatible:
+-- 
+2.53.0
+

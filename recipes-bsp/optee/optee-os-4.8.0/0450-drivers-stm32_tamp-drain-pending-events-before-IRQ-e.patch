@@ -1,0 +1,36 @@
+From b37c3b04e416d11cf1aac6446e6a9b1b680053b9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 7 May 2026 17:40:11 +0200
+Subject: [PATCH 450/913] drivers: stm32_tamp: drain pending events before IRQ
+ enable
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Call the tamper interrupt handler before enabling IER so events latched
+during early boot are handled with the configured callbacks.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a0bbbf4559d314b2412f0d8e6288421cf9258415 drivers: stm32_tamp: drain pending events before IRQ enable]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ib2179dff8f806c7b250e2aa5dd4df194018f5750
+---
+ core/drivers/stm32_tamp.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index e354505c9..fc05a4b9e 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -1417,6 +1417,9 @@ static TEE_Result stm32_tamp_set_config(void)
+ 		}
+ 	}
+ 
++	/* Drain any tamper event latched before interrupt enable. */
++	stm32_tamp_it_handler(stm32_tamp_dev->pdata.itr);
++
+ 	/* Enable interrupts. */
+ 	io_write32(base + _TAMP_IER, ier);
+ 
+-- 
+2.53.0
+

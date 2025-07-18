@@ -1,0 +1,67 @@
+From 6efad0443c8df066a95ac46104c22711558db092 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 12 May 2026 09:57:50 +0200
+Subject: [PATCH 453/913] dts: stm32: add stm32mp21 TAMP node
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add node tamp in stm32mp211.dtsi
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e4d12f6bddb5e4b69ce9f8b98098926087e9fdef dts: stm32: add stm32mp21 TAMP node]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I5d1ac59b3ada4dd7813205c5b9fed08ef5ee1149
+---
+ core/arch/arm/dts/stm32mp211.dtsi | 36 +++++++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp211.dtsi b/core/arch/arm/dts/stm32mp211.dtsi
+index 3d171669b..b40f7af2f 100644
+--- a/core/arch/arm/dts/stm32mp211.dtsi
++++ b/core/arch/arm/dts/stm32mp211.dtsi
+@@ -955,6 +955,42 @@
+ 			interrupts-extended = <&exti2 22 IRQ_TYPE_EDGE_RISING>;
+ 		};
+ 
++		tamp: tamp@46010000 {
++			compatible = "st,stm32mp21-tamp";
++			reg = <0x46010000 0x400>;
++			clocks = <&rcc CK_BUS_RTC>;
++			interrupts-extended = <&exti2 21 IRQ_TYPE_EDGE_RISING>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges;
++			st,backup-zones = <24 24 24 24 12 12 8>;
++
++			nvram: nvram@46010100 {
++				compatible = "st,stm32mp25-tamp-nvram";
++				#address-cells = <1>;
++				#size-cells = <1>;
++				reg = <0x46010100 0x200>;
++
++				boot_mode: tamp-bkp@180 {
++					reg = <0x180 0x4>;
++				};
++			};
++
++			reboot_mode: reboot-mode {
++				compatible = "nvmem-reboot-mode";
++				nvmem-cells = <&boot_mode>;
++				nvmem-cell-names = "reboot-mode";
++				mode-normal = <0x00>;
++				mode-fastboot = <0x01>;
++				mode-recovery = <0x02>;
++				mode-stm32cubeprogrammer = <0x03>;
++				mode-ums_mmc0 = <0x10>;
++				mode-ums_mmc1 = <0x11>;
++				mode-ums_mmc2 = <0x12>;
++				mode-romcode_serial = <0xff>;
++			};
++		};
++
+ 		pinctrl_z: pinctrl@46200000 {
+ 			#address-cells = <1>;
+ 			#size-cells = <1>;
+-- 
+2.53.0
+

@@ -1,0 +1,307 @@
+From 7b6cef462892942c3597329eefb4189265f7d09f Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 10 Jul 2026 17:51:08 +0200
+Subject: [PATCH 862/913] product/tfm-stm32mp2: update trace in tfm modules
+
+Cleanup the traces in stm32mp2 tfm modules:
+- align coding style and trace style for each module
+- remove usage of PRIx32/PRIx8, not supported in TF-M
+- in module tfm regulator consumer:
+  - add prefix MOD_NAME
+  - change FWK_LOG_INFO to FWK_LOG_DEBUG
+  - remove PMIC reference: other SCMI regulators are exported by TF-M
+    (for example PWR)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f3967b69df012b47c6b5ec66c708f420221f73d1 product/tfm-stm32mp2: update trace in tfm modules]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I3abf5a06db6330b80d07a513a9b6023cf301d23d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/587593
+Tested-by: Valentin CARON <valentin.caron@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+Domain-Review: Valentin CARON <valentin.caron@foss.st.com>
+---
+ .../module/tfm_clock/src/mod_tfm_clock.c      | 59 ++++++++-----------
+ .../src/mod_tfm_regu_consumer.c               | 40 +++++++------
+ .../module/tfm_reset/src/mod_tfm_reset.c      | 10 ++--
+ 3 files changed, 51 insertions(+), 58 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_clock/src/mod_tfm_clock.c b/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_clock/src/mod_tfm_clock.c
+index 847361d19..b41fa6e65 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_clock/src/mod_tfm_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_clock/src/mod_tfm_clock.c
+@@ -23,7 +23,7 @@
+ #include <inttypes.h>
+ 
+ 
+-#define MOD_NAME "[SCMI CLOCK] "
++#define MOD_NAME "[TFM CLOCK] "
+ 
+ /* Clock device context */
+ struct tfm_clock_dev_ctx {
+@@ -72,9 +72,8 @@ static int get_rate(fwk_id_t dev_id, uint64_t *rate)
+     *rate = clk_get_rate(ctx->clk);
+ 
+     FWK_LOG_DEBUG(
+-        MOD_NAME "SCMI tfm_clock (%u/\"%s\"): clk_get_rate() = %" PRIu64,
+-        fwk_id_get_element_idx(dev_id),
+-        clk_get_name(ctx->clk),
++        MOD_NAME "(%u/%s) rate: %ul",
++        fwk_id_get_element_idx(dev_id), clk_get_name(ctx->clk),
+         *rate);
+ 
+     return FWK_SUCCESS;
+@@ -107,24 +106,21 @@ static int set_state(fwk_id_t dev_id, enum mod_clock_state state)
+     if (state == MOD_CLOCK_STATE_STOPPED) {
+         if (ctx->enabled) {
+             FWK_LOG_DEBUG(
+-                MOD_NAME "SCMI tfm_clock (%u/\"%s\") disable",
+-                fwk_id_get_element_idx(dev_id),
+-                clk_get_name(ctx->clk));
++                MOD_NAME "(%u/%s) disable",
++                fwk_id_get_element_idx(dev_id), clk_get_name(ctx->clk));
+ 
+             clk_disable(ctx->clk);
+             ctx->enabled = false;
+         } else {
+             FWK_LOG_DEBUG(
+-                MOD_NAME "SCMI tfm_clock (%u/\"%s\") is already OFF",
+-                fwk_id_get_element_idx(dev_id),
+-                clk_get_name(ctx->clk));
++                MOD_NAME "(%u/%s) is already OFF",
++                fwk_id_get_element_idx(dev_id), clk_get_name(ctx->clk));
+         }
+     } else {
+         if (!ctx->enabled) {
+             FWK_LOG_DEBUG(
+-                MOD_NAME "SCMI tfm_clock (%u/\"%s\") enable",
+-                fwk_id_get_element_idx(dev_id),
+-                clk_get_name(ctx->clk));
++                MOD_NAME "(%u/%s) enable",
++                fwk_id_get_element_idx(dev_id), clk_get_name(ctx->clk));
+ 
+             if (clk_enable(ctx->clk)) {
+                 return FWK_E_PARAM;
+@@ -133,9 +129,8 @@ static int set_state(fwk_id_t dev_id, enum mod_clock_state state)
+             ctx->enabled = true;
+         } else {
+             FWK_LOG_DEBUG(
+-                MOD_NAME "SCMI tfm_clock (%u/\"%s\") is already ON",
+-                fwk_id_get_element_idx(dev_id),
+-                clk_get_name(ctx->clk));
++                MOD_NAME "(%u/%s) is already ON",
++                fwk_id_get_element_idx(dev_id), clk_get_name(ctx->clk));
+         }
+     }
+ 
+@@ -162,10 +157,9 @@ static int get_state(fwk_id_t dev_id, enum mod_clock_state *state)
+     }
+ 
+     FWK_LOG_DEBUG(
+-        MOD_NAME "SCMI tfm_clock (%u/\"%s\") is %s",
+-        fwk_id_get_element_idx(dev_id),
+-        clk_get_name(ctx->clk),
+-        *state == MOD_CLOCK_STATE_STOPPED ? "off" : "on");
++        MOD_NAME "(%u/%s) is %s",
++        fwk_id_get_element_idx(dev_id), clk_get_name(ctx->clk),
++        *state == MOD_CLOCK_STATE_STOPPED ? "OFF" : "ON");
+ 
+     return FWK_SUCCESS;
+ }
+@@ -257,10 +251,8 @@ static int set_rate(fwk_id_t dev_id, uint64_t rate,
+     }
+ 
+     FWK_LOG_DEBUG(
+-        MOD_NAME "SCMI tfm_clock (%u/\"%s\"): rate = %" PRIu64,
+-        fwk_id_get_element_idx(dev_id),
+-        clk_get_name(ctx->clk),
+-        rate);
++        MOD_NAME "(%u/%s) rate= %lu",
++        fwk_id_get_element_idx(dev_id), clk_get_name(ctx->clk), rate);
+ 
+     return FWK_SUCCESS;
+ }
+@@ -305,11 +297,9 @@ static int get_rate_from_index(
+     *rate = rate_ul;
+ 
+     FWK_LOG_DEBUG(
+-        MOD_NAME "SCMI tfm_clock (%u/\"%s\"): rate(index %u) = %lu",
+-        fwk_id_get_element_idx(dev_id),
+-        clk_get_name(ctx->clk),
+-        rate_index,
+-        rate_ul);
++        MOD_NAME "(%u/%s) rate(index %u): %lu",
++        fwk_id_get_element_idx(dev_id), clk_get_name(ctx->clk),
++        rate_index, rate_ul);
+ 
+     return FWK_SUCCESS;
+ }
+@@ -333,12 +323,6 @@ static int get_duty_cycle(fwk_id_t dev_id, uint32_t *num, uint32_t *den)
+ 
+     res = clk_get_duty_cycle(ctx->clk, &duty);
+ 
+-    FWK_LOG_DEBUG(
+-        MOD_NAME "SCMI tfm_clock (%u/\"%s\"): %" PRIx32,
+-        fwk_id_get_element_idx(dev_id),
+-        clk_get_name(ctx->clk),
+-        res);
+-
+     if (res) {
+         /* Assume a 50% duty cycle */
+         duty = (struct clk_duty){ .num = 1, .den = 2 };
+@@ -347,6 +331,11 @@ static int get_duty_cycle(fwk_id_t dev_id, uint32_t *num, uint32_t *den)
+     *num = duty.num;
+     *den = duty.den;
+ 
++    FWK_LOG_DEBUG(
++        MOD_NAME "(%u/%s) duty_cycle: %d/%d (res:%d)",
++        fwk_id_get_element_idx(dev_id), clk_get_name(ctx->clk),
++        duty.num, duty.den, res);
++
+     return FWK_SUCCESS;
+ }
+ 
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_regu_consumer/src/mod_tfm_regu_consumer.c b/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_regu_consumer/src/mod_tfm_regu_consumer.c
+index 267c5c39f..ff1270bbf 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_regu_consumer/src/mod_tfm_regu_consumer.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_regu_consumer/src/mod_tfm_regu_consumer.c
+@@ -18,7 +18,7 @@
+ #include <inttypes.h>
+ #include <stdio.h>
+ 
+-#define MOD_NAME "[TFM SCMI VOLTD] "
++#define MOD_NAME "[TFM VOLTD] "
+ 
+ /* Device context */
+ struct tfm_regu_consumer_dev_ctx {
+@@ -81,9 +81,10 @@ static int tfm_regu_consumer_get_config(fwk_id_t dev_id, uint8_t *mode_type,
+     else
+         *mode_id = MOD_VOLTD_MODE_ID_OFF;
+ 
+-    FWK_LOG_INFO("SCMI voltd %u: get config PMIC %s = %#"PRIx8", %#"PRIx8,
+-              fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), *mode_type,
+-              *mode_id);
++    FWK_LOG_DEBUG(
++        MOD_NAME "(%u/%s) config: type %d / mode %d",
++        fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), *mode_type,
++        *mode_id);
+ 
+     return FWK_SUCCESS;
+ }
+@@ -125,9 +126,10 @@ static int tfm_regu_consumer_set_config(fwk_id_t dev_id, uint8_t mode_type,
+         return FWK_E_PARAM;
+     }
+ 
+-    FWK_LOG_INFO("SCMI voltd %u: set config PMIC %s to type %#"PRIx8" / mode %#"PRIx8,
+-              fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), mode_type,
+-              mode_id);
++    FWK_LOG_DEBUG(
++        MOD_NAME "(%u/%s) config = type %d / mode %d",
++        fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), mode_type,
++        mode_id);
+ 
+     return FWK_SUCCESS;
+ }
+@@ -150,8 +152,9 @@ static int tfm_regu_consumer_get_level(fwk_id_t dev_id, int32_t *level_uv)
+     if (regulator_get_voltage(ctx->dev, level_uv))
+         return FWK_E_PANIC;
+ 
+-    FWK_LOG_INFO("SCMI voltd %u: get level PMIC %s = %ld",
+-              fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), *level_uv);
++    FWK_LOG_DEBUG(
++        MOD_NAME "(%u/%s) level: %ld",
++        fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), *level_uv);
+ 
+     return FWK_SUCCESS;
+ }
+@@ -171,8 +174,9 @@ static int tfm_regu_consumer_set_level(fwk_id_t dev_id, int32_t level_uv)
+     if (regulator_set_voltage(ctx->dev, level_uv, level_uv))
+         return FWK_E_DEVICE;
+ 
+-    FWK_LOG_INFO("SCMI voltd %u: set level PMIC %s to %ld",
+-              fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), level_uv);
++    FWK_LOG_DEBUG(
++        MOD_NAME "(%u/%s) level= %ld",
++        fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), level_uv);
+ 
+     return FWK_SUCCESS;
+ }
+@@ -224,9 +228,10 @@ static int tfm_regu_consumer_get_info(fwk_id_t dev_id,
+     info->level_range.min_uv = volt_uv[0];
+     info->level_range.max_uv = volt_uv[1];
+ 
+-    FWK_LOG_INFO("SCMI voltd %u: get_info PMIC %s, range [%ld %ld]",
+-              fwk_id_get_element_idx(dev_id), regu_name(ctx->dev),
+-              info->level_range.min_uv, info->level_range.max_uv);
++    FWK_LOG_DEBUG(
++        MOD_NAME "(%u/%s) info: range [%ld %ld]",
++        fwk_id_get_element_idx(dev_id), regu_name(ctx->dev),
++        info->level_range.min_uv, info->level_range.max_uv);
+ 
+     return FWK_SUCCESS;
+ }
+@@ -266,10 +271,9 @@ static int tfm_voltd_regulator_level_from_index(fwk_id_t dev_id,
+     }
+     *level_uv = volt_uv;
+ 
+-    FWK_LOG_DEBUG(MOD_NAME
+-                  "Get level from index for %u/%s: index %u, level %"PRId32"uV",
+-                  fwk_id_get_element_idx(dev_id), regu_name(ctx->dev),
+-                  index, *level_uv);
++    FWK_LOG_DEBUG(
++        MOD_NAME "(%u/%s) level(index %u): %d uV",
++        fwk_id_get_element_idx(dev_id), regu_name(ctx->dev), index, *level_uv);
+ 
+     return FWK_SUCCESS;
+ }
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_reset/src/mod_tfm_reset.c b/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_reset/src/mod_tfm_reset.c
+index fbec9e456..24bb5bf84 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_reset/src/mod_tfm_reset.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm/stm32mp2/module/tfm_reset/src/mod_tfm_reset.c
+@@ -21,7 +21,7 @@
+ 
+ #include <stdbool.h>
+ 
+-#define MOD_NAME "[SCMI RESET] "
++#define MOD_NAME "[TFM RESET] "
+ 
+ #define TIMEOUT_US_1MS 1000
+ 
+@@ -64,14 +64,14 @@ static int reset_set_state(fwk_id_t dev_id, enum mod_reset_domain_mode mode,
+ 
+     /* Whatever the reset_state set, we consider a unique context loss mode */
+     if (reset_state) {
+-        FWK_LOG_INFO(MOD_NAME "Override requested SCMI reset state %#"PRIx32,
++        FWK_LOG_INFO(MOD_NAME "Override requested SCMI reset state %d",
+             reset_state);
+     }
+ 
+     switch (mode) {
+     case MOD_RESET_DOMAIN_MODE_EXPLICIT_ASSERT:
+         FWK_LOG_DEBUG(
+-            MOD_NAME "SCMI reset %u: assert(%s%d)",
++            MOD_NAME "(%u/%s %d) assert",
+             fwk_id_get_element_idx(dev_id),
+             ctx->rstctrl->dev->name, ctx->rstctrl->id);
+ 
+@@ -81,7 +81,7 @@ static int reset_set_state(fwk_id_t dev_id, enum mod_reset_domain_mode mode,
+         break;
+     case MOD_RESET_DOMAIN_MODE_EXPLICIT_DEASSERT:
+         FWK_LOG_DEBUG(
+-            MOD_NAME "SCMI reset %u: deassert(%s%d)",
++            MOD_NAME "(%u/%s %d) deassert",
+             fwk_id_get_element_idx(dev_id),
+             ctx->rstctrl->dev->name, ctx->rstctrl->id);
+ 
+@@ -91,7 +91,7 @@ static int reset_set_state(fwk_id_t dev_id, enum mod_reset_domain_mode mode,
+         break;
+     case MOD_RESET_DOMAIN_AUTO_RESET:
+         FWK_LOG_DEBUG(
+-            MOD_NAME "SCMI reset %u: cycle(%s%d)",
++            MOD_NAME "(%u/%s %d) cycle",
+             fwk_id_get_element_idx(dev_id),
+             ctx->rstctrl->dev->name, ctx->rstctrl->id);
+ 
+-- 
+2.53.0
+

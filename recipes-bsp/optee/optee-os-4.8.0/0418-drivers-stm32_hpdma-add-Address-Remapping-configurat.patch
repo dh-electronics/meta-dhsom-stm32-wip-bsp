@@ -1,0 +1,120 @@
+From c6b207ecca533de0b4b9be23a693f5bf4d975fb9 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 13 May 2026 14:15:33 +0200
+Subject: [PATCH 418/913] drivers: stm32_hpdma: add Address Remapping
+ configuration support
+
+Based on st,syscfg-arcr DT property, configure the address remapping
+logic in front of the HPDMA AXI port.
+When remapping is enabled, the 4GB address space accessible by the HPDMA
+AXI port starts at 0x80000000, while it starts at 0x0 when remapping is
+disabled.
+When remapping is enabled, HPDMA is able to address 4GB of DDR.
+This feature is available on STM32MP21 SoCs. That is why a new compatible,
+st,stm32mp21-dma3, is introduced, and the old st,stm32-dma3 compatible is
+updated to st,stm32mp25-dma3, to be aligned with Linux kernel.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 15a7a7f5191bfec0e0d484137d1843b95691a40d drivers: stm32_hpdma: add Address Remapping configuration support]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: I505fee063cfea8da4f9053ea3569bcb5100ff241
+---
+ core/drivers/stm32_hpdma.c | 41 +++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 40 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/stm32_hpdma.c b/core/drivers/stm32_hpdma.c
+index e1a2ccfad..b40fa2e49 100644
+--- a/core/drivers/stm32_hpdma.c
++++ b/core/drivers/stm32_hpdma.c
+@@ -20,6 +20,7 @@
+ #include <mm/core_memprot.h>
+ #include <stdbool.h>
+ #include <stdlib.h>
++#include <stm32_sysconf.h>
+ #include <stm32_util.h>
+ #include <trace.h>
+ 
+@@ -79,6 +80,7 @@
+ struct hpdma_pdata {
+ 	struct clk *hpdma_clock;
+ 	struct rif_conf_data *conf_data;
++	uint32_t syscfg_arcr[2];
+ 	unsigned int nb_channels;
+ 	vaddr_t base;
+ 	bool errata_ahbrisab;
+@@ -130,6 +132,29 @@ static TEE_Result handle_available_semaphores(struct hpdma_pdata *hpdma_d)
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result stm32_hpdma_syscfg_set_arcr(struct hpdma_pdata *hpdma_d)
++{
++	uint32_t offset = hpdma_d->syscfg_arcr[0];
++	uint32_t mask = hpdma_d->syscfg_arcr[1];
++
++	if (!IS_ENABLED(CFG_STM32MP21) || !offset)
++		return TEE_SUCCESS;
++
++	/* Verify that offset is consistent */
++	if (SYSCON_ID(SYSCON_SYSCFG, offset) != SYSCFG_HPDMAARCR)
++		panic("HPDMA offset for axi address remap is incorrect");
++
++	/* Verify that mask is consistent */
++	if (!(mask == HPDMAARCR_HPDMA1AREN ||
++	      mask == HPDMAARCR_HPDMA2AREN ||
++	      mask == HPDMAARCR_HPDMA3AREN))
++		panic("HPDMA bitmask for axi address remap is incorrect");
++
++	stm32mp_syscfg_write(SYSCFG_HPDMAARCR, mask, mask);
++
++	return TEE_SUCCESS;
++}
++
+ /* This function expects HPDMA bus clock is enabled */
+ static TEE_Result apply_rif_config(struct hpdma_pdata *hpdma_d, bool is_tdcid)
+ {
+@@ -250,6 +275,12 @@ static TEE_Result parse_dt(const void *fdt, int node,
+ 	hpdma_d->errata_ahbrisab = fdt_getprop(fdt, node, "st,errata-ahbrisab",
+ 					       NULL);
+ 
++	cuint = fdt_getprop(fdt, node, "st,syscfg-arcr", &lenp);
++	if (cuint && (lenp / sizeof(uint32_t)) == 3) {
++		hpdma_d->syscfg_arcr[0] = fdt32_to_cpu(cuint[1]);
++		hpdma_d->syscfg_arcr[1] = fdt32_to_cpu(cuint[2]);
++	}
++
+ 	cuint = fdt_getprop(fdt, node, "st,protreg", &lenp);
+ 	if (!cuint) {
+ 		DMSG("No RIF configuration available");
+@@ -285,6 +316,9 @@ static void stm32_hpdma_pm_resume(struct hpdma_pdata *hpdma)
+ {
+ 	if (apply_rif_config(hpdma, true))
+ 		panic("Failed to resume HPDMA");
++
++	if (stm32_hpdma_syscfg_set_arcr(hpdma))
++		panic("Failed to resume HPDMA");
+ }
+ 
+ static void stm32_hpdma_pm_suspend(struct hpdma_pdata *hpdma)
+@@ -371,6 +405,10 @@ static TEE_Result stm32_hpdma_probe(const void *fdt, int node,
+ 	if (res)
+ 		panic("Failed to apply RIF config");
+ 
++	res = stm32_hpdma_syscfg_set_arcr(hpdma_d);
++	if (res)
++		panic("Failed to apply hpdma AXI port configuration");
++
+ 	clk_disable(hpdma_d->hpdma_clock);
+ 
+ 	SLIST_INSERT_HEAD(&hpdma_list, hpdma_d, link);
+@@ -381,7 +419,8 @@ static TEE_Result stm32_hpdma_probe(const void *fdt, int node,
+ }
+ 
+ static const struct dt_device_match stm32_hpdma_match_table[] = {
+-	{ .compatible = "st,stm32-dma3" },
++	{ .compatible = "st,stm32mp21-dma3" },
++	{ .compatible = "st,stm32mp25-dma3" },
+ 	{ }
+ };
+ 
+-- 
+2.53.0
+

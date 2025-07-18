@@ -1,0 +1,41 @@
+From 6f1abaf21df04780c3a095331a2f91eb1b00bcb0 Mon Sep 17 00:00:00 2001
+From: Theo GOUREAU <theo.goureau-ext@st.com>
+Date: Tue, 5 Nov 2024 13:21:55 +0100
+Subject: [PATCH 538/913] mod/optee/clock: change set_state() to convert error
+ status
+
+Change set_state() to convert TEE_Result into SCMI framework status to
+provide more detailed error information.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ba00f9ce55dde42349ed8618954dc2091def079c mod/optee/clock: change set_state() to convert error status]
+Change-Id: Ic7378a6a8ecf4545a26cc583089c350ecae59b13
+Signed-off-by: Theo GOUREAU <theo.goureau-ext@st.com>
+---
+ .../product/optee/common/module/clock/src/mod_optee_clock.c   | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+index 4c0f16a19..23af994f0 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+@@ -13,6 +13,8 @@
+ #include <drivers/clk.h>
+ #include <tee_api_types.h>
+ 
++#include <arch_main.h>
++
+ #include <mod_clock.h>
+ #include <mod_optee_clock.h>
+ 
+@@ -129,7 +131,7 @@ static int set_state(fwk_id_t dev_id, enum mod_clock_state state)
+ 
+             res = clk_enable(ctx->clk);
+             if (res != TEE_SUCCESS) {
+-                return FWK_E_DEVICE;
++                return scmi_tee_result_to_fwk_status(res);
+             }
+ 
+             ctx->enabled = true;
+-- 
+2.53.0
+

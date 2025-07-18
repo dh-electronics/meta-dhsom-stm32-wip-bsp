@@ -1,0 +1,46 @@
+From 7fc54c21270cf0f4a680db43d2796f7459c79afe Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Tue, 18 Jun 2024 15:50:44 +0200
+Subject: [PATCH 661/913] plat-stm32mp2: add stm32mp21 support in power drivers
+
+VDDIO4, UCPD and GPU regulators are not available on STM32MP21 soc.
+
+VCORE and VCPU monitoring are not available on STM32MP21 soc.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2c3f7cd58099ea694ff6fefb36709739c6d75930 plat-stm32mp2: add stm32mp21 support in power drivers]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I5de6d006a81c1996bbac1c606c7f079336f9b8d0
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/384507
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c
+index 2b4f1165e..18f23ca4f 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c
+@@ -441,15 +441,18 @@ void stm32mp_pwr_monitoring_enable(enum pwr_monitoring monitoring)
+ 	vaddr_t pwr_base = stm32_pwr_base();
+ 
+ 	switch (monitoring) {
++	/* On MP21 V08CAP is called VBAT */
+ 	case PWR_MON_V08CAP_TEMP:
+ 		io_setbits32(pwr_base + _PWR_CR2, _PWR_CR2_MONEN);
+ 		break;
++#ifndef CFG_STM32MP21
+ 	case PWR_MON_VCORE:
+ 		io_setbits32(pwr_base + _PWR_CR5, _PWR_CR5_VCOREMONEN);
+ 		break;
+ 	case PWR_MON_VCPU:
+ 		io_setbits32(pwr_base + _PWR_CR6, _PWR_CR6_VCPUMONEN);
+ 		break;
++#endif /* !CFG_STM32MP21 */
+ 	default:
+ 		break;
+ 	}
+-- 
+2.53.0
+

@@ -1,0 +1,65 @@
+From bd85f00c8018fd7632bec9475da94e83a336fc6a Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Tue, 26 May 2026 18:19:53 +0200
+Subject: [PATCH 585/913] scripts: sign_rproc_fw: Add check on public private
+ key match
+
+Add a check that the public key provided as --key_info parameter
+match with the private key used for the signature.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 267bdda0bfab9722b1d475bfeb8efd87cd2b40d5 scripts: sign_rproc_fw: Add check on public private key match]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: Id7c7cbbdfa2a96710dc6dc2c50bab2f3b1bd941b
+---
+ scripts/sign_rproc_fw.py | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/scripts/sign_rproc_fw.py b/scripts/sign_rproc_fw.py
+index cf6c53fe8..25ab83c19 100755
+--- a/scripts/sign_rproc_fw.py
++++ b/scripts/sign_rproc_fw.py
+@@ -474,6 +474,32 @@ sig_size_type = {
+ }
+ 
+ 
++def get_public_key_der(key, sign_type):
++    if sign_type == ENUM_SIGNATURE_TYPE['RSA']:
++        return key.publickey().export_key(format='DER')
++
++    if sign_type == ENUM_SIGNATURE_TYPE['ECC']:
++        return key.public_key().export_key(format='DER')
++
++    raise ValueError("Unsupported sign type")
++
++
++def validate_key_info_matches_private_key(key, sign_type, key_info):
++    pub_from_private = get_public_key_der(key, sign_type)
++
++    if pub_from_private == key_info:
++        return
++
++    key_info_hash = SHA256.new(key_info).hexdigest()
++    derived_pub_hash = SHA256.new(pub_from_private).hexdigest()
++
++    raise ValueError(
++        "--key_info does not match --key public key "
++        f"(key_info_sha256={key_info_hash}, "
++        f"derived_pub_sha256={derived_pub_hash})"
++    )
++
++
+ def main():
+     from Cryptodome.Signature import pss
+     from Cryptodome.Hash import SHA256
+@@ -599,6 +625,8 @@ def main():
+     if args.key_info:
+         with open(args.key_info, 'rb') as f:
+             key_info = f.read()
++
++        validate_key_info_matches_private_key(key, sign_type, key_info)
+         tlv.add('PKEYINFO', key_info)
+ 
+     # Compute custom TLV that will be passed to the platform PTA
+-- 
+2.53.0
+

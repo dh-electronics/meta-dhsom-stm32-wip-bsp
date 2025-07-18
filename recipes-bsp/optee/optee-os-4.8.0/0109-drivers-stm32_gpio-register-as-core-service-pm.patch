@@ -1,0 +1,42 @@
+From 288aedb4c2bb3f5c13660af77ccbdb2710f7f61a Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Sat, 28 Feb 2026 10:35:57 +0100
+Subject: [PATCH 109/913] drivers: stm32_gpio: register as core service pm
+
+Replace register_pm_driver_cb() with register_pm_core_service_cb().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2f7d19d76d705a94ded02117b65448bf632db155 drivers: stm32_gpio: register as core service pm]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Ia433e1fdd6e9523e299ec0b19c9dfa3204f6b82e
+---
+ core/drivers/stm32_gpio.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/core/drivers/stm32_gpio.c b/core/drivers/stm32_gpio.c
+index a907a5aba..a8479ced0 100644
+--- a/core/drivers/stm32_gpio.c
++++ b/core/drivers/stm32_gpio.c
+@@ -891,7 +891,8 @@ static TEE_Result stm32_gpio_get_dt(struct dt_pargs *pargs, void *data,
+ 	state->gpio_pinctrl.bank = bank->bank_id;
+ 	SLIST_INSERT_HEAD(&consumed_gpios_head, state, link);
+ 
+-	register_pm_driver_cb(consumed_gpios_pm, state, "stm32-gpio-state");
++	register_pm_core_service_cb(consumed_gpios_pm, state,
++				    "stm32-gpio-state");
+ 
+ 	gpio->chip = &bank->gpio_chip;
+ 
+@@ -1689,8 +1690,8 @@ static TEE_Result stm32_pinctrl_probe(const void *fdt, int node,
+ 		 * Register to PM once for all probed banks to restore
+ 		 * their secure configuration.
+ 		 */
+-		register_pm_driver_cb(stm32_gpio_sec_config_pm, NULL,
+-				      "stm32-gpio-secure-config");
++		register_pm_core_service_cb(stm32_gpio_sec_config_pm, NULL,
++					    "stm32-gpio-secure-config");
+ 		pm_register = true;
+ 	}
+ 
+-- 
+2.53.0
+

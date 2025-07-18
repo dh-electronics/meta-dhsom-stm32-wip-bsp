@@ -1,0 +1,48 @@
+From f666bd35f2d768d4fac4f14ea15535e1603873ac Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 15:39:41 +0200
+Subject: [PATCH 857/913] module: optee_clock: check elt_id_to_ctx() for NULL
+ in element_init
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+optee_clock_element_init() dereferenced the result of
+elt_id_to_ctx() without checking for NULL, unlike 7 of the other 8
+call sites in this file, causing a NULL pointer dereference for an
+invalid element_id.
+
+Return FWK_E_PARAM when ctx is NULL.
+
+Coverity issue: CID 1200286: CERT-C Expression
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bb093f0c06a6574a14a379441482d1372d06cfe7 module: optee_clock: check elt_id_to_ctx() for NULL in element_init]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I4f3dd949d241d7049aa68ca06e1c520856aeb663
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/592832
+Reviewed-by: Valentin CARON <valentin.caron@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../product/optee/common/module/clock/src/mod_optee_clock.c   | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+index 1e41128e7..661e29d91 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee/common/module/clock/src/mod_optee_clock.c
+@@ -410,6 +410,10 @@ static int optee_clock_element_init(
+     const struct mod_optee_clock_config *config = data;
+     TEE_Result res;
+ 
++    if (ctx == NULL) {
++        return FWK_E_PARAM;
++    }
++
+     ctx->clk = config->clk;
+     if (ctx->clk) {
+         ctx->enabled = config->default_enabled;
+-- 
+2.53.0
+

@@ -1,0 +1,120 @@
+From 9563eb18abc23e236b4d98d02d77dbf91f53be89 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 16 Apr 2026 16:02:18 +0200
+Subject: [PATCH 491/913] clk: stm32: add suspend/resume callback for HSE
+ monitoring
+
+Stop the counter at suspend and re-start it at the resume after a low
+power mode, when HSE is stopped.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 72053594e397eb93525eef028f0559ef4f713594 clk: stm32: add suspend/resume callback for HSE monitoring]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I70b29cb3b698e0df044c2f3c9c2af10ef1529867
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/570776
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../clk/stm32/clk-stm32mp-hse-monitoring.c    | 57 ++++++++++++++++++-
+ 1 file changed, 55 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/clk/stm32/clk-stm32mp-hse-monitoring.c b/core/drivers/clk/stm32/clk-stm32mp-hse-monitoring.c
+index a8d406cdc..54386a498 100644
+--- a/core/drivers/clk/stm32/clk-stm32mp-hse-monitoring.c
++++ b/core/drivers/clk/stm32/clk-stm32mp-hse-monitoring.c
+@@ -13,6 +13,12 @@
+ #define HSE_THRESHOLD_PERCENT	110
+ #define FREQ_MONITOR_COMPAT	"st,freq-monitor"
+ 
++struct stm32_hse_monitoring_data {
++	struct counter_device *counter;
++	void *config;
++	uint32_t threshold;
++};
++
+ static void stm32_hse_over_frequency(void *priv,
+ 				     enum counter_event_type event __unused)
+ {
+@@ -22,8 +28,45 @@ static void stm32_hse_over_frequency(void *priv,
+ }
+ DECLARE_KEEP_PAGER(stm32_hse_over_frequency);
+ 
++static TEE_Result stm32_hse_monitoring_pm(enum pm_op op,
++					  unsigned int pm_hint __unused,
++					  const struct pm_callback_handle *h)
++{
++	struct stm32_hse_monitoring_data *priv =
++	(struct stm32_hse_monitoring_data *)PM_CALLBACK_GET_HANDLE(h);
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (op == PM_OP_RESUME) {
++		res = counter_set_threshold(priv->counter, priv->threshold);
++		if (res)
++			return res;
++
++		res = counter_enable_event(priv->counter,
++					   COUNTER_EVENT_THRESHOLD,
++					   stm32_hse_over_frequency,
++					   (void *)&priv->threshold);
++		if (res)
++			return res;
++
++		res = counter_start(priv->counter, priv->config);
++		if (res)
++			return res;
++	} else {
++		res = counter_stop(priv->counter);
++		if (res)
++			return res;
++
++		res = counter_disable_all_events(priv->counter);
++		if (res)
++			return res;
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result stm32_hse_monitoring(void)
+ {
++	struct stm32_hse_monitoring_data *priv = NULL;
+ 	struct counter_device *counter = NULL;
+ 	struct clk *hse_clk = NULL;
+ 	struct clk *hsi_clk = NULL;
+@@ -35,6 +78,10 @@ static TEE_Result stm32_hse_monitoring(void)
+ 	int node = -1;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 
++	priv = calloc(1, sizeof(*priv));
++	if (!priv)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
+ 	fdt = get_embedded_dt();
+ 	if (!fdt)
+ 		panic();
+@@ -73,13 +120,19 @@ static TEE_Result stm32_hse_monitoring(void)
+ 	counter = fdt_counter_get(fdt, node, &config);
+ 	assert(counter && config);
+ 
+-	res = counter_set_threshold(counter, ticks);
++	priv->counter = counter;
++	priv->config = config;
++	priv->threshold = ticks;
++
++	register_pm_driver_cb(stm32_hse_monitoring_pm, priv,
++			      "stm32-hse-monitoring");
++	res = counter_set_threshold(counter, priv->threshold);
+ 	if  (res)
+ 		return res;
+ 
+ 	res = counter_enable_event(counter, COUNTER_EVENT_THRESHOLD,
+ 				   stm32_hse_over_frequency,
+-				   (void *)&ticks);
++				   (void *)&priv->threshold);
+ 	if  (res)
+ 		return res;
+ 
+-- 
+2.53.0
+

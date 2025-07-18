@@ -1,0 +1,65 @@
+From 77f23dc96576d4bc0ff5e0d65558e7ed91d28007 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Thu, 25 Jan 2024 15:35:21 +0100
+Subject: [PATCH 565/913] drivers: stm32_remoteproc: introduce cleanup of
+ firmware memories resources
+
+New API to cleanup all memories resources allocated for m33 firmware
+when stopping firmware or when firmware load error occurs
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e52b54bdf54f7a5748d1b46b9db729860ecc04a5 drivers: stm32_remoteproc: introduce cleanup of firmware memories resources]
+Change-Id: If2f702d721f4906c9bcbc834c6ed4294c472e4f5
+Signed-off-by: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 17 +++++++++++++++++
+ core/include/drivers/stm32_remoteproc.h    |  7 +++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index 6e9b035de..c525d12bc 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -487,6 +487,23 @@ static TEE_Result stm32_rproc_get_dma_ranges(struct stm32_rproc_instance *rproc,
+ 	return TEE_SUCCESS;
+ }
+ 
++TEE_Result stm32_rproc_clean(uint32_t rproc_id)
++{
++	struct stm32_rproc_instance *rproc = stm32_rproc_get(rproc_id);
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (!rproc)
++		return TEE_ERROR_BAD_PARAMETERS;
++	res = stm32_rproc_clean_up_memories(rproc_id);
++	if (res)
++		return res;
++
++	rproc->boot_addr = 0;
++	rproc->tzen = false;
++
++	return TEE_SUCCESS;
++}
++
+ TEE_Result stm32_rproc_set_boot_address(uint32_t rproc_id, paddr_t address)
+ {
+ 	struct stm32_rproc_instance *rproc = stm32_rproc_get(rproc_id);
+diff --git a/core/include/drivers/stm32_remoteproc.h b/core/include/drivers/stm32_remoteproc.h
+index ce79050e9..6f2aff980 100644
+--- a/core/include/drivers/stm32_remoteproc.h
++++ b/core/include/drivers/stm32_remoteproc.h
+@@ -114,4 +114,11 @@ static inline bool stm32_rproc_is_secure(uint32_t rproc_id __unused)
+ }
+ #endif
+ 
++/*
++ * stm32_rproc_clean() - clean resources
++ * @rproc_id	unique identifier of the remote processor
++ * Return TEE_SUCCESS or appropriate error.
++ */
++TEE_Result stm32_rproc_clean(uint32_t rproc_id);
++
+ #endif /* __DRIVERS_STM32_REMOTEPROC_H */
+-- 
+2.53.0
+

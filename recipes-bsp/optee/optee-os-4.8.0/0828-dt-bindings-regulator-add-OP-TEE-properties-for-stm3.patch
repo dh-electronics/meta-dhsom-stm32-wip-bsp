@@ -1,0 +1,63 @@
+From c06536b18eead97c01cd11f3f4fdcca44c8e3d9b Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 2 Jul 2026 18:57:12 +0200
+Subject: [PATCH 828/913] dt-bindings: regulator: add OP-TEE properties for
+ stm32-romem
+
+Add in "st,stm32-romem" binding file  the new properties
+- "st,non-secure-provisioning-otp", destined for non-secure OTP access
+with restrictions
+- "st,secure-otp"
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 433bc9ee7be1e8a10e0e48cd5cc67764d06d5916 dt-bindings: regulator: add OP-TEE properties for stm32-romem]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I598d649d326e176727e89dec189c37b146349968
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/584303
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../bindings/nvmem/st,stm32-romem.yaml        | 20 +++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/documentation/devicetree/bindings/nvmem/st,stm32-romem.yaml b/documentation/devicetree/bindings/nvmem/st,stm32-romem.yaml
+index 3b2aa605a..13847124f 100644
+--- a/documentation/devicetree/bindings/nvmem/st,stm32-romem.yaml
++++ b/documentation/devicetree/bindings/nvmem/st,stm32-romem.yaml
+@@ -42,6 +42,21 @@ patternProperties:
+           This property explicits a factory programmed area that both secure
+           and non-secure worlds can access. It is needed when, by default, the
+           related area can only be reached by the secure world.
++          It requires to be 32 bits word aligned to allow non-secure sharing.
++          Not supported by stm32mp25.
++        type: boolean
++      st,non-secure-otp-provisioning:
++        description: |
++          This property explicits a factory programmed area that allows a non-secure
++          read and write until the first programmed value. Once the provisioning of
++          the specified area is done, access from non-secure is forbidden.
++          It is needed when, by default, the related area is empty and must be provisioned.
++        type: boolean
++      st,secure-otp:
++        description: |
++          This property explicits a factory programmed area that secure
++          worlds of main processor can access.
++          Only supported by stm32mp25.
+         type: boolean
+ 
+ required:
+@@ -68,6 +83,11 @@ examples:
+         reg = <0xe4 0x8>;
+         st,non-secure-otp;
+       };
++
++      oem_enc_key@170 {
++        reg = <0x170 0x10>;
++        st,non-secure-otp-provisioning;
++      };
+     };
+ 
+ ...
+-- 
+2.53.0
+

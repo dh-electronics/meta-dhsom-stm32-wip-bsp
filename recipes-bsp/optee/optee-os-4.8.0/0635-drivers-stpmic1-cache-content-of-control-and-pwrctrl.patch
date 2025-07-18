@@ -1,0 +1,94 @@
+From 969e8cb33d1610bd784dadcdee88bfe2482f6043 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 30 Mar 2026 19:25:00 +0200
+Subject: [PATCH 635/913] drivers: stpmic1: cache content of control and
+ pwrctrl registers
+
+Reduce the number of I2C access during pm sequence by using cached
+value for control and pwrctrl registers in stpmic1_lp_write_unpg().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6bf0f1c3389701a30948b47d14016c4756c36006 drivers: stpmic1: cache content of control and pwrctrl registers]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I9527705d61b73828abac462ed05d1fe3c7c0e927
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/552466
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stpmic1.c | 47 ++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 41 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/stpmic1.c b/core/drivers/stpmic1.c
+index 233261480..7d7bbbe6a 100644
+--- a/core/drivers/stpmic1.c
++++ b/core/drivers/stpmic1.c
+@@ -571,6 +571,31 @@ static const struct regul_struct regulators_table[] = {
+ 	},
+ };
+ 
++/* Cache content of CONTROL and PWRCTRL register (BUCK1 to LDO6) */
++#define CACHE_REG_NB		(LDO6_PWRCTRL_REG - BUCK1_CONTROL_REG + 1)
++#define CACHE_REG_IDX(reg)	((reg) - BUCK1_CONTROL_REG)
++uint8_t stpmic1_cache_reg[CACHE_REG_NB];
++
++static void stpmic1_cache_set(uint8_t register_id,  uint8_t value)
++{
++	int index = CACHE_REG_IDX(register_id);
++
++	if (index >= 0 &&  index < (int)sizeof(stpmic1_cache_reg))
++		stpmic1_cache_reg[index] = value;
++}
++
++static int stpmic1_cache_get(uint8_t register_id,  uint8_t *value)
++{
++	int index = CACHE_REG_IDX(register_id);
++
++	if (index >= 0 &&  index < (int)sizeof(stpmic1_cache_reg)) {
++		*value = stpmic1_cache_reg[index];
++		return 0;
++	}
++
++	return -1;
++}
++
+ static const struct regul_struct *get_regulator_data(const char *name)
+ {
+ 	unsigned int i = 0;
+@@ -909,20 +934,30 @@ int stpmic1_lp_voltage_unpg(struct stpmic1_lp_cfg *cfg)
+ int stpmic1_register_read(uint8_t register_id,  uint8_t *value)
+ {
+ 	struct i2c_handle_s *i2c = pmic_i2c_handle;
++	int status = 0;
++
++	status = stm32_i2c_read_write_membyte(i2c, pmic_i2c_addr,
++					      register_id, value,
++					      false /* !write */);
++	if (!status)
++		stpmic1_cache_set(register_id, *value);
+ 
+-	return stm32_i2c_read_write_membyte(i2c, pmic_i2c_addr,
+-					    register_id, value,
+-					    false /* !write */);
++	return status;
+ }
+ 
+ int stpmic1_register_write(uint8_t register_id, uint8_t value)
+ {
+ 	struct i2c_handle_s *i2c = pmic_i2c_handle;
+ 	uint8_t val = value;
++	int status = 0;
+ 
+-	return stm32_i2c_read_write_membyte(i2c, pmic_i2c_addr,
+-					    register_id, &val,
+-					    true /* write */);
++	status = stm32_i2c_read_write_membyte(i2c, pmic_i2c_addr,
++					      register_id, &val,
++					      true /* write */);
++	if (!status)
++		stpmic1_cache_set(register_id, value);
++
++	return status;
+ }
+ 
+ int stpmic1_register_update(uint8_t register_id, uint8_t value, uint8_t mask)
+-- 
+2.53.0
+

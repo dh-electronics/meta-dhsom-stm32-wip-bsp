@@ -1,0 +1,57 @@
+From aa893d3842ea2de585a0abb65d2819496ef91c4c Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Thu, 27 Jun 2024 15:44:43 +0200
+Subject: [PATCH 806/913] plat-stm32mp2: conf: enable the trusted UI support
+ for stm32mp2
+
+This change makes TUI support with the associated drivers and memory
+management available on STM32MP2 platform.
+
+CFG_TUI_FRAME_BUFFER_SIZE_MAX defines the TUI framebuffer max size
+(default to 16MB) that must be provisioned in OP-TEE virtual memory
+for the TUI frame buffer.
+
+The effective framebuffer location (base address and byte size) is read
+from the embedded DTB. The address range must be carved out from the
+non-secure DDR (DDR non-secure can use as shared memory). The effective
+address range is mapped in OP-TEE core at boot time, from display.c.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 063d975e1f127f16b9bb01075ceb4691037001e2 plat-stm32mp2: conf: enable the trusted UI support for stm32mp2]
+Change-Id: I4ad2932cf24544c427d894d42c283a4a1c388fdb
+Signed-off-by: Yannick Fertre <yannick.fertre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391783
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/conf.mk | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index 657ad1599..0d8be2e34 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -199,6 +199,7 @@ CFG_STM32_TAMP ?= y
+ CFG_STM32_UART ?= y
+ CFG_STM32_VREFBUF ?= y
+ CFG_STPMIC2 ?= y
++CFG_WITH_TUI ?= y
+ 
+ CFG_DRIVERS_I2C ?= $(CFG_STM32_I2C)
+ CFG_REGULATOR_FIXED ?= y
+@@ -377,3 +378,13 @@ endif
+ # When CFG_DT_CACHED_NODE_INFO is enabled, boot time may be divided by 2 or
+ # more (depending on DTB size).
+ CFG_DT_CACHED_NODE_INFO ?= y
++
++# Trusted User Interface
++ifeq ($(CFG_WITH_TUI),y)
++$(call force,CFG_DISPLAY,y)
++$(call force,CFG_FRAME_BUFFER,y)
++$(call force,CFG_STM32_LTDC,y)
++# Provision virtual space to fit 10MByte plus the TUI frame buffer
++CFG_TUI_FRAME_BUFFER_SIZE_MAX ?= 0x01000000
++CFG_RESERVED_VASPACE_SIZE ?= (10 * 1024 * 1024 + $(CFG_TUI_FRAME_BUFFER_SIZE_MAX))
++endif
+-- 
+2.53.0
+

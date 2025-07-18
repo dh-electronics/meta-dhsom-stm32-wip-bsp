@@ -1,0 +1,62 @@
+From 509f0d52e03e53134b577009a91572c9233af192 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Fri, 12 Jun 2026 09:53:25 +0200
+Subject: [PATCH 771/913] core: panic: add possibility to reset the platform
+ after a panic
+
+In some cases, after a panic we don't want to halt the platform and wait
+for a watchdog. Add the flag CFG_CALL_SYSTEM_RESET_ON_PANIC to execute a
+platform system reset.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8b6f41d63f34278678f2adb1420b0896f80dcc7c core: panic: add possibility to reset the platform after a panic]
+Change-Id: If253c89fe38849bc07c9e01b4ecaf2d17c154b77
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/578196
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/kernel/panic.c | 4 ++++
+ mk/config.mk        | 4 ++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/core/kernel/panic.c b/core/kernel/panic.c
+index 347f6bad8..c4ce88779 100644
+--- a/core/kernel/panic.c
++++ b/core/kernel/panic.c
+@@ -6,6 +6,7 @@
+ 
+ #include <initcall.h>
+ #include <keep.h>
++#include <kernel/boot.h>
+ #include <kernel/cache_helpers.h>
+ #include <kernel/interrupt.h>
+ #include <kernel/misc.h>
+@@ -89,6 +90,9 @@ void __do_panic(const char *file __maybe_unused,
+ 	if (IS_ENABLED(CFG_HALT_CORES_ON_PANIC) && CFG_TEE_CORE_NB_CORE > 1)
+ 		halt_other_cores();
+ 
++	if (IS_ENABLED(CFG_RESET_SYSTEM_ON_PANIC))
++		plat_system_reset("Panic");
++
+ 	/* abort current execution */
+ 	while (1)
+ 		cpu_idle();
+diff --git a/mk/config.mk b/mk/config.mk
+index f44398eaa..88a58e8b9 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -1243,6 +1243,10 @@ $(eval $(call cfg-depends-all,CFG_MULTI_CORE_HALTING,CFG_GIC))
+ CFG_HALT_CORES_ON_PANIC ?= ${CFG_MULTI_CORE_HALTING}
+ $(eval $(call cfg-depends-all,CFG_HALT_CORES_ON_PANIC,CFG_MULTI_CORE_HALTING))
+ 
++# CFG_RESET_SYSTEM_ON_PANIC, when enabled, call plat_system_reset() to
++# execute a system reset of the plateform.
++CFG_RESET_SYSTEM_ON_PANIC ?= n
++
+ 
+ # Enable automatic discovery of maximal PA supported by the hardware and
+ # use that. Provides easier configuration of virtual platforms where the
+-- 
+2.53.0
+

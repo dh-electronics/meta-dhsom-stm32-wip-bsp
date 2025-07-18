@@ -1,0 +1,44 @@
+From 267d00a0c74f6d3f28599a546341eee852727c9c Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Fri, 5 Nov 2021 16:14:09 +0100
+Subject: [PATCH 011/913] plat-stm32mp1: optimize xlat table allocation
+
+Set MAX_XLAT_TABLES to the lowest possible value depending on
+OP-TEE configuration when pager is enable.
+
+Provision a larger amount of XLAT tables if pager is off.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 96e8219fb19504fed12243445dbd77e4a74f4fca plat-stm32mp1: optimize xlat table allocation]
+Change-Id: I0b751576965d9fbb12a16a099bfec0c7188c0733
+Signed-off-by: Etienne Carriere <etienne.carriere@st.com>
+---
+ core/arch/arm/plat-stm32mp1/platform_config.h | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/platform_config.h b/core/arch/arm/plat-stm32mp1/platform_config.h
+index 322601792..892178e4d 100644
+--- a/core/arch/arm/plat-stm32mp1/platform_config.h
++++ b/core/arch/arm/plat-stm32mp1/platform_config.h
+@@ -11,12 +11,16 @@
+ /* Make stacks aligned to data cache line length */
+ #define STACK_ALIGNMENT			32
+ 
+-/* Translation table */
+-#ifdef CFG_WITH_LPAE
++#if defined(CFG_WITH_PAGER)
++#if defined(CFG_WITH_LPAE)
+ #define MAX_XLAT_TABLES			4
+ #else
+ #define MAX_XLAT_TABLES			8
+-#endif
++#endif /*CFG_WITH_LPAE*/
++#else
++/* Be generous with this setup that has plenty of secure RAM */
++#define MAX_XLAT_TABLES			10
++#endif /*CFG_WITH_PAGER*/
+ 
+ /* SoC interface registers base address ranges */
+ #define APB1_BASE			0x40000000
+-- 
+2.53.0
+

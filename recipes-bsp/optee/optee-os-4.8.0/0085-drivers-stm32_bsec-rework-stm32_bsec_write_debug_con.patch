@@ -1,0 +1,176 @@
+From 3124215dfb78ca0b815087ce1922e61c6ca0ebfd Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 30 Oct 2025 11:17:44 +0100
+Subject: [PATCH 085/913] drivers: stm32_bsec: rework
+ stm32_bsec_write_debug_conf so it uses generic debug permission mask
+
+Rework stm32_bsec_write_debug_conf so it take a generic permission mask
+instead of the BSEC DENR bitfield. This allow to remove the BSEC DENR
+bitfield from bsec.h and only have them in bsec.c and bsec3.c
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1122fa3c49ba5f07d00aea0fa1d1fcd098af4e1e drivers: stm32_bsec: rework stm32_bsec_write_debug_conf so it uses generic debug permission mask]
+Change-Id: Ia2578ab4eda75e4b4f90d592c0a6a7d08b43907b
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/507064
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c |  5 +--
+ core/drivers/stm32_bsec.c          | 63 ++++++++++++++++++++++++------
+ core/include/drivers/stm32_bsec.h  |  3 --
+ 3 files changed, 54 insertions(+), 17 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index 4848e8e7f..e8d7ec94a 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -518,7 +518,6 @@ static bool __maybe_unused bank_is_valid(unsigned int bank)
+ static TEE_Result init_debug(void)
+ {
+ 	TEE_Result res = TEE_SUCCESS;
+-	uint32_t conf = stm32_bsec_read_debug_conf();
+ 	struct clk *dbg_clk = stm32mp_rcc_clock_id_to_clk(CK_DBG);
+ 	uint32_t state = 0;
+ 
+@@ -526,11 +525,11 @@ static TEE_Result init_debug(void)
+ 	if (res)
+ 		return res;
+ 
+-	if (state != BSEC_STATE_SEC_CLOSED && conf) {
++	if (state != BSEC_STATE_SEC_CLOSED) {
+ 		if (IS_ENABLED(CFG_INSECURE))
+ 			IMSG("WARNING: All debug accesses are allowed");
+ 
+-		res = stm32_bsec_write_debug_conf(conf | BSEC_DEBUG_ALL);
++		res = stm32_bsec_write_debug_conf(STM32_BSEC_DEBUG_ALL);
+ 		if (res)
+ 			return res;
+ 
+diff --git a/core/drivers/stm32_bsec.c b/core/drivers/stm32_bsec.c
+index 27eaa8513..e751114a8 100644
+--- a/core/drivers/stm32_bsec.c
++++ b/core/drivers/stm32_bsec.c
+@@ -96,6 +96,12 @@
+ #define BSEC_MODE_CLOSED		BIT(8)
+ 
+ /* BSEC_DENR register fields */
++#define BSEC_DENR_DBGEN			BIT(1)
++#define BSEC_DENR_NIDEN			BIT(2)
++#define BSEC_DENR_DEVICEEN		BIT(3)
++#define BSEC_DENR_HDPEN			BIT(4)
++#define BSEC_DENR_SPIDEN		BIT(5)
++#define BSEC_DENR_SPNIDEN		BIT(6)
+ #define BSEC_DENR_DBGSWEN		BIT(10)
+ 
+ /* BSEC_DEBUG bitfields */
+@@ -539,21 +545,47 @@ out:
+ }
+ #endif /*CFG_STM32_BSEC_WRITE*/
+ 
+-TEE_Result stm32_bsec_write_debug_conf(uint32_t value)
++static uint32_t parse_permission(uint32_t perm_mask)
++{
++	uint32_t denr_val = 0U;
++
++	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_A_NSDDIS)) {
++		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_A_NSTO)
++			denr_val |= BSEC_DENR_NIDEN;
++		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_A_NSFD)
++			denr_val |= BSEC_DENR_NIDEN | BSEC_DENR_DBGEN;
++	}
++
++	if (!(perm_mask & STM32_BSEC_DEBUG_CORTEX_A_SDDIS)) {
++		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_A_STO)
++			denr_val |= BSEC_DENR_SPNIDEN;
++		if (perm_mask & STM32_BSEC_DEBUG_CORTEX_A_SFD)
++			denr_val |= BSEC_DENR_SPNIDEN | BSEC_DENR_SPIDEN;
++	}
++
++	if (denr_val != 0)
++		denr_val |= BSEC_DENR_DEVICEEN | BSEC_DENR_HDPEN |
++			    BSEC_DENR_DBGSWEN;
++
++	return denr_val;
++}
++
++TEE_Result stm32_bsec_write_debug_conf(uint32_t perm_mask)
+ {
+ 	TEE_Result result = TEE_ERROR_GENERIC;
+ 	uint32_t exceptions = 0;
+-
+-	assert(!(value & ~BSEC_DEN_ALL_MSK));
++	uint32_t denr = 0;
+ 
+ 	if (state_is_invalid_mode())
+ 		return TEE_ERROR_SECURITY;
+ 
++	denr = parse_permission(perm_mask);
++
+ 	exceptions = bsec_lock();
+ 
+-	io_clrsetbits32(bsec_base() + BSEC_DEN_OFF, BSEC_DEN_ALL_MSK, value);
++	io_clrsetbits32(bsec_base() + BSEC_DEN_OFF, BSEC_DEN_ALL_MSK, denr);
+ 
+-	if (stm32_bsec_read_debug_conf() == value)
++	if ((io_read32(bsec_base() + BSEC_DEN_OFF) & BSEC_DEN_ALL_MSK) == denr)
+ 		result = TEE_SUCCESS;
+ 
+ 	bsec_unlock(exceptions);
+@@ -561,14 +593,23 @@ TEE_Result stm32_bsec_write_debug_conf(uint32_t value)
+ 	return result;
+ }
+ 
+-uint32_t stm32_bsec_read_debug_conf(void)
++bool stm32_bsec_self_hosted_debug_is_enabled(void)
+ {
+-	return io_read32(bsec_base() + BSEC_DEN_OFF) & BSEC_DEN_ALL_MSK;
++	return io_read32(bsec_base() + BSEC_DEN_OFF) & BSEC_DENR_DBGSWEN;
+ }
+ 
+-bool stm32_bsec_self_hosted_debug_is_enabled(void)
++bool stm32_bsec_hdp_is_enabled(void)
+ {
+-	return stm32_bsec_read_debug_conf() & BSEC_DENR_DBGSWEN;
++	return io_read32(bsec_base() + BSEC_DEN_OFF) & BSEC_DENR_HDPEN;
++}
++
++bool stm32_bsec_coresight_is_enabled(void)
++{
++	uint32_t denr = io_read32(bsec_base() + BSEC_DEN_OFF);
++	uint32_t coresight_mask = BSEC_DENR_DBGEN | BSEC_DENR_DEVICEEN |
++				  BSEC_DENR_DBGSWEN;
++
++	return (denr & coresight_mask) == coresight_mask;
+ }
+ 
+ static TEE_Result set_bsec_lock(uint32_t otp_id, size_t lock_offset)
+@@ -982,9 +1023,9 @@ static TEE_Result bsec_pm(enum pm_op op, uint32_t pm_hint __unused,
+ 	assert(op == PM_OP_SUSPEND || op == PM_OP_RESUME);
+ 
+ 	if (op == PM_OP_SUSPEND)
+-		debug_conf = stm32_bsec_read_debug_conf();
++		debug_conf = io_read32(bsec_base() + BSEC_DEN_OFF);
+ 	else
+-		stm32_bsec_write_debug_conf(debug_conf);
++		io_write32(bsec_base() + BSEC_DEN_OFF, debug_conf);
+ 
+ 	return TEE_SUCCESS;
+ }
+diff --git a/core/include/drivers/stm32_bsec.h b/core/include/drivers/stm32_bsec.h
+index a434809e2..598499b24 100644
+--- a/core/include/drivers/stm32_bsec.h
++++ b/core/include/drivers/stm32_bsec.h
+@@ -158,9 +158,6 @@ static inline TEE_Result stm32_bsec_permanent_lock_otp(uint32_t otp_id __unused)
+  */
+ TEE_Result stm32_bsec_write_debug_conf(uint32_t value);
+ 
+-/* Return debug configuration read from BSEC */
+-uint32_t stm32_bsec_read_debug_conf(void);
+-
+ /*
+  * Write shadow-read lock
+  * @otp_id: OTP number
+-- 
+2.53.0
+

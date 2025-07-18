@@ -1,0 +1,141 @@
+From 8eef0d4ac6b160e9fd6ef16e0acb4c2647d90a6c Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Tue, 16 Jun 2026 15:41:29 +0200
+Subject: [PATCH 761/913] dts: stm32: fix warning in stm32mp15 boards
+
+Fix warning in stm32mp151 :
+core/arch/arm/dts/stm32mp151.dtsi:351.9-354.6:
+Warning (graph_child_address): /soc/display-controller@5a001000/port:
+graph node has single child node 'endpoint@0', #address-cells/#size-cells
+are not necessary.
+
+Backport from :
+5364e37799c8 ("ARM: dts: stm32: fix ltdc warnings in stm32mp15 boards")
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 991b31bc816a545e0a5101885ef385e2cf00afd3 dts: stm32: fix warning in stm32mp15 boards]
+Fixes: 13bd79f46ea2 ("dts: stm32mp15: bump to Linux v5.19-rc6 dts files Synchronize with stm32mp15 dts(i) files from Linux v5.19-rc6.")
+Change-Id: Ia23031e81eb2dcdf7e0b98d6c0c8cc82d39c0d0b
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/579642
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yannick FERTRE <yannick.fertre@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/dts/stm32mp151.dtsi      | 5 -----
+ core/arch/arm/dts/stm32mp157.dtsi      | 7 -------
+ core/arch/arm/dts/stm32mp157c-dk2.dts  | 8 +++++++-
+ core/arch/arm/dts/stm32mp157c-ev1.dts  | 4 +++-
+ core/arch/arm/dts/stm32mp15xx-dkx.dtsi | 3 +--
+ 5 files changed, 11 insertions(+), 16 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp151.dtsi b/core/arch/arm/dts/stm32mp151.dtsi
+index 24d5ffe4b..94efac823 100644
+--- a/core/arch/arm/dts/stm32mp151.dtsi
++++ b/core/arch/arm/dts/stm32mp151.dtsi
+@@ -401,11 +401,6 @@
+ 			clock-names = "lcd";
+ 			resets = <&rcc LTDC_R>;
+ 			status = "disabled";
+-
+-			port {
+-				#address-cells = <1>;
+-				#size-cells = <0>;
+-			};
+ 		};
+ 
+ 		iwdg2: watchdog@5a002000 {
+diff --git a/core/arch/arm/dts/stm32mp157.dtsi b/core/arch/arm/dts/stm32mp157.dtsi
+index 54e73ccea..5e733cd16 100644
+--- a/core/arch/arm/dts/stm32mp157.dtsi
++++ b/core/arch/arm/dts/stm32mp157.dtsi
+@@ -24,14 +24,7 @@
+ 			clock-names = "pclk", "ref", "px_clk";
+ 			resets = <&rcc DSI_R>;
+ 			reset-names = "apb";
+-			#address-cells = <1>;
+-			#size-cells = <0>;
+ 			status = "disabled";
+-
+-			ports {
+-				#address-cells = <1>;
+-				#size-cells = <0>;
+-			};
+ 		};
+ 	};
+ };
+diff --git a/core/arch/arm/dts/stm32mp157c-dk2.dts b/core/arch/arm/dts/stm32mp157c-dk2.dts
+index 711773546..e7664dd70 100644
+--- a/core/arch/arm/dts/stm32mp157c-dk2.dts
++++ b/core/arch/arm/dts/stm32mp157c-dk2.dts
+@@ -33,10 +33,14 @@
+ };
+ 
+ &dsi {
++	#address-cells = <1>;
++	#size-cells = <0>;
+ 	status = "disabled";
+ 	phy-dsi-supply = <&reg18>;
+ 
+ 	ports {
++		#address-cells = <1>;
++		#size-cells = <0>;
+ 		port@0 {
+ 			reg = <0>;
+ 			dsi_in: endpoint {
+@@ -89,7 +93,6 @@
+ 		reg = <0x38>;
+ 		interrupts = <2 2>;
+ 		interrupt-parent = <&gpiof>;
+-		interrupt-controller;
+ 		touchscreen-size-x = <480>;
+ 		touchscreen-size-y = <800>;
+ 		status = "okay";
+@@ -100,6 +103,9 @@
+ 	status = "disabled";
+ 
+ 	port {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
+ 		ltdc_ep1_out: endpoint@1 {
+ 			reg = <1>;
+ 			remote-endpoint = <&dsi_in>;
+diff --git a/core/arch/arm/dts/stm32mp157c-ev1.dts b/core/arch/arm/dts/stm32mp157c-ev1.dts
+index 82ed596aa..463cfa0ab 100644
+--- a/core/arch/arm/dts/stm32mp157c-ev1.dts
++++ b/core/arch/arm/dts/stm32mp157c-ev1.dts
+@@ -94,6 +94,8 @@
+ };
+ 
+ &dsi {
++	#address-cells = <1>;
++	#size-cells = <0>;
+ 	phy-dsi-supply = <&reg18>;
+ 	status = "disabled";
+ 
+@@ -113,7 +115,7 @@
+ 		};
+ 	};
+ 
+-	panel-dsi@0 {
++	panel_dsi: panel@0 {
+ 		compatible = "raydium,rm68200";
+ 		reg = <0>;
+ 		reset-gpios = <&gpiof 15 GPIO_ACTIVE_LOW>;
+diff --git a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+index 23bc908f5..9682027a4 100644
+--- a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
++++ b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+@@ -572,8 +572,7 @@
+ 	status = "disabled";
+ 
+ 	port {
+-		ltdc_ep0_out: endpoint@0 {
+-			reg = <0>;
++		ltdc_ep0_out: endpoint {
+ 			remote-endpoint = <&sii9022_in>;
+ 		};
+ 	};
+-- 
+2.53.0
+

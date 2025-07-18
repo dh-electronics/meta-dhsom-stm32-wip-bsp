@@ -1,0 +1,119 @@
+From 7d2af5476b55170e41a20fd8715fa785ddac2c3d Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@st.com>
+Date: Mon, 11 May 2026 08:57:19 +0200
+Subject: [PATCH 704/913] dts: stm32: interrupt notification
+
+On stm32mp135f-dk, STPMIC1 notify interrupts using st,pmci-it-id and
+st,notif-it-id, based on interrupt handlers registered on EXTI.
+
+USB-C interrupt is notified to Linux based on st,stm32-irq-notifier
+compatible driver.
+
+Whike at it, but a bit out of scope: configure wakeup GPIOs in PWR IRQ
+driver device for this board.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1fa63a3f3a1c06fedb1f304f6815b8289de9c037 dts: stm32: interrupt notification]
+Signed-off-by: Etienne Carriere <etienne.carriere@st.com>
+Change-Id: Ie9284e91ea0fbf651dafaeecfb58e7dd7341a297
+---
+ core/arch/arm/dts/stm32mp131.dtsi    | 19 ++++++++++++-------
+ core/arch/arm/dts/stm32mp135f-dk.dts | 20 ++++++++++++++++++--
+ 2 files changed, 30 insertions(+), 9 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp131.dtsi b/core/arch/arm/dts/stm32mp131.dtsi
+index 7f6a5fd27..4af49f558 100644
+--- a/core/arch/arm/dts/stm32mp131.dtsi
++++ b/core/arch/arm/dts/stm32mp131.dtsi
+@@ -292,12 +292,17 @@
+ 		};
+ 
+ 		pwr_irq: pwr@50001010 {
+-			compatible = "st,stm32mp1,pwr-irq";
++			compatible = "st,stm32mp1-pwr-irq";
++			interrupts = <GIC_SPI 125 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
++			wakeup-gpios = <0>, <0>, <0>, <0>, <0>, <0>;
+ 			status = "disabled";
+ 		};
+ 
+ 		exti: interrupt-controller@5000d000 {
+ 			compatible = "st,stm32mp1-exti";
++			wakeup-parent = <&pwr_irq>;
+ 			interrupt-controller;
+ 			#interrupt-cells = <2>;
+ 			reg = <0x5000d000 0x400>;
+@@ -357,12 +362,12 @@
+ 				<&intc GIC_SPI 118 IRQ_TYPE_LEVEL_HIGH>,
+ 				<&intc GIC_SPI 119 IRQ_TYPE_LEVEL_HIGH>,
+ 				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,						/* EXTI_60 */
++				<&pwr_irq 0 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr_irq 1 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr_irq 2 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr_irq 3 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr_irq 4 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr_irq 5 IRQ_TYPE_EDGE_FALLING>,		/* EXTI_60 */
+ 				<0>,
+ 				<0>,
+ 				<0>,
+diff --git a/core/arch/arm/dts/stm32mp135f-dk.dts b/core/arch/arm/dts/stm32mp135f-dk.dts
+index c6fa5efc1..f7bd3dc9a 100644
+--- a/core/arch/arm/dts/stm32mp135f-dk.dts
++++ b/core/arch/arm/dts/stm32mp135f-dk.dts
+@@ -10,6 +10,7 @@
+ #include <dt-bindings/firewall/stm32mp13-tzc400.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/gpio/stm32mp_gpio.h>
++#include <dt-bindings/mfd/st,stpmic1.h>
+ #include <dt-bindings/regulator/st,stm32mp13-regulator.h>
+ #include <dt-bindings/soc/stm32mp-provisioning.h>
+ #include <dt-bindings/tamper/st,stm32mp13-tamp.h>
+@@ -57,6 +58,14 @@
+ 		};
+ 	};
+ 
++	typec_wakeup: typec_wakeup {
++		compatible = "st,stm32-irq-notifier";
++		interrupts-extended = <&exti 59 IRQ_TYPE_EDGE_FALLING>;
++		wakeup-source;
++		st,notif-it-id = <1>;
++		status = "okay";
++	};
++
+ 	vin: vin {
+ 		compatible = "regulator-fixed";
+ 		regulator-name = "vin";
+@@ -174,8 +183,10 @@
+ 		compatible = "st,stpmic1";
+ 		reg = <0x33>;
+ 		status = "okay";
+-		st,wakeup-pin-number = <1>;
+-		st,notif-it-id = <0>;
++		interrupts-extended = <&exti 55 IRQ_TYPE_EDGE_FALLING>;
++		wakeup-source;
++		st,pmic-it-id = <IT_PONKEY_F IT_PONKEY_R>;
++		st,notif-it-id = <0 2>;
+ 
+ 		regulators {
+ 			compatible = "st,stpmic1-regulators";
+@@ -375,6 +386,11 @@
+ 	status = "okay";
+ };
+ 
++&pwr_irq {
++	status = "okay";
++	wakeup-gpios = <&gpiof 8 GPIO_ACTIVE_HIGH>, <&gpioi 3 GPIO_ACTIVE_HIGH>, <0>, <0>, <&gpioi 2 GPIO_PULL_UP>, <0>;
++};
++
+ &pwr_regulators {
+ 	vdd-supply = <&vdd>;
+ 	vdd_3v3_usbfs-supply = <&vdd_usb>;
+-- 
+2.53.0
+

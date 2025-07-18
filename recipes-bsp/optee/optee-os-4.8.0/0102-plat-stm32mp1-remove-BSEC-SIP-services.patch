@@ -1,0 +1,209 @@
+From 5a27407093cbba24c2d4cb10712e83acbb383778 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Fri, 19 Nov 2021 15:23:28 +0100
+Subject: [PATCH 102/913] plat-stm32mp1: remove BSEC SIP services
+
+As the interface is now managed using PTA BSEC, the
+SMC SIP services can be removed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0f0a1be6e5c41fa911f5499907e216e7e6864843 plat-stm32mp1: remove BSEC SIP services]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: I0daaf0ea5813dc17a3c19d2994ec9d2a95550fed
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372799
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk           |  2 -
+ .../arm/plat-stm32mp1/nsec-service/bsec_svc.c | 67 -------------------
+ .../arm/plat-stm32mp1/nsec-service/bsec_svc.h | 21 ------
+ .../plat-stm32mp1/nsec-service/stm32mp1_smc.h | 16 -----
+ .../nsec-service/stm32mp1_svc_setup.c         |  3 +-
+ .../arm/plat-stm32mp1/nsec-service/sub.mk     |  1 -
+ 6 files changed, 1 insertion(+), 109 deletions(-)
+ delete mode 100644 core/arch/arm/plat-stm32mp1/nsec-service/bsec_svc.c
+ delete mode 100644 core/arch/arm/plat-stm32mp1/nsec-service/bsec_svc.h
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 0964a2d82..8fe32f32d 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -230,7 +230,6 @@ $(call force,CFG_STM32MP1_RSTCTRL,y)
+ $(call force,CFG_STM32MP15_CLK,y)
+ CFG_CORE_RESERVED_SHM ?= n
+ CFG_MULTI_CORE_HALTING ?= y
+-CFG_STM32_BSEC_SIP ?= y
+ CFG_TEE_CORE_NB_CORE ?= 2
+ CFG_WITH_SOFTWARE_PRNG ?= y
+ CFG_STM32MP1_OPTEE_IN_SYSRAM ?= n
+@@ -352,7 +351,6 @@ CFG_SCMI_MSG_DRIVERS ?= y
+ endif
+ 
+ # SiP/OEM service for non-secure world
+-CFG_STM32_BSEC_SIP ?= n
+ CFG_STM32MP1_SCMI_SIP ?= n
+ ifeq ($(CFG_STM32MP1_SCMI_SIP),y)
+ $(call force,CFG_SCMI_MSG_DRIVERS,y,Mandated by CFG_STM32MP1_SCMI_SIP)
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/bsec_svc.c b/core/arch/arm/plat-stm32mp1/nsec-service/bsec_svc.c
+deleted file mode 100644
+index 9f426de40..000000000
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/bsec_svc.c
++++ /dev/null
+@@ -1,67 +0,0 @@
+-// SPDX-License-Identifier: BSD-3-Clause
+-/*
+- * Copyright (c) 2016-2020, STMicroelectronics
+- */
+-
+-#include <drivers/stm32_bsec.h>
+-#include <kernel/thread.h>
+-#include <tee_api_types.h>
+-#include <trace.h>
+-
+-#include "bsec_svc.h"
+-#include "stm32mp1_smc.h"
+-
+-void bsec_main(struct thread_smc_args *args)
+-{
+-	TEE_Result result = TEE_ERROR_GENERIC;
+-	uint32_t cmd = args->a1;
+-	uint32_t otp_id = args->a2;
+-	uint32_t in_value = args->a3;
+-	uint32_t *out_value = &args->a1;
+-	uint32_t tmp = 0;
+-
+-	if (!stm32_bsec_nsec_can_access_otp(otp_id)) {
+-		args->a0 = STM32_SIP_SVC_INVALID_PARAMS;
+-		return;
+-	}
+-
+-	switch (cmd) {
+-	case STM32_SIP_SVC_BSEC_READ_SHADOW:
+-		FMSG("read shadow @%#"PRIx32, otp_id);
+-		result = stm32_bsec_read_otp(out_value, otp_id);
+-		break;
+-	case STM32_SIP_SVC_BSEC_PROG_OTP:
+-		FMSG("program @%#"PRIx32, otp_id);
+-		result = stm32_bsec_program_otp(in_value, otp_id);
+-		break;
+-	case STM32_SIP_SVC_BSEC_WRITE_SHADOW:
+-		FMSG("write shadow @%#"PRIx32, otp_id);
+-		result = stm32_bsec_write_otp(in_value, otp_id);
+-		break;
+-	case STM32_SIP_SVC_BSEC_READ_OTP:
+-		FMSG("read @%#"PRIx32, otp_id);
+-		result = stm32_bsec_read_otp(&tmp, otp_id);
+-		if (!result)
+-			result = stm32_bsec_shadow_register(otp_id);
+-		if (!result)
+-			result = stm32_bsec_read_otp(out_value, otp_id);
+-		if (!result)
+-			result = stm32_bsec_write_otp(tmp, otp_id);
+-		break;
+-	case STM32_SIP_SVC_BSEC_WRLOCK_OTP:
+-		FMSG("permanent write lock @%#"PRIx32, otp_id);
+-		result = stm32_bsec_permanent_lock_otp(otp_id);
+-		break;
+-	default:
+-		DMSG("Invalid command %#"PRIx32, cmd);
+-		result = TEE_ERROR_BAD_PARAMETERS;
+-		break;
+-	}
+-
+-	if (!result)
+-		args->a0 = STM32_SIP_SVC_OK;
+-	else if (result == TEE_ERROR_BAD_PARAMETERS)
+-		args->a0 = STM32_SIP_SVC_INVALID_PARAMS;
+-	else
+-		args->a0 = STM32_SIP_SVC_FAILED;
+-}
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/bsec_svc.h b/core/arch/arm/plat-stm32mp1/nsec-service/bsec_svc.h
+deleted file mode 100644
+index 5e57f5012..000000000
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/bsec_svc.h
++++ /dev/null
+@@ -1,21 +0,0 @@
+-/* SPDX-License-Identifier: BSD-3-Clause */
+-/*
+- * Copyright (c) 2016-2020, STMicroelectronics
+- */
+-
+-#ifndef __STM32MP1_BSEC_SVC_H__
+-#define __STM32MP1_BSEC_SVC_H__
+-
+-#include <kernel/thread.h>
+-#include <stdint.h>
+-#include <stm32mp1_smc.h>
+-
+-#ifdef CFG_STM32_BSEC_SIP
+-void bsec_main(struct thread_smc_args *args);
+-#else
+-static inline void bsec_main(struct thread_smc_args *args)
+-{
+-	args->a0 = STM32_SIP_SVC_UNKNOWN_FUNCTION;
+-}
+-#endif
+-#endif /*__STM32MP1_BSEC_SVC_H__*/
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
+index 55fffd317..89d858b34 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_smc.h
+@@ -73,25 +73,9 @@
+ 
+ /*
+  * SIP functions STM32_SIP_SVC_FUNC_BSEC - Deprecated
+- *
+- * Argument a0: (input) SMCCC function ID
+- *		(output) status return code
+- * Argument a1: (input) Service ID (STM32_SIP_BSEC_xxx)
+- * Argument a2: (input) OTP index
+- *		(output) OTP read value, if applicable
+- * Argument a3: (input) OTP value if applicable
+  */
+ #define STM32_SIP_SVC_FUNC_BSEC			0x1003
+ 
+-/* Service ID for function ID STM32_SIP_FUNC_BSEC */
+-#define STM32_SIP_SVC_BSEC_READ_SHADOW		0x1
+-#define STM32_SIP_SVC_BSEC_PROG_OTP		0x2
+-#define STM32_SIP_SVC_BSEC_WRITE_SHADOW		0x3
+-#define STM32_SIP_SVC_BSEC_READ_OTP		0x4
+-/* reserved for STM32_SIP_SVC_SMC_READ_ALL	0x5 */
+-/* reserved for STM32_SIP_SVC_SMC_WRITE_ALL	0x6 */
+-#define STM32_SIP_SVC_BSEC_WRLOCK_OTP		0x7
+-
+ /*
+  * SIP function STM32_SIP_SVC_FUNC_SCMI_AGENT
+  * SIP function STM32_SIP_SVC_FUNC_SCMI_AGENT1 - Obsolete
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+index 4377c6291..d0e9710d7 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/stm32mp1_svc_setup.c
+@@ -10,7 +10,6 @@
+ #include <sm/sm.h>
+ #include <sm/std_smc.h>
+ 
+-#include "bsec_svc.h"
+ #include "stm32mp1_smc.h"
+ 
+ static enum sm_handler_ret sip_service(struct sm_ctx *ctx __unused,
+@@ -42,7 +41,7 @@ static enum sm_handler_ret sip_service(struct sm_ctx *ctx __unused,
+ 		args->a0 = ARM_SMCCC_RET_NOT_SUPPORTED;
+ 		break;
+ 	case STM32_SIP_SVC_FUNC_BSEC:
+-		bsec_main(args);
++		args->a0 = ARM_SMCCC_RET_NOT_SUPPORTED;
+ 		break;
+ 	default:
+ 		return SM_HANDLER_PENDING_SMC;
+diff --git a/core/arch/arm/plat-stm32mp1/nsec-service/sub.mk b/core/arch/arm/plat-stm32mp1/nsec-service/sub.mk
+index 6e1abcb4a..01896c07b 100644
+--- a/core/arch/arm/plat-stm32mp1/nsec-service/sub.mk
++++ b/core/arch/arm/plat-stm32mp1/nsec-service/sub.mk
+@@ -1,4 +1,3 @@
+ global-incdirs-y += .
+ 
+ srcs-y += stm32mp1_svc_setup.c
+-srcs-$(CFG_STM32_BSEC_SIP) += bsec_svc.c
+-- 
+2.53.0
+

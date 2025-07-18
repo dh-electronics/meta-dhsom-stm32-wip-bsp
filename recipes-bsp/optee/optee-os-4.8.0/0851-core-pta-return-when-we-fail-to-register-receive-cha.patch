@@ -1,0 +1,45 @@
+From d3a47363e82e43cbb466716a3bffbafd6d08d985 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Fri, 17 Jul 2026 09:42:42 +0200
+Subject: [PATCH 851/913] core: pta: return when we fail to register receive
+ channel
+
+The IPCC mailbox test registered the receive channel via
+mbox_dt_register_chan() but only logged an error message when the
+registration failed (e.g. channel already registered by another
+user), then kept running the test as if it had succeeded.
+
+Return the error code immediately when the receive channel
+registration fails, so the test is not executed with an unregistered
+channel.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 765c6392fe22f79c3b81dff6a5480de353d485b6 core: pta: return when we fail to register receive channel]
+Change-Id: Ia2084a83fe06b6b2b872f44e35f05f108f8e1a54
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/588993
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/pta/tests/mbox.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/core/pta/tests/mbox.c b/core/pta/tests/mbox.c
+index 53a5aee57..bf5cb3f2c 100644
+--- a/core/pta/tests/mbox.c
++++ b/core/pta/tests/mbox.c
+@@ -528,8 +528,10 @@ static TEE_Result ipcc_mailbox_test(void)
+ 		return TEE_SUCCESS;
+ 	res = mbox_dt_register_chan(receive_callback, NULL, NULL, fdt, node,
+ 				    &handle_receive_send);
+-	if (res != TEE_SUCCESS)
++	if (res != TEE_SUCCESS) {
+ 		EMSG("chan handle_receive_send %x", res);
++		return res;
++	}
+ 
+ 	notif_register_driver(&mbox_notif);
+ 
+-- 
+2.53.0
+

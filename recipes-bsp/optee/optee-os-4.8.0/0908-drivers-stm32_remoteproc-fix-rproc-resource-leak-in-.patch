@@ -1,0 +1,56 @@
+From a2b9b49d34e99adf3c2b1d2171bd9ca10c2808f0 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Wed, 30 Sep 2026 14:37:57 +0200
+Subject: [PATCH 908/913] drivers: stm32_remoteproc: fix rproc resource leak in
+ probe
+
+When a probed remote processor has ns_loading set and either lacks a
+"#reset-cells" DT property or a cdata->pm callback, the allocated
+rproc instance was never inserted into rproc_list, registered with the
+PM framework, nor kept alive by the reset-controller provider,
+leaving it unreachable and leaked on the success return path.
+
+Add the memory free for rproc->dma_ranges and register the rproc
+whatever the ns_loading value.
+
+Coverity issue: CID 1200357: Resource leak
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a248e67075945f13386deceb5887f88a3b32b06c drivers: stm32_remoteproc: fix rproc resource leak in probe]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: Ib2fa589b51db3fd673d24e181bdc061e8c23eac9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/619057
+Tested-by: Sebastien PASDELOUP <sebastien.pasdeloup-ext@st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index 78fc5fee0..f332c2ba4 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -709,6 +709,7 @@ TEE_Result stm32_rproc_release_mem(uint32_t rproc_id)
+ static void stm32_rproc_cleanup(struct stm32_rproc_instance *rproc)
+ {
+ 	stm32_rproc_free_regions(rproc);
++	free(rproc->dma_ranges);
+ 	free(rproc);
+ }
+ 
+@@ -915,8 +916,7 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 
+ 	stm32_rproc_a35ss_cfg(rproc);
+ 
+-	if (!rproc->cdata->ns_loading)
+-		SLIST_INSERT_HEAD(&rproc_list, rproc, link);
++	SLIST_INSERT_HEAD(&rproc_list, rproc, link);
+ 
+ 	if (rproc->cdata->pm)
+ 		register_pm_driver_cb(rproc->cdata->pm, rproc, "stm32-rproc");
+-- 
+2.53.0
+

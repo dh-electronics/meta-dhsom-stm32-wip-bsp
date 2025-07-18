@@ -1,0 +1,247 @@
+From 0a563360dd667840cfeb9731569047aa6b31fef2 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 11 Sep 2024 18:14:12 +0200
+Subject: [PATCH 287/913] stm32mp15 tree wide: use DECLARE_KEEP_PAGER_PM()
+
+Replace DECLARE_KEEP_PAGER() directives with DECLARE_KEEP_PAGER_PM()
+for resources that need to be unpaged for PM sequence support. This
+change covers the resources used by generic core and stm32mp15
+platforms.
+
+Also add few keep.h inclusions that are missing.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bfc962b446d7f18e49c08a6d3c0b916cc6a47752 stm32mp15 tree wide: use DECLARE_KEEP_PAGER_PM()
+09284d2cf11f4ff12ce3b6209864634ee1a4bedf stm32mp15 tree wide: use DECLARE_KEEP_PAGER_PM() for MP15]
+Change-Id: I4e847ab0a19e5b290b083ef8e0a5aa436b32840f
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/392007
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c | 4 ++--
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c  | 5 +++--
+ core/arch/arm/plat-stm32mp1/plat_tzc400.c           | 2 +-
+ core/drivers/crypto/stm32/stm32_cryp.c              | 2 +-
+ core/drivers/firewall/stm32_etzpc.c                 | 2 +-
+ core/drivers/stm32_bsec.c                           | 3 ++-
+ core/drivers/stm32_cpu_opp.c                        | 2 +-
+ core/drivers/stm32_rng.c                            | 5 +++--
+ core/drivers/stm32mp_provisioning.c                 | 1 +
+ core/mm/mobj.c                                      | 6 +++---
+ core/mm/mobj_dyn_shm.c                              | 2 +-
+ 11 files changed, 19 insertions(+), 15 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+index 2073ea163..b454ba30a 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pmic.c
+@@ -476,14 +476,14 @@ static const struct regulator_ops pmic_regu_ops = {
+ 	.supported_voltages = pmic_list_voltages,
+ 	.supplied_init = pmic_regu_init,
+ };
+-DECLARE_KEEP_PAGER(pmic_regu_ops);
++DECLARE_KEEP_PAGER_PM(pmic_regu_ops);
+ 
+ static const struct regulator_ops pmic_sw_ops = {
+ 	.set_state = pmic_set_state,
+ 	.get_state = pmic_get_state,
+ 	.supplied_init = pmic_regu_init,
+ };
+-DECLARE_KEEP_PAGER(pmic_sw_ops);
++DECLARE_KEEP_PAGER_PM(pmic_sw_ops);
+ 
+ /*
+  * STPMIC1 regulator names, used in the DT as regulator node name and
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+index 7e1b4aa29..ac00894ce 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+@@ -10,6 +10,7 @@
+ #include <drivers/stm32mp1_pwr.h>
+ #include <drivers/stm32mp1_syscfg.h>
+ #include <io.h>
++#include <keep.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt_driver.h>
+ #include <kernel/panic.h>
+@@ -171,7 +172,7 @@ static const struct regu_dt_desc stm32mp1_pwr_regu_dt_desc[] = {
+ 	[PWR_REG18] = DEFINE_REG(PWR_REG18, "reg18", "vdd"),
+ 	[PWR_USB33] = DEFINE_REG(PWR_USB33, "usb33", "vdd_3v3_usbfs"),
+ };
+-DECLARE_KEEP_PAGER(stm32mp1_pwr_regu_dt_desc);
++DECLARE_KEEP_PAGER_PM(stm32mp1_pwr_regu_dt_desc);
+ 
+ struct regulator *stm32mp1_pwr_get_regulator(enum pwr_regulator id)
+ {
+@@ -189,7 +190,7 @@ static TEE_Result vdd_hslv_pm(enum pm_op op, uint32_t pm_hint __unused,
+ 
+ 	return TEE_SUCCESS;
+ }
+-DECLARE_KEEP_PAGER(vdd_hslv_pm);
++DECLARE_KEEP_PAGER_PM(vdd_hslv_pm);
+ 
+ static TEE_Result set_fixed_vdd_hslv_mode(struct regulator *vdd_supply)
+ {
+diff --git a/core/arch/arm/plat-stm32mp1/plat_tzc400.c b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+index df8aff737..a1ac2cf49 100644
+--- a/core/arch/arm/plat-stm32mp1/plat_tzc400.c
++++ b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+@@ -467,7 +467,7 @@ static TEE_Result stm32mp1_tzc_pm(enum pm_op op,
+ 
+ 	return TEE_SUCCESS;
+ }
+-DECLARE_KEEP_PAGER(stm32mp1_tzc_pm);
++DECLARE_KEEP_PAGER_PM(stm32mp1_tzc_pm);
+ 
+ static TEE_Result stm32mp1_tzc_probe(const void *fdt, int node,
+ 				     const void *compt_data __unused)
+diff --git a/core/drivers/crypto/stm32/stm32_cryp.c b/core/drivers/crypto/stm32/stm32_cryp.c
+index a875e8951..94bb0ca57 100644
+--- a/core/drivers/crypto/stm32/stm32_cryp.c
++++ b/core/drivers/crypto/stm32/stm32_cryp.c
+@@ -1264,7 +1264,7 @@ static TEE_Result stm32_cryp_pm(enum pm_op op, uint32_t pm_hint,
+ 		return TEE_ERROR_NOT_IMPLEMENTED;
+ 	}
+ }
+-DECLARE_KEEP_PAGER(stm32_cryp_pm);
++DECLARE_KEEP_PAGER_PM(stm32_cryp_pm);
+ 
+ static TEE_Result stm32_cryp_probe(const void *fdt, int node,
+ 				   const void *compt_data __unused)
+diff --git a/core/drivers/firewall/stm32_etzpc.c b/core/drivers/firewall/stm32_etzpc.c
+index 8e0ad40f8..7af8635da 100644
+--- a/core/drivers/firewall/stm32_etzpc.c
++++ b/core/drivers/firewall/stm32_etzpc.c
+@@ -365,7 +365,7 @@ static TEE_Result etzpc_pm(enum pm_op op, unsigned int pm_hint __unused,
+ 
+ 	return TEE_SUCCESS;
+ }
+-DECLARE_KEEP_PAGER(etzpc_pm);
++DECLARE_KEEP_PAGER_PM(etzpc_pm);
+ 
+ static TEE_Result stm32_etzpc_check_access(struct firewall_query *firewall)
+ {
+diff --git a/core/drivers/stm32_bsec.c b/core/drivers/stm32_bsec.c
+index e751114a8..100f0a777 100644
+--- a/core/drivers/stm32_bsec.c
++++ b/core/drivers/stm32_bsec.c
+@@ -7,6 +7,7 @@
+ #include <config.h>
+ #include <drivers/stm32_bsec.h>
+ #include <io.h>
++#include <keep.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+ #include <kernel/boot.h>
+@@ -1029,7 +1030,7 @@ static TEE_Result bsec_pm(enum pm_op op, uint32_t pm_hint __unused,
+ 
+ 	return TEE_SUCCESS;
+ }
+-DECLARE_KEEP_PAGER(bsec_pm);
++DECLARE_KEEP_PAGER_PM(bsec_pm);
+ 
+ static TEE_Result initialize_bsec(void)
+ {
+diff --git a/core/drivers/stm32_cpu_opp.c b/core/drivers/stm32_cpu_opp.c
+index c60bf5abb..311781410 100644
+--- a/core/drivers/stm32_cpu_opp.c
++++ b/core/drivers/stm32_cpu_opp.c
+@@ -313,7 +313,7 @@ static TEE_Result cpu_opp_pm(enum pm_op op, unsigned int pm_hint,
+ 
+ 	return TEE_SUCCESS;
+ }
+-DECLARE_KEEP_PAGER(cpu_opp_pm);
++DECLARE_KEEP_PAGER_PM(cpu_opp_pm);
+ 
+ static TEE_Result stm32_cpu_opp_get_dt_subnode(const void *fdt, int node)
+ {
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index 691a3657a..178e43707 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -8,6 +8,7 @@
+ #include <drivers/clk_dt.h>
+ #include <drivers/rstctrl.h>
+ #include <io.h>
++#include <keep.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+ #include <kernel/dt_driver.h>
+@@ -581,7 +582,7 @@ stm32_rng_pm(enum pm_op op, unsigned int pm_hint __unused,
+ 
+ 	return res;
+ }
+-DECLARE_KEEP_PAGER(stm32_rng_pm);
++DECLARE_KEEP_PAGER_PM(stm32_rng_pm);
+ 
+ static TEE_Result stm32_rng_parse_fdt(const void *fdt, int node)
+ {
+@@ -703,7 +704,7 @@ static const struct stm32_rng_driver_data mp15_data[] = {
+ 		.has_power_optim = false,
+ 	},
+ };
+-DECLARE_KEEP_PAGER(mp15_data);
++DECLARE_KEEP_PAGER_PM(mp15_data);
+ 
+ static const struct stm32_rng_driver_data mp21_data[] = {
+ 	{
+diff --git a/core/drivers/stm32mp_provisioning.c b/core/drivers/stm32mp_provisioning.c
+index c9b487af6..8586bbcdf 100644
+--- a/core/drivers/stm32mp_provisioning.c
++++ b/core/drivers/stm32mp_provisioning.c
+@@ -13,6 +13,7 @@
+ #include <config.h>
+ #include <drivers/stm32_bsec.h>
+ #include <dt-bindings/soc/stm32mp-provisioning.h>
++#include <keep.h>
+ #include <kernel/boot.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+diff --git a/core/mm/mobj.c b/core/mm/mobj.c
+index 508624297..6a588f93d 100644
+--- a/core/mm/mobj.c
++++ b/core/mm/mobj.c
+@@ -70,7 +70,7 @@ static TEE_Result mobj_phys_get_pa(struct mobj *mobj, size_t offs,
+ 	*pa = p;
+ 	return TEE_SUCCESS;
+ }
+-DECLARE_KEEP_PAGER(mobj_phys_get_pa);
++DECLARE_KEEP_PAGER_PM(mobj_phys_get_pa);
+ 
+ static TEE_Result mobj_phys_get_mem_type(struct mobj *mobj, uint32_t *mem_type)
+ {
+@@ -275,7 +275,7 @@ static TEE_Result mobj_shm_get_pa(struct mobj *mobj, size_t offs,
+ 	*pa = p;
+ 	return TEE_SUCCESS;
+ }
+-DECLARE_KEEP_PAGER(mobj_shm_get_pa);
++DECLARE_KEEP_PAGER_PM(mobj_shm_get_pa);
+ 
+ static size_t mobj_shm_get_phys_offs(struct mobj *mobj, size_t granule)
+ {
+@@ -462,7 +462,7 @@ static TEE_Result mobj_with_fobj_get_pa(struct mobj *mobj, size_t offs,
+ 
+ 	return TEE_SUCCESS;
+ }
+-DECLARE_KEEP_PAGER(mobj_with_fobj_get_pa);
++DECLARE_KEEP_PAGER_PM(mobj_with_fobj_get_pa);
+ 
+ /*
+  * Note: this variable is weak just to ease breaking its dependency chain
+diff --git a/core/mm/mobj_dyn_shm.c b/core/mm/mobj_dyn_shm.c
+index a808eca41..5f9765050 100644
+--- a/core/mm/mobj_dyn_shm.c
++++ b/core/mm/mobj_dyn_shm.c
+@@ -89,7 +89,7 @@ static TEE_Result mobj_reg_shm_get_pa(struct mobj *mobj, size_t offst,
+ 
+ 	return TEE_SUCCESS;
+ }
+-DECLARE_KEEP_PAGER(mobj_reg_shm_get_pa);
++DECLARE_KEEP_PAGER_PM(mobj_reg_shm_get_pa);
+ 
+ static size_t mobj_reg_shm_get_phys_offs(struct mobj *mobj,
+ 					 size_t granule __maybe_unused)
+-- 
+2.53.0
+

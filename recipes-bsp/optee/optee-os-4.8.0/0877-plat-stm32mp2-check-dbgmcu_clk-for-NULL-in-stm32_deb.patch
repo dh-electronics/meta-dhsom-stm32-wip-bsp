@@ -1,0 +1,47 @@
+From a658b263409486830486bdb636696dd8b743baa1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 23 Jul 2026 15:34:45 +0200
+Subject: [PATCH 877/913] plat-stm32mp2: check dbgmcu_clk for NULL in
+ stm32_debug_suspend
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+stm32mp_rcc_clock_id_to_clk(CK_ICN_APBDBG) can return NULL, but its
+result was passed directly to clk_enable() without a check, unlike
+most other call sites of stm32mp_rcc_clock_id_to_clk() in this file.
+
+Return early if dbgmcu_clk is NULL.
+
+Coverity issue: CID 1200441: CERT-C Expression
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 53e734c1a3739a68c914b8c8d9a7ba45615dfcc9 plat-stm32mp2: check dbgmcu_clk for NULL in stm32_debug_suspend]
+Assisted-by: GitHub-Copilot:Claude-Sonnet-5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ic722eac36326fe71e8f1ac810cce0d654aced154
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/592857
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index dc804cbb4..75e7afa6a 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -348,6 +348,9 @@ void stm32_debug_suspend(unsigned long a0)
+ 	if (!stm32_bsec_self_hosted_debug_is_enabled())
+ 		return;
+ 
++	if (!dbgmcu_clk)
++		return;
++
+ 	if (clk_enable(dbgmcu_clk))
+ 		return;
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,51 @@
+From 09d1bd8254e392de26e2a50fbfd40d2e80c9a04d Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 28 Nov 2024 09:13:30 +0100
+Subject: [PATCH 196/913] clk: stm32mp25: configure STGEN flexgen in .enable
+ ops
+
+STGEN flexgen is skipped during RCC probe to prevent misalignment
+between stgen_clk frequency and STGEN register.
+In .enable ops, reparent flexgen33 clock to the clock source found in
+the device tree.
+This allow the driver stm32_stgen driver to align the STGEN
+configuration just after the configuration of the STGEN flexgen.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 127878786e2a8f6f5750ee9373a66e464c5a6d62 clk: stm32mp25: configure STGEN flexgen in .enable ops]
+Change-Id: I006cc526705810041ffa2495520c70b007812e57
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/421330
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 1401907cf..f035f6186 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -3017,6 +3017,7 @@ static TEE_Result clk_stm32_flexgen_enable(struct clk *clk)
+ 	 * flexgen configuration.
+ 	 */
+ 	if (channel == FLEX_STGEN) {
++		struct clk *stgen_src = NULL;
+ 		unsigned int clk_src = U(0);
+ 		unsigned int pdiv = U(0);
+ 		unsigned int fdiv = U(0);
+@@ -3031,7 +3032,12 @@ static TEE_Result clk_stm32_flexgen_enable(struct clk *clk)
+ 		flexclkgen_config_channel(channel, clk_src, pdiv, fdiv);
+ 
+ 		/* Update parent */
+-		clk->parent = clk_get_parent_by_index(clk, clk_src);
++		stgen_src = clk_get_parent_by_index(clk, clk_src);
++		ret = clk_reparent(clk, stgen_src);
++		if (ret) {
++			EMSG("Failed to configured the STGEN flexgen");
++			return ret;
++		}
+ 	}
+ 
+ 	io_setbits32(rcc_base + RCC_FINDIV0CFGR + (0x4 * channel),
+-- 
+2.53.0
+
