@@ -1,0 +1,96 @@
+From b7fcec8e4413e77f55feb40487021344dd6dc01f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 31 Jan 2025 11:34:39 +0100
+Subject: [PATCH 38/65] rng: stm32: update default RNG configuration for
+ STM32MP25
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Use the configuration used for the NIST certification.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git c9fcfb1122f243dc86c9e1cb2d56532bdbcdefe9 rng: stm32: update default RNG configuration for STM32MP25]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I482523d3074ee99816b6ecadbfe38495db9f3c65
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/453705
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/rng/stm32_rng.c | 23 ++++++++++++++++-------
+ 1 file changed, 16 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/rng/stm32_rng.c b/drivers/rng/stm32_rng.c
+index 27ec0bd9d83..3d82a6646a2 100644
+--- a/drivers/rng/stm32_rng.c
++++ b/drivers/rng/stm32_rng.c
+@@ -26,8 +26,7 @@
+ #define RNG_CR_CLKDIV		GENMASK(19, 16)
+ #define RNG_CR_CONFIG3		GENMASK(25, 20)
+ #define RNG_CR_CONDRST		BIT(30)
+-#define RNG_CR_ENTROPY_SRC_MASK	(RNG_CR_CONFIG1 | RNG_CR_NISTC | RNG_CR_CONFIG2 | RNG_CR_CONFIG3)
+-#define RNG_CR_CONFIG_MASK	(RNG_CR_ENTROPY_SRC_MASK | RNG_CR_CED | RNG_CR_CLKDIV)
++#define RNG_CR_CONFIG_MASK	(RNG_CR_CED | RNG_CR_CLKDIV)
+ 
+ #define RNG_SR		0x04
+ #define RNG_SR_SEIS	BIT(6)
+@@ -58,6 +57,7 @@
+ struct stm32_rng_data {
+ 	uint max_clock_rate;
+ 	uint nb_clock;
++	u32 cr_config1_mask;
+ 	u32 cr;
+ 	u32 nscr;
+ 	u32 htcr;
+@@ -73,6 +73,12 @@ struct stm32_rng_plat {
+ 	bool ced;
+ };
+ 
++static uint32_t stm32_rng_get_entropy_mask(struct stm32_rng_plat *pdata)
++{
++	return (RNG_CR_CONFIG3 | RNG_CR_NISTC |
++		RNG_CR_CONFIG2 | pdata->data->cr_config1_mask);
++}
++
+ /*
+  * Extracts from the STM32 RNG specification when RNG supports CONDRST.
+  *
+@@ -276,9 +282,10 @@ static int stm32_rng_init(struct stm32_rng_plat *pdata)
+ 	 */
+ 	if (pdata->data->has_cond_reset && pdata->data->cr) {
+ 		uint clock_div = stm32_rng_clock_freq_restrain(pdata);
++		u32 entropy_mask = stm32_rng_get_entropy_mask(pdata);
+ 
+-		cr &= ~RNG_CR_CONFIG_MASK;
+-		cr |= RNG_CR_CONDRST | (pdata->data->cr & RNG_CR_ENTROPY_SRC_MASK) |
++		cr &= ~(RNG_CR_CONFIG_MASK | entropy_mask);
++		cr |= RNG_CR_CONDRST | (pdata->data->cr & entropy_mask) |
+ 		      (clock_div << RNG_CR_CLKDIV_SHIFT);
+ 		if (pdata->ced)
+ 			cr &= ~RNG_CR_CED;
+@@ -404,9 +411,10 @@ static const struct stm32_rng_data stm32mp25_rng_data = {
+ 	.has_cond_reset = true,
+ 	.max_clock_rate = 48000000,
+ 	.nb_clock = 2,
+-	.htcr = 0x969D,
+-	.nscr = 0x2B5BB,
+-	.cr = 0xF00D00,
++	.htcr = 0x6688,
++	.nscr = 0x2E649,
++	.cr = 0x08F01E00,
++	.cr_config1_mask = GENMASK(27, 20),
+ };
+ 
+ static const struct stm32_rng_data stm32mp13_rng_data = {
+@@ -416,6 +424,7 @@ static const struct stm32_rng_data stm32mp13_rng_data = {
+ 	.htcr = 0x969D,
+ 	.nscr = 0x2B5BB,
+ 	.cr = 0xF00D00,
++	.cr_config1_mask = GENMASK(25, 20),
+ };
+ 
+ static const struct stm32_rng_data stm32_rng_data = {
+-- 
+2.51.0
+

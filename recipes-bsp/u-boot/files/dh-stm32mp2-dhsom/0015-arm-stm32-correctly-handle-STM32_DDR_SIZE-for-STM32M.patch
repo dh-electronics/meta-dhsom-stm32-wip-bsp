@@ -1,0 +1,44 @@
+From 187d88e68de6149ac3463e985c7e7fe03197ee7c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 8 Dec 2023 16:27:50 +0100
+Subject: [PATCH 15/65] arm: stm32: correctly handle STM32_DDR_SIZE for
+ STM32MP25
+
+The DDR size for STM32MP25 is 4Gbytes even if the usable memory is limited
+at 2GB for U-Boot, to avoid 32bits overflow on physical address given
+to HW.
+
+This patch correctly handles STM32_DDR_SIZE and adds a check the memory
+size defined found in device tree.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 78f7157041a8f9a2db35b382053d8d8b2664415d arm: stm32: correctly handle STM32_DDR_SIZE for STM32MP25]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I831210f6d36cf9e24174d7c47595beec61f9b112
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/344987
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ arch/arm/mach-stm32mp/dram_init.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm/mach-stm32mp/dram_init.c b/arch/arm/mach-stm32mp/dram_init.c
+index e36e42e7c61..20fc4d3a274 100644
+--- a/arch/arm/mach-stm32mp/dram_init.c
++++ b/arch/arm/mach-stm32mp/dram_init.c
+@@ -46,7 +46,12 @@ int dram_init(void)
+ 	ret = uclass_get_device(UCLASS_RAM, 0, &dev);
+ 	/* in case there is no RAM driver, retrieve DDR size from DT */
+ 	if (ret == -ENODEV) {
+-		return fdtdec_setup_mem_size_base();
++		ret = fdtdec_setup_mem_size_base();
++		if (ret)
++			return ret;
++		if (gd->ram_size > STM32_DDR_SIZE)
++			return -EINVAL;
++		return 0;
+ 	} else if (ret) {
+ 		log_err("RAM init failed: %d\n", ret);
+ 		return ret;
+-- 
+2.51.0
+

@@ -1,0 +1,78 @@
+From 3491b3c082bce68060824a7c0dd634d78d2a1f80 Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Fri, 24 Mar 2023 18:31:31 +0530
+Subject: [PATCH 56/65] usb: ehci-hcd: Perform usb resume in ehci_register call
+
+Inside ehci_deregister, the port is suspended, hence in ehci_register
+call we need to resume the port (if it is suspended).
+This fixes and issue when "usb stop" is called followed by "usb start"
+if the reset is not asserted for EHCI-ctrl between the two calls.
+Without resuming the port, the ehci-ctrl is in some bad state and
+doesn't detect connected device. If reset is asserted, ports will not
+longer remain in suspend state, hence we check if port is suspended
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 36127d015b1b4d65946cdcb459a50968362d3c97 usb: ehci-hcd: Perform usb resume in ehci_register call]
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Change-Id: I049d91ecf80876339a8b022b80590f095923b3ad
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/303898
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+---
+ drivers/usb/host/ehci-hcd.c | 22 ++++++++++++++++++++--
+ include/usb.h               |  5 +++++
+ 2 files changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/usb/host/ehci-hcd.c b/drivers/usb/host/ehci-hcd.c
+index 7d5519c65a9..939d462a168 100644
+--- a/drivers/usb/host/ehci-hcd.c
++++ b/drivers/usb/host/ehci-hcd.c
+@@ -177,8 +177,26 @@ static int handshake(uint32_t *ptr, uint32_t mask, uint32_t done, int usec)
+ 
+ static int ehci_reset(struct ehci_ctrl *ctrl)
+ {
+-	uint32_t cmd;
+-	int ret = 0;
++	uint32_t cmd, reg;
++	int ret = 0, i;
++	int max_ports = HCS_N_PORTS(ehci_readl(&ctrl->hccr->cr_hcsparams));
++
++	for (i = 0; i < max_ports; i++) {
++		reg = ehci_readl(&ctrl->hcor->or_portsc[i]);
++		if (reg & EHCI_PS_SUSP) {
++			reg &= ~EHCI_PS_CLEAR;
++			reg |= EHCI_PS_FPR;
++			ehci_writel(&ctrl->hcor->or_portsc[i], reg);
++		}
++	}
++	mdelay(USB_RESUME_TIMEOUT);
++	for (i = 0; i < max_ports; i++) {
++		reg = ehci_readl(&ctrl->hcor->or_portsc[i]);
++		if (reg & EHCI_PS_FPR) {
++			reg &= ~(EHCI_PS_CLEAR | EHCI_PS_SUSP | EHCI_PS_FPR);
++			ehci_writel(&ctrl->hcor->or_portsc[i], reg);
++		}
++	}
+ 
+ 	cmd = ehci_readl(&ctrl->hcor->or_usbcmd);
+ 	cmd = (cmd & ~CMD_RUN) | CMD_RESET;
+diff --git a/include/usb.h b/include/usb.h
+index be37ed272e1..98cdb07f5bb 100644
+--- a/include/usb.h
++++ b/include/usb.h
+@@ -54,6 +54,11 @@ extern bool usb_started; /* flag for the started/stopped USB status */
+  * Define this limit so that drivers do not exceed it.
+  */
+ #define USB_MAX_ACTIVE_INTERFACES	2
++/*
++ * USB Resume Timer: Every Host controller driver should drive the resume
++ * signalling on the bus for the amount of time defined by this macro.
++ */
++#define USB_RESUME_TIMEOUT      40 /* ms */
+ 
+ /* device request (setup) */
+ struct devrequest {
+-- 
+2.51.0
+

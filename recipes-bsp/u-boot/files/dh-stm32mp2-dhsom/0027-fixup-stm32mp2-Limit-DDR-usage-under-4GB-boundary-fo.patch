@@ -1,0 +1,32 @@
+From 9dde2e84c2bcedc37a6ece9ff6914a2988ba1bc5 Mon Sep 17 00:00:00 2001
+From: Marek Vasut <marex@nabladev.com>
+Date: Wed, 23 Jul 2025 01:00:04 +0200
+Subject: [PATCH 27/65] fixup! stm32mp2: Limit DDR usage under 4GB boundary for
+ STM32MP2
+
+Downstream OpTee-OS 4.0.0 fork from ST reserves addresses 0xfa800000..0xffffffff
+for GPU and LTDC memory, avoid relocating U-Boot into those addresses on STM32MP2
+as well.
+
+Upstream-Status: Inappropriate [Fix for ST downstream https://github.com/STMicroelectronics/u-boot.git 3c45a779f25da61f67152e6cd1a610867df1b1d5 stm32mp2: Limit DDR usage under 4GB boundary for STM32MP2]
+Signed-off-by: Marek Vasut <marex@nabladev.com>
+---
+ arch/arm/mach-stm32mp/dram_init.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm/mach-stm32mp/dram_init.c b/arch/arm/mach-stm32mp/dram_init.c
+index ce9063bf53a..1dc9e0f5809 100644
+--- a/arch/arm/mach-stm32mp/dram_init.c
++++ b/arch/arm/mach-stm32mp/dram_init.c
+@@ -82,7 +82,7 @@ phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
+ 	 * make sure U-Boot uses address space below 4GB boundaries even
+ 	 * if the effective available memory is bigger
+ 	 */
+-	gd->ram_top = clamp_val((gd->ram_base + gd->ram_size), 0, SZ_4G - 1);
++	gd->ram_top = clamp_val((gd->ram_base + gd->ram_size), 0, SZ_4G - SZ_128M);
+ 
+ 	/* add 8M for U-Boot reserved memory: display, fdt, gd,... */
+ 	size = ALIGN(SZ_8M + CONFIG_SYS_MALLOC_LEN + total_size, MMU_SECTION_SIZE);
+-- 
+2.51.0
+
