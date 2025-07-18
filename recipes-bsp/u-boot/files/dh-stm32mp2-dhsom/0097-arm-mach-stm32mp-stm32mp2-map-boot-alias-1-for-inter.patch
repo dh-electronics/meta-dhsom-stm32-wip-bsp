@@ -1,0 +1,57 @@
+From 94dc63557f3dd19bff6780aeed8aa86817a7a1d5 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Thu, 27 Jun 2024 17:20:01 +0200
+Subject: [PATCH 097/120] arm: mach-stm32mp: stm32mp2: map boot alias 1 for
+ internal rams
+
+The boot alias 1 for internal srams is mapped instead of alias 1
+because the device tree resmem config from external dt or
+within u-boot provides memory range for internal rams
+from the boot alias 1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 3882a22ffdeb93f0d5e80c8382274d13419f0256 arm: mach-stm32mp: stm32mp2: map boot alias 1 for internal rams]
+Change-Id: I8bc4e5d76400cde118e340b2b815b8cfe44b2844
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/403145
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ arch/arm/mach-stm32mp/stm32mp2/arm64-mmu.c | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/arch/arm/mach-stm32mp/stm32mp2/arm64-mmu.c b/arch/arm/mach-stm32mp/stm32mp2/arm64-mmu.c
+index 36c631ef0c2..b6d64f126e8 100644
+--- a/arch/arm/mach-stm32mp/stm32mp2/arm64-mmu.c
++++ b/arch/arm/mach-stm32mp/stm32mp2/arm64-mmu.c
+@@ -16,18 +16,18 @@
+ 
+ struct mm_region stm32mp2_mem_map[MP2_MEM_MAP_MAX] = {
+ 	{
+-		/* PCIe */
+-		.virt = 0x10000000UL,
+-		.phys = 0x10000000UL,
+-		.size = 0x10000000UL,
++		/* VDERAM, RETRAM, SRAMs, SYSRAM: BOOT alias1 */
++		.virt = 0x0A000000UL,
++		.phys = 0x0A000000UL,
++		.size = 0x00200000UL,
+ 		.attrs = PTE_BLOCK_MEMTYPE(MT_DEVICE_NGNRNE) |
+ 			 PTE_BLOCK_NON_SHARE |
+ 			 PTE_BLOCK_PXN | PTE_BLOCK_UXN
+ 	}, {
+-		/* LPSRAMs, VDERAM, RETRAM, SRAMs, SYSRAM: alias1 */
+-		.virt = 0x20000000UL,
+-		.phys = 0x20000000UL,
+-		.size = 0x00200000UL,
++		/* PCIe */
++		.virt = 0x10000000UL,
++		.phys = 0x10000000UL,
++		.size = 0x10000000UL,
+ 		.attrs = PTE_BLOCK_MEMTYPE(MT_DEVICE_NGNRNE) |
+ 			 PTE_BLOCK_NON_SHARE |
+ 			 PTE_BLOCK_PXN | PTE_BLOCK_UXN
+-- 
+2.47.2
+

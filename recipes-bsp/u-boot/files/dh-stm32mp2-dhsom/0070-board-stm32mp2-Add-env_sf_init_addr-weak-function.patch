@@ -1,0 +1,46 @@
+From e5ec74f019151a213ba557242486089ebc7a0739 Mon Sep 17 00:00:00 2001
+From: Patrice Chotard <patrice.chotard@foss.st.com>
+Date: Wed, 20 Sep 2023 17:04:01 +0200
+Subject: [PATCH 070/120] board: stm32mp2: Add env_sf_init_addr() weak function
+
+Currently, when CONFIG_ENV_IS_IN_SPI_FLASH is set, CONFIG_ENV_ADDR
+is not needed and is not set in STMP32MP2 defconfig files.
+CONFIG_ENV_OFFSET and CONFIG_ENV_SIZE flags are used in this case.
+
+But, when CONFIG_ENV_IS_IN_FLASH is set, CONFIG_ENV_ADDR flag must
+be set.
+If both CONFIG_ENV_IS_IN_SPI_FLASH and CONFIG_ENV_IS_IN_FLASH are set
+together it causes side-effect for boards which are saving environment
+on SPI flashes.
+
+To avoid these side-effects, define env_sf_get_env_addr() weak function
+which always return NULL instead of CONFIG_ENV_ADDR.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 495a5af70621ff67c9c0fb3f2efc2297489883fd board: stm32mp2: Add env_sf_init_addr() weak function]
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Change-Id: Iaa0b46582c04b5abcd0459a4cc59073bb3e2aac9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/328730
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+---
+ board/st/stm32mp2/stm32mp2.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/board/st/stm32mp2/stm32mp2.c b/board/st/stm32mp2/stm32mp2.c
+index 3a42a84e306..6ea6fda579a 100644
+--- a/board/st/stm32mp2/stm32mp2.c
++++ b/board/st/stm32mp2/stm32mp2.c
+@@ -258,3 +258,9 @@ void board_quiesce_devices(void)
+ {
+ 	setup_led(LEDST_OFF);
+ }
++
++/* weak function called from env/sf.c */
++void *env_sf_get_env_addr(void)
++{
++	return NULL;
++}
+-- 
+2.47.2
+

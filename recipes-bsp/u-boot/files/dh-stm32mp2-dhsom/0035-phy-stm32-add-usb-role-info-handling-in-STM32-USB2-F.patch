@@ -1,0 +1,170 @@
+From 9ec191e78a32c500c20afa83447021002fca59b7 Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Fri, 29 Sep 2023 14:25:02 +0530
+Subject: [PATCH 035/120] phy: stm32: add usb-role info handling in STM32
+ USB2-FEMTO PHY
+
+Added "st,internal-vbus-comp" property to use phy internal
+vbus comparator to detect vbus-session presence
+
+generic_phy_set_mode function has parameter submode, which can be
+used to pass usb_role info (cable events) to the phy driver to
+correctly handle VBUSVALID bit (for host mode) and VBUSVLDEXT bit
+(for device mode)
+Corresponding change done in dwc3, to pass usb_role info to phy_set_mode
+Remove enum usb_role from drivers/usb/cdns3/core.h, as it is now
+defined in linux/usb/otg.h
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 555967f4a5b244b9ab33d14f6a69b845918d726f phy: stm32: add usb-role info handling in STM32 USB2-FEMTO PHY]
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Change-Id: Iae45ea5e5cdc434bffc2b94a4e674c5a4a16e51b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/330522
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+---
+ drivers/phy/phy-stm32-usb2phy.c | 62 +++++++++++++++++++++++++++------
+ drivers/usb/cdns3/core.h        |  6 ----
+ include/linux/usb/otg.h         |  6 ++++
+ 3 files changed, 58 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/phy/phy-stm32-usb2phy.c b/drivers/phy/phy-stm32-usb2phy.c
+index fbc8c90b418..1a046d5df12 100644
+--- a/drivers/phy/phy-stm32-usb2phy.c
++++ b/drivers/phy/phy-stm32-usb2phy.c
+@@ -85,6 +85,7 @@ struct stm32_usb2phy {
+ 	struct udevice *vdd33;
+ 	struct udevice *vdda18;
+ 	uint init;
++	bool internal_vbus_comp;
+ 	const struct stm32mp2_usb2phy_hw_data *hw_data;
+ };
+ 
+@@ -301,7 +302,7 @@ static int stm32_usb2phy_set_mode(struct phy *phy, enum phy_mode mode, int submo
+ 						 phy_data->cr_offset,
+ 						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK,
+ 						 0);
+-		else
++		else {
+ 			/*
+ 			 * CMN bit cleared since when running in usb3speed with dwc3-usb
+ 			 * xHCI ctrl is (most likely) suspending the (unused) usb2phy2
+@@ -309,11 +310,22 @@ static int stm32_usb2phy_set_mode(struct phy *phy, enum phy_mode mode, int submo
+ 			 * are turned off, there is some internal error inside the usb3dr-ctrl
+ 			 * while running in usb3-speed
+ 			 */
+-			ret = regmap_update_bits(phy_dev->regmap,
+-						 phy_data->cr_offset,
+-						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK |
+-						 SYSCFG_USB2PHY2CR_VBUSVALID_MASK,
+-						 SYSCFG_USB2PHY2CR_VBUSVALID_MASK);
++			if (!phy_dev->internal_vbus_comp && submode == USB_ROLE_NONE) {
++				ret = regmap_update_bits(phy_dev->regmap,
++							 phy_data->cr_offset,
++							 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXT_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVALID_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXT_MASK, 0);
++			} else {
++				ret = regmap_update_bits(phy_dev->regmap,
++							 phy_data->cr_offset,
++							 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXT_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVALID_MASK,
++							 SYSCFG_USB2PHY2CR_VBUSVALID_MASK);
++			}
++		}
+ 		if (ret) {
+ 			dev_err(dev, "can't set usb2phycr (%d)\n", ret);
+ 			return ret;
+@@ -328,10 +340,34 @@ static int stm32_usb2phy_set_mode(struct phy *phy, enum phy_mode mode, int submo
+ 		 * VBUS is not present then usb-ctrl puts PHY in suspend and inturn
+ 		 * PHY turns off clocks to ctrl which makes the device-mode init fail
+ 		 */
+-		ret = regmap_update_bits(phy_dev->regmap,
+-					 phy_data->cr_offset,
+-					 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK,
+-					 0);
++		if (phy_dev->internal_vbus_comp) {
++			ret = regmap_update_bits(phy_dev->regmap,
++						 phy_data->cr_offset,
++						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK |
++						 SYSCFG_USB2PHY2CR_VBUSVALID_MASK |
++						 SYSCFG_USB2PHY2CR_VBUSVLDEXTSEL_MASK |
++						 SYSCFG_USB2PHY2CR_VBUSVLDEXT_MASK,
++						 0);
++		} else {
++			if (submode == USB_ROLE_NONE) {
++				ret = regmap_update_bits(phy_dev->regmap,
++							 phy_data->cr_offset,
++							 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVALID_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXTSEL_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXT_MASK,
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXTSEL_MASK);
++			} else {
++				ret = regmap_update_bits(phy_dev->regmap,
++							 phy_data->cr_offset,
++							 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVALID_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXTSEL_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXT_MASK,
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXTSEL_MASK |
++							 SYSCFG_USB2PHY2CR_VBUSVLDEXT_MASK);
++			}
++		}
+ 		if (ret) {
+ 			dev_err(dev, "can't set usb2phycr (%d)\n", ret);
+ 			return ret;
+@@ -575,6 +611,12 @@ static int stm32_usb2phy_probe(struct udevice *dev)
+ 		return -EINVAL;
+ 	}
+ 
++	if (phy_dev->hw_data->valid_mode != USB2_MODE_HOST_ONLY) {
++		phy_dev->internal_vbus_comp = ofnode_read_bool(node, "st,internal-vbus-comp");
++		dev_dbg(dev, "Using usb2phy %s VBUS Comparator\n",
++			phy_dev->internal_vbus_comp ? "Internal" : "External");
++	}
++
+ 	/* Configure phy tuning */
+ 	ret = stm32_usb2phy_tuning(dev, node);
+ 	if (ret) {
+diff --git a/drivers/usb/cdns3/core.h b/drivers/usb/cdns3/core.h
+index 0668d646fc4..52d6d01cd6b 100644
+--- a/drivers/usb/cdns3/core.h
++++ b/drivers/usb/cdns3/core.h
+@@ -16,12 +16,6 @@
+ #ifndef __LINUX_CDNS3_CORE_H
+ #define __LINUX_CDNS3_CORE_H
+ 
+-enum usb_role {
+-	USB_ROLE_NONE,
+-	USB_ROLE_HOST,
+-	USB_ROLE_DEVICE,
+-};
+-
+ struct cdns3;
+ 
+ /**
+diff --git a/include/linux/usb/otg.h b/include/linux/usb/otg.h
+index e7e3d259cae..aaa9c567cca 100644
+--- a/include/linux/usb/otg.h
++++ b/include/linux/usb/otg.h
+@@ -18,6 +18,12 @@ enum usb_dr_mode {
+ 	USB_DR_MODE_OTG,
+ };
+ 
++enum usb_role {
++	USB_ROLE_NONE,
++	USB_ROLE_HOST,
++	USB_ROLE_DEVICE,
++};
++
+ /**
+  * usb_get_dr_mode() - Get dual role mode for given device
+  * @node: ofnode of the given device
+-- 
+2.47.2
+

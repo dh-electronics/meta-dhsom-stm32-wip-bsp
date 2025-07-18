@@ -1,0 +1,99 @@
+From 07d7966d30b8666ec0046cd76fba22ac854cad1c Mon Sep 17 00:00:00 2001
+From: Fabien Dessenne <fabien.dessenne@foss.st.com>
+Date: Mon, 6 Sep 2021 10:04:04 +0200
+Subject: [PATCH 012/120] gpio: stm32-gpio: prevent the use of the secure
+ protected pins
+
+The hardware denies any access from the U-Boot non-secure world to the
+secure-protected pins. Hence, prevent any driver to request such a pin.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git c9ad8fd0200fd57dd04ae6e5da706720f92f28ae gpio: stm32-gpio: prevent the use of the secure protected pins]
+Signed-off-by: Fabien Dessenne <fabien.dessenne@foss.st.com>
+Change-Id: Iabe8941fbad73d7125f0558e13b95dd67806094e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/215820
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/270435
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/270437
+Tested-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ drivers/gpio/stm32_gpio.c      | 25 +++++++++++++++++++++++++
+ drivers/gpio/stm32_gpio_priv.h |  5 +++++
+ 2 files changed, 30 insertions(+)
+
+diff --git a/drivers/gpio/stm32_gpio.c b/drivers/gpio/stm32_gpio.c
+index b8eb55465d3..f57b2ee34c6 100644
+--- a/drivers/gpio/stm32_gpio.c
++++ b/drivers/gpio/stm32_gpio.c
+@@ -32,6 +32,9 @@
+ #define OTYPE_BITS(gpio_pin)		(gpio_pin)
+ #define OTYPE_MSK			1
+ 
++#define SECCFG_BITS(gpio_pin)		(gpio_pin)
++#define SECCFG_MSK			1
++
+ static void stm32_gpio_set_moder(struct stm32_gpio_regs *regs,
+ 				 int idx,
+ 				 int mode)
+@@ -89,6 +92,27 @@ static bool stm32_gpio_is_mapped(struct udevice *dev, int offset)
+ 	return !!(priv->gpio_range & BIT(offset));
+ }
+ 
++static int stm32_gpio_request(struct udevice *dev, unsigned offset, const char *label)
++{
++	struct stm32_gpio_priv *priv = dev_get_priv(dev);
++	struct gpio_dev_priv *uc_priv = dev_get_uclass_priv(dev);
++	struct stm32_gpio_regs *regs = priv->regs;
++	ulong drv_data = dev_get_driver_data(dev);
++
++	if (!stm32_gpio_is_mapped(dev, offset))
++		return -ENXIO;
++
++	/* Deny request access if IO is secured */
++	if ((drv_data & STM32_GPIO_FLAG_SEC_CTRL) &&
++	    ((readl(&regs->seccfgr) >> SECCFG_BITS(offset)) & SECCFG_MSK)) {
++		dev_err(dev, "Failed to get secure IO %s %d @ %p\n",
++			uc_priv->bank_name, offset, regs);
++		return -EACCES;
++	}
++
++	return 0;
++}
++
+ static int stm32_gpio_direction_input(struct udevice *dev, unsigned offset)
+ {
+ 	struct stm32_gpio_priv *priv = dev_get_priv(dev);
+@@ -238,6 +262,7 @@ static int stm32_gpio_get_flags(struct udevice *dev, unsigned int offset,
+ }
+ 
+ static const struct dm_gpio_ops gpio_stm32_ops = {
++	.request		= stm32_gpio_request,
+ 	.direction_input	= stm32_gpio_direction_input,
+ 	.direction_output	= stm32_gpio_direction_output,
+ 	.get_value		= stm32_gpio_get_value,
+diff --git a/drivers/gpio/stm32_gpio_priv.h b/drivers/gpio/stm32_gpio_priv.h
+index 662a000fe73..d89e9b8ed60 100644
+--- a/drivers/gpio/stm32_gpio_priv.h
++++ b/drivers/gpio/stm32_gpio_priv.h
+@@ -51,6 +51,8 @@ enum stm32_gpio_af {
+ 	STM32_GPIO_AF15
+ };
+ 
++#define STM32_GPIO_FLAG_SEC_CTRL	BIT(0)
++
+ struct stm32_gpio_dsc {
+ 	u8	port;
+ 	u8	pin;
+@@ -74,6 +76,9 @@ struct stm32_gpio_regs {
+ 	u32 bsrr;	/* GPIO port bit set/reset */
+ 	u32 lckr;	/* GPIO port configuration lock */
+ 	u32 afr[2];	/* GPIO alternate function */
++	u32 brr;	/* GPIO port bit reset */
++	u32 rfu;	/* Reserved */
++	u32 seccfgr;	/* GPIO secure configuration */
+ };
+ 
+ struct stm32_gpio_priv {
+-- 
+2.47.2
+

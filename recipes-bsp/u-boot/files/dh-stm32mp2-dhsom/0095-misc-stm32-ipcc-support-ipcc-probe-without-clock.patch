@@ -1,0 +1,59 @@
+From c0eee987f1a365cbe7df4af55e29006cc64779a5 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Tue, 25 Jun 2024 17:17:58 +0200
+Subject: [PATCH 095/120] misc: stm32-ipcc: support ipcc probe without clock
+
+since ipcc is used for scmi clock service in m33td flavor
+add ipcc support without clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 3f07e394f84ec13bc8234a618ff37e74303bece2 misc: stm32-ipcc: support ipcc probe without clock]
+Change-Id: I775a1f58d34fe5afbc24e189996752d42f154008
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/403142
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/mailbox/stm32-ipcc.c | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/mailbox/stm32-ipcc.c b/drivers/mailbox/stm32-ipcc.c
+index dda108735fc..ff1e439c54f 100644
+--- a/drivers/mailbox/stm32-ipcc.c
++++ b/drivers/mailbox/stm32-ipcc.c
+@@ -102,7 +102,7 @@ static int stm32_ipcc_probe(struct udevice *dev)
+ {
+ 	struct stm32_ipcc *ipcc = dev_get_priv(dev);
+ 	fdt_addr_t addr;
+-	struct clk clk;
++	struct clk *clk;
+ 	int ret;
+ 
+ 	dev_dbg(dev, "\n");
+@@ -126,14 +126,17 @@ static int stm32_ipcc_probe(struct udevice *dev)
+ 	}
+ 
+ 	ipcc->reg_proc = ipcc->reg_base + ipcc->proc_id * IPCC_PROC_OFFST;
+-
+-	ret = clk_get_by_index(dev, 0, &clk);
++	/*  Check if clocks is present, since clock is not present in m33td flavor */
++	clk = devm_clk_get_optional(dev, NULL);
++	ret = IS_ERR(clk);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = clk_enable(&clk);
+-	if (ret)
+-		return ret;
++	if (clk) {
++		ret = clk_enable(clk);
++		if (ret)
++			return ret;
++	}
+ 
+ 	/* get channel number */
+ 	ipcc->n_chans = readl(ipcc->reg_base + IPCC_HWCFGR);
+-- 
+2.47.2
+

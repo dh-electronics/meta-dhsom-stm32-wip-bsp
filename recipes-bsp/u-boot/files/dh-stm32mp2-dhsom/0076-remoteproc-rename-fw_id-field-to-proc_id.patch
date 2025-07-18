@@ -1,0 +1,159 @@
+From 9054ad2e0c0eb2f4bc486bc7229f0e9317896945 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Wed, 3 Jan 2024 14:28:45 +0100
+Subject: [PATCH 076/120] remoteproc: rename fw_id field to proc_id
+
+The ID represents the remote processor not a firmware of a processor.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 957610dbb4b464763e5916e2516ac39b1aa13df1 remoteproc: rename fw_id field to proc_id]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: Ie90bea1d8a5e61049dfd7f3e0d3ea0afa527dd44
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/350377
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gwenael TREUVEUR <gwenael.treuveur@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/359776
+Domain-Review: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Tested-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+---
+ drivers/remoteproc/rproc-optee.c |  4 ++--
+ drivers/remoteproc/stm32_copro.c | 24 ++++++++++++------------
+ include/rproc_optee.h            |  4 ++--
+ 3 files changed, 16 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/remoteproc/rproc-optee.c b/drivers/remoteproc/rproc-optee.c
+index d0e08bd560b..20743c44282 100644
+--- a/drivers/remoteproc/rproc-optee.c
++++ b/drivers/remoteproc/rproc-optee.c
+@@ -76,7 +76,7 @@ static void prepare_args(struct rproc_optee *trproc, int cmd,
+ 
+ 	param[0] = (struct tee_param) {
+ 		.attr = TEE_PARAM_ATTR_TYPE_VALUE_INPUT,
+-		.u.value.a = trproc->fw_id,
++		.u.value.a = trproc->proc_id,
+ 	};
+ }
+ 
+@@ -206,7 +206,7 @@ int rproc_optee_open(struct rproc_optee *trproc)
+ 	tee_optee_ta_uuid_to_octets(arg.uuid, &uuid);
+ 
+ 	param.attr = TEE_PARAM_ATTR_TYPE_VALUE_INPUT;
+-	param.u.value.a = trproc->fw_id;
++	param.u.value.a = trproc->proc_id;
+ 
+ 	rc = tee_open_session(tee, &arg, 1, &param);
+ 	if (rc < 0 || arg.ret != 0) {
+diff --git a/drivers/remoteproc/stm32_copro.c b/drivers/remoteproc/stm32_copro.c
+index 97dfbf67a16..45eb3fd6b8e 100644
+--- a/drivers/remoteproc/stm32_copro.c
++++ b/drivers/remoteproc/stm32_copro.c
+@@ -57,9 +57,9 @@ static int stm32_copro_probe(struct udevice *dev)
+ 	struct rproc_optee *trproc = &priv->trproc;
+ 	int ret;
+ 
+-	trproc->fw_id = (u32)dev_get_driver_data(dev);
++	trproc->proc_id = (u32)dev_get_driver_data(dev);
+ 
+-	if (trproc->fw_id == STM32MP25_M33_FW_ID) {
++	if (trproc->proc_id == STM32MP25_M33_FW_ID) {
+ 		ret = nvmem_cell_get_by_name(dev, "rsc-tbl-addr", &priv->rsc_t_addr_cell);
+ 		if (ret && ret != -ENODATA)
+ 			return ret;
+@@ -118,10 +118,10 @@ static void *stm32_copro_device_to_virt(struct udevice *dev, ulong da,
+ 					ulong size)
+ {
+ 	fdt32_t in_addr = cpu_to_be32(da), end_addr;
+-	unsigned int fw_id = (u32)dev_get_driver_data(dev);
++	unsigned int proc_id = (u32)dev_get_driver_data(dev);
+ 	phys_addr_t paddr;
+ 
+-	if (fw_id == STM32MP15_M4_FW_ID) {
++	if (proc_id == STM32MP15_M4_FW_ID) {
+ 		paddr = dev_translate_dma_address(dev, &in_addr);
+ 		if (paddr == OF_BAD_ADDR) {
+ 			dev_err(dev, "Unable to convert address %ld\n", da);
+@@ -193,7 +193,7 @@ static int stm32_copro_start(struct udevice *dev)
+ {
+ 	struct stm32_copro_privdata *priv = dev_get_priv(dev);
+ 	struct rproc_optee *trproc = &priv->trproc;
+-	unsigned int fw_id = (u32)dev_get_driver_data(dev);
++	unsigned int proc_id = (u32)dev_get_driver_data(dev);
+ 	phys_size_t rsc_size;
+ 	phys_addr_t rsc_addr;
+ 	int ret;
+@@ -228,13 +228,13 @@ static int stm32_copro_start(struct udevice *dev)
+ 				ret);
+ 	}
+ 
+-	if (fw_id == STM32MP15_M4_FW_ID) {
++	if (proc_id == STM32MP15_M4_FW_ID) {
+ 		/* Indicates that copro is running */
+ 		writel(TAMP_COPRO_STATE_CRUN, TAMP_COPRO_STATE);
+ 
+ 		/* Store rsc_address in bkp register */
+ 		writel(priv->rsc_table_addr, TAMP_COPRO_RSC_TBL_ADDRESS);
+-	} else if (fw_id == STM32MP25_M33_FW_ID) {
++	} else if (proc_id == STM32MP25_M33_FW_ID) {
+ 		/* Store the resource table address and size in 32-bit registers*/
+ 		ret = nvmem_cell_write(&priv->rsc_t_addr_cell, &priv->rsc_table_addr, sizeof(u32));
+ 		if (ret)
+@@ -262,7 +262,7 @@ static int stm32_copro_reset(struct udevice *dev)
+ {
+ 	struct stm32_copro_privdata *priv = dev_get_priv(dev);
+ 	struct rproc_optee *trproc = &priv->trproc;
+-	unsigned int fw_id = (u32)dev_get_driver_data(dev);
++	unsigned int proc_id = (u32)dev_get_driver_data(dev);
+ 	int ret;
+ 
+ 
+@@ -290,10 +290,10 @@ static int stm32_copro_reset(struct udevice *dev)
+ 	priv->rsc_table_addr = 0;
+ 	priv->rsc_table_size = 0;
+ 
+-	if (fw_id == STM32MP15_M4_FW_ID) {
++	if (proc_id == STM32MP15_M4_FW_ID) {
+ 		writel(TAMP_COPRO_STATE_OFF, TAMP_COPRO_STATE);
+ 		writel(priv->rsc_table_addr, TAMP_COPRO_RSC_TBL_ADDRESS);
+-	} else if (fw_id == STM32MP25_M33_FW_ID) {
++	} else if (proc_id == STM32MP25_M33_FW_ID) {
+ 		ret = nvmem_cell_write(&priv->rsc_t_addr_cell, &priv->rsc_table_addr, sizeof(u32));
+ 		if (ret)
+ 			return ret;
+@@ -323,9 +323,9 @@ static int stm32_copro_stop(struct udevice *dev)
+  */
+ static int stm32_copro_is_running(struct udevice *dev)
+ {
+-	unsigned int fw_id = (u32)dev_get_driver_data(dev);
++	unsigned int proc_id = (u32)dev_get_driver_data(dev);
+ 
+-	if (fw_id == STM32MP15_M4_FW_ID)
++	if (proc_id == STM32MP15_M4_FW_ID)
+ 		return (readl(TAMP_COPRO_STATE) == TAMP_COPRO_STATE_OFF);
+ 	else
+ 		return -EOPNOTSUPP;
+diff --git a/include/rproc_optee.h b/include/rproc_optee.h
+index 13193bbe774..9718239afcd 100644
+--- a/include/rproc_optee.h
++++ b/include/rproc_optee.h
+@@ -9,12 +9,12 @@
+ /**
+  * struct rproc_optee - TEE remoteproc structure
+  * @tee:	TEE device
+- * @fw_id:	Identifier of the target firmware
++ * @proc_id:	Identifier of the target processor
+  * @session:	TEE session identifier
+  */
+ struct rproc_optee {
+ 	struct udevice *tee;
+-	u32 fw_id;
++	u32 proc_id;
+ 	u32 session;
+ };
+ 
+-- 
+2.47.2
+

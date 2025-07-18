@@ -1,0 +1,48 @@
+From ae2ab3f5bd1868311b586eaa4ffc72a79367322d Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 9 Jun 2022 18:46:38 +0200
+Subject: [PATCH 029/120] board: st: stm32mp2: add dfu_usb_get_reset - TEMP
+
+Force dfu_usb_get_reset() result to false, because the USB BUS reset
+detection is not supported in DWC3 USB driver
+
+The USB bus reset support in DFU stack is required to reenumeration in
+stm32prog command after flashlayout load or after "dfu-util -e -R"
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 74cec9d334943da1811750bb0617528d16c7fded board: st: stm32mp2: add dfu_usb_get_reset - TEMP]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ice05bfdf312a584a2e58671e979c5b57bfc41554
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/257353
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+---
+ board/st/stm32mp2/stm32mp2.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/board/st/stm32mp2/stm32mp2.c b/board/st/stm32mp2/stm32mp2.c
+index 2547f2e4bb7..c0010873ee7 100644
+--- a/board/st/stm32mp2/stm32mp2.c
++++ b/board/st/stm32mp2/stm32mp2.c
+@@ -220,6 +220,20 @@ int board_late_init(void)
+ 	return 0;
+ }
+ 
++#if defined(CONFIG_USB_DWC3) && defined(CONFIG_CMD_STM32PROG_USB)
++#include <dfu.h>
++/*
++ * TEMP: force USB BUS reset forced to false, because it is not supported
++ *       in DWC3 USB driver
++ * avoid USB bus reset support in DFU stack is required to reenumeration in
++ * stm32prog command after flashlayout load or after "dfu-util -e -R"
++ */
++bool dfu_usb_get_reset(void)
++{
++	return false;
++}
++#endif
++
+ void board_quiesce_devices(void)
+ {
+ 	setup_led(LEDST_OFF);
+-- 
+2.47.2
+

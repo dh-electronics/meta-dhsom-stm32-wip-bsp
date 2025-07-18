@@ -1,0 +1,91 @@
+From 1c2aa3dae59d248ba9a5b62eeb67b3cbda079bd2 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Wed, 13 Sep 2023 10:08:42 +0200
+Subject: [PATCH 027/120] pinctrl: stm32: rename PIOCFGR to ADVCFGR
+
+Since STM32MP25 cut2, GPIO PIOCFGR is now called ADVCFGR.
+Change the naming of this register in the driver to have a better
+consistency with soc specifications.
+
+PIOCFGR/ADVCFGR bitfield names have changed too.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 1e4bc0d72a0ba585444d37f673af6df294608488 pinctrl: stm32: rename PIOCFGR to ADVCFGR]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I7b70f0ca68c0275bcca52f337cef905c9fc8fd65
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/327342
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Amelie DELAUNAY <amelie.delaunay@foss.st.com>
+---
+ drivers/gpio/stm32_gpio_priv.h  |  2 +-
+ drivers/pinctrl/pinctrl_stm32.c | 24 ++++++++++++------------
+ 2 files changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/gpio/stm32_gpio_priv.h b/drivers/gpio/stm32_gpio_priv.h
+index 39186fe6ab2..69868787af0 100644
+--- a/drivers/gpio/stm32_gpio_priv.h
++++ b/drivers/gpio/stm32_gpio_priv.h
+@@ -126,7 +126,7 @@ struct stm32_gpio_regs {
+ 	u32 rfu3;	/* Reserved (rcfglock) */
+ 	u32 rfu4;	/* Reserved */
+ 	u32 delayr[2];	/* GPIO port delay */
+-	u32 piocfgr[2];	/* GPIO port PIO control */
++	u32 advcfgr[2];	/* GPIO port PIO control */
+ };
+ 
+ struct stm32_gpio_priv {
+diff --git a/drivers/pinctrl/pinctrl_stm32.c b/drivers/pinctrl/pinctrl_stm32.c
+index 1f80f4b300f..3d97bf84fd4 100644
+--- a/drivers/pinctrl/pinctrl_stm32.c
++++ b/drivers/pinctrl/pinctrl_stm32.c
+@@ -29,12 +29,12 @@
+ #define OTYPE_MSK			1
+ #define AFR_MASK			0xF
+ #define SECCFG_MSK			1
+-#define PIOCFGR_MASK			0xF
++#define ADVCFGR_MASK			0xF
+ #define DELAYR_MASK			0xF
+-#define PIOCFGR_DELAY_PATH_POS		0
+-#define PIOCFGR_CLK_EDGE_POS		1
+-#define PIOCFGR_CLK_TYPE_POS		2
+-#define PIOCFGR_RETIME_POS		3
++#define ADVCFGR_DLYPATH_POS		0
++#define ADVCFGR_DE_POS			1
++#define ADVCFGR_INVCLK_POS		2
++#define ADVCFGR_RET_POS			3
+ 
+ struct stm32_pinctrl_priv {
+ 	struct hwspinlock hws;
+@@ -312,7 +312,7 @@ static int stm32_gpio_config(ofnode node,
+ 	struct stm32_gpio_regs *regs = priv->regs;
+ 	struct stm32_pinctrl_priv *ctrl_priv;
+ 	int ret;
+-	u32 index, io_sync, piocfg;
++	u32 index, io_sync, advcfg;
+ 
+ 	/* Check access protection */
+ 	ret = stm32_pinctrl_get_access(desc->dev, desc->offset);
+@@ -357,13 +357,13 @@ static int stm32_gpio_config(ofnode node,
+ 
+ 	if (io_sync) {
+ 		index = (desc->offset & 0x07) * 4;
+-		piocfg = (ctl->delay_path << PIOCFGR_DELAY_PATH_POS) |
+-			 (ctl->clk_edge << PIOCFGR_CLK_EDGE_POS) |
+-			 (ctl->clk_type << PIOCFGR_CLK_TYPE_POS) |
+-			 (ctl->retime << PIOCFGR_RETIME_POS);
++		advcfg = (ctl->delay_path << ADVCFGR_DLYPATH_POS) |
++			 (ctl->clk_edge << ADVCFGR_DE_POS) |
++			 (ctl->clk_type << ADVCFGR_INVCLK_POS) |
++			 (ctl->retime << ADVCFGR_RET_POS);
+ 
+-		clrsetbits_le32(&regs->piocfgr[desc->offset >> 3],
+-				PIOCFGR_MASK << index, piocfg << index);
++		clrsetbits_le32(&regs->advcfgr[desc->offset >> 3],
++				ADVCFGR_MASK << index, advcfg << index);
+ 
+ 		clrsetbits_le32(&regs->delayr[desc->offset >> 3],
+ 				DELAYR_MASK << index, ctl->delay << index);
+-- 
+2.47.2
+

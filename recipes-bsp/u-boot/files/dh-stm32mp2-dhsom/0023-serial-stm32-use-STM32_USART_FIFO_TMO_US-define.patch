@@ -1,0 +1,45 @@
+From 8ea847b9e2a1c96b56e287b10491f97f509dd008 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Mon, 11 Sep 2023 17:33:18 +0200
+Subject: [PATCH 023/120] serial: stm32: use STM32_USART_FIFO_TMO_US define
+
+Replace hard coded value by STM32_USART_FIFO_TMO_US define
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git a123214001e3098c11a0721ddfa095eb94a06ca3 serial: stm32: use STM32_USART_FIFO_TMO_US define]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I93e64725884b40bfa6ac0f14af585c7a49c160cc
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/326977
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Amelie DELAUNAY <amelie.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/serial/serial_stm32.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/serial/serial_stm32.c b/drivers/serial/serial_stm32.c
+index 1675a9cb9d1..1d05790e9ae 100644
+--- a/drivers/serial/serial_stm32.c
++++ b/drivers/serial/serial_stm32.c
+@@ -28,6 +28,7 @@
+  * 10 bits are needed for worst case (8 bits + 1 start + 1 stop) = 86.806 us
+  */
+ #define ONE_BYTE_B115200_US		87
++#define STM32_USART_FIFO_TMO_US		(16 * ONE_BYTE_B115200_US)
+ 
+ static void _stm32_serial_setbrg(void __iomem *base,
+ 				 struct stm32_uart_info *uart_info,
+@@ -216,8 +217,8 @@ static int stm32_serial_probe(struct udevice *dev)
+ 	 * before uart initialization, wait for TC bit (Transmission Complete)
+ 	 * in case there is still chars from previous bootstage to transmit
+ 	 */
+-	ret = read_poll_timeout(readl, isr, isr & USART_ISR_TC, 50,
+-				16 * ONE_BYTE_B115200_US, plat->base + ISR_OFFSET(stm32f4));
++	ret = read_poll_timeout(readl, isr, isr & USART_ISR_TC, 50, STM32_USART_FIFO_TMO_US,
++				plat->base + ISR_OFFSET(stm32f4));
+ 	if (ret)
+ 		dev_dbg(dev, "FIFO not empty, some character can be lost (%d)\n", ret);
+ 
+-- 
+2.47.2
+
