@@ -1,0 +1,284 @@
+From 44f121c8ea4b725e979555c6add29e4e218131a2 Mon Sep 17 00:00:00 2001
+From: Carter Chen <carter.chen@infineon.com>
+Date: Thu, 25 Aug 2022 02:33:13 -0500
+Subject: [PATCH 04/82] brcmfmac: update firmware loading name for CY5557x
+
+Updating the firmware/nvram/clm_blob name to loading for CY5557x series.
+Changing all naming of 55560 to 55572.
+
+CY55571, CY55573 use the same PID as 55572.
+
+Jira: SWWLAN-144174
+
+Upstream-Status: Inappropriate [Infineon downstream https://github.com/Infineon/ifx-wireless-drivers 8af507891b594eb25624b5263e7b76018150189d brcmfmac: update firmware loading name for CY5557x]
+Signed-off-by: Carter Chen <carter.chen@infineon.com>
+---
+ .../broadcom/brcm80211/brcmfmac/bcmsdh.c      |  8 +++----
+ .../broadcom/brcm80211/brcmfmac/chip.c        | 22 +++++++++----------
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 14 ++++++------
+ .../broadcom/brcm80211/brcmfmac/sdio.c        | 22 +++++++++----------
+ .../broadcom/brcm80211/include/brcm_hw_ids.h  |  4 ++--
+ include/linux/mmc/sdio_ids.h                  |  2 +-
+ 6 files changed, 36 insertions(+), 36 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bcmsdh.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bcmsdh.c
+index 4f30dce09ed56..5a5d660b8fbb7 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bcmsdh.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bcmsdh.c
+@@ -46,7 +46,7 @@
+ #define SDIO_4373_FUNC2_BLOCKSIZE	256
+ #define SDIO_435X_FUNC2_BLOCKSIZE	256
+ #define SDIO_4329_FUNC2_BLOCKSIZE	128
+-#define SDIO_CYW55560_FUNC2_BLOCKSIZE	256
++#define SDIO_CYW55572_FUNC2_BLOCKSIZE	256
+ 
+ /* Maximum milliseconds to wait for F2 to come up */
+ #define SDIO_WAIT_F2RDY	3000
+@@ -924,8 +924,8 @@ int brcmf_sdiod_probe(struct brcmf_sdio_dev *sdiodev)
+ 	case SDIO_DEVICE_ID_BROADCOM_4329:
+ 		f2_blksz = SDIO_4329_FUNC2_BLOCKSIZE;
+ 		break;
+-	case SDIO_DEVICE_ID_CYPRESS_55560:
+-		f2_blksz = SDIO_CYW55560_FUNC2_BLOCKSIZE;
++	case SDIO_DEVICE_ID_CYPRESS_55572:
++		f2_blksz = SDIO_CYW55572_FUNC2_BLOCKSIZE;
+ 		break;
+ 	default:
+ 		break;
+@@ -1007,7 +1007,7 @@ static const struct sdio_device_id brcmf_sdmmc_ids[] = {
+ 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_43012, CYW),
+ 	BRCMF_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_89359, CYW),
+ 	CYW_SDIO_DEVICE(SDIO_DEVICE_ID_BROADCOM_CYPRESS_43439, CYW),
+-	CYW_SDIO_DEVICE(SDIO_DEVICE_ID_CYPRESS_55560, CYW),
++	CYW_SDIO_DEVICE(SDIO_DEVICE_ID_CYPRESS_55572, CYW),
+ 	{ /* end: all zeroes */ }
+ };
+ MODULE_DEVICE_TABLE(sdio, brcmf_sdmmc_ids);
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+index 0c5b16e0476fb..badae6346b950 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+@@ -216,11 +216,11 @@ struct sbsocramregs {
+ #define	ARMCR4_BSZ_MULT		8192
+ #define	ARMCR4_BLK_1K_MASK	0x200
+ 
+-/* CYW55560 dedicated space and RAM base */
+-#define CYW55560_TCAM_SIZE	0x800
+-#define CYW55560_TRXHDR_SIZE	0x2b4
+-#define CYW55560_RAM_BASE	(0x370000 + \
+-				 CYW55560_TCAM_SIZE + CYW55560_TRXHDR_SIZE)
++/* CYW55572 dedicated space and RAM base */
++#define CYW55572_TCAM_SIZE	0x800
++#define CYW55572_TRXHDR_SIZE	0x2b4
++#define CYW55572_RAM_BASE	(0x370000 + \
++				 CYW55572_TCAM_SIZE + CYW55572_TRXHDR_SIZE)
+ 
+ #define BRCMF_BLHS_POLL_INTERVAL			10	/* msec */
+ #define BRCMF_BLHS_D2H_READY_TIMEOUT			100	/* msec */
+@@ -772,8 +772,8 @@ static u32 brcmf_chip_tcm_rambase(struct brcmf_chip_priv *ci)
+ 		return 0x352000;
+ 	case BRCM_CC_4387_CHIP_ID:
+ 		return 0x740000;
+-	case CY_CC_55560_CHIP_ID:
+-		return CYW55560_RAM_BASE;
++	case CY_CC_55572_CHIP_ID:
++		return CYW55572_RAM_BASE;
+ 	default:
+ 		brcmf_err("unknown chip: %s\n", ci->pub.name);
+ 		break;
+@@ -792,9 +792,9 @@ int brcmf_chip_get_raminfo(struct brcmf_chip *pub)
+ 	if (mem) {
+ 		mem_core = container_of(mem, struct brcmf_core_priv, pub);
+ 		ci->pub.ramsize = brcmf_chip_tcm_ramsize(mem_core);
+-		if (ci->pub.chip == CY_CC_55560_CHIP_ID)
+-			ci->pub.ramsize -= (CYW55560_TCAM_SIZE +
+-					    CYW55560_TRXHDR_SIZE);
++		if (ci->pub.chip == CY_CC_55572_CHIP_ID)
++			ci->pub.ramsize -= (CYW55572_TCAM_SIZE +
++					    CYW55572_TRXHDR_SIZE);
+ 		ci->pub.rambase = brcmf_chip_tcm_rambase(ci);
+ 		if (ci->pub.rambase == INVALID_RAMBASE) {
+ 			brcmf_err("RAM base not provided with ARM CR4 core\n");
+@@ -1638,7 +1638,7 @@ bool brcmf_chip_sr_capable(struct brcmf_chip *pub)
+ 		return reg != 0;
+ 	case BRCM_CC_4355_CHIP_ID:
+ 	case CY_CC_4373_CHIP_ID:
+-	case CY_CC_55560_CHIP_ID:
++	case CY_CC_55572_CHIP_ID:
+ 		/* explicitly check SR engine enable bit */
+ 		addr = CORE_CC_REG(base, sr_control0);
+ 		reg = chip->ops->read32(chip->ctx, addr);
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index a05158f75481a..cbb581e650054 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -73,7 +73,7 @@ BRCMF_FW_CLM_DEF(4378B1, "brcmfmac4378b1-pcie");
+ BRCMF_FW_CLM_DEF(4378B3, "brcmfmac4378b3-pcie");
+ BRCMF_FW_CLM_DEF(4387C2, "brcmfmac4387c2-pcie");
+ BRCMF_FW_CLM_DEF(54591, "brcmfmac54591-pcie");
+-CY_FW_TRXSE_DEF(55560, "cyfmac55560-pcie");
++CY_FW_TRXSE_DEF(55572, "cyfmac55572-pcie");
+ 
+ /* firmware config files */
+ MODULE_FIRMWARE(BRCMF_FW_DEFAULT_PATH "brcmfmac*-pcie.txt");
+@@ -114,7 +114,7 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ 	BRCMF_FW_ENTRY(BRCM_CC_4378_CHIP_ID, 0x0000000F, 4378B1), /* revision ID 3 */
+ 	BRCMF_FW_ENTRY(BRCM_CC_4378_CHIP_ID, 0xFFFFFFE0, 4378B3), /* revision ID 5 */
+ 	BRCMF_FW_ENTRY(BRCM_CC_4387_CHIP_ID, 0xFFFFFFFF, 4387C2), /* revision ID 7 */
+-	BRCMF_FW_ENTRY(CY_CC_55560_CHIP_ID, 0xFFFFFFFF, 55560),
++	BRCMF_FW_ENTRY(CY_CC_55572_CHIP_ID, 0xFFFFFFFF, 55572),
+ };
+ 
+ #define BRCMF_PCIE_FW_UP_TIMEOUT		5000 /* msec */
+@@ -128,7 +128,7 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ 
+ #define BRCMF_PCIE_BAR0_WRAPBASE_DMP_OFFSET	0x1000
+ #define BRCMF_PCIE_BAR0_PCIE_ENUM_OFFSET	0x2000
+-#define BRCMF_CYW55560_PCIE_BAR0_PCIE_ENUM_OFFSET	0x3000
++#define BRCMF_CYW55572_PCIE_BAR0_PCIE_ENUM_OFFSET	0x3000
+ 
+ #define BRCMF_PCIE_ARMCR4REG_BANKIDX		0x40
+ #define BRCMF_PCIE_ARMCR4REG_BANKPDA		0x4C
+@@ -1840,7 +1840,7 @@ static int brcmf_pcie_download_fw_nvram(struct brcmf_pciedev_info *devinfo,
+ 			  devinfo->nvram_name);
+ 	}
+ 
+-	if (devinfo->ci->chip == CY_CC_55560_CHIP_ID) {
++	if (devinfo->ci->chip == CY_CC_55572_CHIP_ID) {
+ 		/* Write the length token to the last word of RAM address */
+ 		brcmf_pcie_write_ram32(devinfo, devinfo->ci->ramsize - 4,
+ 				       cpu_to_le32(nvram_csm));
+@@ -2049,8 +2049,8 @@ static int brcmf_pcie_buscore_blhs_attach(void *ctx, struct brcmf_blhs **blhs,
+ 		blhsh->write = brcmf_pcie_buscore_blhs_write;
+ 
+ 		/* Host indication for bootloarder to start the init */
+-		if (devinfo->pdev->device == CY_PCIE_55560_DEVICE_ID)
+-			pcie_enum = BRCMF_CYW55560_PCIE_BAR0_PCIE_ENUM_OFFSET;
++		if (devinfo->pdev->device == CY_PCIE_55572_DEVICE_ID)
++			pcie_enum = BRCMF_CYW55572_PCIE_BAR0_PCIE_ENUM_OFFSET;
+ 		else
+ 			pcie_enum = BRCMF_PCIE_BAR0_PCIE_ENUM_OFFSET;
+ 
+@@ -2930,7 +2930,7 @@ static const struct pci_device_id brcmf_pcie_devid_table[] = {
+ 	BRCMF_PCIE_DEVICE(BRCM_PCIE_4387_DEVICE_ID, WCC_SEED),
+ 	BRCMF_PCIE_DEVICE(BRCM_PCIE_43752_DEVICE_ID, WCC_SEED),
+ 	BRCMF_PCIE_DEVICE(CY_PCIE_54591_DEVICE_ID, CYW),
+-	BRCMF_PCIE_DEVICE_CY(CY_PCIE_55560_DEVICE_ID),
++	BRCMF_PCIE_DEVICE_CY(CY_PCIE_55572_DEVICE_ID),
+ 	{ /* end: all zeroes */ }
+ };
+ 
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
+index 2f6fba2ba6280..8ff1a3290c72b 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/sdio.c
+@@ -59,9 +59,9 @@
+ #define CY_435X_F2_WATERMARK	0x40
+ #define CY_435X_F1_MESBUSYCTRL	(CY_435X_F2_WATERMARK | \
+ 				 SBSDIO_MESBUSYCTRL_ENAB)
+-#define CYW55560_F2_WATERMARK	0x40
+-#define CYW55560_MES_WATERMARK	0x40
+-#define CYW55560_F1_MESBUSYCTRL	(CYW55560_MES_WATERMARK | \
++#define CYW55572_F2_WATERMARK	0x40
++#define CYW55572_MES_WATERMARK	0x40
++#define CYW55572_F1_MESBUSYCTRL	(CYW55572_MES_WATERMARK | \
+ 				 SBSDIO_MESBUSYCTRL_ENAB)
+ 
+ #ifdef DEBUG
+@@ -630,7 +630,7 @@ BRCMF_FW_DEF(4359, "brcmfmac4359-sdio");
+ BRCMF_FW_CLM_DEF(4373, "brcmfmac4373-sdio");
+ BRCMF_FW_CLM_DEF(43012, "brcmfmac43012-sdio");
+ BRCMF_FW_CLM_DEF(43752, "brcmfmac43752-sdio");
+-CY_FW_TRXSE_DEF(55560, "cyfmac55560-sdio");
++CY_FW_TRXSE_DEF(55572, "cyfmac55572-sdio");
+ 
+ /* firmware config files */
+ MODULE_FIRMWARE(BRCMF_FW_DEFAULT_PATH "brcmfmac*-sdio.*.txt");
+@@ -665,7 +665,7 @@ static const struct brcmf_firmware_mapping brcmf_sdio_fwnames[] = {
+ 	BRCMF_FW_ENTRY(CY_CC_4373_CHIP_ID, 0xFFFFFFFF, 4373),
+ 	BRCMF_FW_ENTRY(CY_CC_43012_CHIP_ID, 0xFFFFFFFF, 43012),
+ 	BRCMF_FW_ENTRY(CY_CC_43439_CHIP_ID, 0xFFFFFFFF, 43439),
+-	BRCMF_FW_ENTRY(CY_CC_55560_CHIP_ID, 0xFFFFFFFF, 55560)
++	BRCMF_FW_ENTRY(CY_CC_55572_CHIP_ID, 0xFFFFFFFF, 55572)
+ };
+ 
+ #define TXCTL_CREDITS	2
+@@ -727,7 +727,7 @@ brcmf_sdio_kso_control(struct brcmf_sdio *bus, bool on)
+ 	 * bit, to avoid polling of KSO bit.
+ 	 */
+ 	if (!on && ((bus->ci->chip == CY_CC_43012_CHIP_ID) ||
+-		    (bus->ci->chip == CY_CC_55560_CHIP_ID)))
++		    (bus->ci->chip == CY_CC_55572_CHIP_ID)))
+ 		return err;
+ 
+ 	if (on) {
+@@ -3474,7 +3474,7 @@ static bool brcmf_sdio_aos_no_decode(struct brcmf_sdio *bus)
+ 	if (bus->ci->chip == BRCM_CC_43751_CHIP_ID ||
+ 	    bus->ci->chip == BRCM_CC_43752_CHIP_ID ||
+ 	    bus->ci->chip == CY_CC_43012_CHIP_ID ||
+-	    bus->ci->chip == CY_CC_55560_CHIP_ID)
++	    bus->ci->chip == CY_CC_55572_CHIP_ID)
+ 		return true;
+ 	else
+ 		return false;
+@@ -4440,18 +4440,18 @@ static void brcmf_sdio_firmware_callback(struct device *dev, int err,
+ 			brcmf_sdiod_writeb(sdiod, SBSDIO_FUNC1_MESBUSYCTRL,
+ 					   CY_435X_F1_MESBUSYCTRL, &err);
+ 			break;
+-		case SDIO_DEVICE_ID_CYPRESS_55560:
++		case SDIO_DEVICE_ID_CYPRESS_55572:
+ 			brcmf_dbg(INFO, "set F2 watermark to 0x%x*4 bytes\n",
+-				  CYW55560_F2_WATERMARK);
++				  CYW55572_F2_WATERMARK);
+ 			brcmf_sdiod_writeb(sdiod, SBSDIO_WATERMARK,
+-					   CYW55560_F2_WATERMARK, &err);
++					   CYW55572_F2_WATERMARK, &err);
+ 			devctl = brcmf_sdiod_readb(sdiod, SBSDIO_DEVICE_CTL,
+ 						   &err);
+ 			devctl |= SBSDIO_DEVCTL_F2WM_ENAB;
+ 			brcmf_sdiod_writeb(sdiod, SBSDIO_DEVICE_CTL, devctl,
+ 					   &err);
+ 			brcmf_sdiod_writeb(sdiod, SBSDIO_FUNC1_MESBUSYCTRL,
+-					   CYW55560_F1_MESBUSYCTRL, &err);
++					   CYW55572_F1_MESBUSYCTRL, &err);
+ 			break;
+ 		default:
+ 			brcmf_sdiod_writeb(sdiod, SBSDIO_WATERMARK,
+diff --git a/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h b/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h
+index 9d1f3ffd13f0a..c24cee105b682 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h
++++ b/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h
+@@ -60,7 +60,7 @@
+ #define CY_CC_4373_CHIP_ID		0x4373
+ #define CY_CC_43012_CHIP_ID		43012
+ #define CY_CC_43439_CHIP_ID		43439
+-#define CY_CC_55560_CHIP_ID		0xd908
++#define CY_CC_55572_CHIP_ID		0xd908
+ 
+ /* USB Device IDs */
+ #define BRCM_USB_43143_DEVICE_ID	0xbd1e
+@@ -101,7 +101,7 @@
+ #define BRCM_PCIE_4378_DEVICE_ID	0x4425
+ #define BRCM_PCIE_4387_DEVICE_ID	0x4433
+ #define CY_PCIE_54591_DEVICE_ID		0x4417
+-#define CY_PCIE_55560_DEVICE_ID		0xbd31
++#define CY_PCIE_55572_DEVICE_ID		0xbd31
+ 
+ /* brcmsmac IDs */
+ #define BCM4313_D11N2G_ID	0x4727	/* 4313 802.11n 2.4G device */
+diff --git a/include/linux/mmc/sdio_ids.h b/include/linux/mmc/sdio_ids.h
+index b229594e70c30..bc7578c000c7d 100644
+--- a/include/linux/mmc/sdio_ids.h
++++ b/include/linux/mmc/sdio_ids.h
+@@ -81,7 +81,7 @@
+ 
+ #define SDIO_VENDOR_ID_CYPRESS			0x04b4
+ #define SDIO_DEVICE_ID_BROADCOM_CYPRESS_43439	0xbd3d
+-#define SDIO_DEVICE_ID_CYPRESS_55560		0xbd31
++#define SDIO_DEVICE_ID_CYPRESS_55572		0xbd31
+ 
+ #define SDIO_VENDOR_ID_MARVELL			0x02df
+ #define SDIO_DEVICE_ID_MARVELL_LIBERTAS		0x9103
+-- 
+2.51.0
+

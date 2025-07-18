@@ -1,0 +1,63 @@
+From dfa7b42bc1c08cab0d7b0007685d8a948ab91a3a Mon Sep 17 00:00:00 2001
+From: Pierre-Yves MORDRET <pierre-yves.mordret@foss.st.com>
+Date: Tue, 13 Aug 2024 17:38:17 +0200
+Subject: [PATCH 53/82] arm64: dts: Add GPU Thermal trip points
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git 9ae23b9a6668b6b534b68573a2a1840e9a5a647f arm64: dts: Add GPU Thermal trip points
+2732d5954ccf2449fdaecb1467d7b4223cae797b arm64: dts: Add GPU Thermal trip points]
+Change-Id: I2a39acb0e1271083a59f1f2b1c7841f6460b7158
+Signed-off-by: Pierre-Yves MORDRET <pierre-yves.mordret@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/402785
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Philippe CORNU <philippe.cornu@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ arch/arm64/boot/dts/st/stm32mp255.dtsi | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/st/stm32mp255.dtsi b/arch/arm64/boot/dts/st/stm32mp255.dtsi
+index a5aaa27d39be0..a98b59f47434d 100644
+--- a/arch/arm64/boot/dts/st/stm32mp255.dtsi
++++ b/arch/arm64/boot/dts/st/stm32mp255.dtsi
+@@ -6,6 +6,27 @@
+ #include <dt-bindings/power/st,stm32mp25-power.h>
+ #include "stm32mp253.dtsi"
+ 
++/ {
++	thermal-zones {
++		cpu-thermal {
++			trips {
++				gpu_alert: gpu-alert {
++					temperature = <110000>;
++					hysteresis = <10000>;
++					type = "passive";
++				};
++			};
++
++			cooling-maps {
++				map1 {
++					trip = <&gpu_alert>;
++					cooling-device = <&gpu 1 6>;
++				};
++			};
++		};
++	};
++};
++
+ &ltdc {
+ 	compatible = "st,stm32mp255-ltdc";
+ 	clocks = <&clk_flexgen_27_fixed>, <&rcc CK_BUS_LTDC>, <&syscfg>, <&lvds>;
+@@ -66,5 +87,8 @@ gpu: gpu@48280000 {
+ 		power-domains = <&scmi_devpd PD_SCMI_GPU>, <&CLUSTER_PD>;
+ 		access-controllers = <&rifsc 79>;
+ 		status = "disabled";
++
++		throttle,max_state = <6>;
++		#cooling-cells = <2>;
+ 	};
+ };
+-- 
+2.51.0
+

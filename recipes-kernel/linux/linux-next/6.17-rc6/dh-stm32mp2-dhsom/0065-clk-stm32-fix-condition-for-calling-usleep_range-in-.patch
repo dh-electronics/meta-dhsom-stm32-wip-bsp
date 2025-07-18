@@ -1,0 +1,36 @@
+From 566f1f265d9c168d8c90128134e90c6bb8c8f83e Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 28 Jan 2025 15:31:53 +0100
+Subject: [PATCH 65/82] clk: stm32: fix condition for calling usleep_range in
+ reset ops
+
+The usleep_range function should be called only when data->reset_us
+is non-zero.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git 7d9035c6d6ddf336478b61d5f5796442990c059a clk: stm32: fix condition for calling usleep_range in reset ops]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Ic16e39688d603d422b6514abdb18d9ddd416735c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/438037
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ drivers/clk/stm32/reset-stm32.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/clk/stm32/reset-stm32.c b/drivers/clk/stm32/reset-stm32.c
+index 24b9d54b83884..6a405a77b9115 100644
+--- a/drivers/clk/stm32/reset-stm32.c
++++ b/drivers/clk/stm32/reset-stm32.c
+@@ -145,7 +145,7 @@ static int stm32_reset(struct reset_controller_dev *rcdev, unsigned long id)
+ 	if (ret)
+ 		return ret;
+ 
+-	if (!data->reset_us)
++	if (data->reset_us)
+ 		usleep_range(data->reset_us, data->reset_us * 2);
+ 
+ 	ret = stm32_reset_deassert(rcdev, id);
+-- 
+2.51.0
+

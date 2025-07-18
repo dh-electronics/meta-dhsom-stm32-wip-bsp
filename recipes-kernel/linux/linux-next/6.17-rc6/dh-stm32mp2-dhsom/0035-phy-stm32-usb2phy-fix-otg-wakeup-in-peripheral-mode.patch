@@ -1,0 +1,59 @@
+From 153a6d016dcbdc8b630f5a62e5cfbd7ed2a0186d Mon Sep 17 00:00:00 2001
+From: Fabrice Gasnier <fabrice.gasnier@foss.st.com>
+Date: Mon, 20 Jan 2025 18:26:21 +0100
+Subject: [PATCH 35/82] phy: stm32: usb2phy: fix otg wakeup in peripheral mode
+
+When in peripheral mode, when the host has suspended the bus, and the
+platform has been put into sleep mode (LP stop2), there's some issue
+upon wakeup from the host (bus resume). The OTG becomes non functional.
+The link is broken, with errors seen on host side:
+"device descriptor read/64, error -71"
+Keeping CMN bit set to 1 for OTG avoids the issue.
+
+Note: this is only seen on STM32MP21, when dwc2 is configured as dual
+role, as hcd code invokes the phy_set_mode (but not the dwc2 gadget).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git 3d423d96ea26ad5afdef92ca7c97aeda23d02b22 phy: stm32: usb2phy: fix otg wakeup in peripheral mode]
+Signed-off-by: Fabrice Gasnier <fabrice.gasnier@foss.st.com>
+Change-Id: Ibb11a6ba18cf9fa19757a6440918720064285222
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/430480
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/phy/st/phy-stm32-usb2phy.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/phy/st/phy-stm32-usb2phy.c b/drivers/phy/st/phy-stm32-usb2phy.c
+index f4a9efc876aa1..d233ee0ea6d21 100644
+--- a/drivers/phy/st/phy-stm32-usb2phy.c
++++ b/drivers/phy/st/phy-stm32-usb2phy.c
+@@ -400,12 +400,16 @@ static int stm32_usb2phy_set_mode(struct phy *phy, enum phy_mode mode, int submo
+ 
+ 	switch (mode) {
+ 	case PHY_MODE_USB_HOST:
+-		if (phy_data->valid_mode == USB2_MODE_HOST_ONLY ||
+-		    phy_data->valid_mode == USB2_MODE_OTG)
++		if (phy_data->valid_mode == USB2_MODE_HOST_ONLY)
+ 			ret = regmap_update_bits(phy_dev->regmap,
+ 						 phy_data->cr_offset,
+ 						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK,
+ 						 0);
++		else if (phy_data->valid_mode == USB2_MODE_OTG)
++			ret = regmap_update_bits(phy_dev->regmap,
++						 phy_data->cr_offset,
++						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK,
++						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK);
+ 		else {
+ 			if (submode == USB_ROLE_NONE) {
+ 				ret = regmap_update_bits(phy_dev->regmap,
+@@ -434,7 +438,7 @@ static int stm32_usb2phy_set_mode(struct phy *phy, enum phy_mode mode, int submo
+ 			ret = regmap_update_bits(phy_dev->regmap,
+ 						 phy_data->cr_offset,
+ 						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK,
+-						 0);
++						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK);
+ 		else {
+ 			if (submode == USB_ROLE_NONE) {
+ 				ret = regmap_update_bits(phy_dev->regmap,
+-- 
+2.51.0
+
