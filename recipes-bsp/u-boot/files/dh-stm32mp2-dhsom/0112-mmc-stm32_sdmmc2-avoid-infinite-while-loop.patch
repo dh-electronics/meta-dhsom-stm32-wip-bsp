@@ -1,0 +1,60 @@
+From a1485c7318837f4aa2ba0bf46b3f4dcf4d437238 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Mon, 5 May 2025 11:01:29 +0200
+Subject: [PATCH 112/120] mmc: stm32_sdmmc2: avoid infinite while loop
+
+Avoid unlimited while loop by adding a timeout. The timeout is
+calculated based on a minimal throughput of 256 KB/s.
+The timeout is set at least to 2 seconds.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 8d56a1efe51662774d823cbebd4207ebae904c15 mmc: stm32_sdmmc2: avoid infinite while loop]
+Change-Id: I690ec47a9b82ca2fd9f5edbd43d1700cedbcae40
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/455777
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/mmc/stm32_sdmmc2.c | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/stm32_sdmmc2.c b/drivers/mmc/stm32_sdmmc2.c
+index 9483fb57daf..122690aef3e 100644
+--- a/drivers/mmc/stm32_sdmmc2.c
++++ b/drivers/mmc/stm32_sdmmc2.c
+@@ -385,15 +385,29 @@ static int stm32_sdmmc2_end_data(struct udevice *dev,
+ 	u32 mask = SDMMC_STA_DCRCFAIL | SDMMC_STA_DTIMEOUT |
+ 		   SDMMC_STA_IDMATE | SDMMC_STA_DATAEND;
+ 	u32 status;
++	unsigned long timeout_msecs = ctx->data_length >> 8;
++	unsigned long start_timeout;
++
++	/* At least, a timeout of 2 seconds is set */
++	if (timeout_msecs < 2000)
++		timeout_msecs = 2000;
+ 
+ 	if (data->flags & MMC_DATA_READ)
+ 		mask |= SDMMC_STA_RXOVERR;
+ 	else
+ 		mask |= SDMMC_STA_TXUNDERR;
+ 
++	start_timeout = get_timer(0);
+ 	status = readl(plat->base + SDMMC_STA);
+-	while (!(status & mask))
++	while (!(status & mask)) {
++		if (get_timer(start_timeout) > timeout_msecs) {
++			ctx->dpsm_abort = true;
++			return -ETIMEDOUT;
++		}
++
++		schedule();
+ 		status = readl(plat->base + SDMMC_STA);
++	}
+ 
+ 	/*
+ 	 * Need invalidate the dcache again to avoid any
+-- 
+2.47.2
+

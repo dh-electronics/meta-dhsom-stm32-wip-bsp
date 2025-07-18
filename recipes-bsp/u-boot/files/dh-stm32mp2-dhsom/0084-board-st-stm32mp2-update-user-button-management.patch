@@ -1,0 +1,76 @@
+From c4eceb39710a9e6f935e4f27ecb2aed3ef92d688 Mon Sep 17 00:00:00 2001
+From: Patrice Chotard <patrice.chotard@foss.st.com>
+Date: Tue, 26 Mar 2024 14:49:57 +0100
+Subject: [PATCH 084/120] board: st: stm32mp2: update user button management
+
+User-1 button is dedicated to enable stm32prog at U-Boot startup.
+User-2 button is dedicated to enable fastboot at U-Boot startup.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git fe1c5027e3ababa19ea61da221558a9c5d05b426 board: st: stm32mp2: update user button management]
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Change-Id: Idab7400d93eee1fe4ac6d27a522eeacf5ce3b924
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/369664
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ board/st/stm32mp2/stm32mp2.c | 37 +++++++++++++++++++++++++-----------
+ 1 file changed, 26 insertions(+), 11 deletions(-)
+
+diff --git a/board/st/stm32mp2/stm32mp2.c b/board/st/stm32mp2/stm32mp2.c
+index 6ea6fda579a..d4b63de68a0 100644
+--- a/board/st/stm32mp2/stm32mp2.c
++++ b/board/st/stm32mp2/stm32mp2.c
+@@ -96,24 +96,39 @@ static int setup_led(enum led_state_t cmd)
+ 
+ static void check_user_button(void)
+ {
+-	struct udevice *button;
+-	int i;
++	struct udevice *button1 = NULL, *button2 = NULL;
++	enum forced_boot_mode boot_mode = BOOT_NORMAL;
+ 
+-	if (!IS_ENABLED(CONFIG_CMD_STM32PROG) || !IS_ENABLED(CONFIG_BUTTON))
++	if (!IS_ENABLED(CONFIG_BUTTON))
+ 		return;
+ 
+-	if (button_get_by_label("User-2", &button))
++	if (!IS_ENABLED(CONFIG_FASTBOOT) && !IS_ENABLED(CONFIG_CMD_STM32PROG))
+ 		return;
+ 
+-	for (i = 0; i < 21; ++i) {
+-		if (button_get_state(button) != BUTTON_ON)
+-			return;
+-		if (i < 20)
+-			mdelay(50);
++	if (IS_ENABLED(CONFIG_CMD_STM32PROG))
++		button_get_by_label("User-1", &button1);
++
++	if (IS_ENABLED(CONFIG_FASTBOOT))
++		button_get_by_label("User-2", &button2);
++
++	if (!button1 && !button2)
++		return;
++
++	if (button1 && button_get_state(button1) == BUTTON_ON) {
++		log_notice("STM32Programmer key pressed, ");
++		boot_mode = BOOT_STM32PROG;
+ 	}
+ 
+-	log_notice("entering download mode...\n");
+-	clrsetbits_le32(TAMP_BOOT_CONTEXT, TAMP_BOOT_FORCED_MASK, BOOT_STM32PROG);
++	if (button2 && button_get_state(button2) == BUTTON_ON) {
++		log_notice("Fastboot key pressed, ");
++		boot_mode = BOOT_FASTBOOT;
++	}
++
++	if (boot_mode != BOOT_NORMAL) {
++		log_notice("entering download mode...\n");
++		clrsetbits_le32(TAMP_BOOT_CONTEXT, TAMP_BOOT_FORCED_MASK,
++				boot_mode);
++	}
+ }
+ 
+ #ifdef CONFIG_USB_GADGET_DOWNLOAD
+-- 
+2.47.2
+

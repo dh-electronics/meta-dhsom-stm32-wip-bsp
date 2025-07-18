@@ -1,0 +1,86 @@
+From 7db83a8faadbffe2e4a6f57e1e55413067ba2c6d Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Mon, 3 Jul 2023 18:02:44 +0200
+Subject: [PATCH 060/120] watchdog: wdt-uclass.c: add wdt_set_force_start()
+ helper
+
+The watchdog could have been already started by a previous boot
+stage (e.g. bootrom or secure OS). U-Boot has to start and kick
+the watchdog even when CONFIG_WATCHDOG_AUTOSTART is not enabled
+or when the DT property u-boot,noautostart is present.
+
+Add the helper wdt_set_force_start() that can be called by the
+driver's probe() when it detects that the watchdog has already
+been started and is running.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git b032cb1e130cab788d9cfcbf550e857542dfbfe5 watchdog: wdt-uclass.c: add wdt_set_force_start() helper]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I574ad64879a5d3eacdf60cfbdf5b72c7535c1f98
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/316108
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Patrice CHOTARD <patrice.chotard@foss.st.com>
+---
+ drivers/watchdog/wdt-uclass.c | 13 ++++++++++++-
+ include/wdt.h                 |  9 +++++++++
+ 2 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/watchdog/wdt-uclass.c b/drivers/watchdog/wdt-uclass.c
+index 10be334e9ed..efdda5db492 100644
+--- a/drivers/watchdog/wdt-uclass.c
++++ b/drivers/watchdog/wdt-uclass.c
+@@ -42,10 +42,20 @@ struct wdt_priv {
+ 	bool running;
+ 	/* autostart */
+ 	bool autostart;
++	/* Force start */
++	bool force_start;
+ 
+ 	struct cyclic_info cyclic;
+ };
+ 
++int wdt_set_force_start(struct udevice *dev)
++{
++	struct wdt_priv *priv;
++	priv = dev_get_uclass_priv(dev);
++	priv->force_start = true;
++	return 0;
++}
++
+ static void wdt_cyclic(struct cyclic_info *c)
+ {
+ 	struct wdt_priv *priv = container_of(c, struct wdt_priv, cyclic);
+@@ -74,7 +84,8 @@ static void init_watchdog_dev(struct udevice *dev)
+ 			       dev->name);
+ 	}
+ 
+-	if (!priv->autostart) {
++	if (!priv->force_start &&
++	    (!IS_ENABLED(CONFIG_WATCHDOG_AUTOSTART) || !priv->autostart)) {
+ 		printf("WDT:   Not starting %s\n", dev->name);
+ 		return;
+ 	}
+diff --git a/include/wdt.h b/include/wdt.h
+index 5026f5a6db4..14349c1c0c2 100644
+--- a/include/wdt.h
++++ b/include/wdt.h
+@@ -18,6 +18,15 @@ struct udevice;
+  * which typically include placing the system in a safe, known state.
+  */
+ 
++/*
++ * Force watchdog start during init. Called by driver's probe when the watchdog
++ * is detected as already started.
++ *
++ * @dev: WDT Device
++ * @return: 0 if OK, -ve on error
++ */
++int wdt_set_force_start(struct udevice *dev);
++
+ /*
+  * Start the timer
+  *
+-- 
+2.47.2
+

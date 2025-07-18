@@ -1,0 +1,163 @@
+From d7a85a104763c7977f3679149ffcf2f37c312c8d Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Fri, 22 Mar 2024 14:44:39 +0100
+Subject: [PATCH 083/120] misc: stm32_omm: always clock OSPI instances if mux
+ is enabled
+
+If the mux is enabled, the 2 OSPI clocks have to be always enabled.
+The driver is reworked to be able to manage the use case properly.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 36a1bdc6c2b1577d71832865bd8bcf3355855d0e misc: stm32_omm: always clock OSPI instances if mux is enabled]
+Change-Id: I27319f75a165d64e34e91fe5aca9a00cb8d2498a
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/368802
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/misc/stm32_omm.c | 73 +++++++++++++++++++++++++++++-----------
+ 1 file changed, 53 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/misc/stm32_omm.c b/drivers/misc/stm32_omm.c
+index cdd3cef1d3c..d9a1342dd61 100644
+--- a/drivers/misc/stm32_omm.c
++++ b/drivers/misc/stm32_omm.c
+@@ -26,7 +26,7 @@
+ 
+ #define OMM_CHILD_NB		2
+ 
+-#define NSEC_PER_SEC 1000000000L
++#define NSEC_PER_SEC		1000000000L
+ 
+ struct stm32_omm_plat {
+ 	struct regmap *omm_regmap;
+@@ -57,7 +57,12 @@ static int stm32_omm_set_amcr(struct udevice *dev, bool set)
+ 	regmap_read(plat->syscfg_regmap, plat->amcr_base, &read_amcr);
+ 	read_amcr = read_amcr >> (ffs(plat->amcr_mask) - 1);
+ 
+-	return amcr != read_amcr;
++	if (amcr != read_amcr) {
++		dev_err(dev, "AMCR value not coherent with DT memory-map areas\n");
++		return -EINVAL;
++	}
++
++	return 0;
+ }
+ 
+ static int stm32_omm_configure(struct udevice *dev)
+@@ -102,6 +107,8 @@ static int stm32_omm_configure(struct udevice *dev)
+ 	regmap_update_bits(plat->omm_regmap, OCTOSPIM_CR,
+ 			   CR_MUXENMODE_MASK, mux);
+ 
++	clk_disable(&plat->clk);
++
+ 	return stm32_omm_set_amcr(dev, true);
+ }
+ 
+@@ -138,7 +145,26 @@ clk_free:
+ 	return ret;
+ }
+ 
++static int stm32_omm_enable_child_clock(struct udevice *dev, ofnode child)
++{
++	struct clk omi_clk;
++	int ret;
++
++	ret = clk_get_by_index_nodev(child, 0, &omi_clk);
++	if (ret) {
++		dev_err(dev, "Failed to get clock for %s\n", ofnode_get_name(child));
++		return ret;
++	}
++
++	ret = clk_enable(&omi_clk);
++	if (ret)
++		dev_err(dev, "Failed to enable clock for %s\n", ofnode_get_name(child));
++
++	return ret;
++}
++
+ static int stm32_omm_probe(struct udevice *dev) {
++	struct stm32_omm_plat *plat = dev_get_plat(dev);
+ 	ofnode child_list[OMM_CHILD_NB];
+ 	ofnode child;
+ 	int ret;
+@@ -158,7 +184,7 @@ static int stm32_omm_probe(struct udevice *dev) {
+ 		}
+ 
+ 		if (!ofnode_device_is_compatible(child, "st,stm32mp25-omi"))
+-			continue;
++			return -EINVAL;
+ 
+ 		ret = stm32_rifsc_check_access(child);
+ 		if (ret < 0 && ret != -EACCES)
+@@ -174,26 +200,38 @@ static int stm32_omm_probe(struct udevice *dev) {
+ 		nb_child++;
+ 	}
+ 
++	if (nb_child != OMM_CHILD_NB)
++		return -EINVAL;
++
+ 	/* check if OMM's ressource access is granted */
+ 	ret = stm32_rifsc_check_access(dev_ofnode(dev));
+ 	if (ret < 0 && ret != -EACCES)
+ 		return ret;
+ 
+-	if (!ret) {
+-		/* All child's access are granted ? */
+-		if (child_access_granted == nb_child) {
+-			/* Ensure both OSPI instance are disabled before configuring OMM */
++	/* All child's access are granted ? */
++	if (!ret && child_access_granted == nb_child) {
++		/* Ensure both OSPI instance are disabled before configuring OMM */
++		for (i = 0; i < nb_child; i++) {
++			ret = stm32_omm_disable_child(dev, child_list[i]);
++			if (ret)
++				return ret;
++		}
++
++		ret = stm32_omm_configure(dev);
++		if (ret)
++			return ret;
++
++		if (plat->mux & CR_MUXEN) {
++			/*
++			 * If the mux is enabled, the 2 OSPI clocks have to be
++			 * always enabled
++			 */
++
+ 			for (i = 0; i < nb_child; i++) {
+-				ret = stm32_omm_disable_child(dev, child_list[i]);
++				ret = stm32_omm_enable_child_clock(dev, child_list[i]);
+ 				if (ret)
+ 					return ret;
+ 			}
+-
+-			ret = stm32_omm_configure(dev);
+-			if (ret)
+-				return ret;
+-		} else {
+-			dev_dbg(dev, "Can't disable Octo Memory Manager's child\n");
+ 		}
+ 	} else {
+ 		dev_dbg(dev, "Octo Memory Manager resource's access not granted\n");
+@@ -202,14 +240,9 @@ static int stm32_omm_probe(struct udevice *dev) {
+ 		 * with memory-map areas defined in DT
+ 		 */
+ 		ret = stm32_omm_set_amcr(dev, false);
+-		if (ret > 0) {
+-			dev_err(dev, "AMCR value not coherent with DT memory-map areas\n");
+-
+-			return -EINVAL;
+-		}
+ 	}
+ 
+-	return 0;
++	return ret;
+ }
+ 
+ static int stm32_omm_of_to_plat(struct udevice *dev)
+-- 
+2.47.2
+

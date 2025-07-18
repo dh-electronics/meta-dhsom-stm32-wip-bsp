@@ -1,0 +1,113 @@
+From 9324ce20e9b67b29e9650de7f4268fc337967440 Mon Sep 17 00:00:00 2001
+From: Patrice Chotard <patrice.chotard@foss.st.com>
+Date: Tue, 14 Jan 2025 09:22:08 +0100
+Subject: [PATCH 104/120] watchdog: wdt-uclass.c: Replace wdt_set_force_start
+ by wdt_set_force_autostart
+
+Remove the force_start variable and use directly autostart one.
+Rename wdt_set_force_start() by wdt_set_force_autostart() to
+reflect exactly what this function does.
+Update the test to not start watchdog back to its initial
+implementation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 937f4dc1610af5823e6f8e4e33c83e40178db01d watchdog: wdt-uclass.c: Replace wdt_set_force_start by wdt_set_force_autostart]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Change-Id: I050d0f73a2136c61caeec4f0def59fb8ed56e2dd
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/428671
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/watchdog/arm_smc_wdt.c |  2 +-
+ drivers/watchdog/stm32mp_wdt.c |  4 ++--
+ drivers/watchdog/wdt-uclass.c  | 14 ++++++--------
+ include/wdt.h                  |  2 +-
+ 4 files changed, 10 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/watchdog/arm_smc_wdt.c b/drivers/watchdog/arm_smc_wdt.c
+index ee8a41fd478..f6854aa9ac9 100644
+--- a/drivers/watchdog/arm_smc_wdt.c
++++ b/drivers/watchdog/arm_smc_wdt.c
+@@ -106,7 +106,7 @@ static int smcwd_probe(struct udevice *dev)
+ 	switch (err) {
+ 	case 0:
+ 		dev_dbg(dev, "Already started\n");
+-		wdt_set_force_start(dev);
++		wdt_set_force_autostart(dev);
+ 		break;
+ 	case -ENODATA:
+ 		dev_dbg(dev, "Not already started\n");
+diff --git a/drivers/watchdog/stm32mp_wdt.c b/drivers/watchdog/stm32mp_wdt.c
+index c6ac1565248..0712524b4a8 100644
+--- a/drivers/watchdog/stm32mp_wdt.c
++++ b/drivers/watchdog/stm32mp_wdt.c
+@@ -129,7 +129,7 @@ static int stm32mp_wdt_probe(struct udevice *dev)
+ 
+ 	if (priv->hw_version >= ONF_MIN_VER) {
+ 		if (readl(priv->base + IWDG_SR) & SR_ONF)
+-			wdt_set_force_start(dev);
++			wdt_set_force_autostart(dev);
+ 	} else {
+ 		/*
+ 		 * Workaround for old versions without IWDG_SR_ONF bit:
+@@ -143,7 +143,7 @@ static int stm32mp_wdt_probe(struct udevice *dev)
+ 		ret = readl_poll_timeout(priv->base + IWDG_SR, sr, sr & SR_RVU,
+ 					 TIMEOUT_US);
+ 		if (!ret)
+-			wdt_set_force_start(dev);
++			wdt_set_force_autostart(dev);
+ 
+ 		writel(KR_KEY_DWA, priv->base + IWDG_KR);
+ 	}
+diff --git a/drivers/watchdog/wdt-uclass.c b/drivers/watchdog/wdt-uclass.c
+index efdda5db492..b32590069d9 100644
+--- a/drivers/watchdog/wdt-uclass.c
++++ b/drivers/watchdog/wdt-uclass.c
+@@ -42,17 +42,16 @@ struct wdt_priv {
+ 	bool running;
+ 	/* autostart */
+ 	bool autostart;
+-	/* Force start */
+-	bool force_start;
+ 
+ 	struct cyclic_info cyclic;
+ };
+ 
+-int wdt_set_force_start(struct udevice *dev)
++int wdt_set_force_autostart(struct udevice *dev)
+ {
+-	struct wdt_priv *priv;
+-	priv = dev_get_uclass_priv(dev);
+-	priv->force_start = true;
++	struct wdt_priv *priv = dev_get_uclass_priv(dev);
++
++	priv->autostart = true;
++
+ 	return 0;
+ }
+ 
+@@ -84,8 +83,7 @@ static void init_watchdog_dev(struct udevice *dev)
+ 			       dev->name);
+ 	}
+ 
+-	if (!priv->force_start &&
+-	    (!IS_ENABLED(CONFIG_WATCHDOG_AUTOSTART) || !priv->autostart)) {
++	if (!priv->autostart) {
+ 		printf("WDT:   Not starting %s\n", dev->name);
+ 		return;
+ 	}
+diff --git a/include/wdt.h b/include/wdt.h
+index 14349c1c0c2..1ef656585c4 100644
+--- a/include/wdt.h
++++ b/include/wdt.h
+@@ -25,7 +25,7 @@ struct udevice;
+  * @dev: WDT Device
+  * @return: 0 if OK, -ve on error
+  */
+-int wdt_set_force_start(struct udevice *dev);
++int wdt_set_force_autostart(struct udevice *dev);
+ 
+ /*
+  * Start the timer
+-- 
+2.47.2
+

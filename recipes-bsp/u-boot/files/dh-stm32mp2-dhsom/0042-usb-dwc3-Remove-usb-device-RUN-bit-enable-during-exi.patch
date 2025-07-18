@@ -1,0 +1,53 @@
+From af129024c6a67bba6c013f45a34018b6f64b9dc9 Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Mon, 12 Sep 2022 19:08:22 +0530
+Subject: [PATCH 042/120] usb: dwc3: Remove usb-device RUN-bit enable during
+ exit
+
+During DWC3 driver exit, Setting RUN bit makes the pull-up
+to be raised. No gadget driver is loaded at this point.
+So the HOST detects a connect event, but enumeration process
+will fail. The RUN-bit enable is removed by this patch which
+fixes the problem of unsuccessful enumeration
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 88a1f692f5e5c409d5a622afb7a19294146d2375 usb: dwc3: Remove usb-device RUN-bit enable during exit]
+Fixes: bbe3d4a6c14e ("usb: dwc3: switch to peripheral mode when exiting")
+Change-Id: Ia05a94147006af902adf2074490df56c319b73a2
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/303889
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+---
+ drivers/usb/dwc3/core.c | 7 -------
+ 1 file changed, 7 deletions(-)
+
+diff --git a/drivers/usb/dwc3/core.c b/drivers/usb/dwc3/core.c
+index a594e98fb6c..e277565b6eb 100644
+--- a/drivers/usb/dwc3/core.c
++++ b/drivers/usb/dwc3/core.c
+@@ -770,12 +770,6 @@ static int dwc3_core_init_mode(struct dwc3 *dwc)
+ 	return 0;
+ }
+ 
+-static void dwc3_gadget_run(struct dwc3 *dwc)
+-{
+-	dwc3_writel(dwc->regs, DWC3_DCTL, DWC3_DCTL_RUN_STOP);
+-	mdelay(100);
+-}
+-
+ static void dwc3_core_stop(struct dwc3 *dwc)
+ {
+ 	u32 reg;
+@@ -807,7 +801,6 @@ static void dwc3_core_exit_mode(struct dwc3 *dwc)
+ 	 * This enables the phy to enter idle and then, if enabled, suspend.
+ 	 */
+ 	dwc3_set_mode(dwc, DWC3_GCTL_PRTCAP_DEVICE);
+-	dwc3_gadget_run(dwc);
+ }
+ 
+ #define DWC3_ALIGN_MASK		(16 - 1)
+-- 
+2.47.2
+

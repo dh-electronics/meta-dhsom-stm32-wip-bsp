@@ -1,0 +1,53 @@
+From a960b4c278bf1cf15f8d58979810913c63781853 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Thu, 6 Jul 2023 10:04:38 +0200
+Subject: [PATCH 054/120] spi: stm32_ospi: stop the delay block before stating
+ the calibration
+
+Before locking the delay block, the prescaler has to be set and the
+delay block has to be disabled before setting the prescaler.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 315dd00282b10369ea4ceed2ea98fb46e888430d spi: stm32_ospi: stop the delay block before stating the calibration]
+Change-Id: I8e98ebe0d1aebc9cacae77620c52de1b9b6b4254
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/316841
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/spi/stm32_ospi.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/spi/stm32_ospi.c b/drivers/spi/stm32_ospi.c
+index 7173055a74b..49229c82976 100644
+--- a/drivers/spi/stm32_ospi.c
++++ b/drivers/spi/stm32_ospi.c
+@@ -352,6 +352,10 @@ static int stm32_ospi_claim_bus(struct udevice *dev)
+ 	if (prescaler == priv->prescaler[priv->cs_used])
+ 		return 0;
+ 
++	ret = stm32_omi_dlyb_stop(priv->omi_dev);
++	if (ret)
++		return ret;
++
+ 	priv->prescaler[priv->cs_used] = prescaler;
+ 	bus_freq = ospi_clk / (prescaler + 1);
+ 
+@@ -361,6 +365,11 @@ static int stm32_ospi_claim_bus(struct udevice *dev)
+ 		if (ret) {
+ 			dev_info(dev->parent, "Set flash frequency to a safe value (%d Hz)\n",
+ 				 STM32_DLYB_FREQ_THRESHOLD);
++
++			ret = stm32_omi_dlyb_stop(priv->omi_dev);
++			if (ret)
++				return ret;
++
+ 			ret = stm32_ospi_set_speed(dev->parent, STM32_DLYB_FREQ_THRESHOLD);
+ 		}
+ 	}
+-- 
+2.47.2
+

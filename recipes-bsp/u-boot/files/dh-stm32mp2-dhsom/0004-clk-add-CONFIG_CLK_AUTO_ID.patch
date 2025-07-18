@@ -1,0 +1,180 @@
+From 0eab20e8ee34f935d6a3b541b8e18794dc6736cc Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 27 May 2025 15:27:46 +0200
+Subject: [PATCH 004/120] clk: add CONFIG_CLK_AUTO_ID
+
+Add a new config CONFIG_CLK_AUTO_ID to support a unique clk id
+for all the clock providers, managed by clk uclass, when the clock
+reference arg[0] is the same.
+
+When the CONFIG is activated, the clock id is limited to the lower
+CLK_ID_SZ = 24 bits in default clock xlate function
+and the sequence number + 1 of the clk provider device is
+added for the 8 higher bits.
+
+We use sequence number + 1 to avoid the "dummy" clock id = 0,
+used for invalid clock when CCF is activated.
+
+When this config is activated, the new function clk_get_id()
+should be used to get back the internal reference to clock
+for the each clock provider.
+
+Upstream-Status: Backport [0846bad0d08b53f6abaa4c8afe812dba93057424]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Cc: Lukasz Majewski <lukma@denx.de>
+Cc: Sean Anderson <seanga2@gmail.com>
+Reviewed-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrice Chotard <patrice.chotard@foss.st.com>
+---
+ drivers/clk/Kconfig                | 10 ++++++++++
+ drivers/clk/clk-uclass.c           |  9 +++++++--
+ drivers/clk/stm32/clk-stm32-core.c |  3 ++-
+ include/clk.h                      | 24 ++++++++++++++++++++++++
+ include/linux/clk-provider.h       |  9 ++++++++-
+ 5 files changed, 51 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/clk/Kconfig b/drivers/clk/Kconfig
+index 19aa2ffa539..8dbcc35335f 100644
+--- a/drivers/clk/Kconfig
++++ b/drivers/clk/Kconfig
+@@ -10,6 +10,16 @@ config CLK
+ 	  feed into other clocks in a tree structure, with multiplexers to
+ 	  choose the source for each clock.
+ 
++config CLK_AUTO_ID
++	bool "Enable support of an unique clock id with several provider"
++	depends on CLK
++	help
++	  Add the uclass sequence number of clock provider in the 8 higher bits
++	  of the clk id to guaranty an unique clock identifier in clk uclass
++	  when several clock providers are present on the device and when
++	  default xlate are used.
++	  This feature limit each identifier for each clock providers (24 bits).
++
+ config SPL_CLK
+ 	bool "Enable clock support in SPL"
+ 	depends on CLK && SPL && SPL_DM
+diff --git a/drivers/clk/clk-uclass.c b/drivers/clk/clk-uclass.c
+index 2167cd5ad0f..7262e89b512 100644
+--- a/drivers/clk/clk-uclass.c
++++ b/drivers/clk/clk-uclass.c
+@@ -34,6 +34,11 @@ struct clk *dev_get_clk_ptr(struct udevice *dev)
+ 	return (struct clk *)dev_get_uclass_priv(dev);
+ }
+ 
++ulong clk_get_id(const struct clk *clk)
++{
++	return (ulong)(clk->id & CLK_ID_MSK);
++}
++
+ #if CONFIG_IS_ENABLED(OF_PLATDATA)
+ int clk_get_by_phandle(struct udevice *dev, const struct phandle_1_arg *cells,
+ 		       struct clk *clk)
+@@ -43,7 +48,7 @@ int clk_get_by_phandle(struct udevice *dev, const struct phandle_1_arg *cells,
+ 	ret = device_get_by_ofplat_idx(cells->idx, &clk->dev);
+ 	if (ret)
+ 		return ret;
+-	clk->id = cells->arg[0];
++	clk->id = CLK_ID(dev, cells->arg[0]);
+ 
+ 	return 0;
+ }
+@@ -61,7 +66,7 @@ static int clk_of_xlate_default(struct clk *clk,
+ 	}
+ 
+ 	if (args->args_count)
+-		clk->id = args->args[0];
++		clk->id = CLK_ID(clk->dev, args->args[0]);
+ 	else
+ 		clk->id = 0;
+ 
+diff --git a/drivers/clk/stm32/clk-stm32-core.c b/drivers/clk/stm32/clk-stm32-core.c
+index 358ee56682a..df3b35b1003 100644
+--- a/drivers/clk/stm32/clk-stm32-core.c
++++ b/drivers/clk/stm32/clk-stm32-core.c
+@@ -46,7 +46,8 @@ int stm32_rcc_init(struct udevice *dev,
+ 
+ 		if (cfg->setup) {
+ 			clk = cfg->setup(dev, cfg);
+-			clk->id = cfg->id;
++			/* set identifier of clock provider*/
++			dev_clk_dm(dev, cfg->id, clk);
+ 		} else {
+ 			dev_err(dev, "failed to register clock %s\n", cfg->name);
+ 			return -ENOENT;
+diff --git a/include/clk.h b/include/clk.h
+index a6ef4e02692..f94135ff778 100644
+--- a/include/clk.h
++++ b/include/clk.h
+@@ -13,6 +13,15 @@
+ #include <linux/errno.h>
+ #include <linux/types.h>
+ 
++#ifdef CONFIG_CLK_AUTO_ID
++#define CLK_ID_SZ	24
++#define CLK_ID_MSK	GENMASK(23, 0)
++#define CLK_ID(dev, id)	(((dev_seq(dev) + 1) << CLK_ID_SZ) | ((id) & CLK_ID_MSK))
++#else
++#define CLK_ID_MSK	(~0UL)
++#define CLK_ID(dev, id)	id
++#endif
++
+ /**
+  * DOC: Overview
+  *
+@@ -570,6 +579,16 @@ int clk_get_by_id(ulong id, struct clk **clkp);
+  */
+ bool clk_dev_binded(struct clk *clk);
+ 
++/**
++ * clk_get_id - get clk id
++ *
++ * @clk:	A clock struct
++ *
++ * Return: the clock identifier as it is defined by the clock provider in
++ * device tree or in platdata
++ */
++ulong clk_get_id(const struct clk *clk);
++
+ #else /* CONFIG_IS_ENABLED(CLK) */
+ 
+ static inline int clk_request(struct udevice *dev, struct clk *clk)
+@@ -641,6 +660,11 @@ static inline bool clk_dev_binded(struct clk *clk)
+ {
+ 	return false;
+ }
++
++static inline ulong clk_get_id(const struct clk *clk)
++{
++	return 0;
++}
+ #endif /* CONFIG_IS_ENABLED(CLK) */
+ 
+ /**
+diff --git a/include/linux/clk-provider.h b/include/linux/clk-provider.h
+index 267757939e0..2d754fa4287 100644
+--- a/include/linux/clk-provider.h
++++ b/include/linux/clk-provider.h
+@@ -15,10 +15,17 @@
+ 
+ struct udevice;
+ 
++/* update clock ID for the dev = clock provider, compatible with CLK_AUTO_ID */
++static inline void dev_clk_dm(const struct udevice *dev, ulong id, struct clk *clk)
++{
++	if (!IS_ERR(clk))
++		clk->id = CLK_ID(dev, id);
++}
++
+ static inline void clk_dm(ulong id, struct clk *clk)
+ {
+ 	if (!IS_ERR(clk))
+-		clk->id = id;
++		clk->id = CLK_ID(clk->dev, id);
+ }
+ 
+ /*
+-- 
+2.47.2
+

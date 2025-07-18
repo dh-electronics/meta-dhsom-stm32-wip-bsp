@@ -1,0 +1,65 @@
+From 2424a7952836350b2b565fc6e7fc075c0651c13d Mon Sep 17 00:00:00 2001
+From: Patrice Chotard <patrice.chotard@foss.st.com>
+Date: Fri, 19 Jan 2024 18:24:32 +0100
+Subject: [PATCH 074/120] memory: stm32: Add JEDEC flashes support
+
+Add jedec_flash boolean which allows to select the calibration
+algorithm between CFI and JEDEC flashes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git a4ebfea3f6eebb1ee7fb0ea6a02ec569d8eb3611 memory: stm32: Add JEDEC flashes support]
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Change-Id: I2f3a76966ecf10957192a31984f14d32a9f538dc
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/353445
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/359761
+---
+ drivers/memory/stm32-omi.c | 8 ++++++++
+ include/stm32_omi.h        | 1 +
+ 2 files changed, 9 insertions(+)
+
+diff --git a/drivers/memory/stm32-omi.c b/drivers/memory/stm32-omi.c
+index ad0af22d4d5..99e3baa50db 100644
+--- a/drivers/memory/stm32-omi.c
++++ b/drivers/memory/stm32-omi.c
+@@ -352,6 +352,7 @@ int stm32_omi_wait_cmd(struct udevice *dev)
+ 
+ static int stm32_omi_bind(struct udevice *dev)
+ {
++	struct stm32_omi_plat *omi_plat = dev_get_plat(dev);
+ 	struct driver *drv;
+ 	const char *name;
+ 	ofnode flash_node;
+@@ -365,10 +366,17 @@ static int stm32_omi_bind(struct udevice *dev)
+ 	 *        1 HyperFlash					=> supported
+ 	 *	  All other flash node configuration		=> not supported
+ 	 */
++	omi_plat->jedec_flash = false;
++
+ 	dev_for_each_subnode(flash_node, dev) {
+ 		if (ofnode_device_is_compatible(flash_node, "cfi-flash"))
+ 			hyperflash_count++;
+ 
++		if (ofnode_device_is_compatible(flash_node, "jedec-flash")) {
++			hyperflash_count++;
++			omi_plat->jedec_flash = true;
++		}
++
+ 		if (ofnode_device_is_compatible(flash_node, "jedec,spi-nor") ||
+ 		    ofnode_device_is_compatible(flash_node, "spi-nand"))
+ 			spi_flash_count++;
+diff --git a/include/stm32_omi.h b/include/stm32_omi.h
+index aef2c6f4d24..39813da3cb8 100644
+--- a/include/stm32_omi.h
++++ b/include/stm32_omi.h
+@@ -152,6 +152,7 @@ struct stm32_omi_plat {
+ 	struct reset_ctl_bulk rst_ctl;
+ 	ulong clock_rate;
+ 	u32 dlyb_base;
++	bool jedec_flash;
+ };
+ 
+ struct stm32_omi_priv {
+-- 
+2.47.2
+

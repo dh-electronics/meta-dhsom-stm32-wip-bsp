@@ -1,0 +1,95 @@
+From fd77b4d5200a1862ff077cec85e966f094adac03 Mon Sep 17 00:00:00 2001
+From: Marek Vasut <marex@nabladev.com>
+Date: Mon, 4 Aug 2025 21:56:36 +0200
+Subject: [PATCH 119/120] net: dwc_eth_qos: Fix support for stm32mp2 platform
+
+The layout of SYSCFG_ETHnCR on STM32MP25xx is slightly different yet again.
+Add missing swizzling to program the correct register with the correct content.
+
+Upstream-Status: Pending
+Fixes: 20afca89ed53 ("net: dwc_eth_qos: add support of stm32mp2 platform")
+Signed-off-by: Marek Vasut <marex@nabladev.com>
+---
+Cc: Christophe Roullier <christophe.roullier@foss.st.com>
+Cc: Joe Hershberger <joe.hershberger@ni.com>
+Cc: Patrice Chotard <patrice.chotard@foss.st.com>
+Cc: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Cc: Ramon Fried <rfried.dev@gmail.com>
+Cc: Tom Rini <trini@konsulko.com>
+Cc: u-boot@lists.denx.de
+Cc: uboot-stm32@st-md-mailman.stormreply.com
+---
+ drivers/net/dwc_eth_qos_stm32.c | 42 ++++++++++++++++++++++++++-------
+ 1 file changed, 34 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/net/dwc_eth_qos_stm32.c b/drivers/net/dwc_eth_qos_stm32.c
+index 7a28f2a3e83..e12039c9661 100644
+--- a/drivers/net/dwc_eth_qos_stm32.c
++++ b/drivers/net/dwc_eth_qos_stm32.c
+@@ -137,13 +137,15 @@ static int eqos_probe_syscfg_stm32(struct udevice *dev,
+ 	const bool eth_ref_clk_sel = dev_read_bool(dev, "st,eth-ref-clk-sel");
+ 	/* SoC is STM32MP13xx with two ethernet MACs */
+ 	const bool is_mp13 = device_is_compatible(dev, "st,stm32mp13-dwmac");
++	/* SoC is STM32MP25xx with two ethernet MACs */
++	const bool is_mp2 = device_is_compatible(dev, "st,stm32mp25-dwmac");
+ 	/* Gigabit Ethernet 125MHz clock selection. */
+ 	const bool eth_clk_sel = dev_read_bool(dev, "st,eth-clk-sel");
+ 	/* Ethernet clock source is RCC. */
+ 	const bool ext_phyclk = dev_read_bool(dev, "st,ext-phyclk");
+ 	struct regmap *regmap;
+ 	u32 regmap_mask;
+-	u32 value;
++	u32 reg, value;
+ 
+ 	regmap = syscon_regmap_lookup_by_phandle(dev, "st,syscon");
+ 	if (IS_ERR(regmap))
+@@ -213,15 +215,39 @@ static int eqos_probe_syscfg_stm32(struct udevice *dev,
+ 		return -EINVAL;
+ 	}
+ 
+-	/* Shift value at correct ethernet MAC offset in SYSCFG_PMCSETR */
+-	value <<= ffs(regmap_mask) - ffs(SYSCFG_PMCSETR_ETH1_MASK);
++	if (is_mp2) {
++		/*
++		 * STM32MP25xx SYSCFG EthernetN control register
++		 * has ETHn_CLK_SEL and ETHn_REF_CLK_SEL bits
++		 * swapped, swizzle them back in place. Bitfield
++		 * ETHn_SEL is shifted by 1 right, fix this up.
++		 */
++		value = ((value & SYSCFG_PMCSETR_ETH_SEL_MASK) >> 1) |
++			((value & SYSCFG_PMCSETR_ETH_CLK_SEL) << 1) |
++			((value & SYSCFG_PMCSETR_ETH_REF_CLK_SEL) >> 1);
++
++		/*
++		 * STM32MP25xx SYSCFG EthernetN control register
++		 * bits always start at bit shift 0 and there is
++		 * one register for each MAC, shift the register
++		 * content in place.
++		 */
++		value >>= ffs(SYSCFG_PMCSETR_ETH1_MASK) - 1;
++
++		reg = dev_read_u32_index_default(dev, "st,syscon", 1, 0);
+ 
+-	/* Update PMCCLRR (clear register) */
+-	regmap_write(regmap, is_mp13 ?
+-			     SYSCFG_PMCCLRR_MP13 : SYSCFG_PMCCLRR_MP15,
+-			     regmap_mask);
++		return regmap_write(regmap, reg, value);
++	} else {
++		/* Shift value at correct ethernet MAC offset in SYSCFG_PMCSETR */
++		value <<= ffs(regmap_mask) - ffs(SYSCFG_PMCSETR_ETH1_MASK);
+ 
+-	return regmap_update_bits(regmap, SYSCFG_PMCSETR, regmap_mask, value);
++		/* Update PMCCLRR (clear register) */
++		regmap_write(regmap, is_mp13 ?
++				     SYSCFG_PMCCLRR_MP13 : SYSCFG_PMCCLRR_MP15,
++				     regmap_mask);
++
++		return regmap_update_bits(regmap, SYSCFG_PMCSETR, regmap_mask, value);
++	}
+ }
+ 
+ static int eqos_probe_resources_stm32(struct udevice *dev)
+-- 
+2.47.2
+

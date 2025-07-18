@@ -1,0 +1,61 @@
+From 42d0d5b87eb7e54b61ec4b991a939a1178e067e8 Mon Sep 17 00:00:00 2001
+From: Christophe Guibout <christophe.guibout@st.com>
+Date: Wed, 12 Jun 2024 11:11:08 +0200
+Subject: [PATCH 106/120] autoboot: propagate boot index
+
+When FWU is enabled in the platform, tf-a reads active_index
+from metadata partition, and write it into fwu backup register.
+fwu_plat_get_bootidx() function reads it to load bootcmd or
+altbootcmd.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git f91e340fe030c6750839ebf9edcfad03056cdb59 autoboot: propagate boot index]
+Change-Id: Ia338fee581129f2d990fef0d807e99e96f8a1ffa
+Signed-off-by: Christophe Guibout <christophe.guibout@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/437684
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ common/autoboot.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/common/autoboot.c b/common/autoboot.c
+index 0a254498d40..1ac0f36064d 100644
+--- a/common/autoboot.c
++++ b/common/autoboot.c
+@@ -13,6 +13,7 @@
+ #include <env.h>
+ #include <errno.h>
+ #include <fdtdec.h>
++#include <fwu.h>
+ #include <hash.h>
+ #include <log.h>
+ #include <malloc.h>
+@@ -456,6 +457,7 @@ const char *bootdelay_process(void)
+ {
+ 	char *s;
+ 	int bootdelay;
++	uint boot_idx;
+ 
+ 	bootcount_inc();
+ 
+@@ -481,7 +483,14 @@ const char *bootdelay_process(void)
+ 		s = env_get("failbootcmd");
+ 	} else
+ #endif /* CONFIG_POST */
+-	if (bootcount_error())
++	{
++		if (IS_ENABLED(CONFIG_FWU_MULTI_BANK_UPDATE))
++			fwu_plat_get_bootidx(&boot_idx);
++		else
++			boot_idx = bootcount_error();
++	}
++
++	if (boot_idx)
+ 		s = env_get("altbootcmd");
+ 	else
+ 		s = env_get("bootcmd");
+-- 
+2.47.2
+
