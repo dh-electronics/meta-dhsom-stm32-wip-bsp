@@ -1,0 +1,70 @@
+From d2dfcbdf2b7829a4e88f79472f1e2a811fae7392 Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Fri, 17 Jan 2025 15:25:55 +0100
+Subject: [PATCH 57/95] drm/stm: dsi: add clock tolerance module parameter
+
+Clock tolerance is set by default to 0.5% (HDMI requirement).
+Via a module parameter, it is possible to modify it (useful for debug).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git 231280649118127925b1139ff69d3a220d8097f7 drm/stm: dsi: add clock tolerance module parameter]
+Change-Id: I1c0d0139321fa989529c490559335946fdb1631c
+Signed-off-by: Yannick Fertre <yannick.fertre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/429697
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/gpu/drm/stm/dw_mipi_dsi-stm.c | 20 ++++++++++++++------
+ 1 file changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c b/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
+index 828f81fc55edb..b6990e6e49343 100644
+--- a/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
++++ b/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
+@@ -996,7 +996,10 @@ dw_mipi_dsi_phy_141_get_timing(void *priv_data, unsigned int lane_mbps,
+ 	return 0;
+ }
+ 
+-#define CLK_TOLERANCE_HZ 50
++/* Set by default the clock tolerance to 5‰ */
++static int clock_tolerance = 5;
++module_param_named(clock_tolerance, clock_tolerance, int, 0444);
++MODULE_PARM_DESC(clock_tolerance, "Clock tolerance ‰");
+ 
+ static enum drm_mode_status
+ dw_mipi_dsi_stm_mode_valid(void *priv_data,
+@@ -1037,7 +1040,7 @@ dw_mipi_dsi_stm_mode_valid(void *priv_data,
+ 	}
+ 
+ 	if (!(mode_flags & MIPI_DSI_MODE_VIDEO_BURST)) {
+-		unsigned int px_clock_hz, target_px_clock_hz, lane_mbps;
++		unsigned int px_clock_hz, target_px_clock_min, target_px_clock_max, lane_mbps;
+ 		int dsi_short_packet_size_px, hfp, hsync, hbp, delay_to_lp;
+ 		struct dw_mipi_dsi_dphy_timing dphy_timing;
+ 
+@@ -1045,14 +1048,19 @@ dw_mipi_dsi_stm_mode_valid(void *priv_data,
+ 		pll_out_khz = dsi_pll_get_clkout_khz(pll_in_khz, idf, ndiv, odf);
+ 
+ 		px_clock_hz = DIV_ROUND_CLOSEST_ULL(1000ULL * pll_out_khz * lanes, bpp);
+-		target_px_clock_hz = mode->clock * 1000;
++
+ 		/*
+ 		 * Filter modes according to the clock value, particularly useful for
+ 		 * hdmi modes that require precise pixel clocks.
+ 		 */
+-		if (px_clock_hz < target_px_clock_hz - CLK_TOLERANCE_HZ ||
+-		    px_clock_hz > target_px_clock_hz + CLK_TOLERANCE_HZ)
+-			return MODE_CLOCK_RANGE;
++		target_px_clock_min = mode->clock * (1000 - clock_tolerance);
++		target_px_clock_max = mode->clock * (1000 + clock_tolerance);
++
++		if (px_clock_hz < target_px_clock_min)
++			return MODE_CLOCK_LOW;
++
++		if (px_clock_hz > target_px_clock_max)
++			return MODE_CLOCK_HIGH;
+ 
+ 		/* sync packets are codes as DSI short packets (4 bytes) */
+ 		dsi_short_packet_size_px = DIV_ROUND_UP(4 * BITS_PER_BYTE, bpp);
+-- 
+2.51.0
+
