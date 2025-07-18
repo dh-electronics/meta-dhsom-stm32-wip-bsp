@@ -1,0 +1,153 @@
+From a276cbeea29f8216de8f1ee52e0764fb13345f65 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 28 Jun 2022 20:16:56 +0200
+Subject: [PATCH 195/954] refactor(st-bsec): rename defines for BSEC_OTP_STATUS
+
+Rename the BSEC_OTP_STATUS defines named BSEC_MODE_..._MASK to names
+aligned  with reference manual: BSEC_OTP_STATUS_...
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a45fbfa288c694fa6b6f2ec075cb1ecba0305015 refactor(st-bsec): rename defines for BSEC_OTP_STATUS]
+Change-Id: I3e3f4c6af1fdc6c9004137861a6463bc96dd8ef7
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/258454
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec2.c        | 26 +++++++++++++-------------
+ include/drivers/st/bsec2_reg.h | 14 +++++---------
+ 2 files changed, 18 insertions(+), 22 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index c880832849..ad70b5ed36 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -47,7 +47,7 @@ static void bsec_unlock(void)
+ 
+ static bool is_otp_invalid_mode(void)
+ {
+-	bool ret = ((bsec_get_status() & BSEC_MODE_INVALID) == BSEC_MODE_INVALID);
++	bool ret = ((bsec_get_status() & BSEC_OTP_STATUS_INVALID) == BSEC_OTP_STATUS_INVALID);
+ 
+ 	if (ret) {
+ 		ERROR("OTP mode is OTP-INVALID\n");
+@@ -262,7 +262,7 @@ uint32_t bsec_shadow_register(uint32_t otp)
+ 			otp);
+ 	}
+ 
+-	if ((bsec_get_status() & BSEC_MODE_PWR_MASK) == 0U) {
++	if ((bsec_get_status() & BSEC_OTP_STATUS_PWRON) == 0U) {
+ 		result = bsec_power_safmem(true);
+ 
+ 		if (result != BSEC_OK) {
+@@ -276,7 +276,7 @@ uint32_t bsec_shadow_register(uint32_t otp)
+ 
+ 	mmio_write_32(bsec_base + BSEC_OTP_CTRL_OFF, otp | BSEC_READ);
+ 
+-	while ((bsec_get_status() & BSEC_MODE_BUSY_MASK) != 0U) {
++	while ((bsec_get_status() & BSEC_OTP_STATUS_BUSY) != 0U) {
+ 		;
+ 	}
+ 
+@@ -392,7 +392,7 @@ uint32_t bsec_program_otp(uint32_t val, uint32_t otp)
+ 		WARN("BSEC: GPLOCK activated, prog will be ignored\n");
+ 	}
+ 
+-	if ((bsec_get_status() & BSEC_MODE_PWR_MASK) == 0U) {
++	if ((bsec_get_status() & BSEC_OTP_STATUS_PWRON) == 0U) {
+ 		result = bsec_power_safmem(true);
+ 
+ 		if (result != BSEC_OK) {
+@@ -408,11 +408,11 @@ uint32_t bsec_program_otp(uint32_t val, uint32_t otp)
+ 
+ 	mmio_write_32(bsec_base + BSEC_OTP_CTRL_OFF, otp | BSEC_WRITE);
+ 
+-	while ((bsec_get_status() & BSEC_MODE_BUSY_MASK) != 0U) {
++	while ((bsec_get_status() & BSEC_OTP_STATUS_BUSY) != 0U) {
+ 		;
+ 	}
+ 
+-	if ((bsec_get_status() & BSEC_MODE_PROGFAIL_MASK) != 0U) {
++	if ((bsec_get_status() & BSEC_OTP_STATUS_PROGFAIL) != 0U) {
+ 		result = BSEC_PROG_FAIL;
+ 	} else {
+ 		result = bsec_check_error(otp, true);
+@@ -449,7 +449,7 @@ uint32_t bsec_permanent_lock_otp(uint32_t otp)
+ 		return BSEC_INVALID_PARAM;
+ 	}
+ 
+-	if ((bsec_get_status() & BSEC_MODE_PWR_MASK) == 0U) {
++	if ((bsec_get_status() & BSEC_OTP_STATUS_PWRON) == 0U) {
+ 		result = bsec_power_safmem(true);
+ 
+ 		if (result != BSEC_OK) {
+@@ -476,11 +476,11 @@ uint32_t bsec_permanent_lock_otp(uint32_t otp)
+ 	mmio_write_32(bsec_base + BSEC_OTP_CTRL_OFF,
+ 		      addr | BSEC_WRITE | BSEC_LOCK);
+ 
+-	while ((bsec_get_status() & BSEC_MODE_BUSY_MASK) != 0U) {
++	while ((bsec_get_status() & BSEC_OTP_STATUS_BUSY) != 0U) {
+ 		;
+ 	}
+ 
+-	if ((bsec_get_status() & BSEC_MODE_PROGFAIL_MASK) != 0U) {
++	if ((bsec_get_status() & BSEC_OTP_STATUS_PROGFAIL) != 0U) {
+ 		result = BSEC_PROG_FAIL;
+ 	} else {
+ 		result = bsec_check_error(otp, false);
+@@ -793,12 +793,12 @@ static uint32_t bsec_power_safmem(bool power)
+ 	mmio_write_32(bsec_base + BSEC_OTP_CONF_OFF, register_val);
+ 
+ 	if (power) {
+-		while (((bsec_get_status() & BSEC_MODE_PWR_MASK) == 0U) &&
++		while (((bsec_get_status() & BSEC_OTP_STATUS_PWRON) == 0U) &&
+ 		       (timeout != 0U)) {
+ 			timeout--;
+ 		}
+ 	} else {
+-		while (((bsec_get_status() & BSEC_MODE_PWR_MASK) != 0U) &&
++		while (((bsec_get_status() & BSEC_OTP_STATUS_PWRON) != 0U) &&
+ 		       (timeout != 0U)) {
+ 			timeout--;
+ 		}
+@@ -864,10 +864,10 @@ uint32_t bsec_get_secure_state(void)
+ 	uint32_t status = bsec_get_status();
+ 	uint32_t result = BSEC_STATE_INVALID;
+ 
+-	if ((status & BSEC_MODE_INVALID_MASK) != 0U) {
++	if ((status & BSEC_OTP_STATUS_INVALID) != 0U) {
+ 		result = BSEC_STATE_INVALID;
+ 	} else {
+-		if ((status & BSEC_MODE_SECURE_MASK) != 0U) {
++		if ((status & BSEC_OTP_STATUS_SECURE) != 0U) {
+ 			if (stm32mp_is_closed_device()) {
+ 				result = BSEC_STATE_SEC_CLOSED;
+ 			} else {
+diff --git a/include/drivers/st/bsec2_reg.h b/include/drivers/st/bsec2_reg.h
+index d6e3ee47f1..c54efa5282 100644
+--- a/include/drivers/st/bsec2_reg.h
++++ b/include/drivers/st/bsec2_reg.h
+@@ -80,15 +80,11 @@
+ #define GPLOCK_LOCK_SHIFT		4
+ 
+ /* BSEC_OTP_STATUS Register */
+-#define BSEC_MODE_STATUS_MASK		GENMASK(2, 0)
+-#define BSEC_MODE_SECURE_MASK		BIT(0)
+-#define BSEC_MODE_FULLDBG_MASK		BIT(1)
+-#define BSEC_MODE_INVALID_MASK		BIT(2)
+-#define BSEC_MODE_BUSY_MASK		BIT(3)
+-#define BSEC_MODE_PROGFAIL_MASK		BIT(4)
+-#define BSEC_MODE_PWR_MASK		BIT(5)
+-#define BSEC_MODE_BIST1_LOCK_MASK	BIT(6)
+-#define BSEC_MODE_BIST2_LOCK_MASK	BIT(7)
++#define BSEC_OTP_STATUS_SECURE		BIT(0)
++#define BSEC_OTP_STATUS_INVALID		BIT(2)
++#define BSEC_OTP_STATUS_BUSY		BIT(3)
++#define BSEC_OTP_STATUS_PROGFAIL	BIT(4)
++#define BSEC_OTP_STATUS_PWRON		BIT(5)
+ 
+ /* BSEC_DENABLE Register */
+ #define BSEC_HDPEN			BIT(4)
+-- 
+2.53.0
+

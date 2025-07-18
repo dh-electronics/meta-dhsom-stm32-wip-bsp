@@ -1,0 +1,51 @@
+From 669034af9c2f1c456a86c0091d853f5cfa13f879 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 14 Feb 2024 14:59:44 +0100
+Subject: [PATCH 878/954] feat(st-pmic): simplify usage of initialize_pmic
+
+Move call of dt_pmic_status() in the function initialize_pmic()
+to simplify the caller.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1d0bb13b3774b6ac48ab6d97f1d9c1297ec7f428 feat(st-pmic): simplify usage of initialize_pmic]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: If6508390833e6c4b3210db192b6fb7f16ac6bcc8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/445739
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic2.c   | 3 +++
+ plat/st/stm32mp2/bl2_plat_setup.c | 4 +---
+ 2 files changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic2.c b/drivers/st/pmic/stm32mp_pmic2.c
+index 827472d940..c814757b2d 100644
+--- a/drivers/st/pmic/stm32mp_pmic2.c
++++ b/drivers/st/pmic/stm32mp_pmic2.c
+@@ -535,6 +535,9 @@ void initialize_pmic(void)
+ 	int ret;
+ 	uint8_t val;
+ 
++	if (dt_pmic_status() <= 0) {
++		return;
++	}
+ 	ret = initialize_pmic_i2c();
+ 	if (!ret) {
+ 		VERBOSE("No PMIC2\n");
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index e6c847c0d6..c0e4f3e3d8 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -565,9 +565,7 @@ skip_console_init:
+ 		panic();
+ 	}
+ 
+-	if (dt_pmic_status() > 0) {
+-		initialize_pmic();
+-	}
++	initialize_pmic();
+ 
+ 	fconf_populate("TB_FW", STM32MP_DTB_BASE);
+ 
+-- 
+2.53.0
+

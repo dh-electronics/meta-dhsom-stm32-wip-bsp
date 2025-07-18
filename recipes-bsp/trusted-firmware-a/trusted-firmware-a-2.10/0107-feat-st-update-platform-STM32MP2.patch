@@ -1,0 +1,1816 @@
+From b112c8da451c4cf27ee856abf4332c26f7b57d36 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 13 Jun 2023 18:45:03 +0200
+Subject: [PATCH 107/954] feat(st): update platform STM32MP2
+
+Update STM32MP2 the platform files.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 64631932f080d11f6ae06708abca23f9bef52849 feat(st): update platform STM32MP2]
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Change-Id: I1554efdb05338f07b292e77175db5a564cc25c78
+---
+ plat/st/stm32mp2/bl2_plat_setup.c           | 332 ++++++++++++++++++++
+ plat/st/stm32mp2/bl31_plat_setup.c          | 105 +++++++
+ plat/st/stm32mp2/include/boot_api.h         |  47 +++
+ plat/st/stm32mp2/include/platform_def.h     | 113 +++++++
+ plat/st/stm32mp2/include/stm32mp2_private.h |  18 ++
+ plat/st/stm32mp2/plat_bl2_mem_params_desc.c |  98 ++++++
+ plat/st/stm32mp2/plat_image_load.c          |  38 +++
+ plat/st/stm32mp2/platform.mk                |  75 ++++-
+ plat/st/stm32mp2/stm32mp2_def.h             | 180 ++++++++++-
+ plat/st/stm32mp2/stm32mp2_fconf_firewall.c  |  26 ++
+ plat/st/stm32mp2/stm32mp2_pm.c              | 131 ++++++++
+ plat/st/stm32mp2/stm32mp2_private.c         | 285 +++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_syscfg.c          |  44 +++
+ plat/st/stm32mp2/stm32mp2_topology.c        |  57 ++++
+ 14 files changed, 1538 insertions(+), 11 deletions(-)
+ create mode 100644 plat/st/stm32mp2/bl31_plat_setup.c
+ create mode 100644 plat/st/stm32mp2/include/stm32mp2_private.h
+ create mode 100644 plat/st/stm32mp2/plat_image_load.c
+ create mode 100644 plat/st/stm32mp2/stm32mp2_fconf_firewall.c
+ create mode 100644 plat/st/stm32mp2/stm32mp2_pm.c
+ create mode 100644 plat/st/stm32mp2/stm32mp2_private.c
+ create mode 100644 plat/st/stm32mp2/stm32mp2_syscfg.c
+ create mode 100644 plat/st/stm32mp2/stm32mp2_topology.c
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 08057568ba..767607844f 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -4,10 +4,126 @@
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+ 
++#include <assert.h>
+ #include <cdefs.h>
++#include <errno.h>
+ #include <stdint.h>
+ 
++#include <arch_helpers.h>
++#include <common/debug.h>
++#include <common/desc_image_load.h>
++#include <drivers/clk.h>
++#include <drivers/delay_timer.h>
++#include <drivers/generic_delay_timer.h>
++#include <drivers/mmc.h>
++#include <drivers/st/bsec.h>
++#include <drivers/st/regulator.h>
++#include <drivers/st/regulator_fixed.h>
++#include <drivers/st/stm32_console.h>
++#include <drivers/st/stm32mp_reset.h>
++#include <lib/fconf/fconf.h>
++#include <lib/fconf/fconf_dyn_cfg_getter.h>
++#include <lib/mmio.h>
++#include <lib/optee_utils.h>
++#include <lib/xlat_tables/xlat_tables_v2.h>
++#include <plat/common/platform.h>
++
++#include <platform_def.h>
+ #include <stm32mp_common.h>
++#include <stm32mp_dt.h>
++
++#define BOOT_CTX_ADDR	0x0e000020UL
++
++static void print_reset_reason(void)
++{
++	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_C1BOOTRSTSCLRR);
++
++	if (rstsr == 0U) {
++		WARN("Reset reason unknown\n");
++		return;
++	}
++
++	INFO("Reset reason (0x%x):\n", rstsr);
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) == 0U) {
++		if ((rstsr & RCC_C1BOOTRSTSCLRR_D1STBYRSTF) != 0U) {
++			INFO("D1 domain exits from DStandby\n");
++			return;
++		}
++
++		if ((rstsr & RCC_C1BOOTRSTSCLRR_STBYC1RSTF) != 0U) {
++			INFO("System exits from A35 STANDBY\n");
++			return;
++		}
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_PORRSTF) != 0U) {
++		INFO("  Power-on Reset (rst_por)\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_BORRSTF) != 0U) {
++		INFO("  Brownout Reset (rst_bor)\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSSETR_SYSC2RSTF) != 0U) {
++		INFO("  System reset (SYSRST) by M33\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSSETR_SYSC1RSTF) != 0U) {
++		INFO("  System reset (SYSRST) by A35\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_HCSSRSTF) != 0U) {
++		INFO("  Clock failure on HSE\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG1SYSRSTF) != 0U) {
++		INFO("  IWDG1 system reset (rst_iwdg1)\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG2SYSRSTF) != 0U) {
++		INFO("  IWDG2 system reset (rst_iwdg2)\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG3SYSRSTF) != 0U) {
++		INFO("  IWDG3 system reset (rst_iwdg3)\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG4SYSRSTF) != 0U) {
++		INFO("  IWDG4 system reset (rst_iwdg4)\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG5SYSRSTF) != 0U) {
++		INFO("  IWDG5 system reset (rst_iwdg5)\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_C1P1RSTF) != 0U) {
++		INFO("  A35 processor 1 reset\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) != 0U) {
++		INFO("  Pad Reset from NRST\n");
++		return;
++	}
++
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_VCORERSTF) != 0U) {
++		INFO("  Reset due to a failure of VDD_CORE\n");
++		return;
++	}
++
++	ERROR("  Unidentified reset reason\n");
++}
+ 
+ void bl2_el3_early_platform_setup(u_register_t arg0 __unused,
+ 				  u_register_t arg1 __unused,
+@@ -15,12 +131,228 @@ void bl2_el3_early_platform_setup(u_register_t arg0 __unused,
+ 				  u_register_t arg3 __unused)
+ {
+ 	stm32mp_setup_early_console();
++
++	stm32mp_save_boot_ctx_address(BOOT_CTX_ADDR);
+ }
+ 
+ void bl2_platform_setup(void)
+ {
++	int ret;
++
++	/* Map DDR for binary load, now with cacheable attribute */
++	ret = mmap_add_dynamic_region(STM32MP_DDR_BASE, STM32MP_DDR_BASE,
++				      STM32MP_DDR_MAX_SIZE, MT_MEMORY | MT_RW | MT_SECURE);
++	if (ret < 0) {
++		ERROR("DDR mapping: error %d\n", ret);
++		panic();
++	}
+ }
+ 
+ void bl2_el3_plat_arch_setup(void)
+ {
++	const char *board_model;
++	boot_api_context_t *boot_context =
++		(boot_api_context_t *)stm32mp_get_boot_ctx_address();
++	uintptr_t pwr_base;
++	uintptr_t rcc_base;
++
++	if (bsec_probe() != 0) {
++		panic();
++	}
++
++	mmap_add_region(BL_CODE_BASE, BL_CODE_BASE,
++			BL_CODE_END - BL_CODE_BASE,
++			MT_CODE | MT_SECURE);
++
++	/* Prevent corruption of preloaded Device Tree */
++	mmap_add_region(DTB_BASE, DTB_BASE,
++			DTB_LIMIT - DTB_BASE,
++			MT_RO_DATA | MT_SECURE);
++
++	configure_mmu();
++
++	if (dt_open_and_check(STM32MP_DTB_BASE) < 0) {
++		panic();
++	}
++
++	pwr_base = stm32mp_pwr_base();
++	rcc_base = stm32mp_rcc_base();
++
++	/*
++	 * Disable the backup domain write protection.
++	 * The protection is enable at each reset by hardware
++	 * and must be disabled by software.
++	 */
++	mmio_setbits_32(pwr_base + PWR_BDCR1, PWR_BDCR1_DBD3P);
++
++	while ((mmio_read_32(pwr_base + PWR_BDCR1) & PWR_BDCR1_DBD3P) == 0U) {
++		;
++	}
++
++	/* Reset backup domain on cold boot cases */
++	if ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_RTCSRC_MASK) == 0U) {
++		mmio_setbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
++
++		while ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_VSWRST) ==
++		       0U) {
++			;
++		}
++
++		mmio_clrbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
++	}
++
++	if (stm32mp2_clk_init() < 0) {
++		panic();
++	}
++
++	stm32_save_boot_info(boot_context);
++
++	if (stm32mp_uart_console_setup() != 0) {
++		goto skip_console_init;
++	}
++
++	stm32mp_print_cpuinfo();
++
++	board_model = dt_get_board_model();
++	if (board_model != NULL) {
++		NOTICE("Model: %s\n", board_model);
++	}
++
++	print_reset_reason();
++
++skip_console_init:
++
++	if (fixed_regulator_register() != 0) {
++		panic();
++	}
++
++	stm32mp2_arch_security_setup();
++
++	fconf_populate("TB_FW", STM32MP_DTB_BASE);
++
++	stm32mp_io_setup();
++}
++
++/*******************************************************************************
++ * This function can be used by the platforms to update/use image
++ * information for given `image_id`.
++ ******************************************************************************/
++int bl2_plat_handle_post_image_load(unsigned int image_id)
++{
++	int err = 0;
++	bl_mem_params_node_t *bl_mem_params = get_bl_mem_params_node(image_id);
++	bl_mem_params_node_t *bl32_mem_params __unused;
++	bl_mem_params_node_t *pager_mem_params __unused;
++	const struct dyn_cfg_dtb_info_t *config_info;
++	unsigned int i;
++	unsigned long long ddr_top __unused;
++	const unsigned int image_ids[] = {
++		BL31_IMAGE_ID,
++		BL32_IMAGE_ID,
++		BL33_IMAGE_ID,
++		HW_CONFIG_ID,
++	};
++
++	assert(bl_mem_params != NULL);
++
++	switch (image_id) {
++	case FW_CONFIG_ID:
++		/* Set global DTB info for fixed fw_config information */
++		set_config_info(STM32MP_FW_CONFIG_BASE, ~0UL, STM32MP_FW_CONFIG_MAX_SIZE,
++				FW_CONFIG_ID);
++		fconf_populate("FW_CONFIG", STM32MP_FW_CONFIG_BASE);
++
++		/* Iterate through all the fw config IDs */
++		for (i = 0U; i < ARRAY_SIZE(image_ids); i++) {
++			bl_mem_params = get_bl_mem_params_node(image_ids[i]);
++			assert(bl_mem_params != NULL);
++
++			config_info = FCONF_GET_PROPERTY(dyn_cfg, dtb, image_ids[i]);
++			if (config_info == NULL) {
++				continue;
++			}
++
++			bl_mem_params->image_info.image_base = config_info->config_addr;
++			bl_mem_params->image_info.image_max_size = config_info->config_max_size;
++
++			bl_mem_params->image_info.h.attr &= ~IMAGE_ATTRIB_SKIP_LOADING;
++
++			switch (image_ids[i]) {
++			case BL31_IMAGE_ID:
++				bl_mem_params->ep_info.pc = config_info->config_addr;
++				break;
++			case BL32_IMAGE_ID:
++				bl_mem_params->ep_info.pc = config_info->config_addr;
++
++				/* In case of OPTEE, initialize address space with tos_fw addr */
++				pager_mem_params = get_bl_mem_params_node(BL32_EXTRA1_IMAGE_ID);
++				if (pager_mem_params != NULL) {
++					pager_mem_params->image_info.image_base =
++						config_info->config_addr;
++					pager_mem_params->image_info.image_max_size =
++						config_info->config_max_size;
++				}
++				break;
++
++			case BL33_IMAGE_ID:
++				bl_mem_params->ep_info.pc = config_info->config_addr;
++				break;
++
++			case HW_CONFIG_ID:
++				break;
++
++			default:
++				return -EINVAL;
++			}
++		}
++
++		break;
++
++	case BL32_IMAGE_ID:
++		if (optee_header_is_valid(bl_mem_params->image_info.image_base)) {
++			/* BL32 is OP-TEE header */
++			bl_mem_params->ep_info.pc = bl_mem_params->image_info.image_base;
++			pager_mem_params = get_bl_mem_params_node(BL32_EXTRA1_IMAGE_ID);
++			assert(pager_mem_params != NULL);
++
++			err = parse_optee_header(&bl_mem_params->ep_info,
++						 &pager_mem_params->image_info,
++						 NULL);
++			if (err) {
++				ERROR("OPTEE header parse error.\n");
++				panic();
++			}
++
++			/* Set optee boot info from parsed header data */
++			bl_mem_params->ep_info.args.arg0 = 0U; /* Unused */
++			bl_mem_params->ep_info.args.arg1 = 0U; /* Unused */
++			bl_mem_params->ep_info.args.arg2 = 0U; /* No DT supported */
++		}
++		break;
++
++	case BL33_IMAGE_ID:
++	default:
++		/* Do nothing in default case */
++		break;
++	}
++
++#if STM32MP_SDMMC || STM32MP_EMMC
++	/*
++	 * Invalidate remaining data read from MMC but not flushed by load_image_flush().
++	 * We take the worst case which is 2 MMC blocks.
++	 */
++	if ((image_id != FW_CONFIG_ID) &&
++	    ((bl_mem_params->image_info.h.attr & IMAGE_ATTRIB_SKIP_LOADING) == 0U)) {
++		inv_dcache_range(bl_mem_params->image_info.image_base +
++				 bl_mem_params->image_info.image_size,
++				 2U * MMC_BLOCK_SIZE);
++	}
++#endif /* STM32MP_SDMMC || STM32MP_EMMC */
++
++	return err;
++}
++
++void bl2_el3_plat_prepare_exit(void)
++{
++	stm32mp2_security_setup();
+ }
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+new file mode 100644
+index 0000000000..09a94d8bbd
+--- /dev/null
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -0,0 +1,105 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <assert.h>
++#include <stdint.h>
++
++#include <common/bl_common.h>
++#include <drivers/st/stm32_console.h>
++#include <lib/xlat_tables/xlat_tables_v2.h>
++#include <plat/common/platform.h>
++
++#include <platform_def.h>
++
++static entry_point_info_t bl32_image_ep_info;
++static entry_point_info_t bl33_image_ep_info;
++
++void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
++				u_register_t arg2, u_register_t arg3)
++{
++	bl_params_t *params_from_bl2 = (bl_params_t *)arg0;
++
++	stm32mp_setup_early_console();
++
++	mmap_add_region(BL_CODE_BASE, BL_CODE_BASE,
++			BL_CODE_END - BL_CODE_BASE,
++			MT_CODE | MT_SECURE);
++
++	/*
++	 * Map non-secure device tree with secure property, i.e. default region.
++	 * DDR region definitions will be finalized at BL32 level.
++	 */
++	mmap_add_region(arg2, arg2, STM32MP_HW_CONFIG_MAX_SIZE, MT_RO_DATA | MT_SECURE);
++
++#if USE_COHERENT_MEM
++	/* Map coherent memory */
++	mmap_add_region(BL_COHERENT_RAM_BASE, BL_COHERENT_RAM_BASE,
++			BL_COHERENT_RAM_END - BL_COHERENT_RAM_BASE,
++			MT_DEVICE | MT_RW | MT_SECURE);
++#endif
++
++	configure_mmu();
++
++	assert(params_from_bl2 != NULL);
++	assert(params_from_bl2->h.type == PARAM_BL_PARAMS);
++	assert(params_from_bl2->h.version >= VERSION_2);
++
++	bl_params_node_t *bl_params = params_from_bl2->head;
++
++	while (bl_params != NULL) {
++		/*
++		 * Copy BL33 entry point information.
++		 * They are stored in Secure RAM, in BL2's address space.
++		 */
++		if (bl_params->image_id == BL33_IMAGE_ID) {
++			bl33_image_ep_info = *bl_params->ep_info;
++			/*
++			 *  Check if hw_configuration is given to BL32 and
++			 *  share it to BL33
++			 */
++			if (arg2 != 0U) {
++				bl33_image_ep_info.args.arg0 = 0U;
++				bl33_image_ep_info.args.arg1 = 0U;
++				bl33_image_ep_info.args.arg2 = arg2;
++			}
++		}
++
++		if (bl_params->image_id == BL32_IMAGE_ID) {
++			bl32_image_ep_info = *bl_params->ep_info;
++
++			if (arg2 != 0U) {
++				bl32_image_ep_info.args.arg3 = arg2;
++			}
++		}
++
++		bl_params = bl_params->next_params_info;
++	}
++
++	if (dt_open_and_check(arg2) < 0) {
++		panic();
++	}
++
++	(void)stm32mp_uart_console_setup();
++}
++
++void bl31_plat_arch_setup(void)
++{
++}
++
++void bl31_platform_setup(void)
++{
++	stm32mp_gic_init();
++}
++
++entry_point_info_t *bl31_plat_get_next_image_ep_info(unsigned int type)
++{
++	if (type == NON_SECURE)
++		return &bl33_image_ep_info;
++	if (type == SECURE)
++		return &bl32_image_ep_info;
++
++	return NULL;
++}
+diff --git a/plat/st/stm32mp2/include/boot_api.h b/plat/st/stm32mp2/include/boot_api.h
+index d3bed76312..d08194d05b 100644
+--- a/plat/st/stm32mp2/include/boot_api.h
++++ b/plat/st/stm32mp2/include/boot_api.h
+@@ -18,6 +18,53 @@
+  * Boot Context related definitions
+  */
+ 
++/*
++ * Possible value of boot context field 'boot_action'
++ */
++/* Boot action is Process Secure Boot */
++#define BOOT_API_CTX_BOOT_ACTION_SECURE_BOOT_PROCESS		0x04U
++/* Boot action is Process Wakeup from D1STANDBY or STANDBY */
++#define BOOT_API_CTX_BOOT_ACTION_WAKEUP_D1STANDBY_OR_STANDBY	0x05U
++/* Boot action is Process DEV_BOOT */
++#define BOOT_API_CTX_BOOT_ACTION_DEV_BOOT			0x06U
++
++#define BOOT_API_CTX_BOOT_ACTION_LOCAL_C1_RESET_PROCESS		0x0AU
++
++/*
++ * Possible value of boot context field 'wakeup_status'
++ */
++
++/* The boot reason is not a D1Standby Exit reason */
++#define BOOT_API_CTX_NO_D1STANDBY_NO_STANDBY_EXIT		0x00
++
++/*
++ * The boot reason is a D1Standby without previous Standby
++ * (VDDCORE was kept and SYSRAM content preserved)
++ * and the CPU1 is TDCID
++ */
++#define BOOT_API_CTX_D1STANDBY_EXIT_NO_STANDBY_CPU1_TDCID	0x01
++
++/*
++ * The boot reason is a D1Standby without previous Standby
++ * (VDDCORE was kept and SYSRAM content preserved)
++ * and the CPU1 is Not TDCID (ie CPU2 is TDCID)
++ */
++#define BOOT_API_CTX_D1STANDBY_EXIT_NO_STANDBY_CPU1_NOT_TDCID	0x02
++
++/*
++ * The boot reason is a D1Standby with previous Standby
++ * (VDDCORE was Off and SYSRAM content lost)
++ * and the CPU1 is TDCID
++ */
++#define BOOT_API_CTX_D1STANDBY_EXIT_STANDBY_CPU1_TDCID		0x03
++
++/*
++ * The boot reason is a D1Standby with previous Standby
++ * (VDDCORE was Off and SYSRAM content was lost)
++ * and the CPU1 is Not TDCID (ie CPU2 is TDCID)
++ */
++#define BOOT_API_CTX_D1STANDBY_EXIT_STANDBY_CPU1_NOT_TDCID	0x04
++
+ /*
+  * Possible value of boot context field 'auth_status'
+  */
+diff --git a/plat/st/stm32mp2/include/platform_def.h b/plat/st/stm32mp2/include/platform_def.h
+index 404c384f4d..20c5366f1b 100644
+--- a/plat/st/stm32mp2/include/platform_def.h
++++ b/plat/st/stm32mp2/include/platform_def.h
+@@ -8,6 +8,7 @@
+ #define PLATFORM_DEF_H
+ 
+ #include <arch.h>
++#include <drivers/arm/gic_common.h>
+ #include <lib/utils_def.h>
+ #include <plat/common/common_def.h>
+ 
+@@ -61,11 +62,46 @@
+ #define BL2_LIMIT			(STM32MP_BL2_BASE + \
+ 					 STM32MP_BL2_SIZE)
+ 
++#define BL2_RO_BASE			STM32MP_BL2_RO_BASE
++#define BL2_RO_LIMIT			(STM32MP_BL2_RO_BASE + \
++					 STM32MP_BL2_RO_SIZE)
++
++#define BL2_RW_BASE			STM32MP_BL2_RW_BASE
++#define BL2_RW_LIMIT			(STM32MP_BL2_RW_BASE + \
++					 STM32MP_BL2_RW_SIZE)
++
++/*******************************************************************************
++ * BL31 specific defines.
++ ******************************************************************************/
++#define BL31_BASE			0
++#define BL31_LIMIT			STM32MP_BL31_SIZE
++
+ /*******************************************************************************
+  * BL33 specific defines.
+  ******************************************************************************/
+ #define BL33_BASE			STM32MP_BL33_BASE
+ 
++/*
++ * Load address of BL33 for this platform port
++ */
++#define PLAT_STM32MP_NS_IMAGE_OFFSET	BL33_BASE
++
++/* Needed by STM32CubeProgrammer support */
++#define DWL_BUFFER_SIZE			U(0x01000000)
++
++/*
++ * SSBL offset in case it's stored in eMMC boot partition.
++ * We can fix it to 256K because TF-A size can't be bigger than SRAM
++ */
++#define PLAT_EMMC_BOOT_SSBL_OFFSET		U(0x40000)
++
++/*******************************************************************************
++ * DTB specific defines.
++ ******************************************************************************/
++#define DTB_BASE			STM32MP_DTB_BASE
++#define DTB_LIMIT			(STM32MP_DTB_BASE + \
++					 STM32MP_DTB_SIZE)
++
+ /*******************************************************************************
+  * Platform specific page table and MMU setup constants
+  ******************************************************************************/
+@@ -84,4 +120,81 @@
+ #define CACHE_WRITEBACK_SHIFT		6
+ #define CACHE_WRITEBACK_GRANULE		(U(1) << CACHE_WRITEBACK_SHIFT)
+ 
++/*
++ * Secure Interrupt: based on the standard ARM mapping
++ */
++#define ARM_IRQ_SEC_PHY_TIMER		U(29)
++
++#define ARM_IRQ_NON_SEC_SGI_0		U(0)
++
++#define ARM_IRQ_SEC_SGI_0		U(8)
++#define ARM_IRQ_SEC_SGI_1		U(9)
++#define ARM_IRQ_SEC_SGI_2		U(10)
++#define ARM_IRQ_SEC_SGI_3		U(11)
++#define ARM_IRQ_SEC_SGI_4		U(12)
++#define ARM_IRQ_SEC_SGI_5		U(13)
++#define ARM_IRQ_SEC_SGI_6		U(14)
++#define ARM_IRQ_SEC_SGI_7		U(15)
++
++/* Platform IRQ Priority */
++#define STM32MP_IRQ_SEC_SPI_PRIO	U(0x10)
++
++/*
++ * Define a list of Group 1 Secure and Group 0 interrupts as per GICv3
++ * terminology. On a GICv2 system or mode, the lists will be merged and treated
++ * as Group 0 interrupts.
++ */
++#define PLATFORM_G1S_PROPS(grp) \
++	INTR_PROP_DESC(ARM_IRQ_SEC_PHY_TIMER,		\
++		       GIC_HIGHEST_SEC_PRIORITY,	\
++		       (grp), GIC_INTR_CFG_LEVEL),	\
++	INTR_PROP_DESC(ARM_IRQ_SEC_SGI_1,		\
++		       GIC_HIGHEST_SEC_PRIORITY,	\
++		       (grp), GIC_INTR_CFG_EDGE),	\
++	INTR_PROP_DESC(ARM_IRQ_SEC_SGI_2,		\
++		       GIC_HIGHEST_SEC_PRIORITY,	\
++		       (grp), GIC_INTR_CFG_EDGE),	\
++	INTR_PROP_DESC(ARM_IRQ_SEC_SGI_3,		\
++		       GIC_HIGHEST_SEC_PRIORITY,	\
++		       (grp), GIC_INTR_CFG_EDGE),	\
++	INTR_PROP_DESC(ARM_IRQ_SEC_SGI_4,		\
++		       GIC_HIGHEST_SEC_PRIORITY,	\
++		       (grp), GIC_INTR_CFG_EDGE),	\
++	INTR_PROP_DESC(ARM_IRQ_SEC_SGI_5,		\
++		       GIC_HIGHEST_SEC_PRIORITY,	\
++		       (grp), GIC_INTR_CFG_EDGE),	\
++	INTR_PROP_DESC(ARM_IRQ_SEC_SGI_7,		\
++		       GIC_HIGHEST_SEC_PRIORITY,	\
++		       (grp), GIC_INTR_CFG_EDGE)
++
++#define PLATFORM_G0_PROPS(grp) \
++	INTR_PROP_DESC(ARM_IRQ_SEC_SGI_0,		\
++		       GIC_HIGHEST_SEC_PRIORITY,	\
++		       (grp), GIC_INTR_CFG_EDGE),	\
++	INTR_PROP_DESC(ARM_IRQ_SEC_SGI_6,		\
++		       GIC_HIGHEST_SEC_PRIORITY,	\
++		       (grp), GIC_INTR_CFG_EDGE)
++
++/*
++ * Power
++ */
++#define PLAT_MAX_PWR_LVL	U(1)
++
++/* Local power state for power domains in Run state. */
++#define ARM_LOCAL_STATE_RUN	U(0)
++/* Local power state for retention. Valid only for CPU power domains */
++#define ARM_LOCAL_STATE_RET	U(1)
++/* Local power state for power-down. Valid for CPU and cluster power domains */
++#define ARM_LOCAL_STATE_OFF	U(2)
++/*
++ * This macro defines the deepest retention state possible.
++ * A higher state id will represent an invalid or a power down state.
++ */
++#define PLAT_MAX_RET_STATE		ARM_LOCAL_STATE_RET
++/*
++ * This macro defines the deepest power down states possible. Any state ID
++ * higher than this is invalid.
++ */
++#define PLAT_MAX_OFF_STATE		ARM_LOCAL_STATE_OFF
++
+ #endif /* PLATFORM_DEF_H */
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+new file mode 100644
+index 0000000000..ffeec43933
+--- /dev/null
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -0,0 +1,18 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef STM32MP2_PRIVATE_H
++#define STM32MP2_PRIVATE_H
++
++void configure_mmu(void);
++
++void stm32mp2_arch_security_setup(void);
++void stm32mp2_security_setup(void);
++
++uint32_t stm32mp2_syscfg_get_chip_version(void);
++uint32_t stm32mp2_syscfg_get_chip_dev_id(void);
++
++#endif /* STM32MP2_PRIVATE_H */
+diff --git a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+index 630cc84d2d..2ba4824742 100644
+--- a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
++++ b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+@@ -4,7 +4,11 @@
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+ 
++#include <common/bl_common.h>
+ #include <common/desc_image_load.h>
++#include <plat/common/platform.h>
++
++#include <platform_def.h>
+ 
+ /*******************************************************************************
+  * Following descriptor provides BL image/ep information that gets used
+@@ -15,6 +19,100 @@
+  * the next executable image id.
+  ******************************************************************************/
+ static bl_mem_params_node_t bl2_mem_params_descs[] = {
++	/* Fill FW_CONFIG related information if it exists */
++	{
++		.image_id = FW_CONFIG_ID,
++		SET_STATIC_PARAM_HEAD(ep_info, PARAM_IMAGE_BINARY,
++				      VERSION_2, entry_point_info_t,
++				      SECURE | NON_EXECUTABLE),
++		SET_STATIC_PARAM_HEAD(image_info, PARAM_IMAGE_BINARY,
++				      VERSION_2, image_info_t,
++				      IMAGE_ATTRIB_PLAT_SETUP),
++
++		.image_info.image_base = STM32MP_FW_CONFIG_BASE,
++		.image_info.image_max_size = STM32MP_FW_CONFIG_MAX_SIZE,
++
++		.next_handoff_image_id = INVALID_IMAGE_ID,
++	},
++
++	/* Fill BL31 related information */
++	{
++		.image_id = BL31_IMAGE_ID,
++
++		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
++				      VERSION_2, entry_point_info_t,
++				      SECURE | EXECUTABLE | EP_FIRST_EXE),
++
++		.ep_info.spsr = SPSR_64(MODE_EL3, MODE_SP_ELX, DISABLE_ALL_EXCEPTIONS),
++
++		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
++				      VERSION_2, image_info_t,
++				      IMAGE_ATTRIB_SKIP_LOADING),
++
++		.next_handoff_image_id = BL32_IMAGE_ID,
++	},
++
++	/* Fill BL32 related information */
++	{
++		.image_id = BL32_IMAGE_ID,
++
++		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
++				      VERSION_2, entry_point_info_t,
++				      SECURE | EXECUTABLE),
++
++		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
++				      VERSION_2, image_info_t,
++				      IMAGE_ATTRIB_SKIP_LOADING),
++
++		.next_handoff_image_id = BL33_IMAGE_ID,
++	},
++
++	/* Fill BL32 external 1 image related information */
++	{
++		.image_id = BL32_EXTRA1_IMAGE_ID,
++
++		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
++				      VERSION_2, entry_point_info_t,
++				      SECURE | NON_EXECUTABLE),
++
++		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
++				      VERSION_2, image_info_t,
++				      IMAGE_ATTRIB_SKIP_LOADING),
++
++		.next_handoff_image_id = INVALID_IMAGE_ID,
++	},
++
++	/* Fill HW_CONFIG related information if it exists */
++	{
++		.image_id = HW_CONFIG_ID,
++
++		SET_STATIC_PARAM_HEAD(ep_info, PARAM_IMAGE_BINARY,
++				      VERSION_2, entry_point_info_t,
++				      NON_SECURE | NON_EXECUTABLE),
++
++		SET_STATIC_PARAM_HEAD(image_info, PARAM_IMAGE_BINARY,
++				      VERSION_2, image_info_t,
++				      IMAGE_ATTRIB_SKIP_LOADING),
++
++		.next_handoff_image_id = INVALID_IMAGE_ID,
++	},
++
++	/* Fill BL33 related information */
++	{
++		.image_id = BL33_IMAGE_ID,
++
++		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
++				      VERSION_2, entry_point_info_t,
++				      NON_SECURE | EXECUTABLE),
++
++		.ep_info.spsr = SPSR_64(MODE_EL1, MODE_SP_ELX, DISABLE_ALL_EXCEPTIONS),
++
++		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
++				      VERSION_2, image_info_t,
++				      IMAGE_ATTRIB_SKIP_LOADING),
++
++		.next_handoff_image_id = INVALID_IMAGE_ID,
++	}
+ };
+ 
+ REGISTER_BL_IMAGE_DESCS(bl2_mem_params_descs)
+diff --git a/plat/st/stm32mp2/plat_image_load.c b/plat/st/stm32mp2/plat_image_load.c
+new file mode 100644
+index 0000000000..f92f1233c3
+--- /dev/null
++++ b/plat/st/stm32mp2/plat_image_load.c
+@@ -0,0 +1,38 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <common/bl_common.h>
++#include <common/desc_image_load.h>
++#include <plat/common/platform.h>
++
++/*******************************************************************************
++ * This function flushes the data structures so that they are visible
++ * in memory for the next BL image.
++ ******************************************************************************/
++void plat_flush_next_bl_params(void)
++{
++	flush_bl_params_desc();
++}
++
++/*******************************************************************************
++ * This function returns the list of loadable images.
++ ******************************************************************************/
++bl_load_info_t *plat_get_bl_image_load_info(void)
++{
++	return get_bl_load_info_from_mem_params_desc();
++}
++
++/*******************************************************************************
++ * This function returns the list of executable images.
++ ******************************************************************************/
++bl_params_t *plat_get_next_bl_params(void)
++{
++	bl_params_t *bl_params = get_next_bl_params_from_mem_params_desc();
++
++	populate_next_bl_params_config(bl_params);
++
++	return bl_params;
++}
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 6ea4638cc8..50d9f7cb7b 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -26,6 +26,21 @@ STM32_TF_A_COPIES		:=	2
+ # such as metadata (2) and fsbl-m (2) to find all the FIP partitions (default is 2).
+ PLAT_PARTITION_MAX_ENTRIES	:=	$(shell echo $$(($(STM32_TF_A_COPIES) + 6)))
+ 
++ifeq (${PSA_FWU_SUPPORT},1)
++# Number of banks of updatable firmware
++NR_OF_FW_BANKS			:=	2
++NR_OF_IMAGES_IN_FW_BANK		:=	1
++
++FWU_MAX_PART = $(shell echo $$(($(STM32_TF_A_COPIES) + 2 + $(NR_OF_FW_BANKS))))
++ifeq ($(shell test $(FWU_MAX_PART) -gt $(PLAT_PARTITION_MAX_ENTRIES); echo $$?),0)
++$(error "Required partition number is $(FWU_MAX_PART) where PLAT_PARTITION_MAX_ENTRIES is only \
++$(PLAT_PARTITION_MAX_ENTRIES)")
++endif
++endif
++
++# Download load address for serial boot devices
++DWL_BUFFER_BASE 	?=	0x87000000
++
+ # Device tree
+ BL2_DTSI			:=	stm32mp25-bl2.dtsi
+ FDT_SOURCES			:=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl2.dts,$(DTB_FILE_NAME)))
+@@ -35,6 +50,32 @@ STM32_TF_STM32			:=	$(addprefix ${BUILD_PLAT}/tf-a-, $(patsubst %.dtb,%.stm32,$(
+ STM32_LD_FILE			:=	plat/st/stm32mp2/${ARCH}/stm32mp2.ld.S
+ STM32_BINARY_MAPPING		:=	plat/st/stm32mp2/${ARCH}/stm32mp2.S
+ 
++STM32MP_FW_CONFIG_NAME	:=	$(patsubst %.dtb,%-fw-config.dtb,$(DTB_FILE_NAME))
++STM32MP_FW_CONFIG	:=	${BUILD_PLAT}/fdts/$(STM32MP_FW_CONFIG_NAME)
++FDT_SOURCES		+=	$(addprefix fdts/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_NAME)))
++# Add the FW_CONFIG to FIP and specify the same to certtool
++$(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
++
++# Enable flags for C files
++$(eval $(call assert_booleans,\
++	$(sort \
++		STM32MP25 \
++)))
++
++$(eval $(call assert_numerics,\
++	$(sort \
++		PLAT_PARTITION_MAX_ENTRIES \
++		STM32_TF_A_COPIES \
++)))
++
++$(eval $(call add_defines,\
++	$(sort \
++		DWL_BUFFER_BASE \
++		PLAT_PARTITION_MAX_ENTRIES \
++		STM32_TF_A_COPIES \
++		STM32MP25 \
++)))
++
+ # STM32MP2x is based on Cortex-A35, which is Armv8.0, and does not support BTI
+ # Disable mbranch-protection to avoid adding useless code
+ TF_CFLAGS			+=	-mbranch-protection=none
+@@ -46,7 +87,39 @@ PLAT_BL_COMMON_SOURCES		+=	lib/cpus/${ARCH}/cortex_a35.S
+ PLAT_BL_COMMON_SOURCES		+=	drivers/st/uart/${ARCH}/stm32_console.S
+ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/${ARCH}/stm32mp2_helper.S
+ 
+-BL2_SOURCES			+=	plat/st/stm32mp2/plat_bl2_mem_params_desc.c
++PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_private.c
++
++PLAT_BL_COMMON_SOURCES		+=	drivers/st/bsec/bsec3.c					\
++					drivers/st/reset/stm32mp2_reset.c			\
++					plat/st/stm32mp2/stm32mp2_syscfg.c
++
++PLAT_BL_COMMON_SOURCES		+=	drivers/st/clk/clk-stm32-core.c				\
++					drivers/st/clk/stm32mp2_clk.c
++
++BL2_SOURCES			+=	plat/st/stm32mp2/plat_bl2_mem_params_desc.c		\
++					plat/st/stm32mp2/stm32mp2_fconf_firewall.c
++
+ BL2_SOURCES			+=	plat/st/stm32mp2/bl2_plat_setup.c
+ 
++ifneq ($(filter 1,${STM32MP_EMMC} ${STM32MP_SDMMC}),)
++BL2_SOURCES			+=	drivers/st/mmc/stm32_sdmmc2.c
++endif
++
++# BL31 sources
++BL31_SOURCES			+=	${FDT_WRAPPERS_SOURCES}
++
++BL31_SOURCES			+=	plat/st/stm32mp2/bl31_plat_setup.c			\
++					plat/st/stm32mp2/stm32mp2_pm.c				\
++					plat/st/stm32mp2/stm32mp2_topology.c
++# Generic GIC v2
++include drivers/arm/gic/v2/gicv2.mk
++
++BL31_SOURCES			+=	${GICV2_SOURCES}					\
++					plat/common/plat_gicv2.c				\
++					plat/st/common/stm32mp_gic.c
++
++# Generic PSCI
++BL31_SOURCES			+=	plat/common/plat_psci_common.c
++
++# Compilation rules
+ include plat/st/common/common_rules.mk
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 66514fcf52..75214ee54e 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -10,10 +10,13 @@
+ #include <common/tbbr/tbbr_img_def.h>
+ #ifndef __ASSEMBLER__
+ #include <drivers/st/bsec.h>
++#include <drivers/st/stm32mp2_clk.h>
+ #endif
++#include <drivers/st/stm32mp2_pwr.h>
+ #include <drivers/st/stm32mp25_rcc.h>
+ #include <dt-bindings/clock/stm32mp25-clks.h>
+ #include <dt-bindings/clock/stm32mp25-clksrc.h>
++#include <dt-bindings/gpio/stm32-gpio.h>
+ #include <dt-bindings/reset/stm32mp25-resets.h>
+ 
+ #ifndef __ASSEMBLER__
+@@ -21,20 +24,56 @@
+ #include <stm32mp_common.h>
+ #include <stm32mp_dt.h>
+ #include <stm32mp_shared_resources.h>
++#include <stm32mp2_private.h>
+ #endif
+ 
++/*******************************************************************************
++ * CHIP ID
++ ******************************************************************************/
++#define STM32MP2_CHIP_ID	U(0x505)
++
++#define STM32MP251A_PART_NB	U(0x400B3E65)
++#define STM32MP251C_PART_NB	U(0x000B3065)
++#define STM32MP251D_PART_NB	U(0xC00B3E65)
++#define STM32MP251F_PART_NB	U(0x800B3065)
++#define STM32MP253A_PART_NB	U(0x400B2E04)
++#define STM32MP253C_PART_NB	U(0x000B2004)
++#define STM32MP253D_PART_NB	U(0xC00B2E04)
++#define STM32MP253F_PART_NB	U(0x800B2004)
++#define STM32MP255A_PART_NB	U(0x40082E00)
++#define STM32MP255C_PART_NB	U(0x00082000)
++#define STM32MP255D_PART_NB	U(0xC0082E00)
++#define STM32MP255F_PART_NB	U(0x80082000)
++#define STM32MP257A_PART_NB	U(0x40002E00)
++#define STM32MP257C_PART_NB	U(0x00002000)
++#define STM32MP257D_PART_NB	U(0xC0002E00)
++#define STM32MP257F_PART_NB	U(0x80002000)
++
++#define STM32MP2_REV_A		U(0x1000)
++
+ /*******************************************************************************
+  * STM32MP2 memory map related constants
+  ******************************************************************************/
+-#define STM32MP_SYSRAM_BASE			U(0x0E000000)
+-#define STM32MP_SYSRAM_SIZE			U(0x00040000)
++#define STM32MP_SYSRAM_BASE		U(0x0E000000)
++#define STM32MP_SYSRAM_SIZE		U(0x00040000)
++
++#define STM32MP_NS_SYSRAM_SIZE		PAGE_SIZE
++#define STM32MP_NS_SYSRAM_BASE		(STM32MP_SYSRAM_BASE + \
++					 STM32MP_SYSRAM_SIZE - \
++					 STM32MP_NS_SYSRAM_SIZE)
+ 
+-#define STM32MP_SEC_SYSRAM_BASE			STM32MP_SYSRAM_BASE
+-#define STM32MP_SEC_SYSRAM_SIZE			STM32MP_SYSRAM_SIZE
++#define STM32MP_SCMI_NS_SHM_BASE	STM32MP_NS_SYSRAM_BASE
++#define STM32MP_SCMI_NS_SHM_SIZE	STM32MP_NS_SYSRAM_SIZE
++
++#define STM32MP_SEC_SYSRAM_BASE		STM32MP_SYSRAM_BASE
++#define STM32MP_SEC_SYSRAM_SIZE		(STM32MP_SYSRAM_SIZE - \
++					 STM32MP_NS_SYSRAM_SIZE)
+ 
+ /* DDR configuration */
+-#define STM32MP_DDR_BASE			U(0x80000000)
+-#define STM32MP_DDR_MAX_SIZE			UL(0x100000000)	/* Max 4GB */
++#define STM32MP_DDR_BASE		U(0x80000000)
++#define STM32MP_DDR_MAX_SIZE		UL(0x100000000)	/* Max 4GB */
++#define STM32MP_DDR_S_SIZE		U(0)
++#define STM32MP_DDR_SHMEM_SIZE		U(0)
+ 
+ /* DDR power initializations */
+ #ifndef __ASSEMBLER__
+@@ -63,11 +102,22 @@ enum ddr_type {
+ 						 (STM32MP_PARAM_LOAD_SIZE +	\
+ 						  STM32MP_HEADER_SIZE))
+ 
+-#define STM32MP_BL2_SIZE			U(0x0002A000) /* 168 KB for BL2 */
++#define STM32MP_BL31_SIZE		U(0x0001A000)	/* 104 KB for BL31 */
++
++#define STM32MP_BL2_RO_SIZE		U(0x00013000)	/* 76 KB */
++#define STM32MP_BL2_SIZE		U(0x00027000)	/* 156 KB for BL2 */
++#define STM32MP_BL2_BASE		(STM32MP_SEC_SYSRAM_BASE + \
++					 STM32MP_SEC_SYSRAM_SIZE - \
++					 STM32MP_BL2_SIZE)
++
++#define STM32MP_BL2_RO_BASE		STM32MP_BL2_BASE
+ 
+-#define STM32MP_BL2_BASE			(STM32MP_SEC_SYSRAM_BASE + \
+-						 STM32MP_SEC_SYSRAM_SIZE - \
+-						 STM32MP_BL2_SIZE)
++#define STM32MP_BL2_RW_BASE		(STM32MP_BL2_RO_BASE + \
++					 STM32MP_BL2_RO_SIZE)
++
++#define STM32MP_BL2_RW_SIZE		STM32MP_SYSRAM_BASE + \
++					STM32MP_SYSRAM_SIZE - \
++					STM32MP_BL2_RW_BASE
+ 
+ /* BL2 and BL32/sp_min require 4 tables */
+ #define MAX_XLAT_TABLES				U(4)	/* 16 KB for mapping */
+@@ -84,8 +134,29 @@ enum ddr_type {
+ #define STM32MP_BL2_DTB_BASE			(STM32MP_BL2_BASE - \
+ 						 STM32MP_BL2_DTB_SIZE)
+ 
++#if defined(IMAGE_BL2)
++#define STM32MP_DTB_SIZE		STM32MP_BL2_DTB_SIZE
++#define STM32MP_DTB_BASE		STM32MP_BL2_DTB_BASE
++#endif
++
++#define STM32MP_FW_CONFIG_BASE		(STM32MP_SYSRAM_BASE + \
++					 STM32MP_SYSRAM_SIZE - \
++					 PAGE_SIZE)
++#define STM32MP_FW_CONFIG_MAX_SIZE	PAGE_SIZE
+ #define STM32MP_BL33_BASE			(STM32MP_DDR_BASE + U(0x04000000))
+ #define STM32MP_BL33_MAX_SIZE			U(0x400000)
++#define STM32MP_HW_CONFIG_BASE		(STM32MP_BL33_BASE + \
++					STM32MP_BL33_MAX_SIZE)
++#define STM32MP_HW_CONFIG_MAX_SIZE	U(0x20000)
++
++/* Define maximum page size for NAND devices */
++#define PLATFORM_MTD_MAX_PAGE_SIZE	U(0x1000)
++
++/*******************************************************************************
++ * STM32MP2 device/io map related constants (used for MMU)
++ ******************************************************************************/
++#define STM32MP_DEVICE_BASE		U(0x40000000)
++#define STM32MP_DEVICE_SIZE		U(0x40000000)
+ 
+ /*******************************************************************************
+  * STM32MP2 RCC
+@@ -156,6 +227,82 @@ enum ddr_type {
+ #define STM32MP_SDMMC2_BASE			U(0x48230000)
+ #define STM32MP_SDMMC3_BASE			U(0x48240000)
+ 
++/*******************************************************************************
++ * STM32MP2 OSPI
++ ******************************************************************************/
++/* OSPI 1 & 2 memory map area size */
++#define STM32MP_OSPI_MM_SIZE			U(0x10000000)
++
++/*******************************************************************************
++ * STM32MP2 BSEC / OTP
++ ******************************************************************************/
++/*
++ * 367 available OTPs, the other are masked
++ * - ECIES key: 368 to 375 (only readable by bootrom)
++ * - HWKEY: 376 to 383 (never reloadable or readable)
++ */
++#define STM32MP2_OTP_MAX_ID			0x16FU
++#define STM32MP2_MID_OTP_START			0x80U
++#define STM32MP2_UPPER_OTP_START		0x100U
++
++/* OTP labels */
++#define PART_NUMBER_OTP				"otp9"
++#define PACKAGE_OTP				"package_otp"
++#define HW2_OTP					"hw2_otp"
++#define NAND_OTP				"nand_otp"
++
++/* OTP mask */
++/* PACKAGE */
++#define PACKAGE_OTP_PKG_MASK			GENMASK_32(2, 0)
++#define PACKAGE_OTP_PKG_SHIFT			0
++
++/* IWDG OTP */
++#define HW2_OTP_IWDG_HW_POS			U(0)
++#define HW2_OTP_IWDG_FZ_STOP_POS		U(1)
++#define HW2_OTP_IWDG_FZ_STANDBY_POS		U(2)
++
++/* NAND OTP */
++/* NAND parameter storage flag */
++#define NAND_PARAM_STORED_IN_OTP		BIT(31)
++
++/* NAND page size in bytes */
++#define NAND_PAGE_SIZE_MASK			GENMASK_32(30, 29)
++#define NAND_PAGE_SIZE_SHIFT			29
++#define NAND_PAGE_SIZE_2K			U(0)
++#define NAND_PAGE_SIZE_4K			U(1)
++#define NAND_PAGE_SIZE_8K			U(2)
++
++/* NAND block size in pages */
++#define NAND_BLOCK_SIZE_MASK			GENMASK_32(28, 27)
++#define NAND_BLOCK_SIZE_SHIFT			27
++#define NAND_BLOCK_SIZE_64_PAGES		U(0)
++#define NAND_BLOCK_SIZE_128_PAGES		U(1)
++#define NAND_BLOCK_SIZE_256_PAGES		U(2)
++
++/* NAND number of block (in unit of 256 blocs) */
++#define NAND_BLOCK_NB_MASK			GENMASK_32(26, 19)
++#define NAND_BLOCK_NB_SHIFT			19
++#define NAND_BLOCK_NB_UNIT			U(256)
++
++/* NAND bus width in bits */
++#define NAND_WIDTH_MASK				BIT(18)
++#define NAND_WIDTH_SHIFT			18
++
++/* NAND number of ECC bits per 512 bytes */
++#define NAND_ECC_BIT_NB_MASK			GENMASK_32(17, 15)
++#define NAND_ECC_BIT_NB_SHIFT			15
++#define NAND_ECC_BIT_NB_UNSET			U(0)
++#define NAND_ECC_BIT_NB_1_BITS			U(1)
++#define NAND_ECC_BIT_NB_4_BITS			U(2)
++#define NAND_ECC_BIT_NB_8_BITS			U(3)
++#define NAND_ECC_ON_DIE				U(4)
++
++/* NAND number of planes */
++#define NAND_PLANE_BIT_NB_MASK			BIT(14)
++
++/* MONOTONIC OTP */
++#define MAX_MONOTONIC_VALUE			32
++
+ /*******************************************************************************
+  * STM32MP2 TAMP
+  ******************************************************************************/
+@@ -190,6 +337,16 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+  ******************************************************************************/
+ #define DDRPHYC_BASE				U(0x48C00000)
+ 
++/*******************************************************************************
++ * STM32MP2 IWDG
++ ******************************************************************************/
++#define IWDG_MAX_INSTANCE			U(2)
++#define IWDG1_INST				U(0)
++#define IWDG2_INST				U(1)
++
++#define IWDG1_BASE				U(0x44010000)
++#define IWDG2_BASE				U(0x44020000)
++
+ /*******************************************************************************
+  * Miscellaneous STM32MP1 peripherals base address
+  ******************************************************************************/
+@@ -215,8 +372,11 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+  ******************************************************************************/
+ #define DT_BSEC_COMPAT				"st,stm32mp25-bsec"
+ #define DT_DDR_COMPAT				"st,stm32mp2-ddr"
++#define DT_IWDG_COMPAT				"st,stm32mp2-iwdg"
++#define DT_MMIO_SRAM				"mmio-sram"
+ #define DT_PWR_COMPAT				"st,stm32mp25-pwr"
+ #define DT_RCC_CLK_COMPAT			"st,stm32mp25-rcc"
++#define DT_SDMMC2_COMPAT			"st,stm32mp25-sdmmc2"
+ #define DT_UART_COMPAT				"st,stm32h7-uart"
+ 
+ #endif /* STM32MP2_DEF_H */
+diff --git a/plat/st/stm32mp2/stm32mp2_fconf_firewall.c b/plat/st/stm32mp2/stm32mp2_fconf_firewall.c
+new file mode 100644
+index 0000000000..0d41c3a5f3
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_fconf_firewall.c
+@@ -0,0 +1,26 @@
++/*
++ * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <platform_def.h>
++
++#include <lib/fconf/fconf.h>
++#include <lib/object_pool.h>
++#include <tools_share/firmware_image_package.h>
++
++void stm32mp2_arch_security_setup(void)
++{
++}
++
++void stm32mp2_security_setup(void)
++{
++}
++
++static int fconf_populate_stm32mp2_firewall(uintptr_t config)
++{
++	return 0;
++}
++
++FCONF_REGISTER_POPULATOR(FW_CONFIG, stm32mp2_firewall, fconf_populate_stm32mp2_firewall);
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+new file mode 100644
+index 0000000000..869c449d4b
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -0,0 +1,131 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <assert.h>
++#include <errno.h>
++
++#include <arch_helpers.h>
++#include <common/debug.h>
++#include <drivers/arm/gic_common.h>
++#include <drivers/arm/gicv2.h>
++#include <drivers/st/stm32mp_reset.h>
++#include <lib/mmio.h>
++#include <lib/psci/psci.h>
++#include <plat/common/platform.h>
++
++#include <platform_def.h>
++
++static uintptr_t stm32_sec_entrypoint;
++
++static void stm32_cpu_standby(plat_local_state_t cpu_state)
++{
++}
++
++static int stm32_pwr_domain_on(u_register_t mpidr)
++{
++	return PSCI_E_INTERN_FAIL;
++}
++
++static void stm32_pwr_domain_off(const psci_power_state_t *target_state)
++{
++	/* Nothing to do */
++}
++
++static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
++{
++	/* Nothing to do, power domain is not disabled */
++}
++
++static void stm32_pwr_domain_on_finish(const psci_power_state_t *target_state)
++{
++}
++
++/*******************************************************************************
++ * STM32MP2 handler called when a power domain has just been powered on after
++ * having been suspended earlier. The target_state encodes the low power state
++ * that each level has woken up from.
++ ******************************************************************************/
++static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
++					    *target_state)
++{
++	/* Nothing to do, power domain is not disabled */
++}
++
++static void __dead2 stm32_pwr_domain_pwr_down_wfi(const psci_power_state_t
++						  *target_state)
++{
++	ERROR("stm32mp2 Power Down WFI: operation not handled.\n");
++	panic();
++}
++
++static void __dead2 stm32_system_off(void)
++{
++	ERROR("stm32mp2 System Off: operation not handled.\n");
++	panic();
++}
++
++static void __dead2 stm32_system_reset(void)
++{
++	stm32mp_system_reset();
++}
++
++static int stm32_validate_power_state(unsigned int power_state,
++				      psci_power_state_t *req_state)
++{
++	return PSCI_E_INVALID_PARAMS;
++}
++
++static int stm32_validate_ns_entrypoint(uintptr_t entrypoint)
++{
++	/* The non-secure entry point must be in DDR */
++	if (entrypoint < STM32MP_DDR_BASE) {
++		return PSCI_E_INVALID_ADDRESS;
++	}
++
++	return PSCI_E_SUCCESS;
++}
++
++static int stm32_node_hw_state(u_register_t target_cpu,
++			       unsigned int power_level)
++{
++	return PSCI_E_INVALID_PARAMS;
++}
++
++static void stm32_get_sys_suspend_power_state(psci_power_state_t *req_state)
++{
++}
++
++/*******************************************************************************
++ * Export the platform handlers. The ARM Standard platform layer will take care
++ * of registering the handlers with PSCI.
++ ******************************************************************************/
++static const plat_psci_ops_t stm32_psci_ops = {
++	.cpu_standby = stm32_cpu_standby,
++	.pwr_domain_on = stm32_pwr_domain_on,
++	.pwr_domain_off = stm32_pwr_domain_off,
++	.pwr_domain_suspend = stm32_pwr_domain_suspend,
++	.pwr_domain_on_finish = stm32_pwr_domain_on_finish,
++	.pwr_domain_suspend_finish = stm32_pwr_domain_suspend_finish,
++	.pwr_domain_pwr_down_wfi = stm32_pwr_domain_pwr_down_wfi,
++	.system_off = stm32_system_off,
++	.system_reset = stm32_system_reset,
++	.validate_power_state = stm32_validate_power_state,
++	.validate_ns_entrypoint = stm32_validate_ns_entrypoint,
++	.get_node_hw_state = stm32_node_hw_state,
++	.get_sys_suspend_power_state = stm32_get_sys_suspend_power_state,
++};
++
++/*******************************************************************************
++ * Export the platform specific power ops.
++ ******************************************************************************/
++int plat_setup_psci_ops(uintptr_t sec_entrypoint,
++			const plat_psci_ops_t **psci_ops)
++{
++	stm32_sec_entrypoint = sec_entrypoint;
++	*psci_ops = &stm32_psci_ops;
++
++	return 0;
++}
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+new file mode 100644
+index 0000000000..b37da08710
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -0,0 +1,285 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <assert.h>
++
++#include <arch_helpers.h>
++#include <drivers/arm/gicv2.h>
++#include <lib/mmio.h>
++#include <lib/xlat_tables/xlat_tables_v2.h>
++#include <plat/common/platform.h>
++
++#include <platform_def.h>
++
++#define MAP_SYSRAM	MAP_REGION_FLAT(STM32MP_SYSRAM_BASE, \
++					STM32MP_SYSRAM_SIZE, \
++					MT_MEMORY | \
++					MT_RW | \
++					MT_SECURE | \
++					MT_EXECUTE_NEVER)
++
++#define MAP_SEC_SYSRAM	MAP_REGION_FLAT(STM32MP_SEC_SYSRAM_BASE, \
++					STM32MP_SEC_SYSRAM_SIZE, \
++					MT_MEMORY | \
++					MT_RW | \
++					MT_SECURE | \
++					MT_EXECUTE_NEVER)
++
++/* Non-secure SYSRAM is used a uncached memory for SCMI message transfer */
++#define MAP_NS_SYSRAM	MAP_REGION_FLAT(STM32MP_NS_SYSRAM_BASE, \
++					STM32MP_NS_SYSRAM_SIZE, \
++					MT_DEVICE | \
++					MT_RW | \
++					MT_NS | \
++					MT_EXECUTE_NEVER)
++
++#define MAP_DEVICE	MAP_REGION_FLAT(STM32MP_DEVICE_BASE, \
++					STM32MP_DEVICE_SIZE, \
++					MT_DEVICE | \
++					MT_RW | \
++					MT_SECURE | \
++					MT_EXECUTE_NEVER)
++
++#if defined(IMAGE_BL2)
++static const mmap_region_t stm32mp2_mmap[] = {
++	MAP_SYSRAM,
++	MAP_DEVICE,
++	{0}
++};
++#endif
++#if defined(IMAGE_BL31)
++static const mmap_region_t stm32mp2_mmap[] = {
++	MAP_SEC_SYSRAM,
++	MAP_NS_SYSRAM,
++	MAP_DEVICE,
++	{0}
++};
++#endif
++
++void configure_mmu(void)
++{
++	mmap_add(stm32mp2_mmap);
++	init_xlat_tables();
++
++	enable_mmu_el3(0);
++}
++
++uintptr_t stm32_get_gpio_bank_base(unsigned int bank)
++{
++	if (bank == GPIO_BANK_Z) {
++		return GPIOZ_BASE;
++	}
++
++	assert(GPIO_BANK_A == 0 && bank <= GPIO_BANK_K);
++
++	return GPIOA_BASE + (bank * GPIO_BANK_OFFSET);
++}
++
++uint32_t stm32_get_gpio_bank_offset(unsigned int bank)
++{
++	if (bank == GPIO_BANK_Z) {
++		return 0;
++	}
++
++	assert(GPIO_BANK_A == 0 && bank <= GPIO_BANK_K);
++
++	return bank * GPIO_BANK_OFFSET;
++}
++
++unsigned long stm32_get_gpio_bank_clock(unsigned int bank)
++{
++	if (bank == GPIO_BANK_Z) {
++		return CK_BUS_GPIOZ;
++	}
++
++	assert(GPIO_BANK_A == 0 && bank <= GPIO_BANK_K);
++
++	return CK_BUS_GPIOA + (bank - GPIO_BANK_A);
++}
++
++#if STM32MP_UART_PROGRAMMER || !defined(IMAGE_BL2)
++/*
++ * UART Management
++ */
++static const uintptr_t stm32mp2_uart_addresses[STM32MP_NB_OF_UART] = {
++	USART1_BASE,
++	USART2_BASE,
++	USART3_BASE,
++	UART4_BASE,
++	UART5_BASE,
++	USART6_BASE,
++	UART7_BASE,
++	UART8_BASE,
++	UART9_BASE,
++};
++
++uintptr_t get_uart_address(uint32_t instance_nb)
++{
++	if ((instance_nb == 0U) ||
++	    (instance_nb > STM32MP_NB_OF_UART)) {
++		return 0U;
++	}
++
++	return stm32mp2_uart_addresses[instance_nb - 1U];
++}
++#endif
++
++uint32_t stm32mp_get_chip_version(void)
++{
++	return stm32mp2_syscfg_get_chip_version();
++}
++
++uint32_t stm32mp_get_chip_dev_id(void)
++{
++	return stm32mp2_syscfg_get_chip_dev_id();
++}
++
++static uint32_t get_part_number(void)
++{
++	return 0U;
++}
++
++void stm32mp_get_soc_name(char name[STM32_SOC_NAME_SIZE])
++{
++	char *cpu_s, *cpu_r, *pkg;
++
++	/* MPUs Part Numbers */
++	switch (get_part_number()) {
++	case STM32MP251A_PART_NB:
++		cpu_s = "251A";
++		break;
++	case STM32MP251C_PART_NB:
++		cpu_s = "251C";
++		break;
++	case STM32MP251D_PART_NB:
++		cpu_s = "251D";
++		break;
++	case STM32MP251F_PART_NB:
++		cpu_s = "251F";
++		break;
++	case STM32MP253A_PART_NB:
++		cpu_s = "253A";
++		break;
++	case STM32MP253C_PART_NB:
++		cpu_s = "253C";
++		break;
++	case STM32MP253D_PART_NB:
++		cpu_s = "253D";
++		break;
++	case STM32MP253F_PART_NB:
++		cpu_s = "253F";
++		break;
++	case STM32MP255A_PART_NB:
++		cpu_s = "255A";
++		break;
++	case STM32MP255C_PART_NB:
++		cpu_s = "255C";
++		break;
++	case STM32MP255D_PART_NB:
++		cpu_s = "255D";
++		break;
++	case STM32MP255F_PART_NB:
++		cpu_s = "255F";
++		break;
++	case STM32MP257A_PART_NB:
++		cpu_s = "257A";
++		break;
++	case STM32MP257C_PART_NB:
++		cpu_s = "257C";
++		break;
++	case STM32MP257D_PART_NB:
++		cpu_s = "257D";
++		break;
++	case STM32MP257F_PART_NB:
++		cpu_s = "257F";
++		break;
++	default:
++		cpu_s = "????";
++		break;
++	}
++
++	/* Package */
++	pkg = "";
++
++	/* REVISION */
++	switch (stm32mp_get_chip_version()) {
++	case STM32MP2_REV_A:
++		cpu_r = "A";
++		break;
++	default:
++		cpu_r = "?";
++		break;
++	}
++
++	snprintf(name, STM32_SOC_NAME_SIZE,
++		 "STM32MP%s%s Rev.%s", cpu_s, pkg, cpu_r);
++}
++
++void stm32mp_print_cpuinfo(void)
++{
++	char name[STM32_SOC_NAME_SIZE];
++
++	stm32mp_get_soc_name(name);
++	NOTICE("CPU: %s\n", name);
++}
++
++/* Return true when SoC provides a single Cortex-A35 core, and false otherwise */
++bool stm32mp_is_single_core(void)
++{
++	bool single_core = false;
++
++	switch (get_part_number()) {
++	case STM32MP251A_PART_NB:
++	case STM32MP251C_PART_NB:
++	case STM32MP251D_PART_NB:
++	case STM32MP251F_PART_NB:
++		single_core = true;
++		break;
++	default:
++		break;
++	}
++
++	return single_core;
++}
++
++/* Return true when device is in closed state */
++bool stm32mp_is_closed_device(void)
++{
++	return false;
++}
++
++/* Return true when device supports secure boot */
++bool stm32mp_is_auth_supported(void)
++{
++	bool supported = false;
++
++	switch (get_part_number()) {
++	case STM32MP251C_PART_NB:
++	case STM32MP251F_PART_NB:
++	case STM32MP253C_PART_NB:
++	case STM32MP253F_PART_NB:
++	case STM32MP255C_PART_NB:
++	case STM32MP255F_PART_NB:
++	case STM32MP257C_PART_NB:
++	case STM32MP257F_PART_NB:
++		supported = true;
++		break;
++	default:
++		break;
++	}
++
++	return supported;
++}
++
++bool stm32mp_skip_boot_device_after_standby(void)
++{
++	return false;
++}
++
++uintptr_t stm32_get_bkpr_boot_mode_addr(void)
++{
++	return tamp_bkpr(96);
++}
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+new file mode 100644
+index 0000000000..106dcf8dc7
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -0,0 +1,44 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <platform_def.h>
++
++#include <common/debug.h>
++#include <lib/mmio.h>
++#include <lib/utils_def.h>
++
++#include <stm32mp2_private.h>
++
++/*
++ * SYSCFG register offsets (base relative)
++ */
++#define SYSCFG_DEVICEID			0x6400U
++
++/*
++ * SYSCFG_DEVICEID Register
++ */
++#define SYSCFG_DEVICEID_DEV_ID_MASK	GENMASK(11, 0)
++#define SYSCFG_DEVICEID_REV_ID_MASK	GENMASK(31, 16)
++#define SYSCFG_DEVICEID_REV_ID_SHIFT	16
++
++/*
++ * @brief  Get silicon revision from SYSCFG registers.
++ * @retval chip version (REV_ID).
++ */
++uint32_t stm32mp2_syscfg_get_chip_version(void)
++{
++	return (mmio_read_32(SYSCFG_BASE + SYSCFG_DEVICEID) &
++		SYSCFG_DEVICEID_REV_ID_MASK) >> SYSCFG_DEVICEID_REV_ID_SHIFT;
++}
++
++/*
++ * @brief  Get device ID from SYSCFG registers.
++ * @retval device ID (DEV_ID).
++ */
++uint32_t stm32mp2_syscfg_get_chip_dev_id(void)
++{
++	return mmio_read_32(SYSCFG_BASE + SYSCFG_DEVICEID) & SYSCFG_DEVICEID_DEV_ID_MASK;
++}
+diff --git a/plat/st/stm32mp2/stm32mp2_topology.c b/plat/st/stm32mp2/stm32mp2_topology.c
+new file mode 100644
+index 0000000000..8a129d6764
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_topology.c
+@@ -0,0 +1,57 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <platform_def.h>
++
++#include <lib/psci/psci.h>
++#include <plat/common/platform.h>
++
++/* 1 cluster, all cores into */
++static const unsigned char stm32mp2_power_domain_tree_desc[] = {
++	PLATFORM_CLUSTER_COUNT,
++	PLATFORM_CORE_COUNT,
++};
++
++/* This function returns the platform topology */
++const unsigned char *plat_get_power_domain_tree_desc(void)
++{
++	return stm32mp2_power_domain_tree_desc;
++}
++
++/*******************************************************************************
++ * This function implements a part of the critical interface between the psci
++ * generic layer and the platform that allows the former to query the platform
++ * to convert an MPIDR to a unique linear index. An error code (-1) is returned
++ * in case the MPIDR is invalid.
++ ******************************************************************************/
++int plat_core_pos_by_mpidr(u_register_t mpidr)
++{
++	unsigned int cluster_id, cpu_id;
++	u_register_t mpidr_copy = mpidr;
++
++	mpidr_copy &= MPIDR_AFFINITY_MASK;
++
++	if ((mpidr_copy & ~(MPIDR_CLUSTER_MASK | MPIDR_CPU_MASK)) != 0U) {
++		return -1;
++	}
++
++	cluster_id = (mpidr_copy >> MPIDR_AFF1_SHIFT) & MPIDR_AFFLVL_MASK;
++	cpu_id = (mpidr_copy >> MPIDR_AFF0_SHIFT) & MPIDR_AFFLVL_MASK;
++
++	if (cluster_id >= PLATFORM_CLUSTER_COUNT) {
++		return -1;
++	}
++
++	/*
++	 * Validate cpu_id by checking whether it represents a CPU in one
++	 * of the two clusters present on the platform.
++	 */
++	if (cpu_id >= PLATFORM_CORE_COUNT) {
++		return -1;
++	}
++
++	return (int)cpu_id;
++}
+-- 
+2.53.0
+

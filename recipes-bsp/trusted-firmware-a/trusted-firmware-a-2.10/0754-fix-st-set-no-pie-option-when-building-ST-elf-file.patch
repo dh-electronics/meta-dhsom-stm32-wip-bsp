@@ -1,0 +1,44 @@
+From 0f53f8e15d814d3db03d5b748f0a4d343821163f Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 29 Oct 2024 13:42:07 +0100
+Subject: [PATCH 754/954] fix(st): set no-pie option when building ST elf file
+
+This elf file is used to build a binary file that concatenates BL2 and
+its device tree blob. It then does not need PIE option, and this avoids
+the following compilation error with some compiler versions:
+  error: PHDR segment not covered by LOAD segment
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ee2c13a58fd233894eae66f70cca9242d52bad4c fix(st): set no-pie option when building ST elf file]
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Change-Id: I7562e8c1890275fe0409f3a23cc66a8e14ea1ee0
+(cherry picked from commit 6d26d75c374bc9c7aa03d8c745b9f5f9082b18c2)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/420350
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/common_rules.mk | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/common/common_rules.mk b/plat/st/common/common_rules.mk
+index 6e4efcdd45..5cc3c61062 100644
+--- a/plat/st/common/common_rules.mk
++++ b/plat/st/common/common_rules.mk
+@@ -59,9 +59,9 @@ $(eval $(call MAKE_LD,${STM32_TF_LINKERFILE},$(STM32_LD_FILE),bl2))
+ tf-a-%.elf: $(PLAT)-%.o ${STM32_TF_LINKERFILE}
+ 	@echo "  LDS     $<"
+ ifneq ($(findstring gcc,$(notdir $(LD))),)
+-	${Q}${LD} -o $@ $(subst --,-Wl$(comma)--,${STM32_TF_ELF_LDFLAGS}) -nostartfiles -Wl,-Map=$(@:.elf=.map) -Wl,-dT ${STM32_TF_LINKERFILE} $<
++	${Q}${LD} -o $@ $(subst --,-Wl$(comma)--,${STM32_TF_ELF_LDFLAGS}) -nostartfiles -no-pie -Wl,-Map=$(@:.elf=.map) -Wl,-dT ${STM32_TF_LINKERFILE} $<
+ else
+-	${Q}${LD} -o $@ ${STM32_TF_ELF_LDFLAGS} -Map=$(@:.elf=.map) --script ${STM32_TF_LINKERFILE} $<
++	${Q}${LD} -o $@ ${STM32_TF_ELF_LDFLAGS} -no-pie -Map=$(@:.elf=.map) --script ${STM32_TF_LINKERFILE} $<
+ endif
+ 
+ tf-a-%.bin: tf-a-%.elf
+-- 
+2.53.0
+

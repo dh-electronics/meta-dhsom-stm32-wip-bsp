@@ -1,0 +1,70 @@
+From df3f9f15a13470e19eedd17fb4c83f38cd8667f9 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 31 Aug 2022 11:45:23 +0200
+Subject: [PATCH 076/954] feat(st): add a function to skip storage init after
+ standby
+
+This function checks if it is possible to skip storage init after a
+standby mode. This is possible when returning from standby, and if
+OP-TEE is used as BL32. This is not possible with SP_min, as we need to
+reload it in SYSRAM after standby.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3a573e7efcaafa5c401c89f009754ece43a0816d feat(st): add a function to skip storage init after standby]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I033cdc025be2622d43408b42b406e8e6003ea786
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/264428
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  2 ++
+ plat/st/stm32mp1/stm32mp1_private.c     | 20 ++++++++++++++++++++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 3d436934a2..8a72efe276 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -81,6 +81,8 @@ static inline void stm32mp_setup_early_console(void)
+ }
+ #endif
+ 
++bool stm32mp_skip_boot_device_after_standby(void);
++
+ /*
+  * Platform util functions for the GPIO driver
+  * @bank: Target GPIO bank ID as per DT bindings
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index a3255e2e10..11d8542acf 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -698,6 +698,26 @@ bool stm32mp1_is_wakeup_from_standby(void)
+ 	return stm32_pm_context_is_valid();
+ }
+ 
++bool stm32mp_skip_boot_device_after_standby(void)
++{
++	static int skip = -1;
++
++	if (skip == -1) {
++		if (stm32mp1_is_wakeup_from_standby()) {
++			skip = 1;
++#if STM32MP15
++			if (stm32_pm_get_optee_ep() == 0U) {
++				skip = 0;
++			}
++#endif
++		} else {
++			skip = 0;
++		}
++	}
++
++	return skip == 1;
++}
++
+ uintptr_t stm32_get_bkpr_boot_mode_addr(void)
+ {
+ 	return tamp_bkpr(TAMP_BOOT_MODE_BACKUP_REG_ID);
+-- 
+2.53.0
+

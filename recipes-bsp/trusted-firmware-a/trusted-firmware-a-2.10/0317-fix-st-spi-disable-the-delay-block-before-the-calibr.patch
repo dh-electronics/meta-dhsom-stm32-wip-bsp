@@ -1,0 +1,46 @@
+From 68caf07863bce4a40d783d1d656a69dd96cc0831 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Thu, 6 Jul 2023 17:15:40 +0200
+Subject: [PATCH 317/954] fix(st-spi): disable the delay block before the
+ calibration
+
+This patch disables the delay block before the calibration
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5633d3d7ecb99af746edcf27f671166b2ec50ca6 fix(st-spi): disable the delay block before the calibration]
+Change-Id: I36b186a6648f6d997103d5b2646207ebdfb42f51
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/316825
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/spi/stm32_ospi.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index f8d6aa2253..09d8331614 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -500,6 +500,7 @@ static int stm32_ospi_claim_bus(unsigned int cs)
+ 		unsigned int bus_freq = clk_get_rate(stm32_ospi.clock_id) /
+ 					(prescaler + 1);
+ 
++		stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
+ 		calibration_done = true;
+ 
+ 		/* Calibration needed above 50 MHz */
+@@ -508,6 +509,8 @@ static int stm32_ospi_claim_bus(unsigned int cs)
+ 				WARN("Set flash frequency to a safe value (%u Hz)\n",
+ 				     _DLYB_FREQ_50MHZ);
+ 
++				stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++
+ 				return stm32_ospi_set_speed(_DLYB_FREQ_50MHZ);
+ 			}
+ 		}
+-- 
+2.53.0
+

@@ -1,0 +1,59 @@
+From ad9d024d7b05fbce9e486de93adca2bf8e13c2bc Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 10 Feb 2022 10:52:23 +0100
+Subject: [PATCH 170/954] feat(stm32mp2): implement CPU standby
+
+This allows unplugging one core during runtime, and is necessary
+for low-power use cases. This is a copy of what was done on STM32MP1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3cadb1971268584be9f2305dec1dddf18fb6b84c feat(stm32mp2): implement CPU standby]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I955c57f4338504ab05c4ed164ff4b6e05008b392
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/239513
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 26 ++++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 5589d68b9d..5b5202cc19 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -26,8 +26,34 @@
+ static uintptr_t stm32_sec_entrypoint;
+ static u_register_t cntfrq_core0;
+ 
++/*******************************************************************************
++ * STM32MP2 handler called when a CPU is about to enter standby.
++ * Called by core 1 to enter in wfi.
++ ******************************************************************************/
+ static void stm32_cpu_standby(plat_local_state_t cpu_state)
+ {
++	uint32_t interrupt = GIC_SPURIOUS_INTERRUPT;
++
++	assert(cpu_state == ARM_LOCAL_STATE_RET);
++
++	/*
++	 * Enter standby state.
++	 * Synchronize on memory accesses and instruction flow before the WFI
++	 * instruction.
++	 */
++	dsb();
++	isb();
++	while (interrupt == GIC_SPURIOUS_INTERRUPT) {
++		wfi();
++
++		/* Acknowledge IT */
++		interrupt = gicv2_acknowledge_interrupt();
++		/* If Interrupt == 1022 it will be acknowledged by non secure */
++		if ((interrupt != PENDING_G1_INTID) &&
++		    (interrupt != GIC_SPURIOUS_INTERRUPT)) {
++			gicv2_end_of_interrupt(interrupt);
++		}
++	}
+ }
+ 
+ /*******************************************************************************
+-- 
+2.53.0
+

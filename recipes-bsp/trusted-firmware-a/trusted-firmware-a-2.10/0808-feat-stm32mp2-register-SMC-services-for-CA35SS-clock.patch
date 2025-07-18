@@ -1,0 +1,91 @@
+From dbe18749f8feb6a8a5a2775cdeee45ee85cc1c99 Mon Sep 17 00:00:00 2001
+From: Theo GOUREAU <theo.goureau-ext@st.com>
+Date: Fri, 14 Feb 2025 10:29:46 +0100
+Subject: [PATCH 808/954] feat(stm32mp2): register SMC services for CA35SS
+ clock scaling
+
+Register SMC services for CA35SS clock scaling. These services are
+meant to be used by the STM32MP2 CA35SS clock controller in Linux.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 42d525d83924faa330eb9aa862ca7e6205c223a0 feat(stm32mp2): register SMC services for CA35SS clock scaling]
+Change-Id: I9b50aa41fd302d73766c1b01736d09385778e9ef
+Signed-off-by: Theo GOUREAU <theo.goureau-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/437277
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/include/stm32mp2_smc.h        | 18 +++++++++++++++++-
+ plat/st/stm32mp2/services/stm32mp2_svc_setup.c |  8 ++++++++
+ 2 files changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_smc.h b/plat/st/stm32mp2/include/stm32mp2_smc.h
+index 56f0304fa8..1498e36b82 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_smc.h
++++ b/plat/st/stm32mp2/include/stm32mp2_smc.h
+@@ -7,7 +7,7 @@
+ #ifndef STM32MP2_SMC_H
+ #define STM32MP2_SMC_H
+ 
+-#define STM32_COMMON_SIP_NUM_CALLS			1U
++#define STM32_COMMON_SIP_NUM_CALLS			2U
+ 
+ /*
+  * STM32_SIP_SMC_STGEN_SET_RATE call API
+@@ -19,4 +19,20 @@
+  */
+ #define STM32_SIP_SMC_STGEN_SET_RATE                    0x82000000
+ 
++/*
++ * STM32_SIP_CA35SS_CLK call API
++ * This service is opened to secure world only.
++ *
++ * Argument a0: (input) SMCC ID
++ *        (output) status return code
++ * Argument a1: (input) CA35SS clock Function ID in one of the following:
++ *            1 for CA35SS_CLK_SVC_ROUND_RATE
++ *            2 for CA35SS_CLK_SVC_ROUND_RATE_STATUS
++ *            3 for CA35SS_CLK_SVC_RECALC_RATE
++ *        (output) if status return code is STM32_SMC_OK, the current rate
++ * Argument a2: (input) if a1 == CA35SS_CLK_SVC_ROUND_RATE: the target rate
++ *                      else: unused
++ */
++#define STM32_SIP_CA35SS_CLK                            0x82000001
++
+ #endif /* STM32MP2_SMC_H */
+diff --git a/plat/st/stm32mp2/services/stm32mp2_svc_setup.c b/plat/st/stm32mp2/services/stm32mp2_svc_setup.c
+index 8e801a9894..826d9cc6cf 100644
+--- a/plat/st/stm32mp2/services/stm32mp2_svc_setup.c
++++ b/plat/st/stm32mp2/services/stm32mp2_svc_setup.c
+@@ -14,6 +14,7 @@
+ #include <stm32mp_svc_setup.h>
+ #include <stm32mp2_smc.h>
+ 
++#include "ca35ss_clk_svc.h"
+ #include "stgen_svc.h"
+ 
+ /*
+@@ -21,6 +22,9 @@
+  */
+ int32_t plat_svc_smc_setup(void)
+ {
++	if (ca35ss_clk_svc_setup()) {
++		panic();
++	}
+ 	return 0;
+ }
+ 
+@@ -46,6 +50,10 @@ void plat_svc_smc_handler(uint32_t smc_fid, u_register_t x1,
+ 
+ 		*ret1 = stgen_svc_handler();
+ 		break;
++	case STM32_SIP_CA35SS_CLK:
++		*ret1 = ca35ss_clk_svc_handler(x1, x2, x3, x4, ret2,
++					      ret2_enabled);
++		break;
+ 	default:
+ 		WARN("Unimplemented STM32MP2 Service Call: 0x%x\n", smc_fid);
+ 		*ret1 = STM32_SMC_NOT_SUPPORTED;
+-- 
+2.53.0
+

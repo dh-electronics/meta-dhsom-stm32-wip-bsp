@@ -1,0 +1,128 @@
+From 00f83fb1812ab94f6f4dbd4118502c8f333bb260 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 13 Aug 2024 17:30:57 +0200
+Subject: [PATCH 659/954] feat(stm32mp2): add OTP mirror read code
+
+NOT UPSTREAMABLE
+
+Add code to read the OTP mirror area in SRAM1. This can be used when
+Cortex-A35 is TDCID (OP-TEE fills the area) and also when Cortex-M33
+is TDCID (done by TF-M).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f5af80c5df6e7f90fe4eb6e5faf161bf56f3388e feat(stm32mp2): add OTP mirror read code]
+Change-Id: I2641eaf31bea06c3db610aedca47905619978955
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/398287
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/common/stm32mp_common.c             |  4 +++
+ plat/st/stm32mp1/include/stm32mp1_private.h |  7 ++++-
+ plat/st/stm32mp2/include/stm32mp2_private.h |  2 ++
+ plat/st/stm32mp2/platform.mk                |  1 +
+ plat/st/stm32mp2/stm32mp2_otp_mirror.c      | 33 +++++++++++++++++++++
+ 5 files changed, 46 insertions(+), 1 deletion(-)
+ create mode 100644 plat/st/stm32mp2/stm32mp2_otp_mirror.c
+
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index a341cf40e4..865b3ec11b 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -203,6 +203,10 @@ int stm32_get_otp_value_from_idx(const uint32_t otp_idx, uint32_t *otp_val)
+ 
+ 	assert(otp_val != NULL);
+ 
++        if (otp_mirror_read(otp_val, otp_idx) == BSEC_OK) {
++                return 0;
++        }
++
+ #if defined(IMAGE_BL2)
+ 	ret = stm32_otp_shadow_read(otp_val, otp_idx);
+ #elif defined(IMAGE_BL31) || defined(IMAGE_BL32)
+diff --git a/plat/st/stm32mp1/include/stm32mp1_private.h b/plat/st/stm32mp1/include/stm32mp1_private.h
+index 7054c2ce5c..96b2a8ee33 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_private.h
++++ b/plat/st/stm32mp1/include/stm32mp1_private.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2023, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2024, ARM Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -63,4 +63,9 @@ static inline uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value)
+ 	return bsec_read_sw_lock(otp, value);
+ }
+ 
++static inline uint32_t otp_mirror_read(uint32_t *val, uint32_t otp)
++{
++	return BSEC_ERROR;
++}
++
+ #endif /* STM32MP1_PRIVATE_H */
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index 28a26e30f8..9a276e49bc 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -103,4 +103,6 @@ uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value);
+ bool stm32_otp_is_closed_device(void);
+ #endif /* STM32MP_M33_TDCID */
+ 
++uint32_t otp_mirror_read(uint32_t *val, uint32_t otp);
++
+ #endif /* STM32MP2_PRIVATE_H */
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 8d14d8bf51..d0e26995de 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -262,6 +262,7 @@ PLAT_BL_COMMON_SOURCES		+=	drivers/st/bsec/bsec3.c
+ else
+ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_otp.c
+ endif
++PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_otp_mirror.c
+ 
+ PLAT_BL_COMMON_SOURCES		+=	drivers/st/iwdg/stm32_iwdg.c				\
+ 					drivers/st/reset/stm32mp2_reset.c			\
+diff --git a/plat/st/stm32mp2/stm32mp2_otp_mirror.c b/plat/st/stm32mp2/stm32mp2_otp_mirror.c
+new file mode 100644
+index 0000000000..1acd34566b
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_otp_mirror.c
+@@ -0,0 +1,33 @@
++/*
++ * Copyright (C) 2024, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <platform_def.h>
++
++/* Magic use to indicated valid mirror = 'B' 'S' 'E' 'C' */
++#define OTP_MIRROR_MAGIC		0x42534543U
++
++#define OTP_MAX_SIZE			(STM32MP2_OTP_MAX_ID + 1U)
++
++struct otp_mirror {
++	uint32_t magic;
++	uint32_t state;
++	uint32_t value[OTP_MAX_SIZE];
++	uint32_t status[OTP_MAX_SIZE];
++};
++
++uint32_t otp_mirror_read(uint32_t *val, uint32_t otp)
++{
++	struct otp_mirror *mirror = (struct otp_mirror *)SRAM1_BASE;
++
++	/* OTP already mirrored */
++	if ((mirror->magic == OTP_MIRROR_MAGIC) && (mirror->state != BSEC_STATE_INVALID)) {
++		*val = mirror->value[otp];
++
++		return BSEC_OK;
++	}
++
++	return BSEC_ERROR;
++}
+-- 
+2.53.0
+

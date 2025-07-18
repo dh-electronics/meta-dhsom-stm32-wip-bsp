@@ -1,0 +1,69 @@
+From fddee486f5a2afd48f66d0d1dece9d3fbe3b50a5 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 11 May 2022 10:39:20 +0200
+Subject: [PATCH 199/954] refactor(st-bsec): update
+ bsec_check_nsec_access_rights
+
+The function bsec_check_nsec_access_rights() is only used in BL32,
+so the BSEC API can be simplify when the BSEC SVC is not supported.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 488cd13bb947f334b43e8bdc18b9823df123bfc9 refactor(st-bsec): update bsec_check_nsec_access_rights]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I6d69502e57b753d6c40ab439b2ce376f138fc4de
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/251862
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec2.c   | 4 ++--
+ include/drivers/st/bsec.h | 2 ++
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index 1ec4ea1760..9f1c4e6219 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -837,6 +837,7 @@ uint32_t bsec_shadow_read_otp(uint32_t *otp_value, uint32_t word)
+ 	return result;
+ }
+ 
++#if defined(IMAGE_BL32)
+ /*
+  * bsec_check_nsec_access_rights: check non-secure access rights to target OTP.
+  * otp: OTP number.
+@@ -844,7 +845,6 @@ uint32_t bsec_shadow_read_otp(uint32_t *otp_value, uint32_t word)
+  */
+ uint32_t bsec_check_nsec_access_rights(uint32_t otp)
+ {
+-#if defined(IMAGE_BL32)
+ 	if (otp > STM32MP1_OTP_MAX_ID) {
+ 		return BSEC_INVALID_PARAM;
+ 	}
+@@ -854,10 +854,10 @@ uint32_t bsec_check_nsec_access_rights(uint32_t otp)
+ 			return BSEC_ERROR;
+ 		}
+ 	}
+-#endif
+ 
+ 	return BSEC_OK;
+ }
++#endif
+ 
+ uint32_t bsec_get_secure_state(void)
+ {
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index 984825d3d6..ea787c3ad2 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -96,6 +96,8 @@ static inline bool bsec_mode_is_closed_device(void)
+ 	return (bsec_get_secure_state() & BSEC_STATE_MASK) == BSEC_STATE_SEC_CLOSED;
+ }
+ 
++#if defined(IMAGE_BL32)
+ uint32_t bsec_check_nsec_access_rights(uint32_t otp);
++#endif
+ 
+ #endif /* BSEC_H */
+-- 
+2.53.0
+

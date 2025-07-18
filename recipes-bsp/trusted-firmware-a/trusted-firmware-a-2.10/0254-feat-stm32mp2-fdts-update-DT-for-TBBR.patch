@@ -1,0 +1,286 @@
+From 5ecf2c2e901e1bc07a5c46a035fa953cdb654929 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 18 Jan 2023 14:45:23 +0100
+Subject: [PATCH 254/954] feat(stm32mp2-fdts): update DT for TBBR
+
+Add a dedicated cot descriptor DT file, and update BL2 DT file for TBBR.
+This includes all certificates UUIDs, and the mbedTLS heap address.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4dbf6c189ae91793e3fa32d6c2c10c6a2ea01a2a feat(stm32mp2-fdts): update DT for TBBR]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I86ad58843716415abf3dae259d1683c1088bd3de
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/285750
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ fdts/stm32mp2-cot-descriptors.dtsi | 194 +++++++++++++++++++++++++++++
+ fdts/stm32mp25-bl2.dtsi            |  28 +++++
+ plat/st/stm32mp2/stm32mp2_def.h    |   4 +
+ 3 files changed, 226 insertions(+)
+ create mode 100644 fdts/stm32mp2-cot-descriptors.dtsi
+
+diff --git a/fdts/stm32mp2-cot-descriptors.dtsi b/fdts/stm32mp2-cot-descriptors.dtsi
+new file mode 100644
+index 0000000000..dd74b164ad
+--- /dev/null
++++ b/fdts/stm32mp2-cot-descriptors.dtsi
+@@ -0,0 +1,194 @@
++/*
++ * Copyright (c) 2020-2023, ARM Limited. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <common/nv_cntr_ids.h>
++#include <common/tbbr/tbbr_img_def.h>
++#include <tools_share/tbbr_oid.h>
++
++#include <platform_oid.h>
++
++cot {
++	manifests {
++		compatible = "arm, cert-descs";
++
++		stm32mp_cfg_cert: stm32mp_cfg_cert {
++			root-certificate;
++			image-id = <STM32MP_CONFIG_CERT_ID>;
++			antirollback-counter = <&trusted_nv_counter>;
++
++			hw_config_hash: hw_config_hash {
++				oid = HW_CONFIG_HASH_OID;
++			};
++			fw_config_hash: fw_config_hash {
++				oid = FW_CONFIG_HASH_OID;
++			};
++			ddr_fw_hash: ddr_fw_hash {
++				oid = DDR_FW_HASH_OID;
++			};
++		};
++
++		trusted_key_cert: trusted_key_cert {
++			root-certificate;
++			image-id = <TRUSTED_KEY_CERT_ID>;
++			antirollback-counter = <&trusted_nv_counter>;
++
++			trusted_world_pk: trusted_world_pk {
++				oid = TRUSTED_WORLD_PK_OID;
++			};
++			non_trusted_world_pk: non_trusted_world_pk {
++				oid = NON_TRUSTED_WORLD_PK_OID;
++			};
++		};
++
++		trusted_os_fw_key_cert: trusted_os_fw_key_cert {
++			image-id = <TRUSTED_OS_FW_KEY_CERT_ID>;
++			parent = <&trusted_key_cert>;
++			signing-key = <&trusted_world_pk>;
++			antirollback-counter = <&trusted_nv_counter>;
++
++			tos_fw_content_pk: tos_fw_content_pk {
++				oid = TRUSTED_OS_FW_CONTENT_CERT_PK_OID;
++			};
++		};
++
++		trusted_os_fw_content_cert: trusted_os_fw_content_cert {
++			image-id = <TRUSTED_OS_FW_CONTENT_CERT_ID>;
++			parent = <&trusted_os_fw_key_cert>;
++			signing-key = <&tos_fw_content_pk>;
++			antirollback-counter = <&trusted_nv_counter>;
++
++			tos_fw_hash: tos_fw_hash {
++				oid = TRUSTED_OS_FW_HASH_OID;
++			};
++			tos_fw_extra1_hash: tos_fw_extra1_hash {
++				oid = TRUSTED_OS_FW_EXTRA1_HASH_OID;
++			};
++			tos_fw_extra2_hash: tos_fw_extra2_hash {
++				oid = TRUSTED_OS_FW_EXTRA2_HASH_OID;
++			};
++		};
++
++		non_trusted_fw_key_cert: non_trusted_fw_key_cert {
++			image-id = <NON_TRUSTED_FW_KEY_CERT_ID>;
++			parent = <&trusted_key_cert>;
++			signing-key = <&non_trusted_world_pk>;
++			antirollback-counter = <&non_trusted_nv_counter>;
++
++			nt_fw_content_pk: nt_fw_content_pk {
++				oid = NON_TRUSTED_FW_CONTENT_CERT_PK_OID;
++			};
++		};
++
++		non_trusted_fw_content_cert: non_trusted_fw_content_cert {
++			image-id = <NON_TRUSTED_FW_CONTENT_CERT_ID>;
++			parent = <&non_trusted_fw_key_cert>;
++			signing-key = <&nt_fw_content_pk>;
++			antirollback-counter = <&non_trusted_nv_counter>;
++
++			nt_world_bl_hash: nt_world_bl_hash {
++				oid = NON_TRUSTED_WORLD_BOOTLOADER_HASH_OID;
++			};
++		};
++
++		soc_fw_key_cert: soc_fw_key_cert {
++			image-id = <SOC_FW_KEY_CERT_ID>;
++			parent = <&trusted_key_cert>;
++			signing-key = <&trusted_world_pk>;
++			antirollback-counter = <&trusted_nv_counter>;
++
++			soc_fw_content_pk: soc_fw_content_pk {
++				oid = SOC_FW_CONTENT_CERT_PK_OID;
++			};
++		};
++
++		soc_fw_content_cert: soc_fw_content_cert {
++			image-id = <SOC_FW_CONTENT_CERT_ID>;
++			parent = <&soc_fw_key_cert>;
++			signing-key = <&soc_fw_content_pk>;
++			antirollback-counter = <&trusted_nv_counter>;
++
++			soc_fw_hash: soc_fw_hash {
++				oid = SOC_AP_FW_HASH_OID;
++			};
++			soc_fw_config_hash: soc_fw_config_hash {
++				oid = SOC_FW_CONFIG_HASH_OID;
++			};
++		};
++	};
++
++	images {
++		compatible = "arm, img-descs";
++
++		hw_config {
++			image-id = <HW_CONFIG_ID>;
++			parent = <&stm32mp_cfg_cert>;
++			hash = <&hw_config_hash>;
++		};
++
++		fw_config {
++			image-id = <FW_CONFIG_ID>;
++			parent = <&stm32mp_cfg_cert>;
++			hash = <&fw_config_hash>;
++		};
++
++		bl31_image {
++			image-id = <BL31_IMAGE_ID>;
++			parent = <&soc_fw_content_cert>;
++			hash = <&soc_fw_hash>;
++		};
++
++		soc_fw_config {
++			image-id = <SOC_FW_CONFIG_ID>;
++			parent = <&soc_fw_content_cert>;
++			hash = <&soc_fw_config_hash>;
++		};
++
++		bl32_image {
++			image-id = <BL32_IMAGE_ID>;
++			parent = <&trusted_os_fw_content_cert>;
++			hash = <&tos_fw_hash>;
++		};
++
++		bl32_extra1_image {
++			image-id = <BL32_EXTRA1_IMAGE_ID>;
++			parent = <&trusted_os_fw_content_cert>;
++			hash = <&tos_fw_extra1_hash>;
++		};
++
++		bl32_extra2_image {
++			image-id = <BL32_EXTRA2_IMAGE_ID>;
++			parent = <&trusted_os_fw_content_cert>;
++			hash = <&tos_fw_extra2_hash>;
++		};
++
++		bl33_image {
++			image-id = <BL33_IMAGE_ID>;
++			parent = <&non_trusted_fw_content_cert>;
++			hash = <&nt_world_bl_hash>;
++		};
++
++		ddr_fw {
++			image-id = <DDR_FW_ID>;
++			parent = <&stm32mp_cfg_cert>;
++			hash = <&ddr_fw_hash>;
++		};
++	};
++};
++
++non_volatile_counters: non_volatile_counters {
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	trusted_nv_counter: trusted_nv_counter {
++		id  = <TRUSTED_NV_CTR_ID>;
++		oid = TRUSTED_FW_NVCOUNTER_OID;
++	};
++
++	non_trusted_nv_counter: non_trusted_nv_counter {
++		id  = <NON_TRUSTED_NV_CTR_ID>;
++		oid = NON_TRUSTED_FW_NVCOUNTER_OID;
++	};
++};
+diff --git a/fdts/stm32mp25-bl2.dtsi b/fdts/stm32mp25-bl2.dtsi
+index c5f4b185f9..3f27282431 100644
+--- a/fdts/stm32mp25-bl2.dtsi
++++ b/fdts/stm32mp25-bl2.dtsi
+@@ -3,6 +3,8 @@
+  * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
+  */
+ 
++#include <platform_def.h>
++
+ / {
+ 	soc@0 {
+ #if !STM32MP_SPI_NAND && !STM32MP_SPI_NOR
+@@ -42,6 +44,32 @@
+ 			soc_fw_cfg_uuid = "9979814b-0376-fb46-8c8e-8d267f7859e0";
+ 			tos_fw_cfg_uuid = "26257c1a-dbc6-7f47-8d96-c4c4b0248021";
+ 			nt_fw_cfg_uuid = "28da9815-93e8-7e44-ac66-1aaf801550f9";
++#if TRUSTED_BOARD_BOOT
++			stm32mp_cfg_cert_uuid = "501d8dd2-8bce-49a5-84eb-559a9f2eaeaf";
++			t_key_cert_uuid = "827ee890-f860-e411-a1b4-777a21b4f94c";
++			soc_fw_key_uuid = "8ab8becc-f960-e411-9ad0-eb4822d8dcf8";
++			tos_fw_key_cert_uuid = "9477d603-fb60-e411-85dd-b7105b8cee04";
++			nt_fw_key_cert_uuid = "8ad5832a-fb60-e411-8aaf-df30bbc49859";
++			soc_fw_content_cert_uuid = "e2b20c20-5e63-e411-9ce8-abccf92bb666";
++			tos_fw_content_cert_uuid = "a49f4411-5e63-e411-8728-3f05722af33d";
++			nt_fw_content_cert_uuid = "8ec4c1f3-5d63-e411-a7a9-87ee40b23fa7";
++#endif
+ 		};
+ 	};
++
++#if TRUSTED_BOARD_BOOT
++	tb_fw-config {
++		compatible = "arm,tb_fw";
++
++		/* Disable authentication for development */
++		disable_auth = <0x0>;
++
++		/* Use SRAM2 to manage the mbedTLS heap */
++		mbedtls_heap_addr = <0x0 STM32MP_MBEDTLS_HEAP_BASE>;
++		mbedtls_heap_size = <STM32MP_MBEDTLS_HEAP_SIZE>;
++	};
++
++#include "stm32mp2-cot-descriptors.dtsi"
++#endif
++
+ };
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index bcad5938d3..1b1dfc37a3 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -158,6 +158,10 @@ enum ddr_type {
+ 					STM32MP_SYSRAM_SIZE - \
+ 					STM32MP_BL2_RW_BASE
+ 
++#define STM32MP_MBEDTLS_HEAP_SIZE	U(0x2000)
++#define STM32MP_MBEDTLS_HEAP_BASE	(SRAM2_BASE + SRAM2_SIZE - \
++					 STM32MP_MBEDTLS_HEAP_SIZE)
++
+ /* BL2 and BL32/sp_min require 4 tables */
+ #define MAX_XLAT_TABLES				U(4)	/* 16 KB for mapping */
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,96 @@
+From 1fd041bdd534d282797139191c0cbb8962291a85 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 6 Apr 2022 17:51:48 +0200
+Subject: [PATCH 158/954] feat(st): add a helper to get OSPI memory mapped size
+
+This patch adds a SYSCFG helper to get the memory map size
+assigned to an OSPI instance.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 41d4740cc6114df725fa07ee8dce8ca9bc895d90 feat(st): add a helper to get OSPI memory mapped size]
+Change-Id: I47b8b63185f114f50802043d27fc5401e7c74620
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/248421
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+---
+ plat/st/stm32mp2/include/stm32mp2_private.h |  1 +
+ plat/st/stm32mp2/stm32mp2_syscfg.c          | 40 +++++++++++++++++++--
+ 2 files changed, 39 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index 9d74fed101..cdbc3ef998 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -14,6 +14,7 @@ void stm32mp2_security_setup(void);
+ 
+ uint32_t stm32mp2_syscfg_get_chip_version(void);
+ uint32_t stm32mp2_syscfg_get_chip_dev_id(void);
++size_t stm32mp2_syscfg_get_mm_size(uint8_t bank);
+ 
+ /* Get RISAF platform instance ID from peripheral IO memory base address */
+ int stm32_risaf_get_instance(uintptr_t base);
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index 106dcf8dc7..88ef36cce7 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -15,13 +15,19 @@
+ /*
+  * SYSCFG register offsets (base relative)
+  */
++#define SYSCFG_OCTOSPIAMCR		0x2C00U
+ #define SYSCFG_DEVICEID			0x6400U
+ 
++/*
++ * SYSCFG_OCTOSPIAMCR Register
++ */
++#define SYSCFG_OCTOSPIAMCR_OAM_MASK	GENMASK_32(2, 0)
++
+ /*
+  * SYSCFG_DEVICEID Register
+  */
+-#define SYSCFG_DEVICEID_DEV_ID_MASK	GENMASK(11, 0)
+-#define SYSCFG_DEVICEID_REV_ID_MASK	GENMASK(31, 16)
++#define SYSCFG_DEVICEID_DEV_ID_MASK	GENMASK_32(11, 0)
++#define SYSCFG_DEVICEID_REV_ID_MASK	GENMASK_32(31, 16)
+ #define SYSCFG_DEVICEID_REV_ID_SHIFT	16
+ 
+ /*
+@@ -42,3 +48,33 @@ uint32_t stm32mp2_syscfg_get_chip_dev_id(void)
+ {
+ 	return mmio_read_32(SYSCFG_BASE + SYSCFG_DEVICEID) & SYSCFG_DEVICEID_DEV_ID_MASK;
+ }
++
++size_t stm32mp2_syscfg_get_mm_size(uint8_t bank)
++{
++	uint32_t amcr = mmio_read_32(SYSCFG_BASE + SYSCFG_OCTOSPIAMCR);
++	size_t addr_mapping1 = 0U;
++	size_t addr_mapping2 = 0U;
++
++	switch (amcr & SYSCFG_OCTOSPIAMCR_OAM_MASK) {
++	case 0:
++		addr_mapping1 = SZ_256M;
++		break;
++	case 1:
++		addr_mapping1 = SZ_128M + SZ_64M;
++		addr_mapping2 = SZ_64M;
++		break;
++	case 2:
++		addr_mapping1 = SZ_128M;
++		addr_mapping2 = SZ_128M;
++		break;
++	case 3:
++		addr_mapping1 = SZ_64M;
++		addr_mapping2 = SZ_128M + SZ_64M;
++		break;
++	default:
++		addr_mapping2 = SZ_256M;
++		break;
++	}
++
++	return (bank == 0U) ? addr_mapping1 : addr_mapping2;
++}
+-- 
+2.53.0
+

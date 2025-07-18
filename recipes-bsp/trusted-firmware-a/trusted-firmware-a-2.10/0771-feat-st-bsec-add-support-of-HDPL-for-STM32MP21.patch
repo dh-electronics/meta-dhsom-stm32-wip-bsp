@@ -1,0 +1,113 @@
+From a84dca360d902e215c3dadf5f61bb0b53d31e8ee Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Thu, 9 Jan 2025 19:07:59 +0100
+Subject: [PATCH 771/954] feat(st-bsec): add support of HDPL for STM32MP21
+
+Add function bsec_increment_hdpl() to increment HDPL for STM32MP21.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 70434ed995e66bd0e81f564d2eb201f7f743fa04 feat(st-bsec): add support of HDPL for STM32MP21]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: I9072d19443311cccff60bf2edd8b210dcf2218cf
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/427989
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/bsec/bsec3.c        | 22 ++++++++++++++++++++++
+ include/drivers/st/bsec.h      |  8 +++++++-
+ include/drivers/st/bsec3_reg.h | 12 ++++++++++++
+ 3 files changed, 41 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/bsec/bsec3.c b/drivers/st/bsec/bsec3.c
+index ea5de914fb..cb42b870a9 100644
+--- a/drivers/st/bsec/bsec3.c
++++ b/drivers/st/bsec/bsec3.c
+@@ -27,6 +27,10 @@
+ 
+ #define BSEC_DENR_KEY		0xDEB60000
+ 
++#if STM32MP21
++#define BSEC_HDPL2		U(0x8A)
++#endif /* STM32MP21 */
++
+ /*
+  * IP configuration
+  */
+@@ -528,3 +532,21 @@ uint32_t bsec_read_otp(uint32_t *val, uint32_t otp)
+ 
+ 	return bsec_shadow_read_otp(val, otp);
+ }
++
++#if STM32MP21
++/*
++ * bsec_increment_hdpl: increment HDPL level
++ */
++void bsec_increment_hdpl(void)
++{
++	uint32_t hdpl;
++
++	mmio_write_32(BSEC_BASE + BSEC_HDPLACR, BSEC_HDPLACR_INC_MAGIC);
++
++	hdpl = mmio_read_32(BSEC_BASE + BSEC_HDPLASR) & BSEC_HDPLASR_HDPL;
++	if (hdpl != BSEC_HDPL2) {
++		ERROR("Failed to increment HDPL : 0x%x\n", hdpl);
++		panic();
++	}
++}
++#endif /* STM32MP21 */
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index eb70c6e4aa..ac1685def3 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2017-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -74,4 +74,10 @@ uint32_t bsec_permanent_lock_otp(uint32_t otp);
+ uint32_t bsec_check_nsec_access_rights(uint32_t otp);
+ #endif
+ 
++#if defined(STM32MP21) && STM32MP21 && !(defined(STM32MP_M33_TDCID) && STM32MP_M33_TDCID)
++void bsec_increment_hdpl(void);
++#else
++static inline void bsec_increment_hdpl(void) {}
++#endif /* STM32MP21 */
++
+ #endif /* BSEC_H */
+diff --git a/include/drivers/st/bsec3_reg.h b/include/drivers/st/bsec3_reg.h
+index b2fb7ca449..668f3bd1a3 100644
+--- a/include/drivers/st/bsec3_reg.h
++++ b/include/drivers/st/bsec3_reg.h
+@@ -29,6 +29,10 @@
+ #define BSEC_UNMAPR			U(0xE24)
+ #define BSEC_SR				U(0xE40)
+ #define BSEC_OTPSR			U(0xE44)
++#if STM32MP21
++#define BSEC_HDPLASR			U(0xEB4)
++#define BSEC_HDPLACR			U(0xEB8)
++#endif /* STM32MP21 */
+ #define BSEC_WRCR			U(0xF00)
+ #define BSEC_HWCFGR			U(0xFF0)
+ #define BSEC_VERR			U(0xFF4)
+@@ -105,6 +109,14 @@
+ #define BSEC_OTPSR_PPLMF		BIT(21)
+ #define BSEC_OTPSR_AMEF			BIT(22)
+ 
++#if STM32MP21
++/* BSEC_HDPLASR register fields */
++#define BSEC_HDPLASR_HDPL		GENMASK_32(7, 0)
++
++/* BSEC_HDPLACR register fields */
++#define BSEC_HDPLACR_INC_MAGIC		U(0x60B166E7)
++#endif /* STM32MP21 */
++
+ /* BSEC_VERR register fields */
+ #define BSEC_VERR_MASK			GENMASK_32(7, 0)
+ 
+-- 
+2.53.0
+

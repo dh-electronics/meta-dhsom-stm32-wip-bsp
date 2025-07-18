@@ -1,0 +1,39 @@
+From acfe132e3e268e5b96c7784c7dfbe89de82ac04e Mon Sep 17 00:00:00 2001
+From: Sughosh Ganu <sughosh.ganu@linaro.org>
+Date: Thu, 1 Feb 2024 16:56:27 +0530
+Subject: [PATCH 566/954] feat(st): get the state of the active bank directly
+
+With version 2 of the FWU metadata structure, the state that a bank is
+in can be obtained from the bank_state field in the top level
+structure. Read the state of the active bank by referencing this field
+directly, instead of making an API call.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2ad6ca74a5f1e56be2eb440e5612a6c01fdd40fe feat(st): get the state of the active bank directly]
+Change-Id: Ib22c56acbe172923b1323c544801ded81f1598ec
+Signed-off-by: Sughosh Ganu <sughosh.ganu@linaro.org>
+(cherry picked from commit 588b01b5e4726cd4a6d235e9f566a546ef17f631)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/372647
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/bl2_io_storage.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 78c70faaf7..e673e6aca7 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -804,7 +804,7 @@ uint32_t plat_fwu_get_boot_idx(void)
+ 
+ 	if (boot_idx == INVALID_BOOT_IDX) {
+ 		boot_idx = data->active_index;
+-		if (fwu_is_trial_run_state()) {
++		if (data->bank_state[boot_idx] == FWU_BANK_STATE_VALID) {
+ 			if (stm32_get_and_dec_fwu_trial_boot_cnt() == 0U) {
+ 				WARN("Trial FWU fails %u times\n",
+ 				     FWU_MAX_TRIAL_REBOOT);
+-- 
+2.53.0
+

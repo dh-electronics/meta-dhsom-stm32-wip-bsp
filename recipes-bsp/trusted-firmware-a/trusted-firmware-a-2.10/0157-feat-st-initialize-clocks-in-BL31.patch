@@ -1,0 +1,51 @@
+From 504bded5cba4a14c111462dffaf16aba73ebe96a Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 5 Apr 2022 16:00:40 +0200
+Subject: [PATCH 157/954] feat(st): initialize clocks in BL31
+
+Call stm32mp2_clk_init() in bl31_early_platform_setup2(), to be able
+to use clocks in BL31 for STM32MP2.
+For this BL31 size is increased by 8kB.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4d8575ec7ea71785f286b1fb6fb138819ba61f24 feat(st): initialize clocks in BL31]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I402d7f70fc7d6cbe9f30913f3dabd1d7ea0a2b66
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/247424
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp2/bl31_plat_setup.c | 4 ++++
+ plat/st/stm32mp2/stm32mp2_def.h    | 2 +-
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index 09a94d8bbd..df6cc1ee86 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -82,6 +82,10 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 		panic();
+ 	}
+ 
++	if (stm32mp2_clk_init() < 0) {
++		panic();
++	}
++
+ 	(void)stm32mp_uart_console_setup();
+ }
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index b527d99988..7f983433c9 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -105,7 +105,7 @@ enum ddr_type {
+ 						 (STM32MP_PARAM_LOAD_SIZE +	\
+ 						  STM32MP_HEADER_SIZE))
+ 
+-#define STM32MP_BL31_SIZE		U(0x0001A000)	/* 104 KB for BL31 */
++#define STM32MP_BL31_SIZE		U(0x0001C000)	/* 112 KB for BL31 */
+ 
+ #define STM32MP_BL2_RO_SIZE		U(0x00013000)	/* 76 KB */
+ #define STM32MP_BL2_SIZE		U(0x00027000)	/* 156 KB for BL2 */
+-- 
+2.53.0
+

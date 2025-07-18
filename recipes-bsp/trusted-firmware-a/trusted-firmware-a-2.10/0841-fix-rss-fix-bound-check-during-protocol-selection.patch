@@ -1,0 +1,44 @@
+From 476a2b2a996e4f52b928bbb59549e7b0c4075e62 Mon Sep 17 00:00:00 2001
+From: Vijayenthiran Subramaniam <vijayenthiran.subramaniam@arm.com>
+Date: Wed, 6 Dec 2023 14:27:09 +0530
+Subject: [PATCH 841/954] fix(rss): fix bound check during protocol selection
+
+Fix the wrong placement of the closing parenthesis in the second
+condition check that resulted in the incorrect calculation of the MHU
+message size. Also, format the code for readability.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d49b87d6bc02e2e3861abf028a8c62d735f19948 fix(rss): fix bound check during protocol selection]
+Signed-off-by: Vijayenthiran Subramaniam <vijayenthiran.subramaniam@arm.com>
+Change-Id: I0e012f3ff00bae2dfc12cdb1c2c636fc6c0a0b55
+(cherry picked from commit f754bd466749a9338561f991bfb85140dd034e03)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443833
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/arm/rss/rss_comms.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/arm/rss/rss_comms.c b/drivers/arm/rss/rss_comms.c
+index 4622af9803..a905b8831d 100644
+--- a/drivers/arm/rss/rss_comms.c
++++ b/drivers/arm/rss/rss_comms.c
+@@ -59,8 +59,10 @@ static uint8_t select_protocol_version(const psa_invec *in_vec, size_t in_len,
+ 	 * messages due to ATU configuration costs to allow access to the
+ 	 * pointers.
+ 	 */
+-	if ((comms_embed_msg_min_size + in_size_total > comms_mhu_msg_size - sizeof(uint32_t))
+-	 || (comms_embed_reply_min_size + out_size_total > comms_mhu_msg_size) - sizeof(uint32_t)) {
++	if ((comms_embed_msg_min_size + in_size_total >
++	     comms_mhu_msg_size - sizeof(uint32_t)) ||
++	    (comms_embed_reply_min_size + out_size_total >
++	     comms_mhu_msg_size - sizeof(uint32_t))) {
+ 		return RSS_COMMS_PROTOCOL_POINTER_ACCESS;
+ 	} else {
+ 		return RSS_COMMS_PROTOCOL_EMBED;
+-- 
+2.53.0
+

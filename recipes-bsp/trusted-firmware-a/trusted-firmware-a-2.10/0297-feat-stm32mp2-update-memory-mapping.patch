@@ -1,0 +1,181 @@
+From 74afd0b2cfa6c6736fc4a7b27310b0f6526521b5 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 12 Apr 2023 13:55:10 +0200
+Subject: [PATCH 297/954] feat(stm32mp2): update memory mapping
+
+To fit with STM32MP2 derivatives, the memory mapping is updated.
+SRAM2 is no more used and SRAM1 size is divided by two.
+This implies several changes:
+- MbedTLS heap is moved at the end of usable SRAM1
+- DDR FIP when using serial boot is moved at the beginning of SYSRAM
+All mentions of SRAM2 are removed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3df821432b4590590a3728085e8c1c0a4a242e38 feat(stm32mp2): update memory mapping]
+Change-Id: Ie26459232283782cb0fc855699d9a6a4b7f04427
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/300395
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ fdts/stm32mp25-bl2.dtsi                 |  1 -
+ plat/st/stm32mp2/bl2_plat_setup.c       | 16 ++--------------
+ plat/st/stm32mp2/include/platform_def.h |  4 ++--
+ plat/st/stm32mp2/platform.mk            |  1 -
+ plat/st/stm32mp2/stm32mp2_def.h         | 10 +++-------
+ plat/st/stm32mp2/stm32mp2_private.c     | 12 +-----------
+ 6 files changed, 8 insertions(+), 36 deletions(-)
+
+diff --git a/fdts/stm32mp25-bl2.dtsi b/fdts/stm32mp25-bl2.dtsi
+index eb91c1c889..59c365afb1 100644
+--- a/fdts/stm32mp25-bl2.dtsi
++++ b/fdts/stm32mp25-bl2.dtsi
+@@ -66,7 +66,6 @@
+ 		/* Disable authentication for development */
+ 		disable_auth = <0x0>;
+ 
+-		/* Use SRAM2 to manage the mbedTLS heap */
+ 		mbedtls_heap_addr = <0x0 STM32MP_MBEDTLS_HEAP_BASE>;
+ 		mbedtls_heap_size = <STM32MP_MBEDTLS_HEAP_SIZE>;
+ 	};
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 06d762ddfe..c85ec9e1ba 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -271,7 +271,7 @@ skip_console_init:
+ 
+ 	fconf_populate("TB_FW", STM32MP_DTB_BASE);
+ 
+-#if STM32MP_DDR_FIP_IO_STORAGE
++#if STM32MP_DDR_FIP_IO_STORAGE || TRUSTED_BOARD_BOOT
+ 	/*
+ 	 * RISAB3 setup (dedicated for SRAM1)
+ 	 *
+@@ -280,18 +280,7 @@ skip_console_init:
+ 	 * DDR firmwares are saved there before being loaded in DDRPHY memory.
+ 	 */
+ 	mmio_write_32(RISAB3_BASE + RISAB_CR, RISAB_CR_SRWIAD);
+-#endif
+-#if STM32MP_USB_PROGRAMMER || TRUSTED_BOARD_BOOT
+-	/* Enabling SRAM2 clock is not needed as it is a critical clock */
+-	/*
+-	 * RISAB4 setup (dedicated for SRAM2)
+-	 *
+-	 * Allow secure read/writes data accesses to non-secure
+-	 * blocks or pages, all RISAB registers are writable.
+-	 * Secure execution is still illegal. DDR FIP is saved here.
+-	 */
+-	mmio_write_32(RISAB4_BASE + RISAB_CR, RISAB_CR_SRWIAD);
+-
++#endif /* STM32MP_DDR_FIP_IO_STORAGE || TRUSTED_BOARD_BOOT */
+ #if STM32MP_USB_PROGRAMMER
+ 	/*
+ 	 * Set USB3DR Peripheriphal accesses to Secure/Privilege only
+@@ -304,7 +293,6 @@ skip_console_init:
+ 	 */
+ 	mmio_write_32(RIFSC_BASE + _RIFSC_RIMC_ATTR(RIMU_USB3DR), RIFSC_USB_BOOT_USBDR_RIMC_CONF);
+ #endif /* STM32MP_USB_PROGRAMMER */
+-#endif /* STM32MP_USB_PROGRAMMER || TRUSTED_BOARD_BOOT */
+ 
+ 	/*
+ 	 * RISAB5 setup (dedicated for RETRAM)
+diff --git a/plat/st/stm32mp2/include/platform_def.h b/plat/st/stm32mp2/include/platform_def.h
+index a0b8aa1fd0..d6dc485bf1 100644
+--- a/plat/st/stm32mp2/include/platform_def.h
++++ b/plat/st/stm32mp2/include/platform_def.h
+@@ -89,8 +89,8 @@
+ /* Needed by STM32CubeProgrammer support */
+ #define DWL_BUFFER_SIZE			U(0x01000000)
+ #if STM32MP_DDR_FIP_IO_STORAGE
+-#define DWL_DDR_BUFFER_BASE		SRAM2_BASE
+-#define DWL_DDR_BUFFER_SIZE		(SRAM2_SIZE - STM32MP_MBEDTLS_HEAP_SIZE)
++#define DWL_DDR_BUFFER_BASE		STM32MP_SYSRAM_BASE
++#define DWL_DDR_BUFFER_SIZE		U(0x0000A000)
+ #endif
+ 
+ /*
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index a08e03c498..f63df22848 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -15,7 +15,6 @@ DTB_FILE_NAME			?=	stm32mp257f-ev1.dtb
+ 
+ STM32MP25			:=	1
+ 
+-# Will use SRAM2 as mbedtls heap
+ STM32MP_USE_EXTERNAL_HEAP :=	1
+ 
+ ifeq (${TRUSTED_BOARD_BOOT},1)
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 62ac1f6161..a8a1cd43ed 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -69,9 +69,7 @@
+ #define STM32MP_SYSRAM_BASE		U(0x0E000000)
+ #define STM32MP_SYSRAM_SIZE		U(0x00040000)
+ #define SRAM1_BASE			U(0x0E040000)
+-#define SRAM1_SIZE			U(0x00020000)
+-#define SRAM2_BASE			U(0x0E060000)
+-#define SRAM2_SIZE			U(0x00020000)
++#define SRAM1_SIZE_FOR_TFA		U(0x00010000)
+ #define RETRAM_BASE			U(0x0E080000)
+ #define RETRAM_SIZE			U(0x00020000)
+ #define STM32MP_BACKUP_RAM_BASE		U(0x42000000)
+@@ -166,7 +164,7 @@ enum ddr_type {
+ 					STM32MP_BL2_RW_BASE
+ 
+ #define STM32MP_MBEDTLS_HEAP_SIZE	U(0x2000)
+-#define STM32MP_MBEDTLS_HEAP_BASE	(SRAM2_BASE + SRAM2_SIZE - \
++#define STM32MP_MBEDTLS_HEAP_BASE	(SRAM1_BASE + SRAM1_SIZE_FOR_TFA - \
+ 					 STM32MP_MBEDTLS_HEAP_SIZE)
+ 
+ /* BL2 and BL32/sp_min require 4 tables */
+@@ -176,9 +174,7 @@ enum ddr_type {
+  * MAX_MMAP_REGIONS is usually:
+  * BL stm32mp2_mmap size + mmap regions in *_plat_arch_setup
+  */
+-#if STM32MP_USB_PROGRAMMER
+-#define MAX_MMAP_REGIONS			8
+-#elif defined(IMAGE_BL31)
++#if STM32MP_USB_PROGRAMMER || defined(IMAGE_BL31)
+ #define MAX_MMAP_REGIONS			7
+ #else
+ #define MAX_MMAP_REGIONS			6
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index d8c948f5b6..03d17a91d4 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -17,7 +17,7 @@
+ 
+ #if STM32MP_DDR_FIP_IO_STORAGE && defined(IMAGE_BL2)
+ /* Map the whole SRAM1 as secure, required to load DDR FW from FIP */
+-#define SRAM1_MAP_SIZE	SRAM1_SIZE
++#define SRAM1_MAP_SIZE	SRAM1_SIZE_FOR_TFA
+ #else
+ /* Map the beginning of SRAM1 as secure */
+ #define SRAM1_MAP_SIZE	STM32MP_SEC_SRAM1_SIZE
+@@ -46,13 +46,6 @@
+ 					MT_EXECUTE_NEVER)
+ #endif
+ 
+-#define MAP_SRAM2	MAP_REGION_FLAT(SRAM2_BASE, \
+-					SRAM2_SIZE, \
+-					MT_MEMORY | \
+-					MT_RW | \
+-					MT_SECURE | \
+-					MT_EXECUTE_NEVER)
+-
+ /* Non-secure SYSRAM is used a uncached memory for SCMI message transfer */
+ #define MAP_NS_SYSRAM	MAP_REGION_FLAT(STM32MP_NS_SYSRAM_BASE, \
+ 					STM32MP_NS_SYSRAM_SIZE, \
+@@ -84,9 +77,6 @@ static const mmap_region_t stm32mp2_mmap[] = {
+ 	MAP_SYSRAM,
+ #endif
+ 	MAP_SRAM1,
+-#if STM32MP_USB_PROGRAMMER || TRUSTED_BOARD_BOOT
+-	MAP_SRAM2,
+-#endif
+ 	MAP_DEVICE,
+ 	{0}
+ };
+-- 
+2.53.0
+

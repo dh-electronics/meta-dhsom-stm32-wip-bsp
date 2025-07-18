@@ -1,0 +1,130 @@
+From aecf08d9b98649d040406a97e8f8d65fdaac76c6 Mon Sep 17 00:00:00 2001
+From: David Vincze <david.vincze@arm.com>
+Date: Fri, 8 Sep 2023 08:00:01 +0200
+Subject: [PATCH 843/954] feat(rss): add defines for 'type' range and use them
+ in psa_call()
+
+Update the 'type' parameter checking according to changes
+on RSS's (TF-M) side: 40b09ba1 [1]
+
+[1]: https://git.trustedfirmware.org/TF-M/trusted-firmware-m.git/commit/?id=40b09ba1e4a7a4f726f98700eab7e4e4d8e95dcf
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a41b2053afd1950b3c8e9b98187ee0b6b838344e feat(rss): add defines for 'type' range and use them in psa_call()]
+Change-Id: I8487e8ab24aa2dd080b5bb8f2f5c7e8fc15cf211
+Signed-off-by: David Vincze <david.vincze@arm.com>
+(cherry picked from commit 002b10604ba0b90ac6e85d445ce2184cab52e39b)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443835
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/arm/rss/rss_comms.c  |  6 +++---
+ include/lib/psa/psa/client.h | 20 ++++++++++++++++++--
+ 2 files changed, 21 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/arm/rss/rss_comms.c b/drivers/arm/rss/rss_comms.c
+index a905b8831d..332105fda5 100644
+--- a/drivers/arm/rss/rss_comms.c
++++ b/drivers/arm/rss/rss_comms.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022, Arm Limited. All rights reserved.
++ * Copyright (c) 2022-2024, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -84,8 +84,8 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type, const psa_invec *in_vec
+ 	psa_status_t return_val;
+ 	size_t idx;
+ 
+-	if (type > INT16_MAX || type < INT16_MIN || in_len > PSA_MAX_IOVEC
+-	    || out_len > PSA_MAX_IOVEC) {
++	if (type > PSA_CALL_TYPE_MAX || type < PSA_CALL_TYPE_MIN ||
++	    in_len > PSA_MAX_IOVEC   || out_len > PSA_MAX_IOVEC) {
+ 		return PSA_ERROR_INVALID_ARGUMENT;
+ 	}
+ 
+diff --git a/include/lib/psa/psa/client.h b/include/lib/psa/psa/client.h
+index 56fe0288f5..46fac4a8d4 100644
+--- a/include/lib/psa/psa/client.h
++++ b/include/lib/psa/psa/client.h
+@@ -1,6 +1,5 @@
+-
+ /*
+- * Copyright (c) 2018-2021, Arm Limited. All rights reserved.
++ * Copyright (c) 2018-2024, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  *
+@@ -17,41 +16,57 @@
+ #ifndef IOVEC_LEN
+ #define IOVEC_LEN(arr) ((uint32_t)(sizeof(arr)/sizeof(arr[0])))
+ #endif
++
+ /*********************** PSA Client Macros and Types *************************/
++
+ /**
+  * The version of the PSA Framework API that is being used to build the calling
+  * firmware. Only part of features of FF-M v1.1 have been implemented. FF-M v1.1
+  * is compatible with v1.0.
+  */
+ #define PSA_FRAMEWORK_VERSION	(0x0101u)
++
+ /**
+  * Return value from psa_version() if the requested RoT Service is not present
+  * in the system.
+  */
+ #define PSA_VERSION_NONE	(0u)
++
+ /**
+  * The zero-value null handle can be assigned to variables used in clients and
+  * RoT Services, indicating that there is no current connection or message.
+  */
+ #define PSA_NULL_HANDLE		((psa_handle_t)0)
++
+ /**
+  * Tests whether a handle value returned by psa_connect() is valid.
+  */
+ #define PSA_HANDLE_IS_VALID(handle)	((psa_handle_t)(handle) > 0)
++
+ /**
+  * Converts the handle value returned from a failed call psa_connect() into
+  * an error code.
+  */
+ #define PSA_HANDLE_TO_ERROR(handle)	((psa_status_t)(handle))
++
+ /**
+  * Maximum number of input and output vectors for a request to psa_call().
+  */
+ #define PSA_MAX_IOVEC		(4u)
++
++/**
++ * The minimum and maximum value that can be passed
++ * as the type parameter in a call to psa_call().
++ */
++#define PSA_CALL_TYPE_MIN	(0)
++#define PSA_CALL_TYPE_MAX	(INT16_MAX)
++
+ /**
+  * An IPC message type that indicates a generic client request.
+  */
+ #define PSA_IPC_CALL		(0)
+ typedef int32_t psa_handle_t;
++
+ /**
+  * A read-only input memory region provided to an RoT Service.
+  */
+@@ -59,6 +74,7 @@ typedef struct psa_invec {
+ 	const void *base;	/*!< the start address of the memory buffer */
+ 	size_t len;		/*!< the size in bytes                      */
+ } psa_invec;
++
+ /**
+  * A writable output memory region provided to an RoT Service.
+  */
+-- 
+2.53.0
+

@@ -1,0 +1,155 @@
+From 1075da7fcbb44608f5367ee2574bc796dd729037 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 27 Jul 2022 17:57:35 +0200
+Subject: [PATCH 227/954] feat(stm32mp2): add a runtime service for STGEN
+ configuration
+
+Other component such as OP-TEE may have the responsibility for
+STGEN configuration but updating Arm CNTFRQ can only be done from
+EL3. Therefore, implement a SiP SMC handler for this purpose and
+a runtime service to catch SIP SMCs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0d5d0f805ff8a0d70d323997cc92e893c4414f0b feat(stm32mp2): add a runtime service for STGEN configuration]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I7854e1ae6328f149798b43d52bb1ecdf71a5aa69
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/261666
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/stm32mp2/include/stm32mp2_smc.h       | 10 +++++
+ plat/st/stm32mp2/platform.mk                  |  1 +
+ plat/st/stm32mp2/services/stgen_svc.c         | 40 +++++++++++++++++++
+ plat/st/stm32mp2/services/stgen_svc.h         | 12 ++++++
+ .../st/stm32mp2/services/stm32mp2_svc_setup.c | 10 +++++
+ 5 files changed, 73 insertions(+)
+ create mode 100644 plat/st/stm32mp2/services/stgen_svc.c
+ create mode 100644 plat/st/stm32mp2/services/stgen_svc.h
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_smc.h b/plat/st/stm32mp2/include/stm32mp2_smc.h
+index 45dab6ebd3..56f0304fa8 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_smc.h
++++ b/plat/st/stm32mp2/include/stm32mp2_smc.h
+@@ -9,4 +9,14 @@
+ 
+ #define STM32_COMMON_SIP_NUM_CALLS			1U
+ 
++/*
++ * STM32_SIP_SMC_STGEN_SET_RATE call API
++ * This service is opened to secure world only.
++ *
++ * Argument a0: (input) SMCC ID
++ *		(output) status return code
++ * Argument a1: (input) Frequency to set (given by sender)
++ */
++#define STM32_SIP_SMC_STGEN_SET_RATE                    0x82000000
++
+ #endif /* STM32MP2_SMC_H */
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index d086744428..d168b77402 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -230,6 +230,7 @@ BL31_SOURCES			+=	${GICV2_SOURCES}					\
+ BL31_SOURCES			+=	plat/common/plat_psci_common.c
+ 
+ BL31_SOURCES		+=	plat/st/common/stm32mp_svc_setup.c			\
++				plat/st/stm32mp2/services/stgen_svc.c			\
+ 				plat/st/stm32mp2/services/stm32mp2_svc_setup.c
+ 
+ # Arm Archtecture services
+diff --git a/plat/st/stm32mp2/services/stgen_svc.c b/plat/st/stm32mp2/services/stgen_svc.c
+new file mode 100644
+index 0000000000..cfb27bc05b
+--- /dev/null
++++ b/plat/st/stm32mp2/services/stgen_svc.c
+@@ -0,0 +1,40 @@
++/*
++ * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <common/debug.h>
++#include <drivers/generic_delay_timer.h>
++#include <drivers/st/stm32mp_clkfunc.h>
++#include <lib/mmio.h>
++#include <plat/common/platform.h>
++
++#include <platform_def.h>
++#include <stm32mp_svc_setup.h>
++#include <stm32mp_common.h>
++#include <stm32mp2_smc.h>
++
++#include "stgen_svc.h"
++
++/*
++ * This function reads and applies the STGEN frequency value in the STGENC base frequency register,
++ * which is the frequency the system base counter use for our platforms.
++ */
++uint32_t stgen_svc_handler(void)
++{
++	unsigned long freq_to_set = mmio_read_32(STGEN_BASE + CNTFID_OFF);
++
++	VERBOSE("STGEN frequency set to %lu\n", freq_to_set);
++
++	/*
++	 * Update the system counter frequency according to STGEN's base
++	 * counter frequency register
++	 */
++	write_cntfrq_el0((u_register_t)freq_to_set);
++
++	/* Need to update timer with new frequency */
++	generic_delay_timer_init();
++
++	return STM32_SMC_OK;
++}
+diff --git a/plat/st/stm32mp2/services/stgen_svc.h b/plat/st/stm32mp2/services/stgen_svc.h
+new file mode 100644
+index 0000000000..36f717b2f1
+--- /dev/null
++++ b/plat/st/stm32mp2/services/stgen_svc.h
+@@ -0,0 +1,12 @@
++/*
++ * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef STGEN_SVC_H
++#define STGEN_SVC_H
++
++uint32_t stgen_svc_handler(void);
++
++#endif /* STGEN_SVC_H */
+diff --git a/plat/st/stm32mp2/services/stm32mp2_svc_setup.c b/plat/st/stm32mp2/services/stm32mp2_svc_setup.c
+index 574f0404b0..08fe1630c1 100644
+--- a/plat/st/stm32mp2/services/stm32mp2_svc_setup.c
++++ b/plat/st/stm32mp2/services/stm32mp2_svc_setup.c
+@@ -14,6 +14,8 @@
+ #include <stm32mp_svc_setup.h>
+ #include <stm32mp2_smc.h>
+ 
++#include "stgen_svc.h"
++
+ /*
+  * Platform-level Standard Service SIP SMC handler. This handler will dispatch
+  * the SMC to the correct feature handler.
+@@ -28,6 +30,14 @@ void plat_svc_smc_handler(uint32_t smc_fid, u_register_t x1,
+ 	case STM32_SIP_SVC_CALL_COUNT:
+ 		*ret1 = STM32_COMMON_SIP_NUM_CALLS;
+ 		break;
++	case STM32_SIP_SMC_STGEN_SET_RATE:
++		if (!is_caller_secure(flags)) {
++			*ret1 = STM32_SMC_FAILED;
++			break;
++		}
++
++		*ret1 = stgen_svc_handler();
++		break;
+ 	default:
+ 		WARN("Unimplemented STM32MP2 Service Call: 0x%x\n", smc_fid);
+ 		*ret1 = STM32_SMC_NOT_SUPPORTED;
+-- 
+2.53.0
+

@@ -1,0 +1,138 @@
+From 9a9a9955d3b7ed674485baf817175ae9a8b6594c Mon Sep 17 00:00:00 2001
+From: David Vincze <david.vincze@arm.com>
+Date: Thu, 7 Sep 2023 15:48:25 +0200
+Subject: [PATCH 842/954] feat(rss): adjust parameter packing to match TF-M
+ changes
+
+Adjust the parameter packing scheme in RSS communication
+to align with changes made in TF-M: 3be6c395 [1]
+
+[1]: https://git.trustedfirmware.org/TF-M/trusted-firmware-m.git/commit/?id=3be6c3954b94f000cdcf7575bd4c18f57b3492f8
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git fbcd593b9f48a0e1d2456c54d186ed5600e3f6e2 feat(rss): adjust parameter packing to match TF-M changes]
+Change-Id: Ief38f96ab991d1125b37adfced5ffafc39e754a0
+Signed-off-by: David Vincze <david.vincze@arm.com>
+(cherry picked from commit 5abcc83991770a2fdbcb57dfc01000c6354da915)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443834
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/arm/rss/rss_comms_protocol_common.h   | 35 +++++++++++++++++++
+ drivers/arm/rss/rss_comms_protocol_embed.c    | 15 ++------
+ .../rss/rss_comms_protocol_pointer_access.c   | 15 ++------
+ 3 files changed, 39 insertions(+), 26 deletions(-)
+ create mode 100644 drivers/arm/rss/rss_comms_protocol_common.h
+
+diff --git a/drivers/arm/rss/rss_comms_protocol_common.h b/drivers/arm/rss/rss_comms_protocol_common.h
+new file mode 100644
+index 0000000000..177d6363cc
+--- /dev/null
++++ b/drivers/arm/rss/rss_comms_protocol_common.h
+@@ -0,0 +1,35 @@
++/*
++ * Copyright (c) 2024, Arm Limited. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ *
++ */
++
++/*
++ * Packing scheme of the control parameter
++ *
++ *  31           30-28   27    26-24  23-20   19     18-16   15-0
++ * +------------+-----+------+-------+-----+-------+-------+------+
++ * |            |     |      | invec |     |       | outvec| type |
++ * | Res        | Res | Res  | number| Res | Res   | number|      |
++ * +------------+-----+------+-------+-----+-------+-------+------+
++ *
++ * Res: Reserved.
++ */
++
++#ifndef RSS_COMMS_PROTOCOL_COMMON
++#define RSS_COMMS_PROTOCOL_COMMON
++
++#define TYPE_OFFSET	(0U)
++#define TYPE_MASK	(0xFFFFUL << TYPE_OFFSET)
++#define IN_LEN_OFFSET	(24U)
++#define IN_LEN_MASK	(0x7UL << IN_LEN_OFFSET)
++#define OUT_LEN_OFFSET	(16U)
++#define OUT_LEN_MASK	(0x7UL << OUT_LEN_OFFSET)
++
++#define PARAM_PACK(type, in_len, out_len)			   \
++	(((((uint32_t)(type)) << TYPE_OFFSET) & TYPE_MASK)	 | \
++	 ((((uint32_t)(in_len)) << IN_LEN_OFFSET) & IN_LEN_MASK) | \
++	 ((((uint32_t)(out_len)) << OUT_LEN_OFFSET) & OUT_LEN_MASK))
++
++#endif /* RSS_COMMS_PROTOCOL_COMMON */
+diff --git a/drivers/arm/rss/rss_comms_protocol_embed.c b/drivers/arm/rss/rss_comms_protocol_embed.c
+index c453258f23..05628ccdd3 100644
+--- a/drivers/arm/rss/rss_comms_protocol_embed.c
++++ b/drivers/arm/rss/rss_comms_protocol_embed.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022-2023, Arm Limited. All rights reserved.
++ * Copyright (c) 2022-2024, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  *
+@@ -9,20 +9,9 @@
+ #include <string.h>
+ 
+ #include <common/debug.h>
++#include "rss_comms_protocol_common.h"
+ #include "rss_comms_protocol_embed.h"
+ 
+-#define TYPE_OFFSET	(16U)
+-#define TYPE_MASK	(0xFFFFUL << TYPE_OFFSET)
+-#define IN_LEN_OFFSET	(8U)
+-#define IN_LEN_MASK	(0xFFUL << IN_LEN_OFFSET)
+-#define OUT_LEN_OFFSET	(0U)
+-#define OUT_LEN_MASK	(0xFFUL << OUT_LEN_OFFSET)
+-
+-#define PARAM_PACK(type, in_len, out_len)			  \
+-	(((((uint32_t)type) << TYPE_OFFSET) & TYPE_MASK)	| \
+-	 ((((uint32_t)in_len) << IN_LEN_OFFSET) & IN_LEN_MASK)	| \
+-	 ((((uint32_t)out_len) << OUT_LEN_OFFSET) & OUT_LEN_MASK))
+-
+ psa_status_t rss_protocol_embed_serialize_msg(psa_handle_t handle,
+ 					      int16_t type,
+ 					      const psa_invec *in_vec,
+diff --git a/drivers/arm/rss/rss_comms_protocol_pointer_access.c b/drivers/arm/rss/rss_comms_protocol_pointer_access.c
+index 5007b9defe..3a10a98435 100644
+--- a/drivers/arm/rss/rss_comms_protocol_pointer_access.c
++++ b/drivers/arm/rss/rss_comms_protocol_pointer_access.c
+@@ -1,25 +1,14 @@
+ /*
+- * Copyright (c) 2022, Arm Limited. All rights reserved.
++ * Copyright (c) 2022-2024, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  *
+  */
+ #include <assert.h>
+ 
++#include "rss_comms_protocol_common.h"
+ #include "rss_comms_protocol_pointer_access.h"
+ 
+-#define TYPE_OFFSET	(16U)
+-#define TYPE_MASK	(0xFFFFUL << TYPE_OFFSET)
+-#define IN_LEN_OFFSET	(8U)
+-#define IN_LEN_MASK	(0xFFUL << IN_LEN_OFFSET)
+-#define OUT_LEN_OFFSET	(0U)
+-#define OUT_LEN_MASK	(0xFFUL << OUT_LEN_OFFSET)
+-
+-#define PARAM_PACK(type, in_len, out_len)			  \
+-	(((((uint32_t)type) << TYPE_OFFSET) & TYPE_MASK)	| \
+-	 ((((uint32_t)in_len) << IN_LEN_OFFSET) & IN_LEN_MASK)	| \
+-	 ((((uint32_t)out_len) << OUT_LEN_OFFSET) & OUT_LEN_MASK))
+-
+ psa_status_t rss_protocol_pointer_access_serialize_msg(psa_handle_t handle,
+ 						       int16_t type,
+ 						       const psa_invec *in_vec,
+-- 
+2.53.0
+

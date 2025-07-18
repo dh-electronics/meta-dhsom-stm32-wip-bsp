@@ -1,0 +1,37 @@
+From 0f98b61993e28a9b5bce74788938ee05213944dc Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Fri, 23 Jul 2021 16:16:10 +0200
+Subject: [PATCH 181/954] fix(st-ddr): phy: Set DfiMode in LPDDR4
+
+As confirmed by IP provider, DfiMode has to be hard-coded to 0x5 for
+LPDDR4 type.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4eb51e053d2351a0e4542ae7a1f648326dcd655d fix(st-ddr): phy: Set DfiMode in LPDDR4]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Ia8bed472804d4d55d39d6520741dbc21c4af2c75
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/259468
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c   | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
+index 34fa094e93..9e87a49d8f 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
+@@ -619,6 +619,10 @@ static void dfimode_program(void)
+ 		dfimode = 0x1U; /* DFI1 does not physically exists */
+ 	}
+ 
++#if STM32MP_LPDDR4_TYPE
++	dfimode = 0x5U;
++#endif
++
+ 	mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (TMASTER | CSR_DFIMODE_ADDR)), dfimode);
+ }
+ 
+-- 
+2.53.0
+

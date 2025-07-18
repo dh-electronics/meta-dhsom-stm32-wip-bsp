@@ -1,0 +1,240 @@
+From 6d4f6cca4c54e5b35a109f4c1952e3f9667a655e Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 11 Jan 2021 15:57:31 +0100
+Subject: [PATCH 113/954] feat(stm32mp2): enable RISAF driver
+
+Enabled as BL2 sources. Add driver-related platform services.
+Add RISAF base addresses and key size in platform definitions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 58d2280394bc8f99e56876964e209c04201bf87c feat(stm32mp2): enable RISAF driver]
+Change-Id: Ib3faaffea12761ab4fc186ebc98d13fa8f0c3342
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c           |  4 ++
+ plat/st/stm32mp2/include/stm32mp2_private.h | 15 +++++
+ plat/st/stm32mp2/platform.mk                |  3 +
+ plat/st/stm32mp2/stm32mp2_def.h             | 54 +++++++++++++++++-
+ plat/st/stm32mp2/stm32mp2_private.c         | 61 +++++++++++++++++++++
+ 5 files changed, 136 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 767607844f..d14f6e706e 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -139,6 +139,10 @@ void bl2_platform_setup(void)
+ {
+ 	int ret;
+ 
++	if (stm32mp2_risaf_init() < 0) {
++		panic();
++	}
++
+ 	/* Map DDR for binary load, now with cacheable attribute */
+ 	ret = mmap_add_dynamic_region(STM32MP_DDR_BASE, STM32MP_DDR_BASE,
+ 				      STM32MP_DDR_MAX_SIZE, MT_MEMORY | MT_RW | MT_SECURE);
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index ffeec43933..4c9eae0f08 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -15,4 +15,19 @@ void stm32mp2_security_setup(void);
+ uint32_t stm32mp2_syscfg_get_chip_version(void);
+ uint32_t stm32mp2_syscfg_get_chip_dev_id(void);
+ 
++/* Get RISAF platform instance ID from peripheral IO memory base address */
++int stm32_risaf_get_instance(uintptr_t base);
++
++/* Get RISAF peripheral IO memory base address from platform instance ID */
++uintptr_t stm32_risaf_get_base(int instance);
++
++/* Get RISAF maximum number of regions from platform instance ID */
++int stm32_risaf_get_max_region(int instance);
++
++/* Get RISAF memory base address from platform instance ID */
++uintptr_t stm32_risaf_get_memory_base(int instance);
++
++/* Get RISAF memory size in bytes from platform instance ID */
++size_t stm32_risaf_get_memory_size(int instance);
++
+ #endif /* STM32MP2_PRIVATE_H */
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 50d9f7cb7b..6fff25d024 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -101,6 +101,9 @@ BL2_SOURCES			+=	plat/st/stm32mp2/plat_bl2_mem_params_desc.c		\
+ 
+ BL2_SOURCES			+=	plat/st/stm32mp2/bl2_plat_setup.c
+ 
++BL2_SOURCES		+=	drivers/st/rif/stm32mp2_risaf.c
++
++
+ ifneq ($(filter 1,${STM32MP_EMMC} ${STM32MP_SDMMC}),)
+ BL2_SOURCES			+=	drivers/st/mmc/stm32_sdmmc2.c
+ endif
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 75214ee54e..962bae4d9e 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -11,6 +11,7 @@
+ #ifndef __ASSEMBLER__
+ #include <drivers/st/bsec.h>
+ #include <drivers/st/stm32mp2_clk.h>
++#include <drivers/st/stm32mp2_risaf.h>
+ #endif
+ #include <drivers/st/stm32mp2_pwr.h>
+ #include <drivers/st/stm32mp25_rcc.h>
+@@ -230,7 +231,8 @@ enum ddr_type {
+ /*******************************************************************************
+  * STM32MP2 OSPI
+  ******************************************************************************/
+-/* OSPI 1 & 2 memory map area size */
++/* OSPI 1 & 2 memory map area */
++#define STM32MP_OSPI_MM_BASE			U(0x60000000)
+ #define STM32MP_OSPI_MM_SIZE			U(0x10000000)
+ 
+ /*******************************************************************************
+@@ -357,6 +359,54 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ #define STGEN_BASE				U(0x48080000)
+ #define SYSCFG_BASE				U(0x44230000)
+ 
++/*******************************************************************************
++ * STM32MP RIF
++ ******************************************************************************/
++#define RISAB1_BASE				U(0x420F0000)
++#define RISAB2_BASE				U(0x42100000)
++#define RISAB5_BASE				U(0x42130000)
++
++#define RISAF1_INST				0
++#define RISAF2_INST				1
++#define RISAF4_INST				3
++#define RISAF5_INST				4
++#define RISAF_MAX_INSTANCE			5
++
++#define RISAF2_BASE				U(0x420B0000)
++#define RISAF4_BASE				U(0x420D0000)
++
++#ifdef RISAF1_BASE
++#define RISAF1_MAX_REGION			4
++#else
++#define RISAF1_MAX_REGION			0
++#endif
++#ifdef RISAF2_BASE
++#define RISAF2_MAX_REGION			4
++#else
++#define RISAF2_MAX_REGION			0
++#endif
++#ifdef RISAF4_BASE
++/* Consider only encrypted region maximum number, to save memory consumption */
++#define RISAF4_MAX_REGION			4
++#else
++#define RISAF4_MAX_REGION			0
++#endif
++#ifdef RISAF5_BASE
++#define RISAF5_MAX_REGION			2
++#else
++#define RISAF5_MAX_REGION			0
++#endif
++#define RISAF_MAX_REGION			(RISAF1_MAX_REGION + RISAF2_MAX_REGION + \
++						 RISAF4_MAX_REGION + RISAF5_MAX_REGION)
++
++#define RISAF_KEY_SIZE_IN_BYTES			RISAF_ENCRYPTION_KEY_SIZE_IN_BYTES
++#define RISAF_SEED_SIZE_IN_BYTES		U(4)
++
++/*******************************************************************************
++ * STM32MP CA35SSC
++ ******************************************************************************/
++#define A35SSC_BASE			U(0x48800000)
++
+ /*******************************************************************************
+  * REGULATORS
+  ******************************************************************************/
+@@ -366,6 +416,8 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ #define PLAT_NB_FIXED_REGUS			U(2)
+ /* No GPIO regu */
+ #define PLAT_NB_GPIO_REGUS			U(0)
++/* Number of low power modes defined in the device tree */
++#define PLAT_NB_SUSPEND_MODES		7
+ 
+ /*******************************************************************************
+  * Device Tree defines
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index b37da08710..ba69d686aa 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <assert.h>
++#include <errno.h>
+ 
+ #include <arch_helpers.h>
+ #include <drivers/arm/gicv2.h>
+@@ -279,6 +280,66 @@ bool stm32mp_skip_boot_device_after_standby(void)
+ 	return false;
+ }
+ 
++int stm32_risaf_get_instance(uintptr_t base)
++{
++	switch (base) {
++	case RISAF2_BASE:
++		return (int)RISAF2_INST;
++	case RISAF4_BASE:
++		return (int)RISAF4_INST;
++	default:
++		return -ENODEV;
++	}
++}
++
++uintptr_t stm32_risaf_get_base(int instance)
++{
++	switch (instance) {
++	case RISAF2_INST:
++		return (uintptr_t)RISAF2_BASE;
++	case RISAF4_INST:
++		return (uintptr_t)RISAF4_BASE;
++	default:
++		return 0U;
++	}
++}
++
++int stm32_risaf_get_max_region(int instance)
++{
++	switch (instance) {
++	case RISAF2_INST:
++		return (int)RISAF2_MAX_REGION;
++	case RISAF4_INST:
++		return (int)RISAF4_MAX_REGION;
++	default:
++		return 0;
++	}
++}
++
++uintptr_t stm32_risaf_get_memory_base(int instance)
++{
++	switch (instance) {
++	case RISAF2_INST:
++		return (uintptr_t)STM32MP_OSPI_MM_BASE;
++	case RISAF4_INST:
++		return (uintptr_t)STM32MP_DDR_BASE;
++	default:
++		return 0U;
++	}
++}
++
++size_t stm32_risaf_get_memory_size(int instance)
++{
++	switch (instance) {
++	case RISAF2_INST:
++		return STM32MP_OSPI_MM_SIZE;
++	case RISAF4_INST:
++		return dt_get_ddr_size();
++	default:
++		return 0U;
++	}
++}
++
+ uintptr_t stm32_get_bkpr_boot_mode_addr(void)
+ {
+ 	return tamp_bkpr(96);
+-- 
+2.53.0
+

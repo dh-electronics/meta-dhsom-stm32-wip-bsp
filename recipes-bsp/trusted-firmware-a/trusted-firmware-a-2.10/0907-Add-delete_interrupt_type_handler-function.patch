@@ -1,0 +1,79 @@
+From 19b5e8c42d6605180ae5601754b205abf5d7e05f Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 9 Jul 2025 15:09:05 +0200
+Subject: [PATCH 907/954] Add delete_interrupt_type_handler function
+
+Add a new function delete_interrupt_type_handler() to allow
+to clear handle in SPD, as for example in OP-TEE SPD
+after power off request, as the interruption are no more
+supported.
+
+This patch allow BL31 to register a new handler when SPD is
+stopped for internal usage in power down sequence.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 399c2a4ccb8e7e1ba5c44e618614a0d31fcfbfdd Add delete_interrupt_type_handler function]
+Change-Id: I02521e10ff8f2eecce6ea2e15b42075c3a9d5eba
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/473801
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ bl31/interrupt_mgmt.c           | 13 +++++++++++++
+ include/bl31/interrupt_mgmt.h   |  1 +
+ services/spd/opteed/opteed_pm.c |  3 +++
+ 3 files changed, 17 insertions(+)
+
+diff --git a/bl31/interrupt_mgmt.c b/bl31/interrupt_mgmt.c
+index 68c7f10add..87a39ba39f 100644
+--- a/bl31/interrupt_mgmt.c
++++ b/bl31/interrupt_mgmt.c
+@@ -212,6 +212,19 @@ int32_t register_interrupt_type_handler(uint32_t type,
+ 	return 0;
+ }
+ 
++/*******************************************************************************
++ * This function delete a handler for the 'type' of interrupt specified.
++ ******************************************************************************/
++int32_t delete_interrupt_type_handler(uint32_t type)
++{
++	assert(intr_type_descs[type].handler != NULL);
++
++	/* Save the handler */
++	intr_type_descs[type].handler = NULL;
++
++	return 0;
++}
++
+ /*******************************************************************************
+  * This function is called when an interrupt is generated and returns the
+  * handler for the interrupt type (if registered). It returns NULL if the
+diff --git a/include/bl31/interrupt_mgmt.h b/include/bl31/interrupt_mgmt.h
+index 21af112a04..beea070dcb 100644
+--- a/include/bl31/interrupt_mgmt.h
++++ b/include/bl31/interrupt_mgmt.h
+@@ -147,6 +147,7 @@ int32_t set_routing_model(uint32_t type, uint32_t flags);
+ int32_t register_interrupt_type_handler(uint32_t type,
+ 					interrupt_type_handler_t handler,
+ 					uint32_t flags);
++int32_t delete_interrupt_type_handler(uint32_t type);
+ interrupt_type_handler_t get_interrupt_type_handler(uint32_t type);
+ int disable_intr_rm_local(uint32_t type, uint32_t security_state);
+ int enable_intr_rm_local(uint32_t type, uint32_t security_state);
+diff --git a/services/spd/opteed/opteed_pm.c b/services/spd/opteed/opteed_pm.c
+index fa724a110a..9a4f0366b9 100644
+--- a/services/spd/opteed/opteed_pm.c
++++ b/services/spd/opteed/opteed_pm.c
+@@ -203,6 +203,9 @@ static void opteed_system_off(void)
+ 	/* Enter OPTEE. We do not care about the return value because we
+ 	 * must continue the shutdown anyway */
+ 	opteed_synchronous_sp_entry(optee_ctx);
++
++	/* Clear the registered interrupt handler */
++	delete_interrupt_type_handler(INTR_TYPE_S_EL1);
+ }
+ 
+ /*******************************************************************************
+-- 
+2.53.0
+

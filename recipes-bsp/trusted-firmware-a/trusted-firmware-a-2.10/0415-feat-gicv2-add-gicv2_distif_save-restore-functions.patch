@@ -1,0 +1,191 @@
+From 841156638064c498237d53f421f03c74fff00c2c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 16 Nov 2023 13:31:36 +0100
+Subject: [PATCH 415/954] feat(gicv2): add gicv2_distif_save / restore
+ functions
+
+Add helper gicv2 function to save & restore the GIC dispatcher register
+context for SPI on resume from system suspend.
+
+This code in based on existing gicv3 functions gicv3_distif_save()
+and gicv3_distif_save().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 38dde82e615ab59d13e7245388dd67d5c18a8df2 feat(gicv2): add gicv2_distif_save / restore functions]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ic43cb2f5faf6d13b8f6f008e43a76c2ae540f866
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/340393
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/arm/gic/v2/gicv2.mk     | 10 +++-
+ drivers/arm/gic/v2/gicv2_main.c | 91 +++++++++++++++++++++++++++++++++
+ include/drivers/arm/gicv2.h     | 29 +++++++++++
+ 3 files changed, 129 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/arm/gic/v2/gicv2.mk b/drivers/arm/gic/v2/gicv2.mk
+index 49996bb512..454bbde5e2 100644
+--- a/drivers/arm/gic/v2/gicv2.mk
++++ b/drivers/arm/gic/v2/gicv2.mk
+@@ -7,9 +7,17 @@
+ # No support for extended PPI and SPI range
+ GIC_EXT_INTID	:=	0
+ 
++# Use default number of interrupt for GICV2 context
++GICV2_INTR_NUM	?=	0
++
+ GICV2_SOURCES	+=	drivers/arm/gic/v2/gicv2_main.c		\
+ 			drivers/arm/gic/v2/gicv2_helpers.c	\
+ 			drivers/arm/gic/v2/gicdv2_helpers.c
+ 
+ # Set GICv2 build option
+-$(eval $(call add_define,GIC_EXT_INTID))
+\ No newline at end of file
++$(eval $(call add_defines, \
++	GIC_EXT_INTID \
++	GICV2_INTR_NUM \
++))
++
++$(eval $(call assert_numeric,GICV2_INTR_NUM))
+diff --git a/drivers/arm/gic/v2/gicv2_main.c b/drivers/arm/gic/v2/gicv2_main.c
+index 696bede3c5..75933c7bba 100644
+--- a/drivers/arm/gic/v2/gicv2_main.c
++++ b/drivers/arm/gic/v2/gicv2_main.c
+@@ -554,3 +554,94 @@ void gicv2_interrupt_set_cfg(unsigned int id, unsigned int cfg)
+ {
+ 	gicd_set_icfgr(driver_data->gicd_base, id, cfg);
+ }
++
++/*******************************************************************************
++ * Helper function to get the maximum INTID
++ ******************************************************************************/
++static unsigned int get_nb_ints(uintptr_t gicd_base)
++{
++	unsigned int num_ints;
++
++	num_ints = gicd_read_typer(gicd_base);
++	num_ints &= TYPER_IT_LINES_NO_MASK;
++	num_ints = (num_ints + 1U) << 5U;
++
++	return num_ints;
++}
++
++/* Helper macros to save and restore GICD registers to and from the context */
++#define RESTORE_GICD_REGS(base, ctx, intr_num, reg, REG)		\
++	do {								\
++		for (unsigned int int_id = MIN_SPI_ID; int_id < (intr_num);\
++				int_id += (1U << REG##R_SHIFT)) {	\
++			gicd_write_##reg((base), int_id,		\
++				(ctx)->gicd_##reg[(int_id - MIN_SPI_ID) >> \
++							REG##R_SHIFT]);	\
++		}							\
++	} while (false)
++
++#define SAVE_GICD_REGS(base, ctx, intr_num, reg, REG)			\
++	do {								\
++		for (unsigned int int_id = MIN_SPI_ID; int_id < (intr_num);\
++				int_id += (1U << REG##R_SHIFT)) {	\
++			(ctx)->gicd_##reg[(int_id - MIN_SPI_ID) >>	\
++			REG##R_SHIFT] = gicd_read_##reg((base), int_id); \
++		}							\
++	} while (false)
++
++/*****************************************************************************
++ * Function to save the GIC Distributor register context. This function
++ * must be invoked after CPU interface disable.
++ *****************************************************************************/
++void gicv2_distif_save(gicv2_dist_ctx_t * const dist_ctx)
++{
++	uintptr_t gicd_base;
++	unsigned int num_ints;
++
++	assert(driver_data != NULL);
++	assert(driver_data->gicd_base != 0U);
++
++	gicd_base = driver_data->gicd_base;
++	num_ints = get_nb_ints(gicd_base);
++
++	/* Save the GICD_CTLR */
++	dist_ctx->gicd_ctlr = gicd_read_ctlr(gicd_base);
++
++	/* Save  GICD configuration for ALL SPI */
++	SAVE_GICD_REGS(gicd_base, dist_ctx, num_ints, igroupr, IGROUP);
++	SAVE_GICD_REGS(gicd_base, dist_ctx, num_ints, isenabler, ISENABLE);
++	SAVE_GICD_REGS(gicd_base, dist_ctx, num_ints, ispendr, ISPEND);
++	SAVE_GICD_REGS(gicd_base, dist_ctx, num_ints, isactiver, ISACTIVE);
++	SAVE_GICD_REGS(gicd_base, dist_ctx, num_ints, ipriorityr, IPRIORITY);
++	SAVE_GICD_REGS(gicd_base, dist_ctx, num_ints, itargetsr, ITARGETS);
++	SAVE_GICD_REGS(gicd_base, dist_ctx, num_ints, icfgr, ICFG);
++}
++
++/*****************************************************************************
++ * Function to restore the GIC Distributor register context.
++ * This function must be invoked prior to Redistributor restore and CPU
++ * interface enable.
++ *****************************************************************************/
++void gicv2_distif_restore(const gicv2_dist_ctx_t * const dist_ctx)
++{
++	uintptr_t gicd_base;
++	unsigned int num_ints;
++
++	assert(driver_data != NULL);
++	assert(driver_data->gicd_base != 0U);
++
++	gicd_base = driver_data->gicd_base;
++	num_ints = get_nb_ints(gicd_base);
++
++	/* Restore GICD configuration for ALL SPI */
++	RESTORE_GICD_REGS(gicd_base, dist_ctx, num_ints, igroupr, IGROUP);
++	RESTORE_GICD_REGS(gicd_base, dist_ctx, num_ints, isenabler, ISENABLE);
++	RESTORE_GICD_REGS(gicd_base, dist_ctx, num_ints, ispendr, ISPEND);
++	RESTORE_GICD_REGS(gicd_base, dist_ctx, num_ints, isactiver, ISACTIVE);
++	RESTORE_GICD_REGS(gicd_base, dist_ctx, num_ints, ipriorityr, IPRIORITY);
++	RESTORE_GICD_REGS(gicd_base, dist_ctx, num_ints, itargetsr, ITARGETS);
++	RESTORE_GICD_REGS(gicd_base, dist_ctx, num_ints, icfgr, ICFG);
++
++	/* Restore the GICD_CTLR */
++	gicd_write_ctlr(gicd_base, dist_ctx->gicd_ctlr);
++}
+diff --git a/include/drivers/arm/gicv2.h b/include/drivers/arm/gicv2.h
+index bebd9cefff..b7c4882409 100644
+--- a/include/drivers/arm/gicv2.h
++++ b/include/drivers/arm/gicv2.h
+@@ -196,5 +196,34 @@ void gicv2_clear_interrupt_pending(unsigned int id);
+ unsigned int gicv2_set_pmr(unsigned int mask);
+ void gicv2_interrupt_set_cfg(unsigned int id, unsigned int cfg);
+ 
++/* Use GICV2_INTR_NUM to reduce the size of the GICV2 context, for value 0 use default */
++#if GICV2_INTR_NUM == 0
++#define TOTAL_SHARED_INTR_NUM TOTAL_SPI_INTR_NUM
++#else
++#define TOTAL_SHARED_INTR_NUM (GICV2_INTR_NUM - MIN_SPI_ID)
++#endif
++
++/*
++ * This macro returns the total number of GICD registers corresponding to
++ * the register name
++ */
++#define GICD_NUM_REGS(reg_name)	\
++	DIV_ROUND_UP_2EVAL(TOTAL_SHARED_INTR_NUM, (1U << reg_name##_SHIFT))
++
++typedef struct gicv2_dist_ctx {
++	/* 32 bits registers */
++	uint32_t gicd_ctlr;
++	uint32_t gicd_igroupr[GICD_NUM_REGS(IGROUPR)];
++	uint32_t gicd_isenabler[GICD_NUM_REGS(ISENABLER)];
++	uint32_t gicd_ispendr[GICD_NUM_REGS(ISPENDR)];
++	uint32_t gicd_isactiver[GICD_NUM_REGS(ISACTIVER)];
++	uint32_t gicd_ipriorityr[GICD_NUM_REGS(IPRIORITYR)];
++	uint32_t gicd_itargetsr[GICD_NUM_REGS(ITARGETSR)];
++	uint32_t gicd_icfgr[GICD_NUM_REGS(ICFGR)];
++} gicv2_dist_ctx_t;
++
++void gicv2_distif_restore(const gicv2_dist_ctx_t * const dist_ctx);
++void gicv2_distif_save(gicv2_dist_ctx_t * const dist_ctx);
++
+ #endif /* __ASSEMBLER__ */
+ #endif /* GICV2_H */
+-- 
+2.53.0
+

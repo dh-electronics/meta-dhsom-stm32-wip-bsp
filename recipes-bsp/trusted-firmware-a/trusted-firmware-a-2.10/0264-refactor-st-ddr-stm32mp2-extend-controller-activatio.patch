@@ -1,0 +1,234 @@
+From b61659605b6b407f4247903a2386f5d24e244f4c Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 24 Jan 2023 11:39:14 +0100
+Subject: [PATCH 264/954] refactor(st-ddr): stm32mp2: extend controller
+ activation capabilities
+
+Controller activation will be done in a new way (DFI frequency = 0x1F)
+in self-refresh transitions in order to put the PHY in LP3 mode.
+
+Add a boolean entry parameter to determine the way and move this
+function (with ddr_ prefix) in helpers file. wait_dfi_init_complete()
+follows in this move.
+
+Implement qd1_qd3_update_conditions to fit with DDRCTRL_DFIMISC register
+requirements (especially DFI_FREQUENCY field).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 177cfecc84e5ffc2256a9e6ed2dd712683adbc10 refactor(st-ddr): stm32mp2: extend controller activation capabilities]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I3a54dca177950c3cf2fff013d6fad8ab72b126a9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/286969
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr.c             | 42 +-------------
+ drivers/st/ddr/stm32mp2_ddr_helpers.c     | 67 ++++++++++++++++++++++-
+ include/drivers/st/stm32mp2_ddr_helpers.h |  5 +-
+ include/drivers/st/stm32mp_ddrctrl_regs.h |  4 +-
+ 4 files changed, 75 insertions(+), 43 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
+index 321d07f4eb..4b64ea6d2d 100644
+--- a/drivers/st/ddr/stm32mp2_ddr.c
++++ b/drivers/st/ddr/stm32mp2_ddr.c
+@@ -10,6 +10,7 @@
+ #include <drivers/delay_timer.h>
+ #include <drivers/st/stm32mp_ddr.h>
+ #include <drivers/st/stm32mp2_ddr.h>
++#include <drivers/st/stm32mp2_ddr_helpers.h>
+ #include <drivers/st/stm32mp2_ddr_regs.h>
+ #include <lib/mmio.h>
+ 
+@@ -320,45 +321,6 @@ static void restore_refresh(struct stm32mp_ddrctl *ctl, uint32_t rfshctl3, uint3
+ 	set_dfi_init_complete_en(ctl, true);
+ }
+ 
+-static void wait_dfi_init_complete(struct stm32mp_ddrctl *ctl)
+-{
+-	uint64_t timeout;
+-	uint32_t dfistat;
+-
+-	timeout = timeout_init_us(DDR_TIMEOUT_US_1S);
+-	do {
+-		dfistat = mmio_read_32((uintptr_t)&ctl->dfistat);
+-		VERBOSE("[0x%lx] dfistat = 0x%x ", (uintptr_t)&ctl->dfistat, dfistat);
+-		if (timeout_elapsed(timeout)) {
+-			panic();
+-		}
+-	} while ((dfistat & DDRCTRL_DFISTAT_DFI_INIT_COMPLETE) == 0U);
+-
+-	VERBOSE("[0x%lx] dfistat = 0x%x\n", (uintptr_t)&ctl->dfistat, dfistat);
+-}
+-
+-static void activate_controller(struct stm32mp_ddrctl *ctl)
+-{
+-	stm32mp_ddr_set_qd3_update_conditions(ctl);
+-
+-	mmio_setbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_INIT_START);
+-
+-	stm32mp_ddr_unset_qd3_update_conditions(ctl);
+-
+-	wait_dfi_init_complete(ctl);
+-
+-	udelay(DDR_DELAY_1US);
+-
+-	stm32mp_ddr_set_qd3_update_conditions(ctl);
+-
+-	mmio_clrsetbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_INIT_START,
+-			   DDRCTRL_DFIMISC_DFI_INIT_COMPLETE_EN);
+-
+-	udelay(DDR_DELAY_1US);
+-
+-	stm32mp_ddr_unset_qd3_update_conditions(ctl);
+-}
+-
+ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 		       struct stm32mp_ddr_config *config)
+ {
+@@ -432,7 +394,7 @@ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 		panic();
+ 	}
+ 
+-	activate_controller(priv->ctl);
++	ddr_activate_controller(priv->ctl, false);
+ 
+ 	restore_refresh(priv->ctl, config->c_reg.rfshctl3, config->c_reg.pwrctl);
+ 
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index 11d7e752d1..f2f99fb069 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2021-2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2021-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -28,6 +28,71 @@ uintptr_t stm32_ddrdbg_get_base(void)
+ 	return 0U;
+ }
+ 
++static void set_qd1_qd3_update_conditions(struct stm32mp_ddrctl *ctl)
++{
++	mmio_setbits_32((uintptr_t)&ctl->dbg1, DDRCTRL_DBG1_DIS_DQ);
++
++	stm32mp_ddr_set_qd3_update_conditions(ctl);
++}
++
++static void unset_qd1_qd3_update_conditions(struct stm32mp_ddrctl *ctl)
++{
++	stm32mp_ddr_unset_qd3_update_conditions(ctl);
++
++	mmio_clrbits_32((uintptr_t)&ctl->dbg1, DDRCTRL_DBG1_DIS_DQ);
++}
++
++static void wait_dfi_init_complete(struct stm32mp_ddrctl *ctl)
++{
++	uint64_t timeout;
++	uint32_t dfistat;
++
++	timeout = timeout_init_us(DDR_TIMEOUT_US_1S);
++	do {
++		dfistat = mmio_read_32((uintptr_t)&ctl->dfistat);
++		VERBOSE("[0x%lx] dfistat = 0x%x ", (uintptr_t)&ctl->dfistat, dfistat);
++
++		if (timeout_elapsed(timeout)) {
++			panic();
++		}
++	} while ((dfistat & DDRCTRL_DFISTAT_DFI_INIT_COMPLETE) == 0U);
++
++	VERBOSE("[0x%lx] dfistat = 0x%x\n", (uintptr_t)&ctl->dfistat, dfistat);
++}
++
++void ddr_activate_controller(struct stm32mp_ddrctl *ctl, bool sr_entry)
++{
++	/*
++	 * Manage quasi-dynamic registers modification
++	 * dfimisc.dfi_frequency : Group 1
++	 * dfimisc.dfi_init_complete_en and dfimisc.dfi_init_start : Group 3
++	 */
++	set_qd1_qd3_update_conditions(ctl);
++
++	if (sr_entry) {
++		mmio_setbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_FREQUENCY);
++	} else {
++		mmio_clrbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_FREQUENCY);
++	}
++
++	mmio_setbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_INIT_START);
++	mmio_clrbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_INIT_START);
++
++	wait_dfi_init_complete(ctl);
++
++	udelay(DDR_DELAY_1US);
++
++	if (sr_entry) {
++		mmio_clrbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_INIT_COMPLETE_EN);
++	} else {
++		mmio_setbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_INIT_COMPLETE_EN);
++	}
++
++	udelay(DDR_DELAY_1US);
++
++	unset_qd1_qd3_update_conditions(ctl);
++}
++
+ static int sr_loop(bool is_entry)
+ {
+ 	uint32_t read_data;
+diff --git a/include/drivers/st/stm32mp2_ddr_helpers.h b/include/drivers/st/stm32mp2_ddr_helpers.h
+index 063cc8aa44..2f667390e7 100644
+--- a/include/drivers/st/stm32mp2_ddr_helpers.h
++++ b/include/drivers/st/stm32mp2_ddr_helpers.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2021, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2021-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -10,6 +10,8 @@
+ #include <stdbool.h>
+ #include <stdint.h>
+ 
++#include <drivers/st/stm32mp2_ddr_regs.h>
++
+ enum stm32mp2_ddr_sr_mode {
+ 	DDR_SR_MODE_INVALID = 0,
+ 	DDR_SSR_MODE,
+@@ -17,6 +19,7 @@ enum stm32mp2_ddr_sr_mode {
+ 	DDR_ASR_MODE,
+ };
+ 
++void ddr_activate_controller(struct stm32mp_ddrctl *ctl, bool sr_entry);
+ int ddr_sw_self_refresh_exit(void);
+ uint32_t ddr_get_io_calibration_val(void);
+ int ddr_standby_sr_entry(void);
+diff --git a/include/drivers/st/stm32mp_ddrctrl_regs.h b/include/drivers/st/stm32mp_ddrctrl_regs.h
+index 20acde4beb..323505cac6 100644
+--- a/include/drivers/st/stm32mp_ddrctrl_regs.h
++++ b/include/drivers/st/stm32mp_ddrctrl_regs.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+  */
+@@ -241,9 +241,11 @@ struct stm32mp_ddrctl {
+ 
+ #define DDRCTRL_DFIMISC_DFI_INIT_COMPLETE_EN	BIT(0)
+ #define DDRCTRL_DFIMISC_DFI_INIT_START		BIT(5)
++#define DDRCTRL_DFIMISC_DFI_FREQUENCY		GENMASK(12, 8)
+ 
+ #define DDRCTRL_DFISTAT_DFI_INIT_COMPLETE	BIT(0)
+ 
++#define DDRCTRL_DBG1_DIS_DQ			BIT(0)
+ #define DDRCTRL_DBG1_DIS_HIF			BIT(1)
+ 
+ #define DDRCTRL_DBGCAM_WR_DATA_PIPELINE_EMPTY	BIT(29)
+-- 
+2.53.0
+

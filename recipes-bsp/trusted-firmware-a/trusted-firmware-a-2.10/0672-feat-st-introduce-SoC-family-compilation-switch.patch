@@ -1,0 +1,291 @@
+From 585bf02a6456c69f7708671422433067a256fadd Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 1 Aug 2024 15:45:20 +0200
+Subject: [PATCH 672/954] feat(st): introduce SoC family compilation switch
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+add STM32MP1X and STM3MP2X compilation switch to replace
+
+This will avoid to forget to modify all these files when a new SoC is
+introduced.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b13aa5290a6fd3286dc90bbf55097629a113fb8f feat(st): introduce SoC family compilation switch]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ibe607d2aa2bf6284a7ebbede8986101f1ce1f89d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/396397
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp_ddr.c            |  4 ++--
+ drivers/st/fmc/stm32_fmc2_nand.c        | 14 +++++++-------
+ drivers/st/gpio/stm32_gpio.c            |  2 +-
+ drivers/st/mmc/stm32_sdmmc2.c           |  5 ++---
+ include/drivers/st/stm32mp_ddr.h        |  2 +-
+ plat/st/common/bl2_io_storage.c         | 12 ++++++------
+ plat/st/common/include/stm32mp_common.h |  4 ++--
+ plat/st/common/stm32mp_common.c         |  8 ++++----
+ plat/st/stm32mp1/platform.mk            |  2 ++
+ plat/st/stm32mp2/platform.mk            |  2 ++
+ 10 files changed, 29 insertions(+), 26 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp_ddr.c b/drivers/st/ddr/stm32mp_ddr.c
+index f9d93e3dc2..ef1204be52 100644
+--- a/drivers/st/ddr/stm32mp_ddr.c
++++ b/drivers/st/ddr/stm32mp_ddr.c
+@@ -43,7 +43,7 @@ void stm32mp_ddr_set_reg(const struct stm32mp_ddr_priv *priv, enum stm32mp_ddr_r
+ 			ERROR("invalid parameter offset\n");
+ 			panic();
+ 		} else {
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ 			if (desc[i].qd) {
+ 				stm32mp_ddr_start_sw_done(priv->ctl);
+ 			}
+@@ -51,7 +51,7 @@ void stm32mp_ddr_set_reg(const struct stm32mp_ddr_priv *priv, enum stm32mp_ddr_r
+ 			value = *((uint32_t *)((uintptr_t)param +
+ 					       desc[i].par_offset));
+ 			mmio_write_32(ptr, value);
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ 			if (desc[i].qd) {
+ 				stm32mp_ddr_wait_sw_done_ack(priv->ctl);
+ 			}
+diff --git a/drivers/st/fmc/stm32_fmc2_nand.c b/drivers/st/fmc/stm32_fmc2_nand.c
+index 6ba68f622d..d20b4d397c 100644
+--- a/drivers/st/fmc/stm32_fmc2_nand.c
++++ b/drivers/st/fmc/stm32_fmc2_nand.c
+@@ -26,12 +26,12 @@
+ #define TIMEOUT_US_1_MS			1000U
+ 
+ /* FMC2 Compatibility */
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ #define DT_FMC2_EBI_COMPAT		"st,stm32mp1-fmc2-ebi"
+ #define DT_FMC2_NFC_COMPAT		"st,stm32mp1-fmc2-nfc"
+ #define MAX_CS				2U
+ #endif
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ #define DT_FMC2_EBI_COMPAT		"st,stm32mp25-fmc2-ebi"
+ #define DT_FMC2_NFC_COMPAT		"st,stm32mp25-fmc2-nfc"
+ #define MAX_CS				4U
+@@ -687,7 +687,7 @@ static void stm32_fmc2_write_data(struct nand_device *nand,
+ 	}
+ }
+ 
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ static int stm32_fmc2_check_rif(unsigned int resource)
+ {
+ 	uint32_t cidcfgr;
+@@ -772,10 +772,10 @@ static void stm32_fmc2_ctrl_init(void)
+ 	pcr |= FMC2_PCR_TAR(FMC2_PCR_TAR_DEFAULT);
+ 
+ 	/* Enable FMC2 controller */
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ 	mmio_setbits_32(fmc2_base() + FMC2_BCR1, FMC2_BCR1_FMC2EN);
+ #endif
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ 	if ((mmio_read_32(fmc2_base() + FMC2_SR) & FMC2_SR_ISOST) != 0U) {
+ 		/* FMC2 is disabled */
+ 		if (stm32_fmc2_check_rif(FMC2_RESOURCE_CFGR) == 0) {
+@@ -1007,7 +1007,7 @@ int stm32_fmc2_init(void)
+ 	clk_enable(stm32_fmc2.clock_id);
+ 
+ 	/* Reset IP */
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ 	if ((info.reset >= 0) &&
+ 	    (stm32_fmc2_check_rif(FMC2_RESOURCE_CFGR) != -EACCES)) {
+ #else
+@@ -1026,7 +1026,7 @@ int stm32_fmc2_init(void)
+ 		}
+ 	}
+ 
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ 	/* Check if FMC2 NAND controller can be used */
+ 	if (stm32_fmc2_check_rif(FMC2_RESOURCE_NAND) == 0) {
+ 		/* Secure the FMC2 NAND controller */
+diff --git a/drivers/st/gpio/stm32_gpio.c b/drivers/st/gpio/stm32_gpio.c
+index a014ab7c76..a068778461 100644
+--- a/drivers/st/gpio/stm32_gpio.c
++++ b/drivers/st/gpio/stm32_gpio.c
+@@ -284,7 +284,7 @@ static void set_gpio(uint32_t bank, uint32_t pin, uint32_t mode, uint32_t type,
+ 
+ 	clk_disable(clock);
+ 
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ 	if (status == DT_SECURE) {
+ 		stm32mp_register_secure_gpio(bank, pin);
+ #if !IMAGE_BL2
+diff --git a/drivers/st/mmc/stm32_sdmmc2.c b/drivers/st/mmc/stm32_sdmmc2.c
+index dfb501a38d..917b810c54 100644
+--- a/drivers/st/mmc/stm32_sdmmc2.c
++++ b/drivers/st/mmc/stm32_sdmmc2.c
+@@ -129,10 +129,9 @@
+ #define DT_SDMMC2_COMPAT		"st,stm32-sdmmc2"
+ #endif
+ 
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ #define SDMMC_FIFO_SIZE			64U
+-#endif
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#else
+ #define SDMMC_FIFO_SIZE			1024U
+ #endif
+ 
+diff --git a/include/drivers/st/stm32mp_ddr.h b/include/drivers/st/stm32mp_ddr.h
+index 30d5c6e0a0..970ff19e84 100644
+--- a/include/drivers/st/stm32mp_ddr.h
++++ b/include/drivers/st/stm32mp_ddr.h
+@@ -28,7 +28,7 @@ enum stm32mp_ddr_reg_type {
+ struct stm32mp_ddr_reg_desc {
+ 	uint16_t offset;	/* Offset for base address */
+ 	uint8_t par_offset;	/* Offset for parameter array */
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ 	bool qd; /* quasi-dynamic register if true */
+ #endif
+ };
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 33bacbce1a..1a6395d5f3 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -30,10 +30,10 @@
+ #include <drivers/spi_nand.h>
+ #include <drivers/spi_nor.h>
+ #include <drivers/st/stm32_fmc2_nand.h>
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ #include <drivers/st/stm32_qspi.h>
+ #endif
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ #include <drivers/st/stm32_ospi.h>
+ #endif
+ #include <drivers/st/stm32_sdmmc2.h>
+@@ -323,10 +323,10 @@ static void boot_spi_nor(boot_api_context_t *boot_context)
+ {
+ 	int io_result __maybe_unused = 0;
+ 
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ 	io_result = stm32_qspi_init();
+ #endif
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ 	io_result = stm32_ospi_init();
+ #endif
+ 
+@@ -369,10 +369,10 @@ static void boot_spi_nand(boot_api_context_t *boot_context)
+ {
+ 	int io_result __maybe_unused = 0;
+ 
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ 	io_result = stm32_qspi_init();
+ #endif
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ 	io_result = stm32_ospi_init();
+ #endif
+ 	assert(io_result == 0);
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 2fd93632b6..48c3398c0e 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -25,7 +25,7 @@
+ void stm32mp_save_boot_ctx_address(uintptr_t address);
+ uintptr_t stm32mp_get_boot_ctx_address(void);
+ uint16_t stm32mp_get_boot_itf_selected(void);
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ uint32_t stm32mp_get_boot_action(void);
+ #endif
+ 
+@@ -178,7 +178,7 @@ int stm32_get_magic_number_cell(struct nvmem_cell *magic_number);
+ int stm32_get_core1_branch_address_cell(struct nvmem_cell *core1_branch_address);
+ #endif
+ 
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ int stm32_get_stop2_entrypoint_cell(struct nvmem_cell *stop2_entrypoint);
+ #endif
+ 
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 865b3ec11b..b924dc00f8 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -78,7 +78,7 @@ unsigned int plat_get_syscnt_freq2(void)
+ 
+ static uintptr_t boot_ctx_address;
+ static uint16_t boot_itf_selected;
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ static uint32_t boot_action_saved;
+ #endif
+ 
+@@ -88,7 +88,7 @@ void stm32mp_save_boot_ctx_address(uintptr_t address)
+ 
+ 	boot_ctx_address = address;
+ 	boot_itf_selected = boot_context->boot_interface_selected;
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ 	boot_action_saved = boot_context->boot_action;
+ #endif
+ }
+@@ -103,7 +103,7 @@ uint16_t stm32mp_get_boot_itf_selected(void)
+ 	return boot_itf_selected;
+ }
+ 
+-#if STM32MP13 || STM32MP15
++#ifdef STM32MP1X
+ uint32_t stm32mp_get_boot_action(void)
+ {
+ 	return boot_action_saved;
+@@ -576,7 +576,7 @@ int stm32_get_boot_mode_cell(struct nvmem_cell *boot_mode)
+ 	return 0;
+ }
+ 
+-#if STM32MP21 || STM32MP23 || STM32MP25
++#ifdef STM32MP2X
+ int stm32_get_stop2_entrypoint_cell(struct nvmem_cell *stop2_entrypoint)
+ {
+ 	static bool initialized = false;
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index ff4188f7c8..d6cc672747 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -17,6 +17,8 @@ USE_COHERENT_MEM	:=	0
+ # Default Device tree
+ DTB_FILE_NAME		?=	stm32mp157c-ev1.dtb
+ 
++TF_CFLAGS 		+=	-DSTM32MP1X
++
+ STM32MP13		?=	0
+ STM32MP15		?=	0
+ 
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 961fae338d..b7946024db 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -34,6 +34,8 @@ GICV2_INTR_NUM			:=	416
+ # Default Device tree
+ DTB_FILE_NAME			?=	stm32mp257f-ev1.dtb
+ 
++TF_CFLAGS			+=	-DSTM32MP2X
++
+ STM32MP21			?=	0
+ STM32MP23			?=	0
+ STM32MP25			?=	0
+-- 
+2.53.0
+

@@ -1,0 +1,390 @@
+From 0682a0d6365892a5d878a6eb3b6cbfa028769f0b Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 15 Dec 2023 17:41:32 +0100
+Subject: [PATCH 438/954] refactor(st-ddr): use enum in
+ ddrphy_phyinit_softsetmb
+
+Instead of using strings, and strcmp in ddrphy_phyinit_softsetmb(),
+use an enum and switch/case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2c04601836324912d18410eb72a0fa9c1a776eec refactor(st-ddr): use enum in ddrphy_phyinit_softsetmb]
+Change-Id: Ifd3224fd9316255b0f933d1d88dced86a38ff118
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/347238
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../ddr/phy/phyinit/include/ddrphy_phyinit.h  |  21 ++-
+ .../phy/phyinit/src/ddrphy_phyinit_calcmb.c   |  40 +++--
+ .../phyinit/src/ddrphy_phyinit_softsetmb.c    | 162 ++++++++++--------
+ 3 files changed, 132 insertions(+), 91 deletions(-)
+
+diff --git a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h
+index b6544ca49b..539933e058 100644
+--- a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h
++++ b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h
+@@ -11,6 +11,25 @@
+ 
+ #define DDRPHY_PHYINIT_RID 20220100
+ 
++enum message_block_field {
++	MB_FIELD_PSTATE,
++	MB_FIELD_PLLBYPASSEN,
++	MB_FIELD_DRAMFREQ,
++	MB_FIELD_DFIFREQRATIO,
++	MB_FIELD_BPZNRESVAL,
++	MB_FIELD_PHYODTIMPEDANCE,
++	MB_FIELD_PHYDRVIMPEDANCE,
++	MB_FIELD_DRAMTYPE,
++	MB_FIELD_DISABLEDDBYTE,
++	MB_FIELD_ENABLEDDQS,
++	MB_FIELD_PHYCFG,
++	MB_FIELD_X16PRESENT,
++	MB_FIELD_ENABLEDDQSCHA,
++	MB_FIELD_CSPRESENTCHA,
++	MB_FIELD_ENABLEDDQSCHB,
++	MB_FIELD_CSPRESENTCHB,
++};
++
+ /* Global Structures : instantiated in ddrphy_globals.c */
+ extern struct runtime_config runtimeconfig;
+ 
+@@ -23,7 +42,7 @@ extern struct pmu_smb_ddr_1d mb_ddr_1d[NB_PS];
+ extern struct pmu_smb_ddr_1d shdw_ddr_1d[NB_PS];
+ 
+ /* Function definitions */
+-int ddrphy_phyinit_softsetmb(int ps, char *field, int value);
++int ddrphy_phyinit_softsetmb(int ps, enum message_block_field field, int value);
+ void ddrphy_phyinit_initstruct(void);
+ void *ddrphy_phyinit_get_user_input_basic_base(void);
+ int ddrphy_phyinit_get_user_input_basic_pllbypass_0(void);
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
+index 708021596d..5a477e51c9 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2021-2022, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2021-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -95,60 +95,61 @@ int ddrphy_phyinit_calcmb(void)
+ 
+ #if STM32MP_DDR3_TYPE
+ 		if (userinputbasic.dimmtype == NODIMM) {
+-			ret = ddrphy_phyinit_softsetmb(myps,"dramtype",0x1);
++			ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_DRAMTYPE, 0x1);
+ 			if (ret != 0) {
+ 				return ret;
+ 			}
+ 		}
+ #elif STM32MP_DDR4_TYPE
+ 		if (userinputbasic.dimmtype == NODIMM) {
+-			ret = ddrphy_phyinit_softsetmb(myps,"dramtype",0x2);
++			ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_DRAMTYPE, 0x2);
+ 			if (ret != 0) {
+ 				return ret;
+ 			}
+ 		}
+ #endif /* STM32MP_DDR4_TYPE */
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "pstate", myps);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_PSTATE, myps);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "dramfreq",
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_DRAMFREQ,
+ 					       userinputbasic.frequency[myps] * 2);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "pllbypassen", userinputbasic.pllbypass[myps]);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_PLLBYPASSEN,
++					       userinputbasic.pllbypass[myps]);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+ 		if (userinputbasic.dfifreqratio[myps] == 1) {
+-			ret = ddrphy_phyinit_softsetmb(myps, "dfifreqratio", 0x2);
++			ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_DFIFREQRATIO, 0x2);
+ 			if (ret != 0) {
+ 				return ret;
+ 			}
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "phyodtimpedance", 0);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_PHYODTIMPEDANCE, 0);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "phydrvimpedance", 0);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_PHYDRVIMPEDANCE, 0);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "bpznresval", 0);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_BPZNRESVAL, 0);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+ #if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+-		ret = ddrphy_phyinit_softsetmb(myps,"enableddqs",nad0 * 8);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_ENABLEDDQS, nad0 * 8);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+@@ -160,25 +161,26 @@ int ddrphy_phyinit_calcmb(void)
+ 									(0x1U << dbyte) : 0x0U);
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "disableddbyte", disableddbyte);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_DISABLEDDBYTE, disableddbyte);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+ #if STM32MP_DDR3_TYPE
+-		ret = ddrphy_phyinit_softsetmb(myps, "phycfg", userinputadvanced.is2ttiming[myps]);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_PHYCFG,
++					       userinputadvanced.is2ttiming[myps]);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ #else
+-		ret = ddrphy_phyinit_softsetmb(myps, "phycfg",
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_PHYCFG,
+ 					       (mb_ddr_1d[myps].mr3 & 0x8U) ?
+ 					       0 : userinputadvanced.is2ttiming[myps]);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "x16present",
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_X16PRESENT,
+ 					       (0x10 == userinputbasic.dramdatawidth) ?
+ 					       mb_ddr_1d[myps].cspresent : 0x0);
+ 		if (ret != 0) {
+@@ -186,24 +188,24 @@ int ddrphy_phyinit_calcmb(void)
+ 		}
+ #endif /* STM32MP_DDR3_TYPE */
+ #elif STM32MP_LPDDR4_TYPE
+-		ret = ddrphy_phyinit_softsetmb(myps, "enableddqscha", nad0 * 8);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_ENABLEDDQSCHA, nad0 * 8);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "cspresentcha",
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_CSPRESENTCHA,
+ 					       (2 == userinputbasic.numrank_dfi0) ?
+ 					       0x3 : userinputbasic.numrank_dfi0);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "enableddqschb", nad1 * 8);
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_ENABLEDDQSCHB, nad1 * 8);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+ 
+-		ret = ddrphy_phyinit_softsetmb(myps, "cspresentchb",
++		ret = ddrphy_phyinit_softsetmb(myps, MB_FIELD_CSPRESENTCHB,
+ 					       (2 == userinputbasic.numrank_dfi1) ?
+ 					       0x3 : userinputbasic.numrank_dfi1);
+ 		if (ret != 0) {
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_softsetmb.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_softsetmb.c
+index bef08749b1..03f77c7b41 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_softsetmb.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_softsetmb.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2021-2022, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2021-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -27,82 +27,102 @@
+  * - -2 : when dramtype does not support 2D training but a 2D training field is
+  * programmed.
+  */
+-int ddrphy_phyinit_softsetmb(int ps, char *field, int value)
++int ddrphy_phyinit_softsetmb(int ps, enum message_block_field field, int value)
+ {
+-		if (strcmp(field, "pstate") == 0) {
+-			if (shdw_ddr_1d[ps].pstate == 0) {
+-				mb_ddr_1d[ps].pstate = value;
+-			}
+-		} else if (strcmp(field, "pllbypassen") == 0) {
+-			if (shdw_ddr_1d[ps].pllbypassen == 0) {
+-				mb_ddr_1d[ps].pllbypassen = value;
+-			}
+-		} else if (strcmp(field, "dramfreq") == 0) {
+-			if (shdw_ddr_1d[ps].dramfreq == 0) {
+-				mb_ddr_1d[ps].dramfreq = value;
+-			}
+-		} else if (strcmp(field, "dfifreqratio") == 0) {
+-			if (shdw_ddr_1d[ps].dfifreqratio == 0) {
+-				mb_ddr_1d[ps].dfifreqratio = value;
+-			}
+-		} else if (strcmp(field, "bpznresval") == 0) {
+-			if (shdw_ddr_1d[ps].bpznresval == 0) {
+-				mb_ddr_1d[ps].bpznresval = value;
+-			}
+-		} else if (strcmp(field, "phyodtimpedance") == 0) {
+-			if (shdw_ddr_1d[ps].phyodtimpedance == 0) {
+-				mb_ddr_1d[ps].phyodtimpedance = value;
+-			}
+-		} else if (strcmp(field, "phydrvimpedance") == 0) {
+-			if (shdw_ddr_1d[ps].phydrvimpedance == 0) {
+-				mb_ddr_1d[ps].phydrvimpedance = value;
+-			}
++	int ret = 0;
++
++	switch (field) {
++	case MB_FIELD_PSTATE:
++		if (shdw_ddr_1d[ps].pstate == 0) {
++			mb_ddr_1d[ps].pstate = value;
++		}
++		break;
++	case MB_FIELD_PLLBYPASSEN:
++		if (shdw_ddr_1d[ps].pllbypassen == 0) {
++			mb_ddr_1d[ps].pllbypassen = value;
++		}
++		break;
++	case MB_FIELD_DRAMFREQ:
++		if (shdw_ddr_1d[ps].dramfreq == 0) {
++			mb_ddr_1d[ps].dramfreq = value;
++		}
++		break;
++	case MB_FIELD_DFIFREQRATIO:
++		if (shdw_ddr_1d[ps].dfifreqratio == 0) {
++			mb_ddr_1d[ps].dfifreqratio = value;
++		}
++		break;
++	case MB_FIELD_BPZNRESVAL:
++		if (shdw_ddr_1d[ps].bpznresval == 0) {
++			mb_ddr_1d[ps].bpznresval = value;
++		}
++		break;
++	case MB_FIELD_PHYODTIMPEDANCE:
++		if (shdw_ddr_1d[ps].phyodtimpedance == 0) {
++			mb_ddr_1d[ps].phyodtimpedance = value;
++		}
++		break;
++	case MB_FIELD_PHYDRVIMPEDANCE:
++		if (shdw_ddr_1d[ps].phydrvimpedance == 0) {
++			mb_ddr_1d[ps].phydrvimpedance = value;
++		}
++		break;
+ #if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+-		} else if (strcmp(field, "dramtype") == 0) {
+-			if (shdw_ddr_1d[ps].dramtype == 0) {
+-				mb_ddr_1d[ps].dramtype = value;
+-			}
+-		} else if (strcmp(field, "disableddbyte") == 0) {
+-			if (shdw_ddr_1d[ps].disableddbyte == 0) {
+-				mb_ddr_1d[ps].disableddbyte = value;
+-			}
+-		} else if (strcmp(field, "enableddqs") == 0) {
+-			if (shdw_ddr_1d[ps].enableddqs == 0) {
+-				mb_ddr_1d[ps].enableddqs = value;
+-			}
+-		} else if (strcmp(field, "phycfg") == 0) {
+-			if (shdw_ddr_1d[ps].phycfg == 0) {
+-				mb_ddr_1d[ps].phycfg = value;
+-			}
++	case MB_FIELD_DRAMTYPE:
++		if (shdw_ddr_1d[ps].dramtype == 0) {
++			mb_ddr_1d[ps].dramtype = value;
++		}
++		break;
++	case MB_FIELD_DISABLEDDBYTE:
++		if (shdw_ddr_1d[ps].disableddbyte == 0) {
++			mb_ddr_1d[ps].disableddbyte = value;
++		}
++		break;
++	case MB_FIELD_ENABLEDDQS:
++		if (shdw_ddr_1d[ps].enableddqs == 0) {
++			mb_ddr_1d[ps].enableddqs = value;
++		}
++		break;
++	case MB_FIELD_PHYCFG:
++		if (shdw_ddr_1d[ps].phycfg == 0) {
++			mb_ddr_1d[ps].phycfg = value;
++		}
++		break;
+ #endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
+ #if STM32MP_DDR4_TYPE
+-		} else if (strcmp(field, "x16present") == 0) {
+-			if (shdw_ddr_1d[ps].x16present == 0) {
+-				mb_ddr_1d[ps].x16present = value;
+-			}
++	case MB_FIELD_X16PRESENT:
++		if (shdw_ddr_1d[ps].x16present == 0) {
++			mb_ddr_1d[ps].x16present = value;
++		}
++		break;
+ #endif /* STM32MP_DDR4_TYPE */
+ #if STM32MP_LPDDR4_TYPE
+-		} else if (strcmp(field, "enableddqscha") == 0) {
+-			if (shdw_ddr_1d[ps].enableddqscha == 0) {
+-				mb_ddr_1d[ps].enableddqscha = value;
+-			}
+-		} else if (strcmp(field, "cspresentcha") == 0) {
+-			if (shdw_ddr_1d[ps].cspresentcha == 0) {
+-				mb_ddr_1d[ps].cspresentcha = value;
+-			}
+-		} else if (strcmp(field, "enableddqschb") == 0) {
+-			if (shdw_ddr_1d[ps].enableddqschb == 0) {
+-				mb_ddr_1d[ps].enableddqschb = value;
+-			}
+-		} else if (strcmp(field, "cspresentchb") == 0) {
+-			if (shdw_ddr_1d[ps].cspresentchb == 0) {
+-				mb_ddr_1d[ps].cspresentchb = value;
+-			}
+-#endif /* STM32MP_LPDDR4_TYPE */
+-		} else {
+-			ERROR("%s unknown message block field name '%s'\n", __func__, field);
+-			return -1;
++	case MB_FIELD_ENABLEDDQSCHA:
++		if (shdw_ddr_1d[ps].enableddqscha == 0) {
++			mb_ddr_1d[ps].enableddqscha = value;
+ 		}
++		break;
++	case MB_FIELD_CSPRESENTCHA:
++		if (shdw_ddr_1d[ps].cspresentcha == 0) {
++			mb_ddr_1d[ps].cspresentcha = value;
++		}
++		break;
++	case MB_FIELD_ENABLEDDQSCHB:
++		if (shdw_ddr_1d[ps].enableddqschb == 0) {
++			mb_ddr_1d[ps].enableddqschb = value;
++		}
++		break;
++	case MB_FIELD_CSPRESENTCHB:
++		if (shdw_ddr_1d[ps].cspresentchb == 0) {
++			mb_ddr_1d[ps].cspresentchb = value;
++		}
++		break;
++#endif /* STM32MP_LPDDR4_TYPE */
++	default:
++		ERROR("unknown message block field %u\n", field);
++		ret = -1;
++		break;
++	}
+ 
+-	return 0;
++	return ret;
+ }
+-- 
+2.53.0
+

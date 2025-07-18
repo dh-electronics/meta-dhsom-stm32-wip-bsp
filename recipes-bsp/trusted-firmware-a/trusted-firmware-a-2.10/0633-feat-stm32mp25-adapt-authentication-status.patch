@@ -1,0 +1,99 @@
+From 4c13bca22c08c2e48696f4b7e2d995e39ba2a445 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 23 Apr 2024 10:15:52 +0200
+Subject: [PATCH 633/954] feat(stm32mp25): adapt authentication status
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In the STM32 MPU, we use `auth_status` from `boot_api_context` to
+display the authentication check status on the console for CLOSED
+UNSECURED/UNLOCKED samples. On the MP15 and MP13, this `auth_status` was
+consistent with the behavior of the sample once SECURED/LOCKED. However,
+on the MP2, this is no longer the case; it reflects only the Signature
+check and not the ROTPK check.
+
+This patch aims to resolve this issue by adding additional checks to
+indicate whether the authentication is successful. The code is placed
+under the `TRUSTED_BOARD_BOOT` and `DYN_DISABLE_AUTH` precompiler flags,
+as it is necessary for debugging purposes and not in a real trusted
+mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ef5526318d2d0a76b53547239aa8ed3ed0a3985b feat(stm32mp25): adapt authentication status]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ide4f46e97ab6d1db1bb04cb1f627762f7783ce7f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/375903
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/385597
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 34 +++++++++++++++++++++++++++++--
+ 1 file changed, 32 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 8e3f44970b..ca1de339a6 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -20,6 +20,7 @@
+ #include <drivers/st/regulator.h>
+ #include <drivers/st/regulator_fixed.h>
+ #include <drivers/st/stm32_console.h>
++#include <drivers/st/stm32_hash.h>
+ #include <drivers/st/stm32_iwdg.h>
+ #include <drivers/st/stm32_rifsc.h>
+ #include <drivers/st/stm32_rng.h>
+@@ -336,6 +337,29 @@ static void check_tamper_event(bool lse_tamper_occured)
+ 	}
+ }
+ 
++#if TRUSTED_BOARD_BOOT && DYN_DISABLE_AUTH
++static bool authentication_check(boot_api_context_t *boot_context)
++{
++	if (boot_context->auth_status == BOOT_API_CTX_AUTH_FAILED) {
++		return false;
++	}
++
++	if (stm32mp_check_closed_device() != STM32MP_CHIP_SEC_CLOSED) {
++		void *pk_ptr = NULL;
++		unsigned int len = 0U;
++		unsigned int flags = 0U;
++		int rc;
++
++		rc = plat_get_rotpk_info(NULL, &pk_ptr, &len, &flags);
++		if ((rc == -EINVAL) || ((flags & ROTPK_NOT_DEPLOYED) > 0)) {
++			return false;
++		}
++	}
++
++	return true;
++}
++#endif /* TRUSTED_BOARD_BOOT && DYN_DISABLE_AUTH */
++
+ void bl2_el3_plat_arch_setup(void)
+ {
+ 	const char *board_model;
+@@ -423,11 +447,17 @@ void bl2_el3_plat_arch_setup(void)
+ 
+ 	print_reset_reason();
+ 
++#if TRUSTED_BOARD_BOOT && DYN_DISABLE_AUTH
++	if (stm32_hash_register() != 0) {
++		ERROR("HASH register fail\n");
++		panic();
++	}
++
+ 	if (boot_context->auth_status != BOOT_API_CTX_AUTH_NO) {
+ 		NOTICE("Bootrom authentication %s\n",
+-		       (boot_context->auth_status == BOOT_API_CTX_AUTH_FAILED) ?
+-		       "failed" : "succeeded");
++		       authentication_check(boot_context) ? "succeeded" : "failed");
+ 	}
++#endif /* TRUSTED_BOARD_BOOT && DYN_DISABLE_AUTH */
+ 
+ skip_console_init:
+ 	check_tamper_event(lse_tamper_occured);
+-- 
+2.53.0
+

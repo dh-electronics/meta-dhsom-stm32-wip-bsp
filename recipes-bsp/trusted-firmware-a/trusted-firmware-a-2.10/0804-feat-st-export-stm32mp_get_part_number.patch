@@ -1,0 +1,118 @@
+From 4b16652659cec033c617440ecb22cfe763c580fc Mon Sep 17 00:00:00 2001
+From: Theo GOUREAU <theo.goureau-ext@st.com>
+Date: Thu, 20 Feb 2025 11:17:52 +0100
+Subject: [PATCH 804/954] feat(st): export stm32mp_get_part_number()
+
+Export stm32mp_get_part_number() for both stm32mp1 and stm32mp2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9ad43da8e963c261af05922683b807ae998c7af9 feat(st): export stm32mp_get_part_number()]
+Change-Id: I2130c78dbba5d10ecb47d94e30b1903a871a008e
+Signed-off-by: Theo GOUREAU <theo.goureau-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/438700
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/include/stm32mp_common.h | 3 +++
+ plat/st/stm32mp1/stm32mp1_private.c     | 8 ++++----
+ plat/st/stm32mp2/stm32mp2_private.c     | 8 ++++----
+ 3 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index dfd680deb5..567ca04811 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -133,6 +133,9 @@ bool stm32_gpio_is_secure_at_reset(unsigned int bank);
+ /* Return node offset for target GPIO bank ID @bank or a FDT error code */
+ int stm32_get_gpio_bank_pinctrl_node(void *fdt, unsigned int bank);
+ 
++/* Get device part number (RPN) */
++uint32_t stm32mp_get_part_number(void);
++
+ /* Get the chip revision */
+ uint32_t stm32mp_get_chip_version(void);
+ /* Get the chip device ID */
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index 77e1644cae..c003878233 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -303,7 +303,7 @@ uint32_t stm32mp_get_chip_dev_id(void)
+ #endif
+ }
+ 
+-static uint32_t get_part_number(void)
++uint32_t stm32mp_get_part_number(void)
+ {
+ 	static uint32_t part_number;
+ 
+@@ -344,7 +344,7 @@ void stm32mp_get_soc_name(char name[STM32_SOC_NAME_SIZE])
+ 	const char *cpu_s, *cpu_r, *pkg;
+ 
+ 	/* MPUs Part Numbers */
+-	switch (get_part_number()) {
++	switch (stm32mp_get_part_number()) {
+ #if STM32MP13
+ 	case STM32MP135F_PART_NB:
+ 		cpu_s = "135F";
+@@ -501,7 +501,7 @@ bool stm32mp_is_single_core(void)
+ #if STM32MP15
+ 	bool single_core = false;
+ 
+-	switch (get_part_number()) {
++	switch (stm32mp_get_part_number()) {
+ 	case STM32MP151A_PART_NB:
+ 	case STM32MP151C_PART_NB:
+ 	case STM32MP151D_PART_NB:
+@@ -554,7 +554,7 @@ bool stm32mp_is_auth_supported(void)
+ {
+ 	bool supported = false;
+ 
+-	switch (get_part_number()) {
++	switch (stm32mp_get_part_number()) {
+ #if STM32MP13
+ 	case STM32MP131C_PART_NB:
+ 	case STM32MP131F_PART_NB:
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 07d1b77bfc..a4eb7f1dc5 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -224,7 +224,7 @@ uint32_t stm32mp_get_chip_dev_id(void)
+ 	return stm32mp_syscfg_get_chip_dev_id();
+ }
+ 
+-static uint32_t get_part_number(void)
++uint32_t stm32mp_get_part_number(void)
+ {
+ 	static uint32_t part_number;
+ 
+@@ -257,7 +257,7 @@ void stm32mp_get_soc_name(char name[STM32_SOC_NAME_SIZE])
+ 	char *cpu_s, *cpu_r, *pkg;
+ 
+ 	/* MPUs Part Numbers */
+-	switch (get_part_number()) {
++	switch (stm32mp_get_part_number()) {
+ #if STM32MP21
+ 	case STM32MP211A_PART_NB:
+ 		cpu_s = "211A";
+@@ -496,7 +496,7 @@ bool stm32mp_is_single_core(void)
+ #else /* STM32MP21 */
+ 	bool single_core = false;
+ 
+-	switch (get_part_number()) {
++	switch (stm32mp_get_part_number()) {
+ #if STM32MP23
+ 	case STM32MP231A_PART_NB:
+ 	case STM32MP231C_PART_NB:
+@@ -554,7 +554,7 @@ bool stm32mp_is_auth_supported(void)
+ {
+ 	bool supported = false;
+ 
+-	switch (get_part_number()) {
++	switch (stm32mp_get_part_number()) {
+ #if STM32MP21
+ 	case STM32MP211C_PART_NB:
+ 	case STM32MP211F_PART_NB:
+-- 
+2.53.0
+

@@ -1,0 +1,108 @@
+From 41d545c6fe83ee6ebbf97dca51db5bf1dc02ea96 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 11 Jul 2022 13:50:30 +0200
+Subject: [PATCH 206/954] feat(stm32mp2): reserve the first 4KB of SRAM1 for
+ BSEC3 driver
+
+The STM32MP25 OTP values and status are shadowed in the first 4KB
+of SRAM1 by the BSEC3 driver.
+
+Reserve this memory in SRAM1 for BL2 and in BL31 to prepare the
+support of this region in BSEC3 driver.
+
+When STM32MP_DDR_FIP_IO_STORAGE is activated all the SRAM1 is reserved
+for BL2 with MAP_SRAM1 region.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 65e2c5b822ae61644eff9bdb4748233be7792796 feat(stm32mp2): reserve the first 4KB of SRAM1 for BSEC3 driver]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ie9204022866d531f8c2c125efdffc2c8e1b42891
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/258478
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h     |  5 +++++
+ plat/st/stm32mp2/stm32mp2_private.c | 15 ++++++++++-----
+ 2 files changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index ab8a432778..8e4bd1bd9f 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -63,6 +63,9 @@
+ #define SRAM2_SIZE			U(0x00020000)
+ #define STM32MP_BACKUP_RAM_BASE		U(0x42000000)
+ 
++/* the first 4KB of SRAM1 are reserved are for BSEC shadow */
++#define STM32MP_SEC_SRAM1_SIZE		U(0x1000)
++
+ #define STM32MP_SEC_SYSRAM_BASE		STM32MP_SYSRAM_BASE
+ 
+ #if defined(IMAGE_BL2)
+@@ -154,6 +157,8 @@ enum ddr_type {
+  */
+ #if STM32MP_USB_PROGRAMMER
+ #define MAX_MMAP_REGIONS			8
++#elif defined(IMAGE_BL31)
++#define MAX_MMAP_REGIONS			7
+ #else
+ #define MAX_MMAP_REGIONS			6
+ #endif
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 55615226be..d4ea526151 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -15,6 +15,14 @@
+ 
+ #include <platform_def.h>
+ 
++#if STM32MP_DDR_FIP_IO_STORAGE && defined(IMAGE_BL2)
++/* Map the whole SRAM1 as secure, required to load DDR FW from FIP */
++#define SRAM1_MAP_SIZE	SRAM1_SIZE
++#else
++/* Map the beginning of SRAM1 as secure */
++#define SRAM1_MAP_SIZE	STM32MP_SEC_SRAM1_SIZE
++#endif
++
+ #define MAP_SYSRAM	MAP_REGION_FLAT(STM32MP_SYSRAM_BASE, \
+ 					STM32MP_SYSRAM_SIZE, \
+ 					MT_MEMORY | \
+@@ -53,14 +61,12 @@
+ 					MT_NS | \
+ 					MT_EXECUTE_NEVER)
+ 
+-#if STM32MP_DDR_FIP_IO_STORAGE
+ #define MAP_SRAM1	MAP_REGION_FLAT(SRAM1_BASE, \
+-					SRAM1_SIZE, \
++					SRAM1_MAP_SIZE, \
+ 					MT_MEMORY | \
+ 					MT_RW | \
+ 					MT_SECURE | \
+ 					MT_EXECUTE_NEVER)
+-#endif
+ 
+ #define MAP_DEVICE	MAP_REGION_FLAT(STM32MP_DEVICE_BASE, \
+ 					STM32MP_DEVICE_SIZE, \
+@@ -78,9 +84,7 @@ static const mmap_region_t stm32mp2_mmap[] = {
+ #else
+ 	MAP_SYSRAM,
+ #endif
+-#if STM32MP_DDR_FIP_IO_STORAGE
+ 	MAP_SRAM1,
+-#endif
+ 	MAP_DEVICE,
+ 	{0}
+ };
+@@ -89,6 +93,7 @@ static const mmap_region_t stm32mp2_mmap[] = {
+ static const mmap_region_t stm32mp2_mmap[] = {
+ 	MAP_SEC_SYSRAM,
+ 	MAP_NS_SYSRAM,
++	MAP_SRAM1,
+ 	MAP_DEVICE,
+ 	{0}
+ };
+-- 
+2.53.0
+

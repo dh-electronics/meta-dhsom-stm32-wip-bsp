@@ -1,0 +1,84 @@
+From ce5657ad20c8ec7aa10b2dcf9ad82ac8bbde325d Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 15 Feb 2024 11:40:17 +0100
+Subject: [PATCH 557/954] feat(stm32mp2): add fdt address in low-power context
+
+The BL31 device tree is located in DDR and should be accessible
+after low power sequence.
+
+It is not the case by default as fdt_get_address() returns a static
+variable "fdt" defined in plat/st/common/stm32mp_dt.c saved in SYSRAM
+thus this address is lost after standby mode.
+
+This patch solves the issues by saving the device tree address
+in low power mode context, saved in RETRAM and restores the global
+variable by calling dt_open_and_check() function.
+
+Moreover this patch allows to verify the integrity of DDR content after
+low power mode and exit of DDR self refresh.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ede115e26c86d27ee8ffbd5f48a07840732e6a44 feat(stm32mp2): add fdt address in low-power context]
+Change-Id: I2f2e56268f266294ca63599e20bd44d5cffb230d
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/361720
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/368669
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_context.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_context.c b/plat/st/stm32mp2/stm32mp2_context.c
+index 51c9d48351..f040f37dcc 100644
+--- a/plat/st/stm32mp2/stm32mp2_context.c
++++ b/plat/st/stm32mp2/stm32mp2_context.c
+@@ -35,6 +35,7 @@ struct backup_data_s {
+ 	uintptr_t optee_vector;
+ 	optee_context_t opteed_sp_context[OPTEED_CORE_COUNT];
+ #endif
++	uintptr_t fdt_bl31;
+ };
+ 
+ void stm32mp_pm_save_enc_mkey_seed_in_context(uint8_t *data)
+@@ -82,6 +83,7 @@ void stm32_pm_context_save(const psci_power_state_t *state)
+ {
+ 	void *cpu_context;
+ 	struct backup_data_s *backup_data;
++	void *fdt;
+ 
+ 	clk_enable(BACKUP_CTX_CLK);
+ 	backup_data = (struct backup_data_s *)BACKUP_CTX_ADDR;
+@@ -113,6 +115,9 @@ void stm32_pm_context_save(const psci_power_state_t *state)
+ 	memcpy(&backup_data->standby_pwr_state, state, sizeof(psci_power_state_t));
+ 	backup_data->psci_suspend_mode = psci_suspend_mode;
+ 
++	fdt_get_address(&fdt);
++	backup_data->fdt_bl31 = (uintptr_t)fdt;
++
+ 	clk_disable(BACKUP_CTX_CLK);
+ }
+ 
+@@ -120,6 +125,7 @@ void stm32_pm_context_restore(void)
+ {
+ 	void *cpu_context;
+ 	struct backup_data_s *backup_data;
++	int ret;
+ 
+ 	clk_enable(BACKUP_CTX_CLK);
+ 	backup_data = (struct backup_data_s *)BACKUP_CTX_ADDR;
+@@ -154,6 +160,12 @@ void stm32_pm_context_restore(void)
+ 	opteed_restore();
+ #endif
+ 
++	ret = dt_open_and_check(backup_data->fdt_bl31);
++	if (ret < 0) {
++		ERROR("%s: failed to open DT (%d)\n", __func__, ret);
++		panic();
++	}
++
+ 	clk_disable(BACKUP_CTX_CLK);
+ }
+ 
+-- 
+2.53.0
+

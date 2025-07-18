@@ -1,0 +1,186 @@
+From 86bbb181567253c4cf7d3d4ff8552e0fe7835b30 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 24 Nov 2021 18:15:43 +0100
+Subject: [PATCH 024/954] feat(stm32mp1): add low-power context management
+
+When returning from low-power mode (Standby), the previous execution
+context is saved in Backup SRAM, in a backup data structure, populated
+by BL32. From this structure, we can retrieve some information for
+DDR self-refresh exit: the content of DDRPHYC_ZQ0CRN_ZDATA, and the
+DDR training area.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2f21f958f38f03a1cc16d69163f3122a3d32f297 feat(stm32mp1): add low-power context management]
+Change-Id: Ib28edcc642b7ffd7708a3d666b6b8935d14d817c
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ plat/st/stm32mp1/include/stm32mp1_context.h | 15 ++++
+ plat/st/stm32mp1/platform.mk                |  1 +
+ plat/st/stm32mp1/stm32mp1_context.c         | 96 +++++++++++++++++++++
+ plat/st/stm32mp1/stm32mp1_def.h             |  7 ++
+ 4 files changed, 119 insertions(+)
+ create mode 100644 plat/st/stm32mp1/include/stm32mp1_context.h
+ create mode 100644 plat/st/stm32mp1/stm32mp1_context.c
+
+diff --git a/plat/st/stm32mp1/include/stm32mp1_context.h b/plat/st/stm32mp1/include/stm32mp1_context.h
+new file mode 100644
+index 0000000000..7cf014fc75
+--- /dev/null
++++ b/plat/st/stm32mp1/include/stm32mp1_context.h
+@@ -0,0 +1,15 @@
++/*
++ * Copyright (c) 2017-2021, ARM Limited and Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef STM32MP1_CONTEXT_H
++#define STM32MP1_CONTEXT_H
++
++#include <stdint.h>
++
++uint32_t stm32_get_zdata_from_context(void);
++void stm32_restore_ddr_training_area(void);
++
++#endif /* STM32MP1_CONTEXT_H */
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index b37eb70a5c..e9161f15aa 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -222,6 +222,7 @@ PLAT_BL_COMMON_SOURCES	+=	drivers/arm/tzc/tzc400.c				\
+ 				drivers/st/pmic/stm32mp_pmic.c				\
+ 				drivers/st/pmic/stpmic1.c				\
+ 				drivers/st/reset/stm32mp1_reset.c			\
++				plat/st/stm32mp1/stm32mp1_context.c			\
+ 				plat/st/stm32mp1/stm32mp1_dbgmcu.c			\
+ 				plat/st/stm32mp1/stm32mp1_helper.S			\
+ 				plat/st/stm32mp1/stm32mp1_syscfg.c
+diff --git a/plat/st/stm32mp1/stm32mp1_context.c b/plat/st/stm32mp1/stm32mp1_context.c
+new file mode 100644
+index 0000000000..812b1f0c8b
+--- /dev/null
++++ b/plat/st/stm32mp1/stm32mp1_context.c
+@@ -0,0 +1,96 @@
++/*
++ * Copyright (c) 2017-2023, ARM Limited and Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <string.h>
++
++#include <arch_helpers.h>
++#include <common/debug.h>
++#include <drivers/clk.h>
++#include <drivers/st/stm32mp1_ddr_regs.h>
++#include <dt-bindings/clock/stm32mp1-clks.h>
++
++#include <platform_def.h>
++#include <stm32mp1_context.h>
++
++#define TRAINING_AREA_SIZE		64U
++
++/*
++ * MAILBOX_MAGIC relates to struct backup_data_s as defined
++ *
++ * MAILBOX_MAGIC_V1:
++ * Context provides magic, resume entry, zq0cr0 zdata and DDR training buffer.
++ *
++ * MAILBOX_MAGIC_V2:
++ * Context provides magic, resume entry, zq0cr0 zdata, DDR training buffer
++ * and PLL1 dual OPP settings structure (86 bytes).
++ *
++ * MAILBOX_MAGIC_V3:
++ * Context provides magic, resume entry, zq0cr0 zdata, DDR training buffer
++ * and PLL1 dual OPP settings structure, low power entry point, BL2 code start, end and BL2_END
++ * (102 bytes).
++ */
++#define MAILBOX_MAGIC_V1		(0x0001U << 16U)
++#define MAILBOX_MAGIC_V2		(0x0002U << 16U)
++#define MAILBOX_MAGIC_V3		(0x0003U << 16U)
++#define MAILBOX_MAGIC			(MAILBOX_MAGIC_V3 | \
++					 TRAINING_AREA_SIZE)
++
++#define MAGIC_ID(magic)			((magic) & GENMASK_32(31, 16))
++#define MAGIC_AREA_SIZE(magic)		((magic) & GENMASK_32(15, 0))
++
++#if (PLAT_MAX_OPP_NB != 2U) || (PLAT_MAX_PLLCFG_NB != 6U)
++#error MAILBOX_MAGIC_V2/_V3 does not support expected PLL1 settings
++#endif
++
++/* pll_settings structure size definitions (reference to clock driver) */
++#define PLL1_SETTINGS_SIZE		(((PLAT_MAX_OPP_NB * \
++					  (PLAT_MAX_PLLCFG_NB + 3U)) + 1U) * \
++					 sizeof(uint32_t))
++
++struct backup_data_s {
++	uint32_t magic;
++	uint32_t core0_resume_hint;
++	uint32_t zq0cr0_zdata;
++	uint8_t ddr_training_backup[TRAINING_AREA_SIZE];
++	uint8_t pll1_settings[PLL1_SETTINGS_SIZE];
++	uint32_t low_power_ep;
++	uint32_t bl2_code_base;
++	uint32_t bl2_code_end;
++	uint32_t bl2_end;
++};
++
++uint32_t stm32_get_zdata_from_context(void)
++{
++	struct backup_data_s *backup_data;
++	uint32_t zdata;
++
++	clk_enable(BKPSRAM);
++
++	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
++
++	zdata = (backup_data->zq0cr0_zdata >> DDRPHYC_ZQ0CRN_ZDATA_SHIFT) &
++		DDRPHYC_ZQ0CRN_ZDATA_MASK;
++
++	clk_disable(BKPSRAM);
++
++	return zdata;
++}
++
++void stm32_restore_ddr_training_area(void)
++{
++	struct backup_data_s *backup_data;
++
++	clk_enable(BKPSRAM);
++
++	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
++
++	memcpy((uint32_t *)STM32MP_DDR_BASE,
++	       &backup_data->ddr_training_backup,
++	       TRAINING_AREA_SIZE);
++	dsb();
++
++	clk_disable(BKPSRAM);
++}
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index 777288b50f..c5df671a43 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -21,6 +21,7 @@
+ #include <boot_api.h>
+ #include <stm32mp_common.h>
+ #include <stm32mp_dt.h>
++#include <stm32mp1_context.h>
+ #include <stm32mp1_dbgmcu.h>
+ #include <stm32mp1_private.h>
+ #include <stm32mp1_shared_resources.h>
+@@ -644,6 +645,12 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+  ******************************************************************************/
+ #define PKA_BASE			U(0x54006000)
+ 
++/*******************************************************************************
++ * STM32MP1 OPP
++ ******************************************************************************/
++#define PLAT_MAX_OPP_NB			U(2)
++#define PLAT_MAX_PLLCFG_NB		U(6)
++
+ /*******************************************************************************
+  * REGULATORS
+  ******************************************************************************/
+-- 
+2.53.0
+

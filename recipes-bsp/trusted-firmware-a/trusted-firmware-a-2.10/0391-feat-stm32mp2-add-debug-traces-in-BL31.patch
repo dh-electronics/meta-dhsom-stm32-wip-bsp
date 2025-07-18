@@ -1,0 +1,49 @@
+From 75b97dc8c4868ef123c67d15cb137084e515296d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 25 Oct 2023 17:28:49 +0200
+Subject: [PATCH 391/954] feat(stm32mp2): add debug traces in BL31
+
+Those traces are only enabled with early console, as clocks and UART
+drivers are not yet probed. Use the EARLY_ERROR macros.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 76390644e229086293402e20cbff44ce3868201d feat(stm32mp2): add debug traces in BL31]
+Change-Id: I343ed78667f183315b2ea35c18a162cdc0af1921
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/338368
+---
+ plat/st/stm32mp2/bl31_plat_setup.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index ce21537615..4254097060 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -26,6 +26,7 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ {
+ 	bl_params_t *params_from_bl2;
+ 	char name[STM32_SOC_NAME_SIZE];
++	int ret;
+ 
+ 	stm32mp_setup_early_console();
+ 
+@@ -48,11 +49,15 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 
+ 	configure_mmu();
+ 
+-	if (dt_open_and_check(arg1) < 0) {
++	ret = dt_open_and_check(arg1);
++	if (ret < 0) {
++		EARLY_ERROR("%s: failed to open DT (%d)\n", __func__, ret);
+ 		panic();
+ 	}
+ 
+-	if (stm32mp2_clk_init() < 0) {
++	ret = stm32mp2_clk_init();
++	if (ret < 0) {
++		EARLY_ERROR("%s: failed init clocks (%d)\n", __func__, ret);
+ 		panic();
+ 	}
+ 
+-- 
+2.53.0
+

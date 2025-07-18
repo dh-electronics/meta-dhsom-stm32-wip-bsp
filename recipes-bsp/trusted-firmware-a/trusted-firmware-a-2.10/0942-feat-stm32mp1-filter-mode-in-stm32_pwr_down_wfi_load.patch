@@ -1,0 +1,67 @@
+From 65ffba68e03abbf1a59e2e7aaf522b5293024d4a Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 5 Dec 2025 15:16:16 +0100
+Subject: [PATCH 942/954] feat(stm32mp1): filter mode in
+ stm32_pwr_down_wfi_load()
+
+In next patches, mode will become a bit-field, filter soc_mode to don't
+break the behavior.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 837039ed791e00bb6a2bce22cf7e87f353189f8b feat(stm32mp1): filter mode in stm32_pwr_down_wfi_load()]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I017348492a53d2068601b7a72cd0e614b5a6dcbd
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/515702
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp1/stm32mp1_critic_power.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/stm32mp1/stm32mp1_critic_power.c b/plat/st/stm32mp1/stm32mp1_critic_power.c
+index 0ae41f644d..524bcb12cc 100644
+--- a/plat/st/stm32mp1/stm32mp1_critic_power.c
++++ b/plat/st/stm32mp1/stm32mp1_critic_power.c
+@@ -18,6 +18,8 @@
+ #include <stm32mp1_context.h>
+ #include <stm32mp1_critic_power.h>
+ 
++#define STM32_PM_SOC_MODE_MASK			GENMASK_32(7, 0)
++
+ static void cstop_critic_enter(uint32_t mode)
+ {
+ 	/* Init generic timer that is needed for udelay used in ddr driver */
+@@ -72,7 +74,9 @@ void stm32_pwr_cstop_critic_exit(void)
+ 
+ void stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode)
+ {
+-	if (mode == (uint32_t)STM32_PM_CSTOP_ALLOW_LPLV_STOP2) {
++	uint32_t soc_mode = mode & STM32_PM_SOC_MODE_MASK;
++
++	if (soc_mode == (uint32_t)STM32_PM_CSTOP_ALLOW_LPLV_STOP2) {
+ #if STM32MP15
+ 		ERROR("LPLV-Stop2 mode not supported\n");
+ 		panic();
+@@ -84,15 +88,15 @@ void stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode)
+ #endif
+ 	}
+ 
+-	if (mode != (uint32_t)STM32_PM_CSLEEP_RUN) {
++	if (soc_mode != (uint32_t)STM32_PM_CSLEEP_RUN) {
+ 		dcsw_op_all(DC_OP_CISW);
+ 	}
+ 
+ 	if (is_cstop) {
+-		cstop_critic_enter(mode);
++		cstop_critic_enter(soc_mode);
+ 	}
+ 
+-	if (mode == (uint32_t)STM32_PM_SHUTDOWN) {
++	if (soc_mode == (uint32_t)STM32_PM_SHUTDOWN) {
+ 		shutdown_critic_enter();
+ 	}
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,50 @@
+From 536dcd23019672cf3da3c583bba60fd243d4e50a Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 4 Oct 2023 09:50:39 +0200
+Subject: [PATCH 358/954] fix(stm32mp2): flush data cache at the end of BL2
+
+Explicitly flush .bss and .data areas from cache. We must be sure
+data is correct there.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9d29d4e325858c1604e50bd775b1cba44d1d0a4e fix(stm32mp2): flush data cache at the end of BL2]
+Change-Id: I916c96b64abcc0ca47151c7510bb262569dd86ea
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/331576
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 22241439c7..8f96bf3e83 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -42,6 +42,11 @@
+ 
+ #define BOOT_CTX_ADDR	0x0e000020UL
+ 
++IMPORT_SYM(uintptr_t, __BSS_START__, BSS_START);
++IMPORT_SYM(uintptr_t, __BSS_END__, BSS_END);
++IMPORT_SYM(uintptr_t, __DATA_START__, DATA_START);
++IMPORT_SYM(uintptr_t, __DATA_END__, DATA_END);
++
+ static void print_reset_reason(void)
+ {
+ 	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_C1BOOTRSTSCLRR);
+@@ -511,5 +516,8 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 
+ void bl2_el3_plat_prepare_exit(void)
+ {
++	flush_dcache_range(BSS_START, BSS_END - BSS_START);
++	flush_dcache_range(DATA_START, DATA_END - DATA_START);
++
+ 	stm32mp2_security_setup();
+ }
+-- 
+2.53.0
+

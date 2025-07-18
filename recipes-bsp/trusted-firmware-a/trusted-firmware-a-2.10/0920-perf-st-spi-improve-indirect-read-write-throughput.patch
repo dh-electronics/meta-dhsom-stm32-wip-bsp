@@ -1,0 +1,147 @@
+From a242ee83345ce7f98c278a415c66643e63d350ee Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 5 Aug 2025 15:55:42 +0200
+Subject: [PATCH 920/954] perf(st-spi): improve indirect read/write throughput
+
+Improve indirect read/write throughput by reading/writing 4-bytes per
+4-bytes instead of reading/writing byte per byte.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 209b48da6353138423123673933fb029b81070fa perf(st-spi): improve indirect read/write throughput
+73a0ca851ab48986e8fc1f7006879de3f53b9894 perf(st-spi): improve indirect read/write throughput]
+Change-Id: Ie5418fb03557245b699d6a7248a2cd892792abbe
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/480823
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/st/spi/stm32_qspi.c | 74 +++++++++++++++++++++++++++++++------
+ 1 file changed, 63 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_qspi.c b/drivers/st/spi/stm32_qspi.c
+index ee73827f73..0aab073a97 100644
+--- a/drivers/st/spi/stm32_qspi.c
++++ b/drivers/st/spi/stm32_qspi.c
+@@ -46,6 +46,7 @@
+ #define QSPI_CR_SSHIFT		BIT(4)
+ #define QSPI_CR_DFM		BIT(6)
+ #define QSPI_CR_FSEL		BIT(7)
++#define QSPI_CR_FTHRES		GENMASK_32(12, 8)
+ #define QSPI_CR_FTHRES_SHIFT	8U
+ #define QSPI_CR_TEIE		BIT(16)
+ #define QSPI_CR_TCIE		BIT(17)
+@@ -166,21 +167,52 @@ static int stm32_qspi_wait_cmd(const struct spi_mem_op *op)
+ 	return ret;
+ }
+ 
+-static void stm32_qspi_read_fifo(uint8_t *val, uintptr_t addr)
++static int stm32_qspi_read_fifo(void *val, uintptr_t addr, uint64_t len)
+ {
+-	*val = mmio_read_8(addr);
++	int ret = 0;
++
++	switch (len) {
++	case sizeof(uint32_t):
++		*((uint32_t *)val) = mmio_read_32(addr);
++		break;
++	case sizeof(uint8_t):
++		*((uint8_t *)val) = mmio_read_8(addr);
++		break;
++	default:
++		ret = -EINVAL;
++		break;
++	};
++
++	return ret;
+ }
+ 
+-static void stm32_qspi_write_fifo(uint8_t *val, uintptr_t addr)
++static int stm32_qspi_write_fifo(void *val, uintptr_t addr, uint64_t len)
+ {
+-	mmio_write_8(addr, *val);
++	int ret = 0;
++
++	switch (len) {
++	case sizeof(uint32_t):
++		mmio_write_32(addr, *((uint32_t *)val));
++		break;
++	case sizeof(uint8_t):
++		mmio_write_8(addr, *((uint8_t *)val));
++		break;
++	default:
++		ret = -EINVAL;
++		break;
++	};
++
++	return ret;
+ }
+ 
+ static int stm32_qspi_poll(const struct spi_mem_op *op)
+ {
+-	void (*fifo)(uint8_t *val, uintptr_t addr);
+-	uint32_t len;
+-	uint8_t *buf;
++	int (*fifo)(void *val, uintptr_t addr, uint64_t len);
++	uint8_t *buff = (uint8_t *)op->data.buf;
++	uint64_t length = op->data.nbytes;
++	uint32_t tmp;
++	uint64_t i = 0U;
++	int ret;
+ 
+ 	if (op->data.dir == SPI_MEM_DATA_IN) {
+ 		fifo = stm32_qspi_read_fifo;
+@@ -188,9 +220,7 @@ static int stm32_qspi_poll(const struct spi_mem_op *op)
+ 		fifo = stm32_qspi_write_fifo;
+ 	}
+ 
+-	buf = (uint8_t *)op->data.buf;
+-
+-	for (len = op->data.nbytes; len != 0U; len--) {
++	while (length != 0U) {
+ 		uint64_t timeout = timeout_init_us(QSPI_FIFO_TIMEOUT_US);
+ 
+ 		while ((mmio_read_32(qspi_base() + QSPI_SR) &
+@@ -201,7 +231,27 @@ static int stm32_qspi_poll(const struct spi_mem_op *op)
+ 			}
+ 		}
+ 
+-		fifo(buf++, qspi_base() + QSPI_DR);
++		if (length >= sizeof(uint32_t)) {
++			ret = fifo(&tmp, qspi_base() + QSPI_DR,
++				   sizeof(uint32_t));
++			if (ret != 0) {
++				return ret;
++			}
++
++			(void)memcpy((void *)&buff[i], (const void *)&tmp,
++				     sizeof(uint32_t));
++			length -= sizeof(uint32_t);
++			i += sizeof(uint32_t);
++		} else {
++			ret = fifo(&buff[i], qspi_base() + QSPI_DR,
++				   sizeof(uint8_t));
++			if (ret != 0) {
++				return ret;
++			}
++
++			length--;
++			i++;
++		}
+ 	}
+ 
+ 	return 0;
+@@ -527,6 +577,8 @@ int stm32_qspi_init(void)
+ 
+ 	mmio_write_32(qspi_base() + QSPI_CR, QSPI_CR_SSHIFT);
+ 	mmio_write_32(qspi_base() + QSPI_DCR, QSPI_DCR_FSIZE_MASK);
++	mmio_clrsetbits_32(qspi_base() + QSPI_CR, QSPI_CR_FTHRES,
++			   3U << QSPI_CR_FTHRES_SHIFT);
+ 
+ 	return spi_mem_init_slave(fdt, qspi_node, &stm32_qspi_bus_ops);
+ };
+-- 
+2.53.0
+

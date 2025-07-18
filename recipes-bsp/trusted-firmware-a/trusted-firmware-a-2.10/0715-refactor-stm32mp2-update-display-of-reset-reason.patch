@@ -1,0 +1,195 @@
+From bb361c8e4178250a364652699380776e383d2152 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 22 Nov 2024 19:13:47 +0100
+Subject: [PATCH 715/954] refactor(stm32mp2): update display of reset reason
+
+Update the check of reset reason management, update displayed string
+aligned with reference manual (por_rstn/bor_rstn/Pin reset), add some
+missing reset reason (C1RST) and reuse string to reduce the size of BL2.
+
+This patch uses a new define RCC_C1BOOTRSTSCLRR_IWDGXSYSRSTF to
+check all IWDG flags.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b056f52978989cb70163f25621cc7a1a5f8ca79f refactor(stm32mp2): update display of reset reason]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I6c47ae69aa62ca1e0e8596d82978be72f1d6c10c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/420551
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/438136
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ include/drivers/st/stm32mp21_rcc.h |   5 ++
+ include/drivers/st/stm32mp25_rcc.h |   6 ++
+ plat/st/stm32mp2/bl2_plat_setup.c  | 108 ++++++++---------------------
+ 3 files changed, 38 insertions(+), 81 deletions(-)
+
+diff --git a/include/drivers/st/stm32mp21_rcc.h b/include/drivers/st/stm32mp21_rcc.h
+index 2067bec7f8..f3d24d53dd 100644
+--- a/include/drivers/st/stm32mp21_rcc.h
++++ b/include/drivers/st/stm32mp21_rcc.h
+@@ -2254,6 +2254,11 @@
+ #define RCC_C1BOOTRSTSCLRR_D1STBYRSTF		BIT(22)
+ #define RCC_C1BOOTRSTSCLRR_D2STBYRSTF		BIT(23)
+ 
++#define RCC_C1BOOTRSTSCLRR_IWDGXSYSRSTF (RCC_C1BOOTRSTSCLRR_IWDG1SYSRSTF | \
++					 RCC_C1BOOTRSTSCLRR_IWDG2SYSRSTF | \
++					 RCC_C1BOOTRSTSCLRR_IWDG3SYSRSTF | \
++					 RCC_C1BOOTRSTSCLRR_IWDG4SYSRSTF)
++
+ /* RCC_C2BOOTRSTSSETR register fields */
+ #define RCC_C2BOOTRSTSSETR_PORRSTF		BIT(0)
+ #define RCC_C2BOOTRSTSSETR_BORRSTF		BIT(1)
+diff --git a/include/drivers/st/stm32mp25_rcc.h b/include/drivers/st/stm32mp25_rcc.h
+index 1c27e220a3..13cf5412db 100644
+--- a/include/drivers/st/stm32mp25_rcc.h
++++ b/include/drivers/st/stm32mp25_rcc.h
+@@ -2308,6 +2308,12 @@
+ #define RCC_C1BOOTRSTSCLRR_D1STBYRSTF		BIT(22)
+ #define RCC_C1BOOTRSTSCLRR_D2STBYRSTF		BIT(23)
+ 
++#define RCC_C1BOOTRSTSCLRR_IWDGXSYSRSTF (RCC_C1BOOTRSTSCLRR_IWDG1SYSRSTF | \
++					 RCC_C1BOOTRSTSCLRR_IWDG2SYSRSTF | \
++					 RCC_C1BOOTRSTSCLRR_IWDG3SYSRSTF | \
++					 RCC_C1BOOTRSTSCLRR_IWDG4SYSRSTF | \
++					 RCC_C1BOOTRSTSCLRR_IWDG5SYSRSTF)
++
+ /* RCC_C2BOOTRSTSSETR register fields */
+ #define RCC_C2BOOTRSTSSETR_PORRSTF		BIT(0)
+ #define RCC_C2BOOTRSTSSETR_BORRSTF		BIT(1)
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index d36aec4181..e8738a96c3 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -87,11 +87,7 @@ static void iac_dump(void)
+ static void print_reset_reason(void)
+ {
+ 	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_C1BOOTRSTSCLRR);
+-
+-	if (rstsr == 0U) {
+-		WARN("Reset reason unknown\n");
+-		return;
+-	}
++	const char *reason_str = "Unidentified";
+ 
+ #if !STM32MP21
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_C1P1RSTF) != 0U) {
+@@ -99,88 +95,38 @@ static void print_reset_reason(void)
+ 	}
+ #endif /* !STM32MP21 */
+ 
+-	INFO("Reset reason (0x%x):\n", rstsr);
+-
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) == 0U) {
+ 		if ((rstsr & RCC_C1BOOTRSTSCLRR_STBYC1RSTF) != 0U) {
+-			INFO("System exits from Standby for CA35\n");
+-			return;
++			reason_str = "System exits from Standby for CA35";
++		} else if ((rstsr & RCC_C1BOOTRSTSCLRR_D1STBYRSTF) != 0U) {
++			reason_str = "D1 domain exits from DStandby";
++		} else if ((rstsr & RCC_C1BOOTRSTSCLRR_VCPURSTF) != 0U) {
++			reason_str = "System reset from VCPU monitor";
++		} else if ((rstsr & RCC_C1BOOTRSTSCLRR_C1RSTF) != 0U) {
++			reason_str = "CA35 reset by CM33 (C1RST)";
++		} else {
++			reason_str = "Unidentified";
+ 		}
+-
+-		if ((rstsr & RCC_C1BOOTRSTSCLRR_D1STBYRSTF) != 0U) {
+-			INFO("D1 domain exits from DStandby\n");
+-			return;
++	} else {
++		if ((rstsr & RCC_C1BOOTRSTSCLRR_PORRSTF) != 0U) {
++			reason_str = "Power-on reset (por_rstn)";
++		} else if ((rstsr & RCC_C1BOOTRSTSCLRR_BORRSTF) != 0U) {
++			reason_str = "Brownout reset (bor_rstn)";
++		} else if ((rstsr & (RCC_C1BOOTRSTSSETR_SYSC2RSTF |
++				     RCC_C1BOOTRSTSSETR_SYSC1RSTF)) != 0U) {
++			reason_str = "System reset (SYSRST)";
++		} else if ((rstsr & RCC_C1BOOTRSTSCLRR_HCSSRSTF) != 0U) {
++			reason_str = "Clock failure on HSE";
++		} else if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDGXSYSRSTF) != 0U) {
++			reason_str = "IWDG system reset (iwdgX_out_rst)";
++		} else if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) != 0U) {
++			reason_str = "Pin reset from NRST";
++		} else {
++			reason_str = "Unidentified";
+ 		}
+ 	}
+ 
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_PORRSTF) != 0U) {
+-		INFO("  Power-on Reset (rst_por)\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_BORRSTF) != 0U) {
+-		INFO("  Brownout Reset (rst_bor)\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSSETR_SYSC2RSTF) != 0U) {
+-		INFO("  System reset (SYSRST) by M33\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSSETR_SYSC1RSTF) != 0U) {
+-		INFO("  System reset (SYSRST) by A35\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_HCSSRSTF) != 0U) {
+-		INFO("  Clock failure on HSE\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG1SYSRSTF) != 0U) {
+-		INFO("  IWDG1 system reset (rst_iwdg1)\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG2SYSRSTF) != 0U) {
+-		INFO("  IWDG2 system reset (rst_iwdg2)\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG3SYSRSTF) != 0U) {
+-		INFO("  IWDG3 system reset (rst_iwdg3)\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG4SYSRSTF) != 0U) {
+-		INFO("  IWDG4 system reset (rst_iwdg4)\n");
+-		return;
+-	}
+-
+-#if !STM32MP21
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG5SYSRSTF) != 0U) {
+-		INFO("  IWDG5 system reset (rst_iwdg5)\n");
+-		return;
+-	}
+-#endif /* !STM32MP21 */
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) != 0U) {
+-		INFO("  Pad Reset from NRST\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_VCORERSTF) != 0U) {
+-		INFO("  Reset due to a failure of VDD_CORE\n");
+-		return;
+-	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_C1RSTF) != 0U) {
+-		INFO("  A35 processor reset\n");
+-		return;
+-	}
+-
+-	ERROR("  Unidentified reset reason\n");
++	INFO("Reset reason: %s (0x%x)\n", reason_str, rstsr);
+ }
+ 
+ void bl2_el3_early_platform_setup(u_register_t arg0 __unused,
+-- 
+2.53.0
+

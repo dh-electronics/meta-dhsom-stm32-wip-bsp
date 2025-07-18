@@ -1,0 +1,102 @@
+From 3028d5d78656ed417cbc9ca9912575916ee350f9 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 6 Feb 2023 14:19:35 +0100
+Subject: [PATCH 267/954] feat(stm32mp2): add RETRAM map/unmap capability
+
+Add RETRAM base address and size definition at platform level.
+RETRAM is used by the DDR driver to store retention registers (DDR
+training results) in order to restore them in standby exit sequence.
+Add map/unmap services at platform level and configure dedicated RISAB5.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4c1587decb7adc0ba470bcdf13ee6187d46e0dbe feat(stm32mp2): add RETRAM map/unmap capability]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I460b36fccce62e83c1fbff298f96b23530aaa4f3
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/286971
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  4 ++++
+ plat/st/stm32mp2/bl2_plat_setup.c       | 10 ++++++++++
+ plat/st/stm32mp2/stm32mp2_def.h         |  2 ++
+ plat/st/stm32mp2/stm32mp2_private.c     | 13 +++++++++++++
+ 4 files changed, 29 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 35d64d23dc..8e7c1ca73d 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -138,6 +138,10 @@ void stm32mp_io_setup(void);
+ int stm32mp_map_ddr_non_cacheable(void);
+ int stm32mp_unmap_ddr(void);
+ 
++/* Functions to map RETRAM, and unmap it */
++int stm32mp_map_retram(void);
++int stm32mp_unmap_retram(void);
++
+ /* Function to save boot info */
+ void stm32_save_boot_info(boot_api_context_t *boot_context);
+ /* Function to get boot peripheral info */
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index a090a17209..700989890b 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -294,6 +294,16 @@ skip_console_init:
+ #endif /* STM32MP_USB_PROGRAMMER */
+ #endif /* STM32MP_USB_PROGRAMMER || TRUSTED_BOARD_BOOT */
+ 
++	/*
++	 * RISAB5 setup (dedicated for RETRAM)
++	 *
++	 * Allow secure read/writes data accesses to non-secure
++	 * blocks or pages, all RISAB registers are writable.
++	 * DDR retention registers are saved there and restored
++	 * when exiting standby low power state.
++	 */
++	mmio_write_32(RISAB5_BASE + RISAB_CR, RISAB_CR_SRWIAD);
++
+ 	if (stm32mp2_pwr_init_io_domains() != 0) {
+ 		panic();
+ 	}
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 3feeebe705..c0c1b1c4da 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -72,6 +72,8 @@
+ #define SRAM1_SIZE			U(0x00020000)
+ #define SRAM2_BASE			U(0x0E060000)
+ #define SRAM2_SIZE			U(0x00020000)
++#define RETRAM_BASE			U(0x0E080000)
++#define RETRAM_SIZE			U(0x00020000)
+ #define STM32MP_BACKUP_RAM_BASE		U(0x42000000)
+ 
+ /* the first 4KB of SRAM1 are reserved are for BSEC shadow */
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index ec595e517e..87f2837303 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -109,6 +109,19 @@ void configure_mmu(void)
+ 	enable_mmu_el3(0);
+ }
+ 
++int stm32mp_map_retram(void)
++{
++	return  mmap_add_dynamic_region(RETRAM_BASE, RETRAM_BASE,
++					RETRAM_SIZE,
++					MT_RW | MT_SECURE);
++}
++
++int stm32mp_unmap_retram(void)
++{
++	return  mmap_remove_dynamic_region(RETRAM_BASE,
++					   RETRAM_SIZE);
++}
++
+ uintptr_t stm32_get_gpio_bank_base(unsigned int bank)
+ {
+ 	if (bank == GPIO_BANK_Z) {
+-- 
+2.53.0
+

@@ -1,0 +1,76 @@
+From e89a9e4c13818500242e13bfb21b56f195ceab15 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Wed, 2 Dec 2020 11:30:16 +0100
+Subject: [PATCH 014/954] feat(stm32mp1): prepare DDR secure area encryption
+ for STM32MP13
+
+The Memory Cipher Engine (MCE) defines the DDR secure area with
+specific security setup (encryption).
+Its master key is randomly generated (using RNG driver) and saved
+in backup RAM for power management.
+Initialize and configure MCE IP on platform side only if
+authentication is supported at SoC level.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a9a9535e606fd7b196721d8a7d1455f32f763e08 feat(stm32mp1): prepare DDR secure area encryption for STM32MP13]
+Change-Id: I034f45b0fd547d924cbc92c42298e1f3b1e7343c
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 27b769075c..afca3d74ed 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -17,6 +17,9 @@
+ #include <drivers/st/bsec.h>
+ #include <drivers/st/regulator_fixed.h>
+ #include <drivers/st/stm32_iwdg.h>
++#if STM32MP13
++#include <drivers/st/stm32_mce.h>
++#endif
+ #include <drivers/st/stm32_rng.h>
+ #include <drivers/st/stm32_uart.h>
+ #include <drivers/st/stm32mp1_clk.h>
+@@ -372,6 +375,26 @@ skip_console_init:
+ 	stm32mp_io_setup();
+ }
+ 
++#if STM32MP13
++static void prepare_encryption(void)
++{
++	uint8_t mkey[MCE_KEY_SIZE_IN_BYTES];
++
++	stm32_mce_init();
++
++	/* Generate MCE master key from RNG */
++	if (stm32_rng_read(mkey, MCE_KEY_SIZE_IN_BYTES) != 0) {
++		panic();
++	}
++
++	if (stm32_mce_write_master_key(mkey) != 0) {
++		panic();
++	}
++
++	stm32_mce_lock_master_key();
++}
++#endif
++
+ /*******************************************************************************
+  * This function can be used by the platforms to update/use image
+  * information for given `image_id`.
+@@ -399,6 +422,11 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 
+ 	switch (image_id) {
+ 	case FW_CONFIG_ID:
++#if STM32MP13
++		if (stm32mp_is_closed_device() || stm32mp_is_auth_supported()) {
++			prepare_encryption();
++		}
++#endif
+ 		/* Set global DTB info for fixed fw_config information */
+ 		set_config_info(STM32MP_FW_CONFIG_BASE, ~0UL, STM32MP_FW_CONFIG_MAX_SIZE,
+ 				FW_CONFIG_ID);
+-- 
+2.53.0
+

@@ -1,0 +1,144 @@
+From 9395c12efb7789e69251ceac885da29a9f2fe711 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 12 May 2022 18:37:57 +0200
+Subject: [PATCH 189/954] feat(st): update stm32cubeprogrammer API
+
+Update the API stm32cubeprog_[uart/usb]_load() to provide the requested
+phase; the phase is no more assumed to PHASE_SSBL.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 77fa505578412a577f1889cece39421642f19c14 feat(st): update stm32cubeprogrammer API]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I3e14ce0bd5bfce59f141d672b0d66be04012820f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/255407
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/bl2_io_storage.c              | 16 ++++++++++------
+ plat/st/common/include/stm32cubeprogrammer.h |  4 +++-
+ plat/st/common/stm32cubeprogrammer_uart.c    |  5 +++--
+ plat/st/common/stm32cubeprogrammer_usb.c     |  3 ++-
+ 4 files changed, 18 insertions(+), 10 deletions(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 995f780d56..c1147269ce 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -383,7 +383,7 @@ static void mmap_io_setup(void)
+ }
+ 
+ #if STM32MP_UART_PROGRAMMER
+-static void stm32cubeprogrammer_uart(void)
++static void stm32cubeprogrammer_uart(uint8_t phase, uintptr_t base, size_t len)
+ {
+ 	int ret __maybe_unused;
+ 	boot_api_context_t *boot_context =
+@@ -391,13 +391,13 @@ static void stm32cubeprogrammer_uart(void)
+ 	uintptr_t uart_base;
+ 
+ 	uart_base = get_uart_address(boot_context->boot_interface_instance);
+-	ret = stm32cubeprog_uart_load(uart_base, DWL_BUFFER_BASE, DWL_BUFFER_SIZE);
++	ret = stm32cubeprog_uart_load(uart_base, phase, base, len);
+ 	assert(ret == 0);
+ }
+ #endif
+ 
+ #if STM32MP_USB_PROGRAMMER
+-static void stm32cubeprogrammer_usb(void)
++static void stm32cubeprogrammer_usb(uint8_t phase, uintptr_t base, size_t len)
+ {
+ 	int ret __maybe_unused;
+ 	struct usb_handle *pdev;
+@@ -405,7 +405,7 @@ static void stm32cubeprogrammer_usb(void)
+ 	/* Init USB on platform */
+ 	pdev = usb_dfu_plat_init();
+ 
+-	ret = stm32cubeprog_usb_load(pdev, DWL_BUFFER_BASE, DWL_BUFFER_SIZE);
++	ret = stm32cubeprog_usb_load(pdev, phase, base, len);
+ 	assert(ret == 0);
+ }
+ #endif
+@@ -584,7 +584,9 @@ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+ #if STM32MP_UART_PROGRAMMER
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART:
+ 		if (image_id == FW_CONFIG_ID) {
+-			stm32cubeprogrammer_uart();
++			stm32cubeprogrammer_uart(PHASE_SSBL,
++						 DWL_BUFFER_BASE,
++						 DWL_BUFFER_SIZE);
+ 			/* FIP loaded at DWL address */
+ 			image_block_spec.offset = DWL_BUFFER_BASE;
+ 			image_block_spec.length = DWL_BUFFER_SIZE;
+@@ -594,7 +596,9 @@ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+ #if STM32MP_USB_PROGRAMMER
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_USB:
+ 		if (image_id == FW_CONFIG_ID) {
+-			stm32cubeprogrammer_usb();
++			stm32cubeprogrammer_usb(PHASE_SSBL,
++						DWL_BUFFER_BASE,
++						DWL_BUFFER_SIZE);
+ 			/* FIP loaded at DWL address */
+ 			image_block_spec.offset = DWL_BUFFER_BASE;
+ 			image_block_spec.length = DWL_BUFFER_SIZE;
+diff --git a/plat/st/common/include/stm32cubeprogrammer.h b/plat/st/common/include/stm32cubeprogrammer.h
+index 0f5a64d451..df6773b922 100644
+--- a/plat/st/common/include/stm32cubeprogrammer.h
++++ b/plat/st/common/include/stm32cubeprogrammer.h
+@@ -21,9 +21,11 @@
+ uint8_t usb_dfu_get_phase(uint8_t alt);
+ 
+ int stm32cubeprog_usb_load(struct usb_handle *usb_core_handle,
++			   uint8_t phase,
+ 			   uintptr_t ssbl_base,
+ 			   size_t ssbl_len);
+ 
+-int stm32cubeprog_uart_load(uintptr_t instance, uintptr_t base, size_t len);
++int stm32cubeprog_uart_load(uintptr_t instance, uint8_t phase,
++			   uintptr_t base, size_t len);
+ 
+ #endif /* STM32CUBEPROGRAMMER_H */
+diff --git a/plat/st/common/stm32cubeprogrammer_uart.c b/plat/st/common/stm32cubeprogrammer_uart.c
+index 0916099c16..38c46e4f7b 100644
+--- a/plat/st/common/stm32cubeprogrammer_uart.c
++++ b/plat/st/common/stm32cubeprogrammer_uart.c
+@@ -497,7 +497,8 @@ const struct stm32_uart_init_s init = {
+ 	.fifo_mode = STM32_UART_FIFOMODE_EN,
+ };
+ 
+-int stm32cubeprog_uart_load(uintptr_t instance, uintptr_t base, size_t len)
++int stm32cubeprog_uart_load(uintptr_t instance, uint8_t phase,
++			    uintptr_t base, size_t len)
+ {
+ 	int ret;
+ 
+@@ -518,5 +519,5 @@ int stm32cubeprog_uart_load(uintptr_t instance, uintptr_t base, size_t len)
+ 		return ret;
+ 	}
+ 
+-	return uart_read(PHASE_SSBL, base, len);
++	return uart_read(phase, base, len);
+ }
+diff --git a/plat/st/common/stm32cubeprogrammer_usb.c b/plat/st/common/stm32cubeprogrammer_usb.c
+index 75e8038599..177827cd5b 100644
+--- a/plat/st/common/stm32cubeprogrammer_usb.c
++++ b/plat/st/common/stm32cubeprogrammer_usb.c
+@@ -164,6 +164,7 @@ static const struct usb_dfu_media usb_dfu_fops = {
+ };
+ 
+ int stm32cubeprog_usb_load(struct usb_handle *usb_core_handle,
++			   uint8_t phase,
+ 			   uintptr_t base,
+ 			   size_t len)
+ {
+@@ -177,7 +178,7 @@ int stm32cubeprog_usb_load(struct usb_handle *usb_core_handle,
+ 		return -EIO;
+ 	}
+ 
+-	dfu_state.phase = PHASE_SSBL;
++	dfu_state.phase = phase;
+ 	dfu_state.address = base;
+ 	dfu_state.base = base;
+ 	dfu_state.len = len;
+-- 
+2.53.0
+

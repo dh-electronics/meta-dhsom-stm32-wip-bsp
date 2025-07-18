@@ -1,0 +1,84 @@
+From 98f6b1232dbb1a1d3e95f8a998083791dbf9a291 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 12 Apr 2023 17:57:27 +0200
+Subject: [PATCH 296/954] feat(stm32mp2): save a copy of STM32 header
+
+To be able to overwrite the area where the BL2 STM32 image header is,
+this header is saved in a saved_header[] table.
+It is mainly used to be able to load DDR FIP at the beginning of SYSRAM.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a59de204e86a8554a5eb86e50744503b48793ae2 feat(stm32mp2): save a copy of STM32 header]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I81a3875797dc6fc54fe7a4270cb8903d997f97c6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/300394
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  1 +
+ plat/st/stm32mp2/bl2_plat_setup.c       |  2 ++
+ plat/st/stm32mp2/stm32mp2_private.c     | 18 ++++++++++++++++++
+ 3 files changed, 21 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 09907d35ac..8a38af6e23 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -92,6 +92,7 @@ static inline void stm32mp_setup_early_console(void)
+ }
+ #endif
+ 
++void stm32_save_header(void);
+ uintptr_t stm32_get_header_address(void);
+ 
+ bool stm32mp_skip_boot_device_after_standby(void);
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index a90f3526b7..06d762ddfe 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -143,6 +143,8 @@ void bl2_el3_early_platform_setup(u_register_t arg0 __unused,
+ 	stm32mp_setup_early_console();
+ 
+ 	stm32mp_save_boot_ctx_address(BOOT_CTX_ADDR);
++
++	stm32_save_header();
+ }
+ 
+ void bl2_platform_setup(void)
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 935925dcd3..d8c948f5b6 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -101,6 +101,8 @@ static const mmap_region_t stm32mp2_mmap[] = {
+ };
+ #endif
+ 
++static uint8_t saved_header[STM32MP_HEADER_SIZE] __maybe_unused;
++
+ void configure_mmu(void)
+ {
+ 	mmap_add(stm32mp2_mmap);
+@@ -182,6 +184,22 @@ uintptr_t get_uart_address(uint32_t instance_nb)
+ }
+ #endif
+ 
++void stm32_save_header(void)
++{
++#if STM32MP_USB_PROGRAMMER && TRUSTED_BOARD_BOOT
++	memcpy(&saved_header, (uint8_t *)STM32MP_HEADER_BASE, STM32MP_HEADER_SIZE);
++#endif /* STM32MP_USB_PROGRAMMER && TRUSTED_BOARD_BOOT */
++}
++
++uintptr_t stm32_get_header_address(void)
++{
++#if STM32MP_USB_PROGRAMMER && TRUSTED_BOARD_BOOT
++	return (uintptr_t)&saved_header;
++#else
++	return STM32MP_HEADER_BASE;
++#endif /* STM32MP_USB_PROGRAMMER && TRUSTED_BOARD_BOOT */
++}
++
+ uint32_t stm32mp_get_chip_version(void)
+ {
+ 	return stm32mp2_syscfg_get_chip_version();
+-- 
+2.53.0
+

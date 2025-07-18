@@ -1,0 +1,68 @@
+From 99a3c253d8ada40e866114f34e48a031e2f4a5a8 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Tue, 10 Sep 2024 18:19:43 +0200
+Subject: [PATCH 685/954] stm32mp21: check HWKEY validity before writing RISAF
+ encryption key
+
+RISAF encryption key is generated through the HWBUS feature which
+is based on the HWKEY on STM32MP21.
+Check HWKEY validity from BSEC before generating it, by using a
+new inline service at platform level.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 54bb9d6dfa92cd150f090fa73af1dc89f68e55e7 stm32mp21: check HWKEY validity before writing RISAF encryption key]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I37d35672dfa711199337402113ec3d39034cda43
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/403506
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c           | 8 ++++++++
+ plat/st/stm32mp2/include/stm32mp2_private.h | 9 +++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index fac62a5a6d..5d3dbb6ac3 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -570,6 +570,14 @@ static void prepare_encryption(void)
+ 	}
+ #endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 
++#if STM32MP21
++	/* Check HWKEY validity before writing RISAF encryption key*/
++	if (!stm32_otp_is_hwkey_valid()) {
++		ERROR("Invalid HWKEY\n");
++		panic();
++	}
++#endif /* STM32MP21 */
++
+ 	if (stm32mp2_risaf_write_encryption_key(RISAF4_INST, mkey) != 0) {
+ 		panic();
+ 	}
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index 9a276e49bc..ecd0c585f2 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -93,6 +93,15 @@ static inline bool stm32_otp_is_closed_device(void)
+ {
+ 	return bsec_mode_is_closed_device();
+ }
++
++static inline bool stm32_otp_is_hwkey_valid(void)
++{
++	if ((bsec_get_secure_state() & BSEC_HARDWARE_KEY) != 0U) {
++		return true;
++	}
++
++	return false;
++}
+ #else /* STM32MP_M33_TDCID */
+ uint32_t stm32_otp_probe(void);
+ uint32_t stm32_otp_read(uint32_t *val, uint32_t otp);
+-- 
+2.53.0
+

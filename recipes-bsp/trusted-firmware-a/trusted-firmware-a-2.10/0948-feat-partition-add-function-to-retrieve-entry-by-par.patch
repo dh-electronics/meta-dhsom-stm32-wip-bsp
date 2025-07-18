@@ -1,0 +1,71 @@
+From 573fc2106941c7e216409f252d1e418f9dbe2682 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Mon, 12 Jan 2026 11:27:36 +0100
+Subject: [PATCH 948/954] feat(partition): add function to retrieve entry by
+ partition GUID
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add function get_partition_entry_by_type_and_part() that retrieves a
+partition entry by specifying both the partition type GUID and the
+partition unique GUID.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cc655c27f3b5ede53c832f0c802a8f5ce82e15c8 feat(partition): add function to retrieve entry by partition GUID]
+Change-Id: I56d12aaa20a30b76dcd521a471d9b309d9df8a6b
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/523843
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/partition/partition.c         | 19 +++++++++++++++++++
+ include/drivers/partition/partition.h |  2 ++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/drivers/partition/partition.c b/drivers/partition/partition.c
+index 25c7f10073..5f01783844 100644
+--- a/drivers/partition/partition.c
++++ b/drivers/partition/partition.c
+@@ -449,6 +449,25 @@ const partition_entry_t *get_partition_entry_by_guid(
+ 	return NULL;
+ }
+ 
++/*
++ * Try retrieving a partition table entry based on the partition type and part
++ * GUID.
++ */
++const partition_entry_t *get_partition_entry_by_type_and_guid(
++	const struct efi_guid *type_guid, const struct efi_guid *part_guid)
++{
++	int i;
++
++	for (i = 0; i < list.entry_count; i++) {
++		if (guidcmp(type_guid, &list.list[i].type_guid) == 0 &&
++		    guidcmp(part_guid, &list.list[i].part_guid) == 0) {
++			return &list.list[i];
++		}
++	}
++
++	return NULL;
++}
++
+ /*
+  * Return entry to the list of partition table entries.
+  */
+diff --git a/include/drivers/partition/partition.h b/include/drivers/partition/partition.h
+index 4183570aa8..6a18fd2d75 100644
+--- a/include/drivers/partition/partition.h
++++ b/include/drivers/partition/partition.h
+@@ -48,6 +48,8 @@ int load_partition_table(unsigned int image_id);
+ const partition_entry_t *get_partition_entry(const char *name);
+ const partition_entry_t *get_partition_entry_by_type(
+ 	const struct efi_guid *type_guid);
++const partition_entry_t *get_partition_entry_by_type_and_guid(
++	const struct efi_guid *type_guid, const struct efi_guid *part_guid);
+ const partition_entry_t *get_partition_entry_by_guid(
+ 	const struct efi_guid *part_guid);
+ const partition_entry_list_t *get_partition_entry_list(void);
+-- 
+2.53.0
+

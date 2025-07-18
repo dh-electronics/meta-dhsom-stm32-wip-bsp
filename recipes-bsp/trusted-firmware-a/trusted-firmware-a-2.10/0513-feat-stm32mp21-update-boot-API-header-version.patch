@@ -1,0 +1,124 @@
+From 57d4a484322675f95e53ded2b8d117fc1d348937 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 19 Dec 2023 14:06:26 +0100
+Subject: [PATCH 513/954] feat(stm32mp21): update boot API header version
+
+Update BOOT_API_HEADER_VERSION to header version 2.3 for STM32MP21.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3b35866773b7de945c40403626e2e72e743f5379 feat(stm32mp21): update boot API header version]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: If76f1f15752ab12b0897003ffef6bfcab275c00d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/355999
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/include/boot_api.h | 37 +++++++++++++++++++++++++----
+ 1 file changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/stm32mp2/include/boot_api.h b/plat/st/stm32mp2/include/boot_api.h
+index 580a65b590..79dbe8d17a 100644
+--- a/plat/st/stm32mp2/include/boot_api.h
++++ b/plat/st/stm32mp2/include/boot_api.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -86,7 +86,11 @@
+ /* Image Header related definitions */
+ 
+ /* Definition of header version */
++#if STM32MP21
++#define BOOT_API_HEADER_VERSION					0x00020300U
++#else /* STM32MP21 */
+ #define BOOT_API_HEADER_VERSION					0x00020200U
++#endif /* STM32MP21 */
+ 
+ /*
+  * Magic number used to detect header in memory
+@@ -97,13 +101,18 @@
+ #define BOOT_API_IMAGE_HEADER_MAGIC_NB				0x324D5453U
+ 
+ /* Definitions related to Authentication used in image header structure */
+-#define BOOT_API_ECDSA_PUB_KEY_LEN_IN_BYTES			64
+-#define BOOT_API_ECDSA_SIGNATURE_LEN_IN_BYTES			64
++#define BOOT_API_ECDSA_PUB_KEY_256_LEN_IN_BYTES			64
++#define BOOT_API_ECDSA_SIGNATURE_256_LEN_IN_BYTES		64
+ #define BOOT_API_SHA256_DIGEST_SIZE_IN_BYTES			32
++#define BOOT_API_ECDSA_PUB_KEY_384_LEN_IN_BYTES			96
++#define BOOT_API_ECDSA_SIGNATURE_384_LEN_IN_BYTES		96
++#define BOOT_API_SHA384_DIGEST_SIZE_IN_BYTES			48
+ 
+ /* Possible values of the field 'boot_api_image_header_t.ecc_algo_type' */
+ #define BOOT_API_ECDSA_ALGO_TYPE_P256NIST			1
+ #define BOOT_API_ECDSA_ALGO_TYPE_BRAINPOOL256			2
++#define BOOT_API_ECDSA_ALGO_TYPE_P384NIST			3
++#define BOOT_API_ECDSA_ALGO_TYPE_BRAINPOOL384			4
+ 
+ /*
+  * Extension headers related definitions
+@@ -164,6 +173,7 @@
+  * BOOT_API_MAGIC_NUMBER_TAMP_BCK_REG_IDX
+  */
+ #define BOOT_API_A35_CORE0_MAGIC_NUMBER				0xCA7FACE0U
++#if !STM32MP21
+ #define BOOT_API_A35_CORE1_MAGIC_NUMBER				0xCA7FACE1U
+ 
+ /*
+@@ -179,6 +189,7 @@
+  * Cortex A35 Core 1 when restarted by a TAMP_BCK4R magic number writing
+  */
+ #define BOOT_API_CORE1_BRANCH_ADDRESS_TAMP_BCK_REG_IDX		10U
++#endif /* !STM32MP21 */
+ 
+ /*
+  * Possible value of boot context field 'hse_clock_value_in_hz'
+@@ -312,7 +323,11 @@ typedef struct {
+ typedef struct {
+ 	/* BOOT_API_IMAGE_HEADER_MAGIC_NB */
+ 	uint32_t magic;
+-	uint8_t image_signature[BOOT_API_ECDSA_SIGNATURE_LEN_IN_BYTES];
++#if STM32MP21
++	uint8_t image_signature[BOOT_API_ECDSA_SIGNATURE_384_LEN_IN_BYTES];
++#else /* STM32MP21 */
++	uint8_t image_signature[BOOT_API_ECDSA_SIGNATURE_256_LEN_IN_BYTES];
++#endif /* STM32MP21 */
+ 	/*
+ 	 * Checksum of payload
+ 	 * 32-bit sum all payload bytes considered as 8 bit unsigned
+@@ -362,6 +377,9 @@ typedef struct {
+ 	uint8_t ext_header[];
+ } __packed boot_api_image_header_t;
+ 
++#if STM32MP21
++typedef uint8_t boot_api_sha384_t[BOOT_API_SHA384_DIGEST_SIZE_IN_BYTES];
++#endif /* STM32MP21 */
+ typedef uint8_t boot_api_sha256_t[BOOT_API_SHA256_DIGEST_SIZE_IN_BYTES];
+ 
+ typedef struct {
+@@ -390,9 +408,18 @@ typedef struct {
+ 	 */
+ 	uint32_t ecc_algo_type;
+ 	/* ECDSA public key to be used to check signature. */
+-	uint8_t ecc_pubk[BOOT_API_ECDSA_PUB_KEY_LEN_IN_BYTES];
++#if STM32MP21
++	uint8_t ecc_pubk[BOOT_API_ECDSA_PUB_KEY_384_LEN_IN_BYTES];
++#else /* STM32MP21 */
++	uint8_t ecc_pubk[BOOT_API_ECDSA_PUB_KEY_256_LEN_IN_BYTES];
++#endif /* STM32MP21 */
++
+ 	/* table of Hash of Algo+ECDSA public key */
++#if STM32MP21
++	boot_api_sha384_t pk_hashes[];
++#else /* STM32MP21 */
+ 	boot_api_sha256_t pk_hashes[];
++#endif /* STM32MP21 */
+ } __packed boot_ext_header_params_authentication_t;
+ 
+ typedef struct {
+-- 
+2.53.0
+

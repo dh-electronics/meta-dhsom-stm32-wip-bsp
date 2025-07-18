@@ -1,0 +1,61 @@
+From d35c9112a4bff0ee0564735c0bb8f753ee63ea0d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Thu, 14 Nov 2024 09:44:44 +0100
+Subject: [PATCH 752/954] fix(stm32mp2): use TOOL_ADD_IMG_PAYLOAD for BL31 DT
+
+Use TOOL_ADD_IMG_PAYLOAD instead of TOOL_ADD_IMG to generate the BL31
+device tree blob to be included in FIP. This allows building all TF-A
+binaries and FIP in a single command. Else, as TOOL_ADD_IMG evaluate
+the existence of the file before building it, we have a build error.
+This was partly done with TOOL_ADD_PAYLOAD in case encryption was not
+enable, but with TOOL_ADD_IMG_PAYLOAD we can have some unification.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 53949a02e27e0ded47e9da58614f9cd0f3dce0e7 fix(stm32mp2): use TOOL_ADD_IMG_PAYLOAD for BL31 DT]
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Change-Id: Id5e75567b92912072e80d91a34175efd63605aec
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/418548
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/platform.mk | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index d1a2ce0b96..bf879d2fb5 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -168,14 +168,17 @@ STM32MP_DDR_FW_NAME		:=	${DDR_TYPE}_pmu_train.bin
+ STM32MP_DDR_FW			:=	${STM32MP_DDR_FW_PATH}/${STM32MP_DDR_FW_NAME}
+ endif
+ FDT_SOURCES			+=	$(addprefix $(DT_SOURCE_PATH)/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_NAME)))
++
+ # Add the FW_CONFIG to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
++
+ # Add the SOC_FW_CONFIG to FIP and specify the same to certtool
+ ifeq ($(ENCRYPT_BL31),1)
+-$(eval $(call TOOL_ADD_IMG,STM32MP_SOC_FW_CONFIG,--soc-fw-config,,$(ENCRYPT_BL31)))
+-else
+-$(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_SOC_FW_CONFIG},--soc-fw-config))
++STM32MP_SOC_FW_CONFIG_ENC 	:= 	$(patsubst %.dtb,%_enc.dtb,$(STM32MP_SOC_FW_CONFIG))
++$(call ENCRYPT_FW,$(STM32MP_SOC_FW_CONFIG),$(STM32MP_SOC_FW_CONFIG_ENC))
+ endif
++$(eval $(call TOOL_ADD_IMG_PAYLOAD,STM32MP_SOC_FW_CONFIG,$(STM32MP_SOC_FW_CONFIG),--soc-fw-config,$(patsubst %.dtb,%.dts,$(STM32MP_SOC_FW_CONFIG)),$(STM32MP_SOC_FW_CONFIG_ENC)))
++
+ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+ # Add the FW_DDR to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_IMG,STM32MP_DDR_FW,--ddr-fw))
+@@ -460,6 +463,4 @@ ${BUILD_PLAT}/fdts/%-bl31.dts: $(DT_SOURCE_PATH)/%.dts fdts/${BL31_DTSI} | ${BUI
+ 	@echo '#include "$(patsubst fdts/%,%,$<)"' > $@
+ 	@echo '#include "${BL31_DTSI}"' >> $@
+ 
+-${BUILD_PLAT}/fdts/%-bl31.dtb: ${BUILD_PLAT}/fdts/%-bl31.dts
+-
+ include plat/st/common/common_rules.mk
+-- 
+2.53.0
+

@@ -1,0 +1,56 @@
+From 8413c42b43aeac85778acf330bd09846374baf2e Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 17 Jan 2024 16:14:23 +0100
+Subject: [PATCH 476/954] refactor(st): use %c to display board info
+
+Now that %c is supported in log functions, use it instead of creating a
+temporary string in stm32_display_board_info(). This also saves a few
+bytes of code.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f74b748d1695b1020bbd1626e5401a48763fa5fc refactor(st): use %c to display board info]
+Change-Id: If071ed83b92bd30aec425f5b33f66f87c066dae5
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/352182
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/stm32mp_common.c | 12 ++++--------
+ 1 file changed, 4 insertions(+), 8 deletions(-)
+
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 0957a74daa..838311d62e 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -42,8 +42,8 @@
+ 					 BOARD_ID_BOARD_NB_SHIFT)
+ #define BOARD_ID2VARCPN(_id)		(((_id) & BOARD_ID_VARCPN_MASK) >> \
+ 					 BOARD_ID_VARCPN_SHIFT)
+-#define BOARD_ID2REV(_id)		(((_id) & BOARD_ID_REVISION_MASK) >> \
+-					 BOARD_ID_REVISION_SHIFT)
++#define BOARD_ID2REV(_id)		(char)(((_id) & BOARD_ID_REVISION_MASK) >> \
++					       BOARD_ID_REVISION_SHIFT)
+ #define BOARD_ID2VARFG(_id)		(((_id) & BOARD_ID_VARFG_MASK) >> \
+ 					 BOARD_ID_VARFG_SHIFT)
+ #define BOARD_ID2BOM(_id)		((_id) & BOARD_ID_BOM_MASK)
+@@ -424,15 +424,11 @@ int32_t plat_get_soc_revision(void)
+ 
+ void stm32_display_board_info(uint32_t board_id)
+ {
+-	char rev[2];
+-
+-	rev[0] = BOARD_ID2REV(board_id) - 1 + 'A';
+-	rev[1] = '\0';
+-	NOTICE("Board: MB%04x Var%u.%u Rev.%s-%02u\n",
++	NOTICE("Board: MB%04x Var%u.%u Rev.%c-%02u\n",
+ 	       BOARD_ID2NB(board_id),
+ 	       BOARD_ID2VARCPN(board_id),
+ 	       BOARD_ID2VARFG(board_id),
+-	       rev,
++	       BOARD_ID2REV(board_id) - 1 + 'A',
+ 	       BOARD_ID2BOM(board_id));
+ }
+ 
+-- 
+2.53.0
+

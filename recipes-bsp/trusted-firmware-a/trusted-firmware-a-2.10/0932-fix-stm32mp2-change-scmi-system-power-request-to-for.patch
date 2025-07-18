@@ -1,0 +1,61 @@
+From c52ebdf3f9c9244f4086af9cd4721152e5e244ee Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Fri, 17 Oct 2025 11:19:25 +0200
+Subject: [PATCH 932/954] fix(stm32mp2): change scmi system power request to
+ forcefully request
+
+Since scp firmware supports only grafully request for powerdown, use
+forcefully request for suspend and reset
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 70091aed2d7f9189e7b1f429d57c300eb77bf98f fix(stm32mp2): change scmi system power request to forcefully request]
+Change-Id: I3b5f555654934fb4e6194f4fde668efd4ef156b1
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/504579
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ plat/st/stm32mp2/scmi/scmi_common.c | 4 ++--
+ plat/st/stm32mp2/stm32mp2_pm.c      | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/scmi/scmi_common.c b/plat/st/stm32mp2/scmi/scmi_common.c
+index 74cbab136b..330de0372a 100644
+--- a/plat/st/stm32mp2/scmi/scmi_common.c
++++ b/plat/st/stm32mp2/scmi/scmi_common.c
+@@ -512,7 +512,7 @@ err:
+ 
+ void __dead2 stm32mp_system_reset(void)
+ {
+-	int ret = scmi_sys_pwr_state_set(SCMI_SYS_PWR_GRACEFUL_REQ, SCMI_SYS_PWR_WARM_RESET);
++	int ret = scmi_sys_pwr_state_set(SCMI_SYS_PWR_FORCEFUL_REQ, SCMI_SYS_PWR_WARM_RESET);
+ 
+ 	if (ret != SCMI_SUCCESS) {
+ 		INFO("SCMI SYSTEM_POWER_STATE_SET error (%d), waiting watchdog\n", ret);
+@@ -526,7 +526,7 @@ void __dead2 stm32mp_system_reset(void)
+ 
+ void __dead2 stm32mp_system_cold_reset(void)
+ {
+-	int ret = scmi_sys_pwr_state_set(SCMI_SYS_PWR_GRACEFUL_REQ, SCMI_SYS_PWR_COLD_RESET);
++	int ret = scmi_sys_pwr_state_set(SCMI_SYS_PWR_FORCEFUL_REQ, SCMI_SYS_PWR_COLD_RESET);
+ 
+ 	if (ret != SCMI_SUCCESS) {
+ 		INFO("SCMI SYSTEM_POWER_STATE_SET error (%d), waiting watchdog\n", ret);
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index e4dbbdc5d2..fb457abeb1 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -482,7 +482,7 @@ static void print_mode_verbose(const char *mode)
+ static void stm32_set_scmi_sys_pwr(uint32_t system_state)
+ {
+ #if STM32MP_M33_TDCID
+-	scmi_sys_pwr_state_set(SCMI_SYS_PWR_GRACEFUL_REQ, system_state);
++	scmi_sys_pwr_state_set(SCMI_SYS_PWR_FORCEFUL_REQ, system_state);
+ #endif
+ }
+ 
+-- 
+2.53.0
+

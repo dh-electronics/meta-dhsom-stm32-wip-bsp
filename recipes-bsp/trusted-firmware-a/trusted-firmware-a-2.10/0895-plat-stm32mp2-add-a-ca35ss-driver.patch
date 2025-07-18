@@ -1,0 +1,323 @@
+From d43bae6e92a2cda45c3cc9c9927e5dd3a54badb2 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 11 Jul 2025 18:16:45 +0200
+Subject: [PATCH 895/954] plat: stm32mp2: add a ca35ss driver
+
+Move the access on the ca35ss register in a separate file.
+
+This patch also timeourt for loop in stm32mp_ca35_lpi functions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0cb24cfb85f6cf2f3a668d47cca5c738ad128b8f plat: stm32mp2: add a ca35ss driver]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I6b1a4aca9832dfc2549f26dc8579b0728db3feb5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/475532
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/include/stm32mp2_private.h |   4 +
+ plat/st/stm32mp2/platform.mk                |   1 +
+ plat/st/stm32mp2/stm32mp2_ca35ss.c          | 115 ++++++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_pm.c              |  80 ++------------
+ 4 files changed, 129 insertions(+), 71 deletions(-)
+ create mode 100644 plat/st/stm32mp2/stm32mp2_ca35ss.c
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index 840704d684..816a1ae320 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -115,4 +115,8 @@ bool stm32_is_bsec_closed(void);
+ 
+ uint32_t otp_mirror_read(uint32_t *val, uint32_t otp);
+ 
++void stm32mp_ca35_set_vbar(uintptr_t vbar);
++void stm32mp_ca35_lpi_isolate(void);
++void stm32mp_ca35_lpi_restore(void);
++
+ #endif /* STM32MP2_PRIVATE_H */
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 32e9f8b12d..a0227e791c 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -413,6 +413,7 @@ BL31_SOURCES			+=	plat/st/stm32mp2/bl31_plat_setup.c			\
+ 
+ ifeq ($(filter 1,${STM32MP_UART_PROGRAMMER} ${STM32MP_USB_PROGRAMMER}),)
+ BL31_SOURCES			+=	plat/st/stm32mp2/stm32mp2_pm.c				\
++					plat/st/stm32mp2/stm32mp2_ca35ss.c			\
+ 					common/tf_crc32.c
+ 
+ BL31_CPPFLAGS += -march=armv8-a+crc
+diff --git a/plat/st/stm32mp2/stm32mp2_ca35ss.c b/plat/st/stm32mp2/stm32mp2_ca35ss.c
+new file mode 100644
+index 0000000000..521f34ebf5
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_ca35ss.c
+@@ -0,0 +1,115 @@
++/*
++ * Copyright (c) 2025, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <common/debug.h>
++#include <drivers/clk.h>
++#include <drivers/delay_timer.h>
++#include <lib/mmio.h>
++#include <platform_def.h>
++#include <stm32mp2_private.h>
++
++/* Standardized status and control registers (SSC) access modes */
++#define A35SSC_SSC_RW			U(0x0)
++#define A35SSC_SSC_WS1			U(0x4)
++#define A35SSC_SSC_WC1			U(0x8)
++#define A35SSC_SSC_WT1			U(0xC)
++
++/*
++ * CA35SS register (base relative)
++ * - Standardized Status and Control registers (SSC) access modes (offset=0x0)
++ * - SYSCFG registers (offset=0x2000)
++ */
++#define CA35SS_SSC_LPI_TSGEN_NTS(type)	(U(0x0D0) + A35SSC_SSC_ ## type)
++#define CA35SS_SSC_LPI_STGEN_NTS(type)	(U(0x140) + A35SSC_SSC_ ## type)
++
++#define CA35SS_SYSCFG_VBAR_CR		0x2084U
++
++/*
++ * CA35SS_SSC_LPI_TSGEN_NTS_ register fields
++ */
++#define CA35SS_SSC_LPI_TSGEN_CSYSREQ			BIT_32(8)
++#define CA35SS_SSC_LPI_TSGEN_CSYSACK			BIT_32(9)
++
++/*
++ * CA35SS_SSC_LPI_STGEN_NTS register fields
++ */
++#define CA35SS_SSC_LPI_STGEN_CSYSREQ			BIT_32(24)
++#define CA35SS_SSC_LPI_STGEN_CSYSACK			BIT_32(25)
++#define TIMEOUT_US			U(1000)
++
++void stm32mp_ca35_set_vbar(uintptr_t vbar)
++{
++	mmio_write_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR, (uint32_t)vbar);
++}
++
++/*
++ * To guarantee a correct synchronization of the ARM counter with STGEN,
++ * the ARM generic timer has to  be isolated before entering in low power
++ * mode. Once this is done, the delays or timeouts function based on this
++ * timer will never end.
++ */
++void stm32mp_ca35_lpi_isolate(void)
++{
++	uint64_t timeout = 0;
++	uint32_t counter = UINT32_MAX;
++
++	/* Isolate TSGEN for debug only if associated clock is enabled */
++	if (clk_is_enabled(CK_SYSDBG)) {
++		mmio_write_32(A35SSC_BASE + CA35SS_SSC_LPI_TSGEN_NTS(WC1),
++			      CA35SS_SSC_LPI_TSGEN_CSYSREQ);
++		timeout = timeout_init_us(TIMEOUT_US);
++		while ((mmio_read_32(A35SSC_BASE + CA35SS_SSC_LPI_TSGEN_NTS(WC1))
++			& CA35SS_SSC_LPI_TSGEN_CSYSACK) == CA35SS_SSC_LPI_TSGEN_CSYSACK) {
++			if (timeout_elapsed(timeout)) {
++				panic();
++			}
++		}
++	}
++
++	/* Use write clear registers to clear bits */
++	mmio_write_32(A35SSC_BASE + CA35SS_SSC_LPI_STGEN_NTS(WC1),
++		      CA35SS_SSC_LPI_STGEN_CSYSREQ);
++
++	while ((mmio_read_32(A35SSC_BASE + CA35SS_SSC_LPI_STGEN_NTS(WC1))
++		& CA35SS_SSC_LPI_STGEN_CSYSACK) == CA35SS_SSC_LPI_STGEN_CSYSACK) {
++		/* With STGEN isolated, timer is not functional */
++		counter--;
++		if (counter == 0U) {
++			panic();
++		}
++	}
++}
++
++void stm32mp_ca35_lpi_restore(void)
++{
++	uint64_t timeout = 0;
++	uint32_t counter = UINT32_MAX;
++
++	/* Use write set registers to set bits */
++	mmio_write_32(A35SSC_BASE + CA35SS_SSC_LPI_STGEN_NTS(WS1),
++		      CA35SS_SSC_LPI_STGEN_CSYSREQ);
++
++	while ((mmio_read_32(A35SSC_BASE + CA35SS_SSC_LPI_STGEN_NTS(WS1))
++		& CA35SS_SSC_LPI_STGEN_CSYSACK) == 0U) {
++		/* With STGEN isolated, timer is not functional */
++		counter--;
++		if (counter == 0U) {
++			panic();
++		}
++	}
++
++	if (clk_is_enabled(CK_SYSDBG)) {
++		mmio_write_32(A35SSC_BASE + CA35SS_SSC_LPI_TSGEN_NTS(WS1),
++			      CA35SS_SSC_LPI_TSGEN_CSYSREQ);
++		timeout = timeout_init_us(TIMEOUT_US);
++		while ((mmio_read_32(A35SSC_BASE + CA35SS_SSC_LPI_TSGEN_NTS(WS1))
++			& CA35SS_SSC_LPI_TSGEN_CSYSACK) == 0U) {
++			if (timeout_elapsed(timeout)) {
++				panic();
++			}
++		}
++	}
++}
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index ff17c965c2..238870d018 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -29,6 +29,7 @@
+ 
+ #include <platform_def.h>
+ #include <stm32mp2_context.h>
++#include <stm32mp2_private.h>
+ 
+ #include "../../../lib/psci/psci_private.h"
+ 
+@@ -40,22 +41,6 @@
+ #define DEFAULT_LPLVDLY_D2	0U		/* 6xLSI cycle = 187 us */
+ #define DEFAULT_LPSTOP1DLY	100U		/* LP-Stop1 PWRLP_DLY to wait VTT */
+ 
+-/* Standardized status and control registers (SSC) access modes */
+-#define A35SSC_SSC_RW			U(0x0)
+-#define A35SSC_SSC_WS1			U(0x4)
+-#define A35SSC_SSC_WC1			U(0x8)
+-#define A35SSC_SSC_WT1			U(0xC)
+-
+-#define CA35SS_SSC_LPI_TSGEN_NTS(type)	(U(0x0D0) + A35SSC_SSC_ ## type)
+-#define TS_CSYSREQ			BIT_32(8)
+-#define TS_CSYSACK			BIT_32(9)
+-
+-#define CA35SS_SSC_LPI_STGEN_NTS(type)	(U(0x140) + A35SSC_SSC_ ## type)
+-#define STGEN_CSYSREQ			BIT_32(24)
+-#define STGEN_CSYSACK			BIT_32(25)
+-
+-#define CA35SS_SYSCFG_VBAR_CR	0x2084U
+-
+ #define RAMCFG_RETRAMCR		0x180U
+ #define SRAMHWERDIS		BIT(12)
+ 
+@@ -218,52 +203,6 @@ static void stm32mp_state_set(unsigned int core_id, unsigned int state_id, bool
+ 	}
+ }
+ 
+-/*
+- * To guarantee a correct synchronization of the ARM counter with STGEN,
+- * the ARM generic timer has to  be isolated before entering in low power
+- * mode. Once this is done, the delays or timeouts function based on this
+- * timer will never end.
+- */
+-static void stm32mp_ca35_lpi_isolate(void)
+-{
+-	/* Use write clear registers to clear bits */
+-	mmio_write_32(A35SSC_BASE + CA35SS_SSC_LPI_STGEN_NTS(WC1), STGEN_CSYSREQ);
+-
+-	while ((mmio_read_32(A35SSC_BASE + CA35SS_SSC_LPI_STGEN_NTS(WC1))
+-		& STGEN_CSYSACK) != 0U) {
+-		;
+-	}
+-
+-	if (clk_is_enabled(CK_SYSDBG)) {
+-		mmio_write_32(A35SSC_BASE + CA35SS_SSC_LPI_TSGEN_NTS(WC1), TS_CSYSREQ);
+-
+-		while ((mmio_read_32(A35SSC_BASE + CA35SS_SSC_LPI_TSGEN_NTS(WC1))
+-			& TS_CSYSACK) != 0U) {
+-			;
+-		}
+-	}
+-}
+-
+-static void stm32mp_ca35_lpi_restore(void)
+-{
+-	/* Use write set registers to set bits */
+-	mmio_write_32(A35SSC_BASE + CA35SS_SSC_LPI_STGEN_NTS(WS1), STGEN_CSYSREQ);
+-
+-	while ((mmio_read_32(A35SSC_BASE + CA35SS_SSC_LPI_STGEN_NTS(WS1))
+-		& STGEN_CSYSACK) == 0U) {
+-		;
+-	}
+-
+-	if (clk_is_enabled(CK_SYSDBG)) {
+-		mmio_write_32(A35SSC_BASE + CA35SS_SSC_LPI_TSGEN_NTS(WS1), TS_CSYSREQ);
+-
+-		while ((mmio_read_32(A35SSC_BASE + CA35SS_SSC_LPI_TSGEN_NTS(WS1))
+-			& TS_CSYSACK) == 0U) {
+-			;
+-		}
+-	}
+-}
+-
+ /* LPSRAM1/2/3 autonomous support (AMEN) when D3 is used in low power */
+ static void lpsram_autonomous_mode_set(uintptr_t rcc_base)
+ {
+@@ -797,7 +736,7 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 			stm32mp_gic_resume();
+ 			stm32mp_gic_cpuif_enable();
+ #if !STM32MP21
+-			mmio_write_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR, stm32_sec_entrypoint);
++			stm32mp_ca35_set_vbar(stm32_sec_entrypoint);
+ 			/* Start the secondary core if it was running before Standby */
+ 			if ((core_id == STM32MP_PRIMARY_CPU) &&
+ 			    stm32mp_state_check(STM32MP_SECONDARY_CPU, STATE_START)) {
+@@ -830,10 +769,10 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 		stm32mp_gic_resume();
+ 		stm32mp_gic_cpuif_enable();
+ 
++#if !STM32MP21
+ 		/* Restore register in CA35SS */
+-		mmio_write_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR, stm32_sec_entrypoint);
++		stm32mp_ca35_set_vbar(stm32_sec_entrypoint);
+ 
+-#if !STM32MP21
+ 		/* Start the secondary core if it was running before STOP */
+ 		if ((core_id == STM32MP_PRIMARY_CPU) &&
+ 		    stm32mp_state_check(STM32MP_SECONDARY_CPU, STATE_START)) {
+@@ -904,7 +843,8 @@ static void __dead2 stm32_pwr_domain_pwr_down_wfi(const psci_power_state_t
+ 	/* The first power down on core 0, core 1 is running */
+ 	if ((core_id == STM32MP_PRIMARY_CPU) &&
+ 	    !stm32mp_state_check(STM32MP_PRIMARY_CPU, STATE_START)) {
+-		uintptr_t sec_entrypoint;
++		/* Cast uintptr_t to function pointer via void * to comply with MISRA Rule 11.1 */
++		void (*sec_entry_point_f)(void) = (void (*)(void))(void *)stm32_sec_entrypoint;
+ 
+ 		/* Core 0 can't be turned OFF, emulate it with a WFE loop */
+ 		VERBOSE("BL31: core0 entering wait loop...\n");
+@@ -914,10 +854,9 @@ static void __dead2 stm32_pwr_domain_pwr_down_wfi(const psci_power_state_t
+ 
+ 		VERBOSE("BL31: core0 resumed.\n");
+ 		dsbsy();
+-		sec_entrypoint = mmio_read_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR);
+ 		/* Jump manually to entry point, with mmu disabled. */
+ 		disable_mmu_el3();
+-		((void(*)(void))sec_entrypoint)();
++		sec_entry_point_f();
+ 
+ 		/* This shouldn't be reached */
+ 		panic();
+@@ -971,8 +910,7 @@ static void __dead2 stm32_system_off(void)
+ 		stm32mp_state_set(STM32MP_SECONDARY_CPU, STATE_RUNNING, false);
+ 
+ 		/* Program secondary CPU entry points */
+-		mmio_write_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR,
+-			      (uintptr_t)&stm32_stop2_entrypoint);
++		stm32mp_ca35_set_vbar(stm32_sec_entrypoint);
+ 
+ 		/* After reset, the core is stopped, waiting in WFI loop */
+ 		stm32mp_state_set(STM32MP_SECONDARY_CPU, STATE_START, false);
+@@ -1522,7 +1460,7 @@ int plat_setup_psci_ops(uintptr_t sec_entrypoint,
+ 
+ 	/* Program secondary CPU entry points. */
+ 	stm32_sec_entrypoint = sec_entrypoint;
+-	mmio_write_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR, stm32_sec_entrypoint);
++	stm32mp_ca35_set_vbar(stm32_sec_entrypoint);
+ 
+ 	/* Initialize the state per cpu */
+ 	stm32_percpu_data[STM32MP_PRIMARY_CPU].state[STATE_START] = true;
+-- 
+2.53.0
+

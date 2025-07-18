@@ -1,0 +1,199 @@
+From d216e39cd7d7d53f3f5aa8d60fd41e7eb0e6d78f Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 15 Jul 2025 16:05:19 +0200
+Subject: [PATCH 903/954] feat(stm32mp2): add SCMI system power management
+ protocol
+
+Add the SCMI system power management protocol in the SCMI client driver.
+
+This patch also add the support of generic SCMI message
+PROTOCOL_MESSAGE_ATTRIBUTES(0x2) to
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 851cc654b9d0e336f24ee914d0908f1203c1672d feat(stm32mp2): add SCMI system power management protocol]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I22ad8a9ca2e82d3314242f5d96c11485d208585d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/475539
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/services/scmi_common.c  | 85 ++++++++++++++++++++++++
+ plat/st/stm32mp2/services/scmi_private.h | 21 +++++-
+ 2 files changed, 105 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/services/scmi_common.c b/plat/st/stm32mp2/services/scmi_common.c
+index 69b2bd5356..880c65bc7a 100644
+--- a/plat/st/stm32mp2/services/scmi_common.c
++++ b/plat/st/stm32mp2/services/scmi_common.c
+@@ -37,11 +37,16 @@
+ 
+ /* SCMI base protocol: mandatory messages IDs for all SCMI protocols */
+ #define SCMI_MSG_PROTOCOL_VERSION	0x0U
++#define SCMI_MSG_PROTOCOL_MSG_ATTR	0x2U
+ 
+ /* SCMI voltage domain protocol message IDs */
+ #define SCMI_MSG_VOLTAGE_LEVEL_SET	0x7U
+ #define SCMI_MSG_VOLTAGE_LEVEL_GET	0x8U
+ 
++/* SCMI system power management protocol message IDs */
++#define SCMI_MSG_SYS_PWR_STATE_SET	0x3U
++#define SCMI_MSG_SYS_PWR_STATE_GET	0x4U
++
+ /* Helper macro on version of a SCMI protocol */
+ #define SCMI_GET_VER_MAJOR(ver)		(((ver) >> 16) & GENMASK_32(15, 0))
+ #define SCMI_GET_VER_MINOR(ver)		((ver) & GENMASK_32(15, 0))
+@@ -51,6 +56,7 @@
+ 
+ /* Expected SCMI protocol version for this driver */
+ #define SCMI_PROTO_VER_VOLTAGE		SCMI_VERSION(1, 0)
++#define SCMI_PROTO_VER_SYS_PWR		SCMI_VERSION(1, 0)
+ 
+ /* Check that the driver's version is same or higher than the reported SCMI version. */
+ #define is_scmi_version_compatible(drv, scmi)						\
+@@ -83,6 +89,8 @@ static struct scmi_shmem_layout *shmem = (struct scmi_shmem_layout *)STM32MP_SCM
+ 
+ unsigned int scmi_msg_token;
+ 
++bool scmi_sys_pwr_state_set_supported;
++
+ /**
+  * @brief Ring the SCMI doorbell to notify the remote processor.
+  *
+@@ -261,6 +269,29 @@ static int32_t smci_proto_version_check(uint32_t proto_id, uint32_t expected)
+ 	return ret;
+ }
+ 
++/* Query the protocol message attributes for a SCMI protocol */
++static int32_t scmi_proto_msg_attr(uint32_t proto_id, uint32_t command_id, uint32_t *attr)
++{
++	int32_t ret = scmi_channel_prepare(proto_id, SCMI_MSG_PROTOCOL_MSG_ATTR, 1U);
++
++	if (ret != SCMI_SUCCESS) {
++		return ret;
++	}
++
++	shmem->payload[0] = command_id;
++
++	scmi_ring_doorbell();
++
++	ret = scmi_rsp_wait(TIMEOUT_10MS_IN_US, 2U);
++	if (ret != SCMI_SUCCESS) {
++		return ret;
++	}
++
++	*attr = shmem->payload[1];
++
++	return (int32_t)shmem->payload[0]; /* status */
++}
++
+ /**
+  * @brief Get the SCMI voltage domain protocol version.
+  *
+@@ -355,14 +386,68 @@ int32_t scmi_voltd_level_set_rcv()
+ 	return (int32_t)shmem->payload[0]; /* status */
+ }
+ 
++/*
++ * API to set the SCMI system power state
++ */
++int32_t scmi_sys_pwr_state_set(uint32_t flags, uint32_t system_state)
++{
++	int32_t ret;
++
++	if (!scmi_sys_pwr_state_set_supported) {
++		return SCMI_NOT_SUPPORTED;
++	}
++
++	ret = scmi_channel_prepare(SCMI_PROTOCOL_ID_SYS_POWER, SCMI_MSG_SYS_PWR_STATE_SET, 2U);
++	if (ret != SCMI_SUCCESS) {
++		return ret;
++	}
++
++	shmem->payload[0] = flags;
++	shmem->payload[1] = system_state;
++
++	scmi_ring_doorbell();
++
++	ret = scmi_rsp_wait(TIMEOUT_10MS_IN_US, 1U);
++	if (ret != SCMI_SUCCESS) {
++		return ret;
++	}
++
++	return (int32_t)shmem->payload[0]; /* status */
++}
++
++/* Check if the message SCMI SYSTEM_POWER_STATE_SET is supported */
++static void scmi_check_sys_pwr_state_set(void)
++{
++	uint32_t attr;
++	int32_t ret;
++
++	ret = scmi_proto_msg_attr(SCMI_PROTOCOL_ID_SYS_POWER, SCMI_MSG_SYS_PWR_STATE_SET, &attr);
++	if (ret == SCMI_SUCCESS) {
++		scmi_sys_pwr_state_set_supported = true;
++	} else {
++		scmi_sys_pwr_state_set_supported = false;
++		INFO("SCMI SYSTEM_POWER_STATE_SET not supported (%d)\n", ret);
++	}
++}
++
+ int32_t scmi_init(void)
+ {
+ 	int32_t ret;
+ 
++	scmi_sys_pwr_state_set_supported = false;
++
+ 	/* Initialize channel */
+ 	scmi_channel_clear();
+ 
++	/* Check supported protocol and messages */
++	ret = smci_proto_version_check(SCMI_PROTOCOL_ID_SYS_POWER, SCMI_PROTO_VER_SYS_PWR);
++	if (ret != SCMI_SUCCESS) {
++		goto err;
++	}
++	scmi_check_sys_pwr_state_set();
++
+ 	ret = smci_proto_version_check(SCMI_PROTOCOL_ID_VOLTAGE_DOMAIN, SCMI_PROTO_VER_VOLTAGE);
+ 
++err:
+ 	return ret;
+ }
+diff --git a/plat/st/stm32mp2/services/scmi_private.h b/plat/st/stm32mp2/services/scmi_private.h
+index d71f7d4eb3..f047338910 100644
+--- a/plat/st/stm32mp2/services/scmi_private.h
++++ b/plat/st/stm32mp2/services/scmi_private.h
+@@ -12,6 +12,23 @@
+ 
+ #define SCMI_ST_TIMEOUT                 (-128)
+ 
++/*
++ * Bit-fields of the `flags` parameter of system power protocol in
++ * SYSTEM_POWER_STATE_SET message with scmi_sys_pwr_state_set().
++ */
++#define SCMI_SYS_PWR_GRACEFUL_REQ		BIT_32(0)
++#define SCMI_SYS_PWR_FORCEFUL_REQ		0U
++
++/*
++ * `system_state` parameter of system power domain protocol
++ * SYSTEM_POWER_STATE_SET message with scmi_sys_pwr_state_set().
++ */
++#define SCMI_SYS_PWR_SHUTDOWN			0x0
++#define SCMI_SYS_PWR_COLD_RESET			0x1
++#define SCMI_SYS_PWR_WARM_RESET			0x2
++#define SCMI_SYS_PWR_POWER_UP			0x3
++#define SCMI_SYS_PWR_SUSPEND			0x4
++
+ int32_t scmi_init(void);
+ void scmi_channel_clear(void);
+ bool scmi_channel_busy(void);
+@@ -23,4 +40,6 @@ int32_t scmi_voltd_level_get_rcv(int32_t *voltage_level);
+ int32_t scmi_voltd_level_set_snd(uint32_t domain_id, uint32_t flags, int32_t voltage_level);
+ int32_t scmi_voltd_level_set_rcv();
+ 
+-#endif /* STM32MP2_SCMI_PRIVATE */
+\ No newline at end of file
++int32_t scmi_sys_pwr_state_set(uint32_t flags, uint32_t system_state);
++
++#endif /* STM32MP2_SCMI_PRIVATE */
+-- 
+2.53.0
+

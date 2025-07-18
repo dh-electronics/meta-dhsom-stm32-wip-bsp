@@ -1,0 +1,54 @@
+From 78b506063acb15bfbeaa0f12a3f7277cafaa3741 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 20 Jun 2025 14:13:00 +0200
+Subject: [PATCH 874/954] fix(stm32mp2): maintain only BKPSRAM content in power
+ off
+
+Only maintain BKPSRAM content in power off to preserve TF-M Internal
+Trusted Storage (ITS), no need to maintain LPSRAM1.
+
+This patch also clarifies the comments in stm32_pm_tdcid_init().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 39d0bd1ca989b2c46b85a14155af39998f4cf284 fix(stm32mp2): maintain only BKPSRAM content in power off]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I9e4446b3d8fbb303bced3f842ab9b68fe1acaf9a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/468843
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index f885e3aa6e..8a101a5c89 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -1044,6 +1044,8 @@ static void __dead2 stm32_system_off(void)
+ 	stm32mp2_pll1_disable();
+ 
+ #if !STM32MP_M33_TDCID
++	/* Maintain BKPSRAM content in power off to preserve TF-M ITS */
++	mmio_write_32(pwr_base + PWR_CR9, PWR_CR9_BKPRBSEN);
+ 	/* Do not maintain RETRAM memory content in Standby or Vbat */
+ 	mmio_write_32(pwr_base + PWR_CR10, PWR_CR10_RETRBSEN_DISABLE);
+ #endif
+@@ -1446,12 +1448,13 @@ static void stm32_pm_tdcid_init(void *fdt)
+ 	mmio_setbits_32(rcc_base + RCC_LEGBOOTCR, RCC_LEGBOOTCR_LEGACY_BEN);
+ 
+ #if STM32MP21
+-	/* Maintain BKPSRAM & RETRAM content in Standby */
++	/* Maintain BKPSRAM content in Standby */
+ 	mmio_write_32(pwr_base + PWR_CR9, PWR_CR9_BKPRBSEN);
+ #else
+-	/* Maintain BKPSRAM & LPSRAM1 & RETRAM content in Standby */
++	/* Maintain BKPSRAM & LPSRAM1 content in Standby */
+ 	mmio_write_32(pwr_base + PWR_CR9, PWR_CR9_BKPRBSEN|PWR_CR9_LPR1BSEN);
+ #endif
++	/* Maintain RETRAM content in Standby */
+ 	mmio_write_32(pwr_base + PWR_CR10, PWR_CR10_RETRBSEN_STANDBY);
+ 
+ 	/* Prevent RETRAM erase */
+-- 
+2.53.0
+

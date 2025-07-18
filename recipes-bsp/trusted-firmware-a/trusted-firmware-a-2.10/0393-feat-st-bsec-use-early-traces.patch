@@ -1,0 +1,82 @@
+From d379210c2aa9cebcd4db81835799eb9f9a3f4c76 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 2 Nov 2023 15:36:12 +0100
+Subject: [PATCH 393/954] feat(st-bsec): use early traces
+
+Replace trace macros with their corresponding EARLY_* macros.
+Add some early traces in bsec2 driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 619ea12fda974bce66420ab0564d0e8d7314c348 feat(st-bsec): use early traces]
+Change-Id: I65e2feee6e7ba2524fb0a334557aa6e883672765
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/338370
+---
+ drivers/st/bsec/bsec2.c | 16 +++++++++++++---
+ drivers/st/bsec/bsec3.c |  8 +++++---
+ 2 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index eca2d7068a..14df63c134 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -166,11 +166,13 @@ static void bsec_late_init(void)
+ 	struct dt_node_info bsec_info;
+ 
+ 	if (fdt_get_address(&fdt) == 0) {
++		EARLY_ERROR("%s: DT not found\n", __func__);
+ 		panic();
+ 	}
+ 
+ 	node = bsec_get_dt_node(&bsec_info);
+ 	if (node < 0) {
++		EARLY_ERROR("%s: BSEC node not found\n", __func__);
+ 		panic();
+ 	}
+ 
+@@ -226,13 +228,21 @@ static uint32_t bsec_check_error(uint32_t otp, bool check_disturbed)
+  */
+ uint32_t bsec_probe(void)
+ {
++	uint32_t version;
++	uint32_t id;
++
+ 	if (is_otp_invalid_mode()) {
++		EARLY_ERROR("%s: otp_invalid_mod\n", __func__);
+ 		return BSEC_ERROR;
+ 	}
+ 
+-	if (((bsec_get_version() != BSEC_IP_VERSION_1_1) &&
+-	     (bsec_get_version() != BSEC_IP_VERSION_2_0)) ||
+-	    (bsec_get_id() != BSEC_IP_ID_2)) {
++	version = bsec_get_version();
++	id = bsec_get_id();
++
++	if (((version != BSEC_IP_VERSION_1_1) &&
++	     (version != BSEC_IP_VERSION_2_0)) ||
++	    (id != BSEC_IP_ID_2)) {
++		EARLY_ERROR("%s: version = 0x%x, id = 0x%x\n", __func__, version, id);
+ 		panic();
+ 	}
+ 
+diff --git a/drivers/st/bsec/bsec3.c b/drivers/st/bsec/bsec3.c
+index d0af8c03da..cb9b8cf301 100644
+--- a/drivers/st/bsec/bsec3.c
++++ b/drivers/st/bsec/bsec3.c
+@@ -175,9 +175,11 @@ static bool is_bsec_write_locked(void)
+  */
+ uint32_t bsec_probe(void)
+ {
+-	if ((bsec_get_version() != BSEC_IP_VERSION_1_0) ||
+-	    (bsec_get_id() != BSEC_IP_ID_3)) {
+-		ERROR("BSEC probe wrong IP version/ID\n");
++	uint32_t version = bsec_get_version();
++	uint32_t id = bsec_get_id();
++
++	if ((version != BSEC_IP_VERSION_1_0) || (id != BSEC_IP_ID_3)) {
++		EARLY_ERROR("%s: version = 0x%x, id = 0x%x\n", __func__, version, id);
+ 		panic();
+ 	}
+ 
+-- 
+2.53.0
+

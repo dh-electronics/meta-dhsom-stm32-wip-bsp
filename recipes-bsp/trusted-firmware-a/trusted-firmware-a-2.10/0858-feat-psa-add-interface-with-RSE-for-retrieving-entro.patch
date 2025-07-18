@@ -1,0 +1,126 @@
+From d3c9234643a1372fec33a1a56d0a0503c36850ea Mon Sep 17 00:00:00 2001
+From: Leo Yan <leo.yan@arm.com>
+Date: Fri, 31 Jan 2025 10:07:51 +0000
+Subject: [PATCH 858/954] feat(psa): add interface with RSE for retrieving
+ entropy
+
+Add the AP/RSS interface for reading the entropy.  And update the
+document for the API.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6b0af06e4612804479daf55bf4f8553102a62e5a feat(psa): add interface with RSE for retrieving entropy]
+Change-Id: I61492d6b5d824a01ffeadc92f9d41ca841ba3367
+Signed-off-by: Leo Yan <leo.yan@arm.com>
+Signed-off-by: Icen Zeyada <Icen.Zeyada2@arm.com>
+(cherry picked from commit 1147a470c257403466cdbd55a13823ca1652063e)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443850
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ docs/design_documents/rse.rst      | 15 +++++++++++++++
+ include/lib/psa/rse_crypto_defs.h  |  3 +++
+ include/lib/psa/rse_platform_api.h | 12 ++++++++++++
+ lib/psa/rse_platform.c             | 23 +++++++++++++++++++++++
+ 4 files changed, 53 insertions(+)
+
+diff --git a/docs/design_documents/rse.rst b/docs/design_documents/rse.rst
+index 7296a453ea..df635bd0c2 100644
+--- a/docs/design_documents/rse.rst
++++ b/docs/design_documents/rse.rst
+@@ -674,6 +674,21 @@ Arm CCA platform:
+ - ``ROTPK for secure firmware.``
+ - ``ROTPK for non-secure firmware.``
+ 
++Get entropy API
++^^^^^^^^^^^^^^^
++
++AP/RSE interface for reading the entropy is as follows.
++
++Defined here:
++
++- ``include/lib/psa/rse_platform_api.h``
++
++.. code-block:: c
++
++    psa_status_t rse_platform_get_entropy(uint8_t *data, size_t data_size)
++
++Through this service, we can read an entropy generated from RSE.
++
+ References
+ ----------
+ 
+diff --git a/include/lib/psa/rse_crypto_defs.h b/include/lib/psa/rse_crypto_defs.h
+index b94664fb65..ea1342fd52 100644
+--- a/include/lib/psa/rse_crypto_defs.h
++++ b/include/lib/psa/rse_crypto_defs.h
+@@ -11,6 +11,9 @@
+ /* Declares types that encode errors, algorithms, key types, policies, etc. */
+ #include "psa/crypto_types.h"
+ 
++/* Value identifying random number generating API */
++#define RSE_CRYPTO_GENERATE_RANDOM_SID		(uint16_t)(0x100)
++
+ /*
+  * Value identifying export public key function API, used to dispatch the request
+  * to the corresponding API implementation in the Crypto service backend.
+diff --git a/include/lib/psa/rse_platform_api.h b/include/lib/psa/rse_platform_api.h
+index c9fdb55b1d..fcfeb5050e 100644
+--- a/include/lib/psa/rse_platform_api.h
++++ b/include/lib/psa/rse_platform_api.h
+@@ -59,6 +59,18 @@ rse_platform_nv_counter_read(uint32_t counter_id,
+ psa_status_t
+ rse_platform_key_read(enum rse_key_id_builtin_t key, uint8_t *data,
+ 		size_t data_size, size_t *data_length);
++
++/*
++ * Gets the entropy.
++ *
++ * data		Buffer where the entropy data is to be written.
++ * data_size	Size of the data buffer in bytes.
++ *
++ * PSA_SUCCESS if the entropy is generated successfully. Otherwise,
++ *	it returns a PSA_ERROR.
++ */
++psa_status_t
++rse_platform_get_entropy(uint8_t *data, size_t data_size);
+ #endif
+ 
+ #endif /* RSE_PLATFORM_API_H */
+diff --git a/lib/psa/rse_platform.c b/lib/psa/rse_platform.c
+index 9ede8b4d52..ffa2f480af 100644
+--- a/lib/psa/rse_platform.c
++++ b/lib/psa/rse_platform.c
+@@ -70,4 +70,27 @@ rse_platform_key_read(enum rse_key_id_builtin_t key, uint8_t *data,
+ 
+ 	return status;
+ }
++
++psa_status_t
++rse_platform_get_entropy(uint8_t *data, size_t data_size)
++{
++	psa_status_t status;
++
++	struct rse_crypto_pack_iovec iov = {
++		.function_id = RSE_CRYPTO_GENERATE_RANDOM_SID,
++	};
++
++	psa_invec in_vec[] = {
++		{.base = &iov, .len = sizeof(struct rse_crypto_pack_iovec)},
++	};
++	psa_outvec out_vec[] = {
++		{.base = data, .len = data_size}
++	};
++
++	status = psa_call(RSE_CRYPTO_HANDLE, PSA_IPC_CALL,
++			  in_vec, IOVEC_LEN(in_vec),
++			  out_vec, IOVEC_LEN(out_vec));
++
++	return status;
++}
+ #endif
+-- 
+2.53.0
+

@@ -1,0 +1,62 @@
+From c65b7e486d3e35bb2869073ca424ada5f8eaac84 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 22 Jan 2024 14:35:52 +0100
+Subject: [PATCH 552/954] feat(stm32mp2): regulator-enable-ramp-delay for DDR
+ regulator
+
+Replace hardcoded timeout by regulator-enable-ramp-delay.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0acb5187710b2c217f8b545f9778d4294d0bf067 feat(stm32mp2): regulator-enable-ramp-delay for DDR regulator]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ib9c557300f55dbf58e39a2d8ad42700849da26d0
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/355242
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/368536
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/plat_ddr.c | 7 -------
+ 1 file changed, 7 deletions(-)
+
+diff --git a/plat/st/stm32mp2/plat_ddr.c b/plat/st/stm32mp2/plat_ddr.c
+index 60419c8166..2691ea00b0 100644
+--- a/plat/st/stm32mp2/plat_ddr.c
++++ b/plat/st/stm32mp2/plat_ddr.c
+@@ -93,7 +93,6 @@ static int ddr_power_init(void *fdt, int node)
+ 	/*
+ 	 * DDR4 power on sequence is:
+ 	 * enable VPP_DDR
+-	 * wait 2ms
+ 	 * enable VREF_DDR, VTT_DDR, VPP_DDR
+ 	 */
+ 	status = regulator_set_min_voltage(supply.vpp);
+@@ -111,8 +110,6 @@ static int ddr_power_init(void *fdt, int node)
+ 		return status;
+ 	}
+ 
+-	udelay(1000);
+-
+ 	status = regulator_enable(supply.vdd);
+ 	if (status != 0) {
+ 		return status;
+@@ -154,7 +151,6 @@ static int ddr_power_init(void *fdt, int node)
+ 	/*
+ 	 * LPDDR4 power on sequence is:
+ 	 * enable VDD1_DDR
+-	 * wait 2ms
+ 	 * enable VDD2_DDR
+ 	 * enable VDDQ_DDR
+ 	 */
+@@ -178,9 +174,6 @@ static int ddr_power_init(void *fdt, int node)
+ 		return status;
+ 	}
+ 
+-	/* could be set via enable_ramp_delay on vdd1_ddr */
+-	udelay(2000);
+-
+ 	status = regulator_enable(supply.vdd2);
+ 	if (status != 0) {
+ 		return status;
+-- 
+2.53.0
+

@@ -1,0 +1,38 @@
+From 488f1a946186429e374ca788fe049912416c6389 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Fri, 9 Sep 2022 14:51:54 +0200
+Subject: [PATCH 220/954] feat(stm32mp2): pwr: Log VRSEL not correctly set
+
+Add a error message when VRSEL is not set correctly.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ace1df293dec494bd6db3fe0c90db7ab1eefee7a feat(stm32mp2): pwr: Log VRSEL not correctly set]
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Change-Id: Icccda044de0366dcd530add0765cf147181860d5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/265724
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pwr.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pwr.c b/plat/st/stm32mp2/stm32mp2_pwr.c
+index 438ed891cc..6d200dafb8 100644
+--- a/plat/st/stm32mp2/stm32mp2_pwr.c
++++ b/plat/st/stm32mp2/stm32mp2_pwr.c
+@@ -119,6 +119,11 @@ static int stm32mp2_pwr_handle_vrsel(void *fdt, int node, const struct pwr_regu
+ 		VERBOSE("Enable VRSEL for %s\n", regu->node_name);
+ 
+ 		mmio_setbits_32(stm32mp_pwr_base() + regu->enable_reg, regu->vrsel_mask);
++
++		if ((mmio_read_32(stm32mp_pwr_base() + regu->enable_reg) &
++		    regu->vrsel_mask) == 0U) {
++			WARN("Could not enable VRSEL for %s\n", regu->node_name);
++		}
+ 	}
+ 
+ 	return 0;
+-- 
+2.53.0
+

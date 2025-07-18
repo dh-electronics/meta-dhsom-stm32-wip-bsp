@@ -1,0 +1,163 @@
+From b9fc3b4f7b6c169704ed1be8d4038e83fe265748 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Thu, 28 Mar 2024 18:47:25 +0100
+Subject: [PATCH 608/954] fix(st-ddr): manage CID filtering when accessing
+ PWR_CR11
+
+There is no inheritance between PWR_CR11 and DDR RCC resources.
+Disabling/re-enabling CID filtering of resource 104 (DDRCTRL)
+before/after each access of PWR_CR11 (read or write) fixes
+this lack.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 40ed1c5cdccf89190fc8cde3933637afc6ce2a2b fix(st-ddr): manage CID filtering when accessing PWR_CR11]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Iea4502c9ceccd3002b0f5004f5e32d5cce57c2ed
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/384679
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr.c             | 20 +++++++++++++++
+ drivers/st/ddr/stm32mp2_ddr_helpers.c     | 31 +++++++++++++++++++++++
+ include/drivers/st/stm32mp2_ddr_helpers.h |  5 +++-
+ 3 files changed, 55 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
+index ab3c980e1e..ba9a2a3cb6 100644
+--- a/drivers/st/ddr/stm32mp2_ddr.c
++++ b/drivers/st/ddr/stm32mp2_ddr.c
+@@ -364,6 +364,7 @@ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 	int ret = -EINVAL;
+ 	uint32_t ddr_retdis;
+ 	enum ddr_type ddr_type;
++	bool cid_filtering = is_ddr_cid_filtering_enabled();
+ 
+ 	if ((config->c_reg.mstr & DDRCTRL_MSTR_DDR3) != 0U) {
+ 		ddr_type = STM32MP_DDR3;
+@@ -384,7 +385,14 @@ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 	}
+ 
+ 	/* Check DDR PHY pads retention */
++	if (cid_filtering) {
++		ddr_disable_cid_filtering();
++	}
+ 	ddr_retdis = mmio_read_32(priv->pwr + PWR_CR11) & PWR_CR11_DDRRETDIS;
++	if (cid_filtering) {
++		ddr_enable_cid_filtering();
++	}
++
+ 	if (config->self_refresh) {
+ 		if (ddr_retdis == PWR_CR11_DDRRETDIS) {
+ 			VERBOSE("self-refresh aborted: no retention\n");
+@@ -396,7 +404,13 @@ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 		ddr_standby_reset(priv);
+ 
+ 		VERBOSE("disable DDR PHY retention\n");
++		if (cid_filtering) {
++			ddr_disable_cid_filtering();
++		}
+ 		mmio_setbits_32(priv->pwr + PWR_CR11, PWR_CR11_DDRRETDIS);
++		if (cid_filtering) {
++			ddr_enable_cid_filtering();
++		}
+ 
+ 		udelay(DDR_DELAY_1US);
+ 
+@@ -411,7 +425,13 @@ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 		}
+ 
+ 		VERBOSE("disable DDR PHY retention\n");
++		if (cid_filtering) {
++			ddr_disable_cid_filtering();
++		}
+ 		mmio_setbits_32(priv->pwr + PWR_CR11, PWR_CR11_DDRRETDIS);
++		if (cid_filtering) {
++			ddr_enable_cid_filtering();
++		}
+ 
+ 		ddr_reset(priv);
+ 
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index f82434928f..74b6e46dc3 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -227,6 +227,22 @@ int ddr_sr_exit_loop(void)
+ 	return sr_loop(false);
+ }
+ 
++bool is_ddr_cid_filtering_enabled(void)
++{
++	return (mmio_read_32(stm32mp_rcc_base() + RCC_R104CIDCFGR) & RCC_R104CIDCFGR_CFEN) ==
++	       RCC_R104CIDCFGR_CFEN;
++}
++
++void ddr_enable_cid_filtering(void)
++{
++	mmio_setbits_32(stm32mp_rcc_base() + RCC_R104CIDCFGR, RCC_R104CIDCFGR_CFEN);
++}
++
++void ddr_disable_cid_filtering(void)
++{
++	mmio_clrbits_32(stm32mp_rcc_base() + RCC_R104CIDCFGR, RCC_R104CIDCFGR_CFEN);
++}
++
+ static int sr_ssr_set(void)
+ {
+ 	uintptr_t ddrctrl_base = stm32mp_ddrctrl_base();
+@@ -280,7 +296,15 @@ static int sr_ssr_entry(bool standby)
+ 	ddr_wait_lp3_mode(true);
+ 
+ 	if (standby) {
++		bool cid_filtering = is_ddr_cid_filtering_enabled();
++
++		if (cid_filtering) {
++			ddr_disable_cid_filtering();
++		}
+ 		mmio_clrbits_32(stm32mp_pwr_base() + PWR_CR11, PWR_CR11_DDRRETDIS);
++		if (cid_filtering) {
++			ddr_enable_cid_filtering();
++		}
+ 	}
+ 
+ 	mmio_clrsetbits_32(rcc_base + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPLPEN,
+@@ -509,9 +533,16 @@ void ddr_sub_system_clk_init(void)
+ void ddr_sub_system_clk_off(void)
+ {
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
++	bool cid_filtering = is_ddr_cid_filtering_enabled();
+ 
+ 	/* Clear DDR IO retention */
++	if (cid_filtering) {
++		ddr_disable_cid_filtering();
++	}
+ 	mmio_clrbits_32(stm32mp_pwr_base() + PWR_CR11, PWR_CR11_DDRRETDIS);
++	if (cid_filtering) {
++		ddr_enable_cid_filtering();
++	}
+ 
+ 	/* Reset DDR sub system */
+ 	mmio_write_32(rcc_base + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPRST);
+diff --git a/include/drivers/st/stm32mp2_ddr_helpers.h b/include/drivers/st/stm32mp2_ddr_helpers.h
+index 368c408b98..a1aa7a52d7 100644
+--- a/include/drivers/st/stm32mp2_ddr_helpers.h
++++ b/include/drivers/st/stm32mp2_ddr_helpers.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2021-2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2021-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -22,6 +22,9 @@ enum stm32mp2_ddr_sr_mode {
+ void ddr_activate_controller(struct stm32mp_ddrctl *ctl, bool sr_entry);
+ void ddr_wait_lp3_mode(bool state);
+ int ddr_sr_exit_loop(void);
++bool is_ddr_cid_filtering_enabled(void);
++void ddr_enable_cid_filtering(void);
++void ddr_disable_cid_filtering(void);
+ uint32_t ddr_get_io_calibration_val(void);
+ int ddr_sr_entry(bool standby);
+ int ddr_sr_exit(void);
+-- 
+2.53.0
+

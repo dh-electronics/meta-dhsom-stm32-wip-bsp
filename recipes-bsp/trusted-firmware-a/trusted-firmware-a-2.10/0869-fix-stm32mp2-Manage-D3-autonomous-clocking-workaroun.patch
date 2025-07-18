@@ -1,0 +1,43 @@
+From a1eb19075558d10ee2dd2447fd55a22b19081038 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Wed, 21 May 2025 09:14:50 +0200
+Subject: [PATCH 869/954] fix(stm32mp2): Manage D3 autonomous clocking
+ workaround in LPLV_STOP1
+
+The Clocks of the The D3 domain switch in autonomous mode when the system
+enters in LPLV_STOP1.
+Send a C1SEV to the M0+ to allow it to take action during the clock switch.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 14e4a542205103419054c6ebeb092267e0e82632 fix(stm32mp2): Manage D3 autonomous clocking workaround in LPLV_STOP1]
+Change-Id: Iec678e85f17a40fe743f4057ee43884ffc1c7763
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/460819
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index e4e8784afc..db22223cef 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -633,6 +633,11 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 			mmio_write_32(pwr_base + PWR_CPU2CR,
+ 				      PWR_CPU2CR_LPDS_D2 | PWR_CPU2CR_LVDS_D2);
+ 		}
++
++		if (stm32_pwr_cpu3_state_is_running(pwr_base)) {
++			/* Send an IRQ to the M0+ using EXTI2 C1SEV to warn about clook switch. */
++			mmio_write_32(STM32MP_EXTI2_BASE + EXTI2_SWIER2, EXTI2_C1SEV);
++		}
+ #endif
+ 		stm32mp2_enable_rcc_wakeup_irq(rcc_base);
+ 		break;
+-- 
+2.53.0
+

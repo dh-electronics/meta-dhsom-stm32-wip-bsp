@@ -1,0 +1,58 @@
+From 3e1423075190fb5e23a5595116dd139b931250bd Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 15 Dec 2023 11:21:49 +0100
+Subject: [PATCH 454/954] feat(stm32mp2): remove RISAF config for M33 TDCID
+
+If Cortex-M33 is TDCID, it will be in charge of configuring the DDR
+protection through RISAF4 peripheral. Remove RISAF4 configuration from
+TF-A in that case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 556e1389163cdf555e9efd419fb2488afa54fb4e feat(stm32mp2): remove RISAF config for M33 TDCID]
+Change-Id: I1ef40d78589ca820483ae1623616780a3bb8695d
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/347834
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 2 +-
+ plat/st/stm32mp2/platform.mk      | 7 +++++--
+ 2 files changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 5a42e631dc..e62958c5f3 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -199,11 +199,11 @@ void bl2_platform_setup(void)
+ 		ERROR("DDR probe: error %d\n", ret);
+ 		panic();
+ 	}
+-#endif
+ 
+ 	if (stm32mp2_risaf_init() < 0) {
+ 		panic();
+ 	}
++#endif
+ 
+ 	/* Map DDR for binary load, now with cacheable attribute */
+ 	ret = mmap_add_dynamic_region(STM32MP_DDR_BASE, STM32MP_DDR_BASE,
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index b7e644550c..4ff231f195 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -211,8 +211,11 @@ BL2_SOURCES			+=	drivers/st/crypto/stm32_hash.c				\
+ 					plat/st/stm32mp2/bl2_plat_setup.c			\
+ 					plat/st/stm32mp2/plat_ddr.c
+ 
+-BL2_SOURCES		+=	drivers/st/rif/stm32_rifsc.c \
+-				drivers/st/rif/stm32mp2_risaf.c
++BL2_SOURCES		+=	drivers/st/rif/stm32_rifsc.c
++
++ifeq ($(STM32MP_M33_TDCID),0)
++BL2_SOURCES		+=	drivers/st/rif/stm32mp2_risaf.c
++endif
+ 
+ 
+ ifeq (${TRUSTED_BOARD_BOOT},1)
+-- 
+2.53.0
+

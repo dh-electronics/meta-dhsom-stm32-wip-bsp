@@ -1,0 +1,192 @@
+From e8b956c544de14243cb72c9379539af18f368907 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Wed, 12 Mar 2025 17:58:51 +0100
+Subject: [PATCH 863/954] feat(stm32mp2): enable rse support
+
+The IPCC channel 14 is set (instead of channel 3), this is
+the channel to be used after the merge of external dt changing
+the ipcc channel numbering
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9c603b74833b7d982233d61ac9c1beff89073448 feat(stm32mp2): enable rse support]
+Change-Id: I8ee3e709ee28656d788db5cef0214fd2f864dc77
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443812
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c       | 18 ++++++++++++++++++
+ plat/st/stm32mp2/include/platform_def.h | 12 ++++++++++++
+ plat/st/stm32mp2/platform.mk            |  6 ++++++
+ plat/st/stm32mp2/stm32mp2_def.h         | 18 ++++++++++++++++--
+ plat/st/stm32mp2/stm32mp2_private.c     | 11 +++++++++++
+ 5 files changed, 63 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index bbf709de4f..e6c847c0d6 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -12,6 +12,7 @@
+ #include <arch_helpers.h>
+ #include <common/debug.h>
+ #include <common/desc_image_load.h>
++#include <drivers/arm/rse_comms.h>
+ #include <drivers/clk.h>
+ #include <drivers/delay_timer.h>
+ #include <drivers/generic_delay_timer.h>
+@@ -19,6 +20,7 @@
+ #include <drivers/st/bsec.h>
+ #include <drivers/st/regulator.h>
+ #include <drivers/st/regulator_fixed.h>
++#include <drivers/st/rse_shm.h>
+ #include <drivers/st/stm32_console.h>
+ #include <drivers/st/stm32_hash.h>
+ #include <drivers/st/stm32_iwdg.h>
+@@ -35,6 +37,9 @@
+ #include <lib/fconf/fconf_dyn_cfg_getter.h>
+ #include <lib/mmio.h>
+ #include <lib/optee_utils.h>
++#if STM32MP_M33_TDCID
++#include <lib/psa/rse_platform_api.h>
++#endif
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+ #include <plat/common/platform.h>
+ 
+@@ -213,6 +218,11 @@ void bl2_el3_early_platform_setup(u_register_t arg0 __unused,
+ void bl2_platform_setup(void)
+ {
+ 	int ret;
++#if STM32MP_M33_TDCID
++	const struct rse_shmem psa_client = {
++		.base = (void *)RSE_SHMEM_BASE,
++		.len =  RSE_SHMEM_SIZE };
++#endif
+ 
+ #if !STM32MP_M33_TDCID
+ 	ret = stm32mp2_ddr_probe();
+@@ -238,6 +248,14 @@ void bl2_platform_setup(void)
+ 	/* Set QOS ICN priority */
+ 	stm32mp_syscfg_set_icn_qos();
+ #endif
++
++#if STM32MP_M33_TDCID
++	ret = rse_mbx_init(&psa_client);
++	if (ret < 0) {
++		ERROR("rse_mbx_init %d\n", ret);
++		panic();
++	}
++#endif
+ }
+ 
+ #if !STM32MP_M33_TDCID
+diff --git a/plat/st/stm32mp2/include/platform_def.h b/plat/st/stm32mp2/include/platform_def.h
+index 034d66240d..3ce8d40240 100644
+--- a/plat/st/stm32mp2/include/platform_def.h
++++ b/plat/st/stm32mp2/include/platform_def.h
+@@ -186,4 +186,16 @@
+ 		       GIC_HIGHEST_SEC_PRIORITY,	\
+ 		       (grp), GIC_INTR_CFG_EDGE)
+ 
++#if STM32MP_M33_TDCID
++/*
++ * Define for RSE protocol support
++ */
++#define PLAT_RSE_COMMS_PAYLOAD_MAX_SIZE (0x40 + 0x800)
++/* IPCC base register for RSE notification */
++#define RSE_COMMS_IPCC_BASE		IPCC1_BASE
++/* Timeout in US for RSE response */
++#define RSE_COMMS_TIMEOUT_US	(1000000U)
++#define RSE_COMMS_IPCC_CHAN		(14U)
++#endif
++
+ #endif /* PLATFORM_DEF_H */
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index dd9ca5a7d4..f09f9f6370 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -378,6 +378,12 @@ BL2_SOURCES			+=	drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_d_loadimem.c				\
+ 					drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_g_execfw.c				\
+ 					drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_writeoutmem.c				\
+ 					drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c
++else
++# rse drivers
++BL2_SOURCES			+=	drivers/st/rse_shm/rse_comms_shm.c
++PLAT_MHU			:=	NO_MHU
++include drivers/arm/rse/rse_comms.mk
++BL2_SOURCES			+=	${RSE_COMMS_SOURCES}
+ endif #STM32MP_M33_TDCID
+ 
+ # BL31 sources
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 95889b20fc..b2eddb622f 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -157,6 +157,12 @@
+ #define RETRAM_SIZE			U(0x00020000)
+ #define STM32MP_BACKUP_RAM_BASE		U(0x42000000)
+ 
++#if STM32MP_M33_TDCID
++/* RSE Shared Memory for Secure Boot in M33TD CID config */
++#define RSE_SHMEM_BASE			SRAM1_BASE + U(0x3000)
++#define RSE_SHMEM_SIZE			PAGE_SIZE
++#endif
++
+ /* The first 4KB of SRAM1 are reserved are for BSEC mirror */
+ #define STM32MP_BSEC_MIRROR_BASE	SRAM1_BASE
+ #define STM32MP_BSEC_MIRROR_SIZE	PAGE_SIZE
+@@ -268,12 +274,20 @@ enum ddr_type {
+  * MAX_MMAP_REGIONS is usually:
+  * BL stm32mp2_mmap size + mmap regions in *_plat_arch_setup
+  */
++#if STM32MP_M33_TDCID
++#define RSE_SHMEM_REGION			1
++#define SCMI_SHMEM_REGION			1
++#else
++#define RSE_SHMEM_REGION			0
++#define SCMI_SHMEM_REGION			0
++#endif
++
+ #if defined(IMAGE_BL31) && STM32MP_M33_TDCID
+ #define MAX_MMAP_REGIONS			8
+ #elif STM32MP_USB_PROGRAMMER || defined(IMAGE_BL31)
+-#define MAX_MMAP_REGIONS			7
++#define MAX_MMAP_REGIONS			7 + RSE_SHMEM_REGION
+ #else
+-#define MAX_MMAP_REGIONS			6
++#define MAX_MMAP_REGIONS			6 + SCMI_SHMEM_REGION
+ #endif
+ 
+ /* DTB initialization value */
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 3c8966d536..f1c7d53d4c 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -84,6 +84,14 @@
+ 					MT_EXECUTE_NEVER)
+ 
+ #if defined(IMAGE_BL2)
++#if STM32MP_M33_TDCID
++#define MAP_RSE_SHMEM	MAP_REGION_FLAT(RSE_SHMEM_BASE, \
++					RSE_SHMEM_SIZE, \
++					MT_DEVICE | \
++					MT_RW | \
++					MT_SECURE | \
++					MT_EXECUTE_NEVER)
++#endif
+ static const mmap_region_t stm32mp2_mmap[] = {
+ #if STM32MP_USB_PROGRAMMER && !STM32MP21
+ 	MAP_SEC_SYSRAM,
+@@ -95,6 +103,9 @@ static const mmap_region_t stm32mp2_mmap[] = {
+ 	MAP_SRAM1,
+ #else
+ 	MAP_BSEC_MIRROR,
++#endif
++#if STM32MP_M33_TDCID
++	MAP_RSE_SHMEM,
+ #endif
+ 	MAP_DEVICE,
+ 	{0}
+-- 
+2.53.0
+

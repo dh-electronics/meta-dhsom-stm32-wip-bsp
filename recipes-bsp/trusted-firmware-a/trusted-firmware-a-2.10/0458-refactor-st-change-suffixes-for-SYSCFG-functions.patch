@@ -1,0 +1,576 @@
+From 7e9c299abb5e1fa7575a81b8c3eac362c7a3ebb8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 16 Jan 2024 15:40:49 +0100
+Subject: [PATCH 458/954] refactor(st): change suffixes for SYSCFG functions
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This patch replaces the suffixes "stm32mp1_" and "stm32mp2_" in the two
+SYSCFG drivers with "stm32mp_". By using a common suffix for function
+names, we can avoid issues or platform compilation flags when a driver
+needs to access SYSCFG across different platforms.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e4f9d7713a3fc8d4ca4a93ec277294e937b9c1d4 refactor(st): change suffixes for SYSCFG functions]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I24407852c085abd843ef4cdef235c022a5e57a85
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/351769
+Domain-Review: Sebastien PASDELOUP <sebastien.pasdeloup-ext@st.com>
+Tested-by: Sebastien PASDELOUP <sebastien.pasdeloup-ext@st.com>
+Reviewed-by: Sebastien PASDELOUP <sebastien.pasdeloup-ext@st.com>
+---
+ drivers/st/spi/stm32_ospi.c                 | 32 ++++++++++-----------
+ plat/st/stm32mp1/bl2_plat_setup.c           |  8 +++---
+ plat/st/stm32mp1/include/stm32mp1_private.h | 20 ++++++-------
+ plat/st/stm32mp1/stm32mp1_private.c         |  4 +--
+ plat/st/stm32mp1/stm32mp1_syscfg.c          | 22 +++++++-------
+ plat/st/stm32mp2/bl2_plat_setup.c           |  6 ++--
+ plat/st/stm32mp2/include/stm32mp2_private.h | 24 ++++++++--------
+ plat/st/stm32mp2/stm32mp2_private.c         |  4 +--
+ plat/st/stm32mp2/stm32mp2_pwr.c             |  2 +-
+ plat/st/stm32mp2/stm32mp2_syscfg.c          | 30 +++++++++----------
+ 10 files changed, 76 insertions(+), 76 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index cb1b45a6b8..ca20d757bf 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -280,7 +280,7 @@ static int stm32_ospi_dtr_calibrate(uint32_t prescaler, unsigned int bus_freq,
+ 		period_ps = _OSPI_NSEC_PER_SEC / (bus_freq / 1000U);
+ 	}
+ 
+-	ret = stm32mp2_syscfg_dlyb_init(stm32_ospi.bank, bypass_mode,
++	ret = stm32mp_syscfg_dlyb_init(stm32_ospi.bank, bypass_mode,
+ 					period_ps);
+ 	if (ret != 0) {
+ 		return ret;
+@@ -288,12 +288,12 @@ static int stm32_ospi_dtr_calibrate(uint32_t prescaler, unsigned int bus_freq,
+ 
+ 	if (bypass_mode || (prescaler != 0U)) {
+ 		/* perform only RX TAP selection */
+-		ret = stm32mp2_syscfg_dlyb_find_tap(stm32_ospi.bank,
++		ret = stm32mp_syscfg_dlyb_find_tap(stm32_ospi.bank,
+ 						    check_transfer,
+ 						    true, &window_len);
+ 	} else {
+ 		/* perform RX/TX TAP selection */
+-		ret = stm32mp2_syscfg_dlyb_find_tap(stm32_ospi.bank,
++		ret = stm32mp_syscfg_dlyb_find_tap(stm32_ospi.bank,
+ 						    check_transfer,
+ 						    false, &window_len);
+ 	}
+@@ -302,7 +302,7 @@ static int stm32_ospi_dtr_calibrate(uint32_t prescaler, unsigned int bus_freq,
+ 		ERROR("Calibration failed\n");
+ 
+ 		if (!bypass_mode) {
+-			stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++			stm32mp_syscfg_dlyb_stop(stm32_ospi.bank);
+ 		}
+ 	}
+ 
+@@ -886,29 +886,29 @@ static int stm32_ospi_str_calibration(void)
+ 	}
+ 
+ 	/* Perform calibration */
+-	ret = stm32mp2_syscfg_dlyb_init(stm32_ospi.bank, false, 0U);
++	ret = stm32mp_syscfg_dlyb_init(stm32_ospi.bank, false, 0U);
+ 	if (ret != 0) {
+ 		return ret;
+ 	}
+ 
+ 	/* Perform only RX TAP selection */
+-	ret_tcr0 = stm32mp2_syscfg_dlyb_find_tap(stm32_ospi.bank,
++	ret_tcr0 = stm32mp_syscfg_dlyb_find_tap(stm32_ospi.bank,
+ 						 stm32_ospi_readid,
+ 						 true, &window_len_tcr0);
+ 	if (ret_tcr0 == 0) {
+-		stm32mp2_syscfg_dlyb_get_cr(stm32_ospi.bank, &dlyb_cr);
++		stm32mp_syscfg_dlyb_get_cr(stm32_ospi.bank, &dlyb_cr);
+ 	}
+ 
+-	stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++	stm32mp_syscfg_dlyb_stop(stm32_ospi.bank);
+ 
+-	ret = stm32mp2_syscfg_dlyb_init(stm32_ospi.bank, false, 0U);
++	ret = stm32mp_syscfg_dlyb_init(stm32_ospi.bank, false, 0U);
+ 	if (ret != 0) {
+ 		return ret;
+ 	}
+ 
+ 	mmio_setbits_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_SSHIFT);
+ 
+-	ret_tcr1 = stm32mp2_syscfg_dlyb_find_tap(stm32_ospi.bank,
++	ret_tcr1 = stm32mp_syscfg_dlyb_find_tap(stm32_ospi.bank,
+ 						 stm32_ospi_readid,
+ 						 true, &window_len_tcr1);
+ 	if ((ret_tcr0 != 0) && (ret_tcr1 != 0)) {
+@@ -919,9 +919,9 @@ static int stm32_ospi_str_calibration(void)
+ 
+ 	if (window_len_tcr0 >= window_len_tcr1) {
+ 		mmio_clrbits_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_SSHIFT);
+-		stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++		stm32mp_syscfg_dlyb_stop(stm32_ospi.bank);
+ 
+-		ret = stm32mp2_syscfg_dlyb_set_cr(stm32_ospi.bank, dlyb_cr);
++		ret = stm32mp_syscfg_dlyb_set_cr(stm32_ospi.bank, dlyb_cr);
+ 		if (ret != 0) {
+ 			return ret;
+ 		}
+@@ -946,7 +946,7 @@ static int stm32_ospi_dtr_calibration(bool octal_dtr)
+ 	bus_freq = div_round_up(clk_get_rate(stm32_ospi.clock_id),
+ 				prescaler + 1U);
+ 
+-	stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++	stm32mp_syscfg_dlyb_stop(stm32_ospi.bank);
+ 	mmio_clrbits_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_SSHIFT);
+ 	flash->octal_dtr = octal_dtr;
+ 
+@@ -1020,14 +1020,14 @@ static int stm32_ospi_claim_bus(unsigned int cs)
+ 
+ 	/* Calibration is done once */
+ 	if (!flash->str_calibration_done_once) {
+-		stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++		stm32mp_syscfg_dlyb_stop(stm32_ospi.bank);
+ 		mmio_clrbits_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_SSHIFT);
+ 
+ 		if (stm32_ospi_str_calibration() != 0) {
+ 			WARN("Set flash frequency to a safe value (%u Hz)\n",
+ 			     _DLYB_FREQ_50MHZ);
+ 
+-			stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++			stm32mp_syscfg_dlyb_stop(stm32_ospi.bank);
+ 			mmio_clrbits_32(ospi_base() + _OSPI_TCR,
+ 					_OSPI_TCR_SSHIFT);
+ 
+@@ -1219,7 +1219,7 @@ int stm32_ospi_init(void)
+ 	}
+ 
+ 	stm32_ospi.reg_base = fdt32_to_cpu(*(cuint + 1U)) + bank_address[bank];
+-	stm32_ospi.mm_size = stm32mp2_syscfg_get_mm_size(bank);
++	stm32_ospi.mm_size = stm32mp_syscfg_get_mm_size(bank);
+ 	stm32_ospi.mm_base = bank == 0U ?
+ 			     mm_base : mm_base + mm_size - stm32_ospi.mm_size;
+ 	stm32_ospi.bank = bank;
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index e2e338f86e..5ef22b3e4e 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -361,7 +361,7 @@ void bl2_el3_plat_arch_setup(void)
+ 	}
+ 
+ 	/* Enter in boot mode */
+-	stm32mp1_syscfg_boot_mode_enable();
++	stm32mp_syscfg_boot_mode_enable();
+ 
+ 	stm32mp_print_cpuinfo();
+ 
+@@ -409,7 +409,7 @@ skip_console_init:
+ 		print_pmic_info_and_debug();
+ 	}
+ 
+-	stm32mp1_syscfg_init();
++	stm32mp_syscfg_init();
+ 
+ 	if (stm32_iwdg_init() < 0) {
+ 		panic();
+@@ -441,7 +441,7 @@ skip_console_init:
+ 	update_monotonic_counter();
+ #endif
+ 
+-	stm32mp1_syscfg_enable_io_compensation_finish();
++	stm32mp_syscfg_enable_io_compensation_finish();
+ 
+ 	fconf_populate("TB_FW", STM32MP_DTB_BASE);
+ 
+@@ -721,5 +721,5 @@ void bl2_el3_plat_prepare_exit(void)
+ 	stm32mp1_security_setup();
+ 
+ 	/* end of boot mode */
+-	stm32mp1_syscfg_boot_mode_disable();
++	stm32mp_syscfg_boot_mode_disable();
+ }
+diff --git a/plat/st/stm32mp1/include/stm32mp1_private.h b/plat/st/stm32mp1/include/stm32mp1_private.h
+index d8b98063ba..7054c2ce5c 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_private.h
++++ b/plat/st/stm32mp1/include/stm32mp1_private.h
+@@ -16,19 +16,19 @@ void stm32mp1_security_setup(void);
+ 
+ bool stm32mp1_addr_inside_backupsram(uintptr_t addr);
+ 
+-void stm32mp1_syscfg_init(void);
+-void stm32mp1_syscfg_enable_io_compensation_start(void);
+-void stm32mp1_syscfg_enable_io_compensation_finish(void);
+-void stm32mp1_syscfg_disable_io_compensation(void);
+-uint32_t stm32mp1_syscfg_get_chip_version(void);
+-uint32_t stm32mp1_syscfg_get_chip_dev_id(void);
++void stm32mp_syscfg_init(void);
++void stm32mp_syscfg_enable_io_compensation_start(void);
++void stm32mp_syscfg_enable_io_compensation_finish(void);
++void stm32mp_syscfg_disable_io_compensation(void);
++uint32_t stm32mp_syscfg_get_chip_version(void);
++uint32_t stm32mp_syscfg_get_chip_dev_id(void);
+ #if STM32MP13
+-void stm32mp1_syscfg_boot_mode_enable(void);
+-void stm32mp1_syscfg_boot_mode_disable(void);
++void stm32mp_syscfg_boot_mode_enable(void);
++void stm32mp_syscfg_boot_mode_disable(void);
+ #endif
+ #if STM32MP15
+-static inline void stm32mp1_syscfg_boot_mode_enable(void){}
+-static inline void stm32mp1_syscfg_boot_mode_disable(void){}
++static inline void stm32mp_syscfg_boot_mode_enable(void){}
++static inline void stm32mp_syscfg_boot_mode_disable(void){}
+ #endif
+ 
+ void stm32mp1_deconfigure_uart_pins(void);
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index e9e1645892..e9a0a1bb8e 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -272,7 +272,7 @@ uintptr_t stm32_get_header_address(void)
+ uint32_t stm32mp_get_chip_version(void)
+ {
+ #if STM32MP13
+-	return stm32mp1_syscfg_get_chip_version();
++	return stm32mp_syscfg_get_chip_version();
+ #endif
+ #if STM32MP15
+ 	uint32_t version = 0U;
+@@ -289,7 +289,7 @@ uint32_t stm32mp_get_chip_version(void)
+ uint32_t stm32mp_get_chip_dev_id(void)
+ {
+ #if STM32MP13
+-	return stm32mp1_syscfg_get_chip_dev_id();
++	return stm32mp_syscfg_get_chip_dev_id();
+ #endif
+ #if STM32MP15
+ 	uint32_t dev_id;
+diff --git a/plat/st/stm32mp1/stm32mp1_syscfg.c b/plat/st/stm32mp1/stm32mp1_syscfg.c
+index 75dd709310..c5fcfea241 100644
+--- a/plat/st/stm32mp1/stm32mp1_syscfg.c
++++ b/plat/st/stm32mp1/stm32mp1_syscfg.c
+@@ -261,7 +261,7 @@ static void enable_high_speed_mode_low_voltage(void)
+ #endif
+ }
+ 
+-static void stm32mp1_syscfg_set_hslv(void)
++static void stm32mp_syscfg_set_hslv(void)
+ {
+ 	uint32_t otp_value;
+ 	uint32_t vdd_voltage;
+@@ -310,7 +310,7 @@ static void stm32mp1_syscfg_set_hslv(void)
+ 	}
+ }
+ 
+-void stm32mp1_syscfg_init(void)
++void stm32mp_syscfg_init(void)
+ {
+ #if STM32MP15
+ 	uint32_t bootr;
+@@ -328,12 +328,12 @@ void stm32mp1_syscfg_init(void)
+ 			   bootr << SYSCFG_BOOTR_BOOTPD_SHIFT);
+ #endif
+ 
+-	stm32mp1_syscfg_set_hslv();
++	stm32mp_syscfg_set_hslv();
+ 
+-	stm32mp1_syscfg_enable_io_compensation_start();
++	stm32mp_syscfg_enable_io_compensation_start();
+ }
+ 
+-void stm32mp1_syscfg_enable_io_compensation_start(void)
++void stm32mp_syscfg_enable_io_compensation_start(void)
+ {
+ 	/*
+ 	 * Activate automatic I/O compensation.
+@@ -353,7 +353,7 @@ void stm32mp1_syscfg_enable_io_compensation_start(void)
+ #endif
+ }
+ 
+-void stm32mp1_syscfg_enable_io_compensation_finish(void)
++void stm32mp_syscfg_enable_io_compensation_finish(void)
+ {
+ 	enable_io_comp_cell_finish(SYSCFG_CMPCR);
+ #if STM32MP13
+@@ -362,7 +362,7 @@ void stm32mp1_syscfg_enable_io_compensation_finish(void)
+ #endif
+ }
+ 
+-void stm32mp1_syscfg_disable_io_compensation(void)
++void stm32mp_syscfg_disable_io_compensation(void)
+ {
+ 	clk_enable(SYSCFG);
+ 
+@@ -385,7 +385,7 @@ void stm32mp1_syscfg_disable_io_compensation(void)
+  * @brief  Get silicon revision from SYSCFG registers.
+  * @retval chip version (REV_ID).
+  */
+-uint32_t stm32mp1_syscfg_get_chip_version(void)
++uint32_t stm32mp_syscfg_get_chip_version(void)
+ {
+ 	return (mmio_read_32(SYSCFG_BASE + SYSCFG_IDC) &
+ 		SYSCFG_IDC_REV_ID_MASK) >> SYSCFG_IDC_REV_ID_SHIFT;
+@@ -395,18 +395,18 @@ uint32_t stm32mp1_syscfg_get_chip_version(void)
+  * @brief  Get device ID from SYSCFG registers.
+  * @retval device ID (DEV_ID).
+  */
+-uint32_t stm32mp1_syscfg_get_chip_dev_id(void)
++uint32_t stm32mp_syscfg_get_chip_dev_id(void)
+ {
+ 	return mmio_read_32(SYSCFG_BASE + SYSCFG_IDC) & SYSCFG_IDC_DEV_ID_MASK;
+ }
+ 
+ #if STM32MP13
+-void stm32mp1_syscfg_boot_mode_enable(void)
++void stm32mp_syscfg_boot_mode_enable(void)
+ {
+ 	mmio_setbits_32(SYSCFG_BASE + SYSCFG_BOOTCR, SYSCFG_BOOTCR_BMEN);
+ }
+ 
+-void stm32mp1_syscfg_boot_mode_disable(void)
++void stm32mp_syscfg_boot_mode_disable(void)
+ {
+ 	mmio_clrbits_32(SYSCFG_BASE + SYSCFG_BOOTCR, SYSCFG_BOOTCR_BMEN);
+ }
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 4fcd235055..8dad9e36d5 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -215,7 +215,7 @@ void bl2_platform_setup(void)
+ 
+ #if !STM32MP_M33_TDCID
+ 	/* Set QOS ICN priority */
+-	stm32mp2_syscfg_set_icn_qos();
++	stm32mp_syscfg_set_icn_qos();
+ #endif
+ }
+ 
+@@ -327,7 +327,7 @@ void bl2_el3_plat_arch_setup(void)
+ 	iac_dump();
+ 
+ 	/* Masking potential tamper during BL2 */
+-	stm32mp2_syscfg_mask_potential_tamper_enable();
++	stm32mp_syscfg_mask_potential_tamper_enable();
+ 
+ 	stm32mp_print_cpuinfo();
+ 
+@@ -655,5 +655,5 @@ void bl2_el3_plat_prepare_exit(void)
+ 	stm32mp2_security_setup();
+ 
+ 	/* Unmask potential tamper before exit */
+-	stm32mp2_syscfg_mask_potential_tamper_disable();
++	stm32mp_syscfg_mask_potential_tamper_disable();
+ }
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index bfdf0c55c1..7e69b46090 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -12,18 +12,18 @@ void configure_mmu(void);
+ void stm32mp2_arch_security_setup(void);
+ void stm32mp2_security_setup(void);
+ 
+-uint32_t stm32mp2_syscfg_get_chip_version(void);
+-uint32_t stm32mp2_syscfg_get_chip_dev_id(void);
+-void stm32mp2_syscfg_mask_potential_tamper_enable(void);
+-void stm32mp2_syscfg_mask_potential_tamper_disable(void);
+-size_t stm32mp2_syscfg_get_mm_size(uint8_t bank);
+-int stm32mp2_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
++uint32_t stm32mp_syscfg_get_chip_version(void);
++uint32_t stm32mp_syscfg_get_chip_dev_id(void);
++void stm32mp_syscfg_mask_potential_tamper_enable(void);
++void stm32mp_syscfg_mask_potential_tamper_disable(void);
++size_t stm32mp_syscfg_get_mm_size(uint8_t bank);
++int stm32mp_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
+ 			      uint16_t period_ps);
+-int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
++int stm32mp_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+ 				  bool rx_only, uint8_t *window_len);
+-int stm32mp2_syscfg_dlyb_set_cr(uint8_t bank, uint32_t dlyb_cr);
+-void stm32mp2_syscfg_dlyb_get_cr(uint8_t bank, uint32_t *dlyb_cr);
+-void stm32mp2_syscfg_dlyb_stop(uint8_t bank);
++int stm32mp_syscfg_dlyb_set_cr(uint8_t bank, uint32_t dlyb_cr);
++void stm32mp_syscfg_dlyb_get_cr(uint8_t bank, uint32_t *dlyb_cr);
++void stm32mp_syscfg_dlyb_stop(uint8_t bank);
+ 
+ /* IO compensation identifiers */
+ enum syscfg_io_ids {
+@@ -35,9 +35,9 @@ enum syscfg_io_ids {
+ 	SYSFG_NB_IO_ID
+ };
+ 
+-void stm32mp2_syscfg_enable_io_compensation(enum syscfg_io_ids id);
++void stm32mp_syscfg_enable_io_compensation(enum syscfg_io_ids id);
+ 
+-void stm32mp2_syscfg_set_icn_qos(void);
++void stm32mp_syscfg_set_icn_qos(void);
+ 
+ int stm32mp2_pwr_init_io_domains(void);
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index bac139e974..88e6de31d6 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -194,12 +194,12 @@ uintptr_t stm32_get_header_address(void)
+ 
+ uint32_t stm32mp_get_chip_version(void)
+ {
+-	return stm32mp2_syscfg_get_chip_version();
++	return stm32mp_syscfg_get_chip_version();
+ }
+ 
+ uint32_t stm32mp_get_chip_dev_id(void)
+ {
+-	return stm32mp2_syscfg_get_chip_dev_id();
++	return stm32mp_syscfg_get_chip_dev_id();
+ }
+ 
+ static uint32_t get_part_number(void)
+diff --git a/plat/st/stm32mp2/stm32mp2_pwr.c b/plat/st/stm32mp2/stm32mp2_pwr.c
+index 6d200dafb8..457205ba2a 100644
+--- a/plat/st/stm32mp2/stm32mp2_pwr.c
++++ b/plat/st/stm32mp2/stm32mp2_pwr.c
+@@ -181,7 +181,7 @@ int stm32mp2_pwr_init_io_domains(void)
+ 				return ret;
+ 			}
+ 
+-			stm32mp2_syscfg_enable_io_compensation(regu->comp_idx);
++			stm32mp_syscfg_enable_io_compensation(regu->comp_idx);
+ 		}
+ 	}
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index c9296d2517..9c4c63c9eb 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -118,7 +118,7 @@ static uint32_t syscfg_cccr_offset[SYSFG_NB_IO_ID] = {
+  * @brief  Get silicon revision from SYSCFG registers.
+  * @retval chip version (REV_ID).
+  */
+-uint32_t stm32mp2_syscfg_get_chip_version(void)
++uint32_t stm32mp_syscfg_get_chip_version(void)
+ {
+ 	return (mmio_read_32(SYSCFG_BASE + SYSCFG_DEVICEID) &
+ 		SYSCFG_DEVICEID_REV_ID_MASK) >> SYSCFG_DEVICEID_REV_ID_SHIFT;
+@@ -128,12 +128,12 @@ uint32_t stm32mp2_syscfg_get_chip_version(void)
+  * @brief  Get device ID from SYSCFG registers.
+  * @retval device ID (DEV_ID).
+  */
+-uint32_t stm32mp2_syscfg_get_chip_dev_id(void)
++uint32_t stm32mp_syscfg_get_chip_dev_id(void)
+ {
+ 	return mmio_read_32(SYSCFG_BASE + SYSCFG_DEVICEID) & SYSCFG_DEVICEID_DEV_ID_MASK;
+ }
+ 
+-size_t stm32mp2_syscfg_get_mm_size(uint8_t bank)
++size_t stm32mp_syscfg_get_mm_size(uint8_t bank)
+ {
+ 	uint32_t amcr = mmio_read_32(SYSCFG_BASE + SYSCFG_OCTOSPIAMCR);
+ 	size_t addr_mapping1 = 0U;
+@@ -168,7 +168,7 @@ size_t stm32mp2_syscfg_get_mm_size(uint8_t bank)
+  * @param  id: IO compensation ID
+  * @retval 0.
+  */
+-void stm32mp2_syscfg_enable_io_compensation(enum syscfg_io_ids id)
++void stm32mp_syscfg_enable_io_compensation(enum syscfg_io_ids id)
+ {
+ 	uintptr_t cccr_addr = SYSCFG_BASE + syscfg_cccr_offset[id];
+ 	uintptr_t ccsr_addr = cccr_addr + 4U;
+@@ -241,12 +241,12 @@ static int stm32_syscfg_dlyb_set_tap(uint8_t bank, uint8_t tap, bool rx_tap)
+ 	return 0;
+ }
+ 
+-void stm32mp2_syscfg_dlyb_stop(uint8_t bank)
++void stm32mp_syscfg_dlyb_stop(uint8_t bank)
+ {
+ 	mmio_write_32(SYSCFG_BASE + syscfg_dlybos_cr_offset[bank], 0x0);
+ }
+ 
+-int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
++int stm32mp_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+ 				  bool rx_only, uint8_t *window_len)
+ {
+ 	struct syscfg_tap_window rx_tap_w[SYSCFG_DLYBOS_TAPSEL_NB];
+@@ -379,7 +379,7 @@ int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+ 	return stm32_syscfg_dlyb_set_tap(bank, best_tx_tap, false);
+ }
+ 
+-int stm32mp2_syscfg_dlyb_set_cr(uint8_t bank, uint32_t dlyb_cr)
++int stm32mp_syscfg_dlyb_set_cr(uint8_t bank, uint32_t dlyb_cr)
+ {
+ 	bool bypass_mode = false;
+ 	uint16_t period_ps;
+@@ -393,7 +393,7 @@ int stm32mp2_syscfg_dlyb_set_cr(uint8_t bank, uint32_t dlyb_cr)
+ 		bypass_mode = true;
+ 	}
+ 
+-	ret = stm32mp2_syscfg_dlyb_init(bank, bypass_mode, period_ps);
++	ret = stm32mp_syscfg_dlyb_init(bank, bypass_mode, period_ps);
+ 	if (ret != 0) {
+ 		return ret;
+ 	}
+@@ -412,7 +412,7 @@ int stm32mp2_syscfg_dlyb_set_cr(uint8_t bank, uint32_t dlyb_cr)
+ 	return stm32_syscfg_dlyb_set_tap(bank, tx_tap, false);
+ }
+ 
+-void stm32mp2_syscfg_dlyb_get_cr(uint8_t bank, uint32_t *dlyb_cr)
++void stm32mp_syscfg_dlyb_get_cr(uint8_t bank, uint32_t *dlyb_cr)
+ {
+ 	uintptr_t cr = SYSCFG_BASE + syscfg_dlybos_cr_offset[bank];
+ 
+@@ -426,7 +426,7 @@ static const uint16_t syscfg_dlybos_cmd_delay_ps[SYSCFG_DLYBOS_CMD_NB] = {
+ 28768U, 30400U, 32000U, 33600U, 35232U, 36832U, 38432U, 40032U
+ };
+ 
+-static uint32_t stm32mp2_syscfg_find_byp_cmd(uint16_t period_ps)
++static uint32_t stm32mp_syscfg_find_byp_cmd(uint16_t period_ps)
+ {
+ 	uint16_t half_period_ps = period_ps / 2U;
+ 	uint8_t max = SYSCFG_DLYBOS_CMD_NB - 1U;
+@@ -461,7 +461,7 @@ static uint32_t stm32mp2_syscfg_find_byp_cmd(uint16_t period_ps)
+ 	}
+ }
+ 
+-int stm32mp2_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
++int stm32mp_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
+ 			      uint16_t period_ps)
+ {
+ 	uint64_t timeout;
+@@ -476,7 +476,7 @@ int stm32mp2_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
+ 	if (bypass_mode) {
+ 		mask = SYSCFG_DLYBOS_BYP_EN | SYSCFG_DLYBOS_BYP_CMD_MASK;
+ 		val = SYSCFG_DLYBOS_BYP_EN |
+-		      stm32mp2_syscfg_find_byp_cmd(period_ps);
++		      stm32mp_syscfg_find_byp_cmd(period_ps);
+ 	} else {
+ 		mask = SYSCFG_DLYBOS_CR_EN;
+ 		val = SYSCFG_DLYBOS_CR_EN;
+@@ -503,7 +503,7 @@ int stm32mp2_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
+ }
+ #endif
+ 
+-void stm32mp2_syscfg_mask_potential_tamper_enable(void)
++void stm32mp_syscfg_mask_potential_tamper_enable(void)
+ {
+ #if !STM32MP_M33_TDCID
+ 	mmio_setbits_32(SYSCFG_BASE + SYSCFG_POTTAMPRSTCR,
+@@ -511,7 +511,7 @@ void stm32mp2_syscfg_mask_potential_tamper_enable(void)
+ #endif
+ }
+ 
+-void stm32mp2_syscfg_mask_potential_tamper_disable(void)
++void stm32mp_syscfg_mask_potential_tamper_disable(void)
+ {
+ #if !STM32MP_M33_TDCID
+ 	mmio_clrbits_32(SYSCFG_BASE + SYSCFG_POTTAMPRSTCR,
+@@ -524,7 +524,7 @@ void stm32mp2_syscfg_mask_potential_tamper_disable(void)
+  *	   By default, SYSCFG_ICN* register keep their reset values
+  * @retval 0.
+  */
+-void stm32mp2_syscfg_set_icn_qos(void)
++void stm32mp_syscfg_set_icn_qos(void)
+ {
+ /*
+  *	Reset values, un-comment and change if required
+-- 
+2.53.0
+

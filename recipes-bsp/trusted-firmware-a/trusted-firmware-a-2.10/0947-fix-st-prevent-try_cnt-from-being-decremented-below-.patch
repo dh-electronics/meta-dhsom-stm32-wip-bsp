@@ -1,0 +1,39 @@
+From d3392ae7528678beac28c4adb80a06f614b5be3d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Mon, 12 Jan 2026 18:09:39 +0100
+Subject: [PATCH 947/954] fix(st): prevent try_cnt from being decremented below
+ 1
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+try_cnt is considered uninitialized when equal to 0, so it must not be
+decremented below 1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c7e3cd9c270d3c24e0ce2729c4e003a179279745 fix(st): prevent try_cnt from being decremented below 1]
+Change-Id: If81b1c47d94ab21b6ed2ffa0fed61c020c32ba07
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/523872
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/stm32mp_common.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index b4d7805598..f045ffc014 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -701,7 +701,7 @@ int stm32_get_and_dec_fwu_trial_boot_cnt(uint32_t *cnt)
+ 
+ 	assert(try_cnt <= FWU_MAX_TRIAL_REBOOT);
+ 
+-	if (try_cnt != 0U) {
++	if (try_cnt > 1U) {
+ 		ret = stm32_nvmem_cell_clrset(&fwu_info_cell, FWU_INFO_CNT_MSK,
+ 					      (try_cnt - 1U) << FWU_INFO_CNT_OFF);
+ 		if (ret != 0) {
+-- 
+2.53.0
+

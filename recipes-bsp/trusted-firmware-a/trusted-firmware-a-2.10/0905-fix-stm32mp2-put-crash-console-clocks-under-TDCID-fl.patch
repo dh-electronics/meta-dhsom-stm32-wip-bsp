@@ -1,0 +1,68 @@
+From 012116adc9d94a6744753106186ae59776ef06a0 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 29 Aug 2025 17:16:21 +0200
+Subject: [PATCH 905/954] fix(stm32mp2): put crash console clocks under TDCID
+ flag
+
+If Cortex-M33 is TDCID, it is responsible for the clock tree, and then
+manage the UART console GPIO bank clock and UART parent clock. Those
+should then not be configured in TF-A, and put under !STM32MP_M33_TDCID
+flag. Else there is an Illegal Access (IAC) occurring.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a0907c3d368c62de10c81bfc413c81382a57ea43 fix(stm32mp2): put crash console clocks under TDCID flag]
+Change-Id: I751bc772151d6cfc737a4febb9022ba30811a11d
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/485703
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Amelie DELAUNAY <amelie.delaunay@foss.st.com>
+---
+ plat/st/stm32mp2/aarch64/stm32mp2_helper.S | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+index 5508c61b49..92e7d9affa 100644
+--- a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
++++ b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -105,12 +105,14 @@ func plat_crash_console_init
+ 	ldr	w0, [x1]
+ 	tst	w0, #DEBUG_UART_RST_BIT
+ 	bne	2b
++#if !STM32MP_M33_TDCID
+ 	/* Enable GPIOs for UART TX */
+ 	mov_imm	x1, (RCC_BASE + DEBUG_UART_TX_GPIO_BANK_CLK_REG)
+ 	ldr	w2, [x1]
+ 	/* Configure GPIO */
+ 	orr	w2, w2, #DEBUG_UART_TX_GPIO_BANK_CLK_EN
+ 	str	w2, [x1]
++#endif
+ 	mov_imm	x1, DEBUG_UART_TX_GPIO_BANK_ADDRESS
+ 	/* Set GPIO mode alternate */
+ 	ldr	w2, [x1, #GPIO_MODE_OFFSET]
+@@ -139,6 +141,7 @@ func plat_crash_console_init
+ 	orr	w2, w2, #(DEBUG_UART_TX_GPIO_ALTERNATE << (DEBUG_UART_TX_GPIO_PORT << 2))
+ 	str	w2, [x1, #GPIO_AFRL_OFFSET]
+ #endif
++#if !STM32MP_M33_TDCID
+ 	/* Clear UART clock flexgen divisors, keep enable bit */
+ 	mov_imm	x1, (RCC_BASE + DEBUG_UART_PREDIV_CFGR)
+ 	mov	x2, #0
+@@ -150,6 +153,7 @@ func plat_crash_console_init
+ 	mov_imm	x1, (RCC_BASE + DEBUG_UART_TX_CLKSRC_REG)
+ 	mov_imm	w2, (DEBUG_UART_TX_CLKSRC | RCC_XBARxCFGR_XBARxEN)
+ 	str	w2, [x1]
++#endif
+ 	mov_imm	x1, (RCC_BASE + DEBUG_UART_TX_EN_REG)
+ 	ldr	w2, [x1]
+ 	orr	w2, w2, #DEBUG_UART_TX_EN
+-- 
+2.53.0
+

@@ -1,0 +1,53 @@
+From 58866ff17e59cd050686b4787d857765e5e6fccc Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 17 Apr 2024 15:22:49 +0200
+Subject: [PATCH 587/954] fix(stm32mp2): proper management of platform flags
+
+Only one of the flags STM32MP21, STM32MP23 or STM32MP25 can be enabled
+at a time. Do not set STM32MP25 flag to 1 by default to be able to
+manage the other flags. and add error messages if more than one flag
+is enabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2945d0b234aabc138e3010d58c2fbf4492371289 fix(stm32mp2): proper management of platform flags]
+Change-Id: I486b58d820182256b727669251fbcd195980c59c
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/374302
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/platform.mk | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index c37f79a6fc..70d2f29e46 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -32,14 +32,23 @@ DTB_FILE_NAME			?=	stm32mp257f-ev1.dtb
+ 
+ STM32MP21			?=	0
+ STM32MP23			?=	0
+-STM32MP25			?=	1
++STM32MP25			?=	0
+ STM32MP_M33_TDCID		?=	0
+ 
+ ifeq ($(STM32MP21),1)
++ifeq ($(STM32MP23),1)
++$(error Cannot enable both flags STM32MP21 and STM32MP23)
++endif
++ifeq ($(STM32MP25),1)
++$(error Cannot enable both flags STM32MP21 and STM32MP25)
++endif
+ STM32MP21			:=	1
+ STM32MP23			:=	0
+ STM32MP25			:=	0
+ else ifeq ($(STM32MP23),1)
++ifeq ($(STM32MP25),1)
++$(error Cannot enable both flags STM32MP23 and STM32MP25)
++endif
+ STM32MP21			:=	0
+ STM32MP23			:=	1
+ STM32MP25			:=	0
+-- 
+2.53.0
+

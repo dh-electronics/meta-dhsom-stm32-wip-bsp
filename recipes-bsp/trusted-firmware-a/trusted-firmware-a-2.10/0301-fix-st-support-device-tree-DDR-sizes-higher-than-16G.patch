@@ -1,0 +1,41 @@
+From 845e03322aba3cb235e1378d8e8de40c12b29539 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Thu, 4 May 2023 18:27:35 +0200
+Subject: [PATCH 301/954] fix(st): support device tree DDR sizes higher than
+ 16Gbits for aarch64
+
+In that case, memory address space is higher than 4GB, so 32-bits
+addressing is not enough.
+Get st,mem-size property value on 64bits (size_t type in structures).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6c04e79f044f68b1e54b4a17c54696bce88c6809 fix(st): support device tree DDR sizes higher than 16Gbits for aarch64]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I1df23bfa7a850fc3f5a4ef9fc5d2f76ab6c6dea8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/304460
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/stm32mp_dt.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plat/st/common/stm32mp_dt.c b/plat/st/common/stm32mp_dt.c
+index 006e156f2a..7f0fffff67 100644
+--- a/plat/st/common/stm32mp_dt.c
++++ b/plat/st/common/stm32mp_dt.c
+@@ -243,7 +243,11 @@ size_t dt_get_ddr_size(void)
+ 		return 0U;
+ 	}
+ 
++#ifdef __aarch64__
++	size = (size_t)fdt_read_uint64_default(fdt, node, "st,mem-size", 0ULL);
++#else /* __aarch64__ */
+ 	size = (size_t)fdt_read_uint32_default(fdt, node, "st,mem-size", 0U);
++#endif /* __aarch64__ */
+ 
+ 	flush_dcache_range((uintptr_t)&size, sizeof(size_t));
+ 
+-- 
+2.53.0
+

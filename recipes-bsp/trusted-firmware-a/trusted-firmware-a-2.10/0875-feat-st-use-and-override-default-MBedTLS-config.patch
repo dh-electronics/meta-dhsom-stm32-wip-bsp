@@ -1,0 +1,200 @@
+From 4b336174aced9daf34b756aafe71e81574d63108 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 11 Dec 2024 16:29:50 +0100
+Subject: [PATCH 875/954] feat(st): use and override default MBedTLS config
+
+Each time MbedTLS is updated, the default config may be updated. As
+STM32MP platforms have their own config file, this needs to be aligned.
+To avoid this alignment, directly include the default config and
+override some values for ST platforms, mainly heap size.
+MBEDTLS_MPI_WINDOW_SIZE is also kept for the moment to avoid behavior
+change, but it could be removed after some extra testing.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 53751b54ed1e7e28368dda3bfe7b11de277edddf feat(st): use and override default MBedTLS config]
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Change-Id: I6a9c3141451ab7b11906a7139549d31cfff0581a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/466913
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/common/common.mk                      |  11 +-
+ .../common/include/stm32mp_mbedtls_config-3.h | 114 ------------------
+ .../common/include/stm32mp_mbedtls_config.h   |  20 +++
+ 3 files changed, 21 insertions(+), 124 deletions(-)
+ delete mode 100644 plat/st/common/include/stm32mp_mbedtls_config-3.h
+ create mode 100644 plat/st/common/include/stm32mp_mbedtls_config.h
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index 066d1faad2..ecf9d26225 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -224,16 +224,7 @@ endif
+ TF_MBEDTLS_KEY_ALG		:=	ecdsa
+ KEY_SIZE			:=	256
+ 
+-ifneq (${MBEDTLS_DIR},)
+-MBEDTLS_MAJOR=$(shell grep -hP "define MBEDTLS_VERSION_MAJOR" \
+-${MBEDTLS_DIR}/include/mbedtls/*.h | grep -oe '\([0-9.]*\)')
+-
+-ifeq (${MBEDTLS_MAJOR}, 3)
+-MBEDTLS_CONFIG_FILE		?=	"<stm32mp_mbedtls_config-3.h>"
+-else
+-$(error Error: TF-A only supports MbedTLS versions > 3.x)
+-endif
+-endif
++MBEDTLS_CONFIG_FILE		?=	"<stm32mp_mbedtls_config.h>"
+ 
+ include drivers/auth/mbedtls/mbedtls_x509.mk
+ 
+diff --git a/plat/st/common/include/stm32mp_mbedtls_config-3.h b/plat/st/common/include/stm32mp_mbedtls_config-3.h
+deleted file mode 100644
+index 2dbf068919..0000000000
+--- a/plat/st/common/include/stm32mp_mbedtls_config-3.h
++++ /dev/null
+@@ -1,114 +0,0 @@
+-/*
+- * Copyright (c) 2022-2024, STMicroelectronics - All Rights Reserved
+- *
+- * SPDX-License-Identifier: BSD-3-Clause
+- */
+-
+-/*
+- * Key algorithms currently supported on mbed TLS libraries
+- */
+-#define TF_MBEDTLS_USE_RSA	0
+-#define TF_MBEDTLS_USE_ECDSA	1
+-
+-/*
+- * Hash algorithms currently supported on mbed TLS libraries
+- */
+-#define TF_MBEDTLS_SHA256		1
+-#define TF_MBEDTLS_SHA384		2
+-#define TF_MBEDTLS_SHA512		3
+-
+-/*
+- * Configuration file to build mbed TLS with the required features for
+- * Trusted Boot
+- */
+-
+-#define MBEDTLS_PLATFORM_MEMORY
+-#define MBEDTLS_PLATFORM_NO_STD_FUNCTIONS
+-/* Prevent mbed TLS from using snprintf so that it can use tf_snprintf. */
+-#define MBEDTLS_PLATFORM_SNPRINTF_ALT
+-
+-#define MBEDTLS_PKCS1_V21
+-
+-#define MBEDTLS_ASN1_PARSE_C
+-#define MBEDTLS_ASN1_WRITE_C
+-
+-#define MBEDTLS_BASE64_C
+-#define MBEDTLS_BIGNUM_C
+-
+-#define MBEDTLS_ERROR_C
+-#define MBEDTLS_MD_C
+-
+-#define MBEDTLS_MEMORY_BUFFER_ALLOC_C
+-#define MBEDTLS_OID_C
+-
+-#define MBEDTLS_PK_C
+-#define MBEDTLS_PK_PARSE_C
+-#define MBEDTLS_PK_WRITE_C
+-
+-#define MBEDTLS_PLATFORM_C
+-
+-#if TF_MBEDTLS_USE_ECDSA
+-#define MBEDTLS_ECDSA_C
+-#define MBEDTLS_ECP_C
+-#define MBEDTLS_ECP_DP_SECP256R1_ENABLED
+-#endif
+-#if TF_MBEDTLS_USE_RSA
+-#define MBEDTLS_RSA_C
+-#define MBEDTLS_X509_RSASSA_PSS_SUPPORT
+-#endif
+-
+-/* The library does not currently support enabling SHA-256 without SHA-224. */
+-#define MBEDTLS_SHA224_C
+-#define MBEDTLS_SHA256_C
+-
+-#if (TF_MBEDTLS_HASH_ALG_ID != TF_MBEDTLS_SHA256)
+-#define MBEDTLS_SHA384_C
+-#define MBEDTLS_SHA512_C
+-#endif
+-
+-#define MBEDTLS_VERSION_C
+-
+-#define MBEDTLS_X509_USE_C
+-#define MBEDTLS_X509_CRT_PARSE_C
+-
+-#if TF_MBEDTLS_USE_AES_GCM
+-#define MBEDTLS_AES_C
+-#define MBEDTLS_CIPHER_C
+-#define MBEDTLS_GCM_C
+-#endif
+-
+-/* MPI / BIGNUM options */
+-#define MBEDTLS_MPI_WINDOW_SIZE			2
+-
+-#if TF_MBEDTLS_USE_RSA
+-#if TF_MBEDTLS_KEY_SIZE <= 2048
+-#define MBEDTLS_MPI_MAX_SIZE			256
+-#else
+-#define MBEDTLS_MPI_MAX_SIZE			512
+-#endif
+-#else
+-#define MBEDTLS_MPI_MAX_SIZE			256
+-#endif
+-
+-/* Memory buffer allocator options */
+-#define MBEDTLS_MEMORY_ALIGN_MULTIPLE		8
+-
+-/*
+- * Prevent the use of 128-bit division which
+- * creates dependency on external libraries.
+- */
+-#define MBEDTLS_NO_UDBL_DIVISION
+-
+-#ifndef __ASSEMBLER__
+-/* System headers required to build mbed TLS with the current configuration */
+-#include <stdlib.h>
+-#endif
+-
+-/*
+- * Mbed TLS heap size is smal as we only use the asn1
+- * parsing functions
+- * digest, signature and crypto algorithm are done by
+- * other library.
+- */
+-
+-#define TF_MBEDTLS_HEAP_SIZE           U(5120)
+diff --git a/plat/st/common/include/stm32mp_mbedtls_config.h b/plat/st/common/include/stm32mp_mbedtls_config.h
+new file mode 100644
+index 0000000000..cf17051929
+--- /dev/null
++++ b/plat/st/common/include/stm32mp_mbedtls_config.h
+@@ -0,0 +1,20 @@
++/*
++ * Copyright (c) 2022-2024, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <drivers/auth/mbedtls/default_mbedtls_config.h>
++
++/* MPI / BIGNUM options */
++#undef MBEDTLS_MPI_WINDOW_SIZE
++#define MBEDTLS_MPI_WINDOW_SIZE			2
++
++/*
++ * Mbed TLS heap size is small as we only use the asn1
++ * parsing functions
++ * digest, signature and crypto algorithm are done by
++ * other library.
++ */
++#undef TF_MBEDTLS_HEAP_SIZE
++#define TF_MBEDTLS_HEAP_SIZE			U(5120)
+-- 
+2.53.0
+

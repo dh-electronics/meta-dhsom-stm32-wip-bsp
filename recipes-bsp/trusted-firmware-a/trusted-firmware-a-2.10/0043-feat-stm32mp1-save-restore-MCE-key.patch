@@ -1,0 +1,41 @@
+From ee45c24125f33a93f0327f946ffaebfaf2d6f9f2 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 23 Nov 2021 17:56:48 +0100
+Subject: [PATCH 043/954] feat(stm32mp1): save/restore MCE key
+
+The MCE key should be saved on cold boot. And restored when returning
+from low power state.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 612112a30b62397cdd8f7e7f33998085d2c69fac feat(stm32mp1): save/restore MCE key]
+Change-Id: Ie6467802f7e5469d30971375a8b156277372a511
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 2bff2c0be4..d1e56ad85a 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -404,9 +404,15 @@ static void prepare_encryption(void)
+ 
+ 	stm32_mce_init();
+ 
+-	/* Generate MCE master key from RNG */
+-	if (stm32_rng_read(mkey, MCE_KEY_SIZE_IN_BYTES) != 0) {
+-		panic();
++	if (stm32mp1_is_wakeup_from_standby()) {
++		stm32mp1_pm_get_mce_mkey_from_context(mkey);
++	} else {
++		/* Generate MCE master key from RNG */
++		if (stm32_rng_read(mkey, MCE_KEY_SIZE_IN_BYTES) != 0) {
++			panic();
++		}
++
++		stm32mp1_pm_save_mce_mkey_in_context(mkey);
+ 	}
+ 
+ 	if (stm32_mce_write_master_key(mkey) != 0) {
+-- 
+2.53.0
+

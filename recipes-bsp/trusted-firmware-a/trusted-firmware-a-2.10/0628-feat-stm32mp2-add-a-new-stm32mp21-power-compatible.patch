@@ -1,0 +1,104 @@
+From 2193c20727bbdc6334cf5ca25fef032eda6a99e0 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Mon, 17 Jun 2024 17:35:16 +0200
+Subject: [PATCH 628/954] feat(stm32mp2): add a new stm32mp21 power compatible
+
+Introduce new compatible st,stm32mp21-pwr. It is based st,stm32mp25-pwr but
+without vddio4.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 673e777c8ce6d47d29e0378b1d89299b113f1944 feat(stm32mp2): add a new stm32mp21 power compatible]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: Ibf22bec75aa310eb0f3d1e1f3fc603498f9e49b8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/388157
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../bindings/power/st,stm32mp21-pwr.txt       | 56 +++++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_def.h               |  3 +-
+ 2 files changed, 58 insertions(+), 1 deletion(-)
+ create mode 100644 docs/devicetree/bindings/power/st,stm32mp21-pwr.txt
+
+diff --git a/docs/devicetree/bindings/power/st,stm32mp21-pwr.txt b/docs/devicetree/bindings/power/st,stm32mp21-pwr.txt
+new file mode 100644
+index 0000000000..b777a2f479
+--- /dev/null
++++ b/docs/devicetree/bindings/power/st,stm32mp21-pwr.txt
+@@ -0,0 +1,56 @@
++STMicroelectronics STM32MP21 Power Management Controller
++=======================================================
++
++The PWR IP is responsible for handling the power related resources such as
++clocks, power supplies and resets.
++When optional properties are absent, default values are used and those
++properties should be present only to overidde those values.
++
++Required properties:
++- compatible should be: "st,stm32mp21-pwr"
++- reg: should be register base and length as documented in the
++  datasheet
++- vddio(|[1-3]): sub-node for each VDD I/O description with valid name =
++  "vddio", "vddio1", "vddio2" and "vddio3".
++  The definition for each of these nodes is defined using the standard binding
++  for regulators at Documentation/devicetree/bindings/regulator/regulator.txt
++  or regulator.yaml, like "regulator-name", "regulator-min-microvolt",
++  "regulator-max-microvolt", "regulator-always-on"
++  - vdd-supply: Input supply phandle (VDD) for I/Os for "vddio" node
++  - vddio[1-3]-supply: Input supply phandle (VDIO1-4) for respectively
++                       "vddio1", "vddio2" and "vddio3" nodes,
++                       the I/Os independent from any other supply.
++
++Optional Properties:
++- st,popl-d1-ms : PWR_CPU_ON pulse low configuration (PWR_D1CR)
++- st,podh-d2-ms : PWR_ON delay high configuration (PWR_D2CR)
++- st,popl-d2-ms : PWR_ON pulse low configuration (PWR_D2CR)
++- st,lpcfg-d2 : PWR_ON pin configuration (PWR_D2CR)
++- st,lplvdly-d2 : LPLV delay value (PWR_D2CR), 3bits and with 6xLSI cycles unit
++                  (0:187 μs... 111:1.5 ms)
++- st,lpstop1dly-us: PWR_LP delay value in us for LP-Stop1 mode
++                    (RCC_PWRLPDLYCR.PWRLP_DLY)
++
++Example:
++
++pwr: pwr@44210000 {
++	compatible = "st,stm32mp21-pwr";
++	reg = <0x44210000 0x400>;
++
++	vddio1: vddio1 {
++		regulator-name = "vddio1";
++		vddio1-supply = <&vddio_sdcard>;
++	};
++	vddio2: vddio2 {
++		regulator-name = "vddio2";
++		vddio2-supply = <&v1v8>;
++	};
++	vddio3: vddio3 {
++		regulator-name = "vddio3";
++		vddio3-supply = <&vddio_pmic>;
++	};
++	vddio: vddio {
++		regulator-name = "vddio";
++		vdd-supply = <&vddio_pmic>;
++	};
++};
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 0c53d44139..145fd746f4 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -691,10 +691,11 @@ enum ddr_type {
+ #define DT_DDR_COMPAT				"st,stm32mp2-ddr"
+ #define DT_IWDG_COMPAT				"st,stm32mp1-iwdg"
+ #define DT_MMIO_SRAM				"mmio-sram"
+-#define DT_PWR_COMPAT				"st,stm32mp25-pwr"
+ #if STM32MP21
++#define DT_PWR_COMPAT				"st,stm32mp21-pwr"
+ #define DT_RCC_CLK_COMPAT			"st,stm32mp21-rcc"
+ #else
++#define DT_PWR_COMPAT				"st,stm32mp25-pwr"
+ #define DT_RCC_CLK_COMPAT			"st,stm32mp25-rcc"
+ #endif
+ #define DT_SDMMC2_COMPAT			"st,stm32mp25-sdmmc2"
+-- 
+2.53.0
+

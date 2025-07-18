@@ -1,0 +1,50 @@
+From 73b56e615e13815636e0587a9d5185bede58fd81 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 30 Nov 2021 15:52:10 +0100
+Subject: [PATCH 037/954] feat(stm32mp1): check an address is inside backup
+ SRAM
+
+The function stm32mp1_addr_inside_backupsram() checks the given address
+is between STM32MP_BACKUP_RAM_BASE and (STM32MP_BACKUP_RAM_BASE +
+STM32MP_BACKUP_RAM_SIZE).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 24038d0ffc345bdf33c8e7b9c6ecdc5918464912 feat(stm32mp1): check an address is inside backup SRAM]
+Change-Id: Ifd974f56527af0708fd7596adf4eccc2c5d06e5a
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ plat/st/stm32mp1/include/stm32mp1_private.h | 1 +
+ plat/st/stm32mp1/stm32mp1_private.c         | 6 ++++++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/plat/st/stm32mp1/include/stm32mp1_private.h b/plat/st/stm32mp1/include/stm32mp1_private.h
+index 1574c4850f..8b8020adc8 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_private.h
++++ b/plat/st/stm32mp1/include/stm32mp1_private.h
+@@ -14,6 +14,7 @@ void configure_mmu(void);
+ void stm32mp1_arch_security_setup(void);
+ void stm32mp1_security_setup(void);
+ 
++bool stm32mp1_addr_inside_backupsram(uintptr_t addr);
+ bool stm32mp1_is_wakeup_from_standby(void);
+ 
+ void stm32mp1_syscfg_init(void);
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index 07df6c1792..ae7208441a 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -663,6 +663,12 @@ uint32_t stm32_iwdg_shadow_update(uint32_t iwdg_inst, uint32_t flags)
+ }
+ #endif
+ 
++bool stm32mp1_addr_inside_backupsram(uintptr_t addr)
++{
++	return (addr >= STM32MP_BACKUP_RAM_BASE) &&
++		(addr < (STM32MP_BACKUP_RAM_BASE + STM32MP_BACKUP_RAM_SIZE));
++}
++
+ bool stm32mp1_is_wakeup_from_standby(void)
+ {
+ 	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_MP_RSTSCLRR);
+-- 
+2.53.0
+

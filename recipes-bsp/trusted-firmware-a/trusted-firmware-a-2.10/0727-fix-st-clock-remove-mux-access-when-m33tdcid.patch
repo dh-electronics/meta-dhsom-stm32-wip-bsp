@@ -1,0 +1,103 @@
+From fc6c4b1be32572e8911aa253677a63c35c24c81a Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Fri, 11 Oct 2024 14:55:58 +0200
+Subject: [PATCH 727/954] fix(st-clock): remove mux access when m33tdcid
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Do not access PLL mux when M33 is TDCID.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f8ebc3445610f3ef53dceb157a51f883400acb10 fix(st-clock): remove mux access when m33tdcid]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I614d27c4f5cb452f2cc9c0eb887ebc2ffa157f93
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/411031
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/clk/clk-stm32mp2.c | 27 +++++++++++++++++++--------
+ 1 file changed, 19 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index efd047bcab..186a20e48b 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -1813,9 +1813,9 @@ static void stm32mp2_a35_ss_on_bypass(void)
+ }
+ 
+ #ifdef IMAGE_BL2
++#if !STM32MP_M33_TDCID
+ static void stm32mp2_clk_muxsel_on_hsi(struct stm32_clk_priv *priv)
+ {
+-#if !STM32MP_M33_TDCID
+ 	mmio_clrbits_32(priv->base + RCC_MUXSELCFGR,
+ 			RCC_MUXSELCFGR_MUXSEL0_MASK |
+ 			RCC_MUXSELCFGR_MUXSEL1_MASK |
+@@ -1825,14 +1825,8 @@ static void stm32mp2_clk_muxsel_on_hsi(struct stm32_clk_priv *priv)
+ 			RCC_MUXSELCFGR_MUXSEL5_MASK |
+ 			RCC_MUXSELCFGR_MUXSEL6_MASK |
+ 			RCC_MUXSELCFGR_MUXSEL7_MASK);
+-#else
+-	/* MUXSEL5 for PLL1 selection = CA35 clock source, always accessible */
+-	mmio_clrbits_32(priv->base + RCC_MUXSELCFGR,
+-			RCC_MUXSELCFGR_MUXSEL5_MASK);
+-#endif
+ }
+ 
+-#if !STM32MP_M33_TDCID
+ static void stm32mp2_clk_xbar_on_hsi(struct stm32_clk_priv *priv)
+ {
+ 	uintptr_t xbar0cfgr = priv->base + RCC_XBAR0CFGR;
+@@ -2014,6 +2008,9 @@ static void clk_stm32_pll_config_csg(struct stm32_clk_priv *priv,
+ }
+ 
+ static int stm32_clk_configure_mux(struct stm32_clk_priv *priv, uint32_t data);
++#if STM32MP_M33_TDCID
++static int stm32_clk_check_mux(struct stm32_clk_priv *priv, uint32_t data);
++#endif
+ 
+ static inline struct stm32_pll_dt_cfg *clk_stm32_pll_get_pdata(int pll_idx)
+ {
+@@ -2037,7 +2034,11 @@ static int _clk_stm32_pll1_init(struct stm32_clk_priv *priv, int pll_idx,
+ 
+ 	stm32mp2_a35_ss_on_bypass();
+ 
++#if STM32MP_M33_TDCID
++	ret = stm32_clk_check_mux(priv, pll_conf->src);
++#else
+ 	ret = stm32_clk_configure_mux(priv, pll_conf->src);
++#endif
+ 	if (ret != 0) {
+ 		panic();
+ 	}
+@@ -2372,8 +2373,8 @@ static int stm32mp2_clk_switch_to_hsi(struct stm32_clk_priv *priv)
+ {
+ 	/* on reset, bypass use HSI for CA35 clock (FLEXGEN63 = ck_cpu1_ext2f) */
+ 	stm32mp2_a35_ss_on_bypass();
+-	stm32mp2_clk_muxsel_on_hsi(priv);
+ #if !STM32MP_M33_TDCID
++	stm32mp2_clk_muxsel_on_hsi(priv);
+ 	stm32mp2_clk_xbar_on_hsi(priv);
+ #endif
+ 
+@@ -2435,6 +2436,16 @@ static int stm32_clk_configure_mux(struct stm32_clk_priv *priv, uint32_t data)
+ 	return clk_mux_set_parent(priv, mux_id, sel);
+ }
+ 
++#if STM32MP_M33_TDCID
++static int stm32_clk_check_mux(struct stm32_clk_priv *priv, uint32_t data)
++{
++    int mux_id = (data & MUX_ID_MASK) >> MUX_ID_SHIFT;
++    int sel = (data & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
++
++    return clk_mux_get_parent(priv, mux_id) != sel;
++}
++#endif
++
+ static int stm32_clk_configure_clk_get_binding_id(struct stm32_clk_priv *priv, uint32_t data)
+ {
+ 	unsigned long binding_id = ((unsigned long)data & CLK_ID_MASK) >> CLK_ID_SHIFT;
+-- 
+2.53.0
+

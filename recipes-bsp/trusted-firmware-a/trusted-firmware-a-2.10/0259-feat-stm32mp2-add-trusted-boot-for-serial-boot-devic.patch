@@ -1,0 +1,121 @@
+From 23dc62d0df99b6a2b861518c69fe2b9dc585d1b4 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 24 Jan 2023 14:59:05 +0100
+Subject: [PATCH 259/954] feat(stm32mp2): add trusted boot for serial boot
+ devices
+
+When booting from USB or UART, a dedicated FIP storing DDR firmware
+is used. It then needs to include required certificates when enabling
+TRUSTED_BOARD_BOOT and GENERATE_COT.
+The MbedTLS heap is at the beginning of the SRAM2. The buffer used to
+load DDR FIP is then still in SRAM2 but shifted by the size of the heap.
+When booting with serial device (USB or UART), STM32MP certificate is
+used in both FIP and DDR_FIP. To be able to use it properly when
+loading second FIP, its authentication status must be cleared.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d7d7ac1da47ce99716eaa85d6d5f373062c98901 feat(stm32mp2): add trusted boot for serial boot devices]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ib1f2117908987d026bbbcad95763323a0a087d21
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/286607
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/common/bl2_io_storage.c         | 15 ++++++++++++++
+ plat/st/stm32mp2/include/platform_def.h |  2 +-
+ plat/st/stm32mp2/platform.mk            | 26 +++++++++++++++++++++++++
+ 3 files changed, 42 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 9ca33cb7d2..134969c915 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -10,6 +10,7 @@
+ #include <arch_helpers.h>
+ #include <common/debug.h>
+ #include <common/desc_image_load.h>
++#include <drivers/auth/auth_mod.h>
+ #include <drivers/fwu/fwu.h>
+ #include <drivers/fwu/fwu_metadata.h>
+ #include <drivers/io/io_block.h>
+@@ -596,6 +597,13 @@ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+ 		}
+ #endif
+ 		if (image_id == FW_CONFIG_ID) {
++#if STM32MP_DDR_FIP_IO_STORAGE && TRUSTED_BOARD_BOOT
++			/*
++			 * Clear authentication state of STM32MP certificate that will
++			 * now be loaded from other FIP file
++			 */
++			auth_img_flags[STM32MP_CONFIG_CERT_ID] = 0U;
++#endif
+ 			stm32cubeprogrammer_uart(PHASE_SSBL,
+ 						 DWL_BUFFER_BASE,
+ 						 DWL_BUFFER_SIZE);
+@@ -618,6 +626,13 @@ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+ 		}
+ #endif
+ 		if (image_id == FW_CONFIG_ID) {
++#if STM32MP_DDR_FIP_IO_STORAGE && TRUSTED_BOARD_BOOT
++			/*
++			 * Clear authentication state of STM32MP certificate that will
++			 * now be loaded from other FIP file
++			 */
++			auth_img_flags[STM32MP_CONFIG_CERT_ID] = 0U;
++#endif
+ 			stm32cubeprogrammer_usb(PHASE_SSBL,
+ 						DWL_BUFFER_BASE,
+ 						DWL_BUFFER_SIZE);
+diff --git a/plat/st/stm32mp2/include/platform_def.h b/plat/st/stm32mp2/include/platform_def.h
+index bebf178288..a0b8aa1fd0 100644
+--- a/plat/st/stm32mp2/include/platform_def.h
++++ b/plat/st/stm32mp2/include/platform_def.h
+@@ -90,7 +90,7 @@
+ #define DWL_BUFFER_SIZE			U(0x01000000)
+ #if STM32MP_DDR_FIP_IO_STORAGE
+ #define DWL_DDR_BUFFER_BASE		SRAM2_BASE
+-#define DWL_DDR_BUFFER_SIZE		SRAM2_SIZE
++#define DWL_DDR_BUFFER_SIZE		(SRAM2_SIZE - STM32MP_MBEDTLS_HEAP_SIZE)
+ #endif
+ 
+ /*
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index ca6bd790e1..0320978c7d 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -294,6 +294,32 @@ DDR_FIP_NAME		?=	fip-ddr.bin
+ 
+ $(eval $(call TOOL_ADD_IMG,STM32MP_DDR_FW_COPY,--ddr-fw,DDR_))
+ 
++ifeq (${TRUSTED_BOARD_BOOT},1)
++ifneq (${GENERATE_COT},0)
++$(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_CFG_CERT},--stm32mp-cfg-cert,,DDR_))
++$(if ${ROT_KEY},$(eval $(call CERT_ADD_CMD_OPT,${ROT_KEY},--rot-key,DDR_)))
++$(if ${TFW_NVCTR_VAL},$(eval $(call CERT_ADD_CMD_OPT,${TFW_NVCTR_VAL},--tfw-nvctr,DDR_)))
++$(if ${TRUSTED_WORLD_KEY},$(eval $(call CERT_ADD_CMD_OPT,${TRUSTED_WORLD_KEY},--trusted-world-key,DDR_)))
++
++ifneq (${CREATE_KEYS},0)
++$(eval DDR_CRT_ARGS += -n)
++ifneq (${SAVE_KEYS},0)
++$(eval DDR_CRT_ARGS += -k)
++endif
++endif
++
++ddr_certificates: ${DDR_CRT_DEPS} certtool
++	@echo "Build $@"
++	${Q}${CRTTOOL} ${DDR_CRT_ARGS}
++	@${ECHO_BLANK_LINE}
++	@echo "Built $@ successfully"
++	@echo "DDR certificates can be found in ${BUILD_PLAT}"
++	@${ECHO_BLANK_LINE}
++
++DDR_FIP_DEPS		+=	ddr_certificates
++endif
++endif
++
+ ${BUILD_PLAT}/${DDR_FIP_NAME}: ${DDR_FIP_DEPS} fiptool
+ 	${Q}${FIPTOOL} create ${DDR_FIP_ARGS} $@
+ 	${Q}${FIPTOOL} info $@
+-- 
+2.53.0
+

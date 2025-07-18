@@ -1,0 +1,98 @@
+From cd0245f06b22a453ced98e260267b5af45a6727d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 10 Apr 2024 11:22:24 +0200
+Subject: [PATCH 574/954] feat(stm32mp2): remove PM in serial boot
+
+In serial boot (USB or UART), there is no need for power management.
+Remove compilation of stm32mp2_pm.c, and stub some PSCI functions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5a51497b22a01f6c44ba46b9ac3bb1b97b51f3d2 feat(stm32mp2): remove PM in serial boot]
+Change-Id: Ide43b92b0949d994f6d750b1ee55baf0e31600fc
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/347481
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/372655
+---
+ plat/st/stm32mp2/bl31_plat_setup.c | 18 ++++++++++++++++++
+ plat/st/stm32mp2/platform.mk       | 10 ++++++++--
+ 2 files changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index 75dc1f32a5..f546598af5 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -116,6 +116,7 @@ void bl31_plat_arch_setup(void)
+ 
+ 	stm32mp_gic_init();
+ 
++#if !STM32MP_UART_PROGRAMMER && !STM32MP_USB_PROGRAMMER
+ 	if (stm32mp_is_wakeup_from_standby()) {
+ 		/* Initialize the runtime services e.g. PSCI. */
+ 		runtime_svc_init();
+@@ -129,6 +130,7 @@ void bl31_plat_arch_setup(void)
+ 		bl31_warm_entrypoint();
+ 		panic();
+ 	}
++#endif /* !STM32MP_UART_PROGRAMMER && !STM32MP_USB_PROGRAMMER */
+ }
+ 
+ void bl31_platform_setup(void)
+@@ -158,3 +160,19 @@ entry_point_info_t *bl31_plat_get_next_image_ep_info(unsigned int type)
+ 
+ 	return NULL;
+ }
++
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++/* Stub PSCI platform functions */
++plat_local_state_t plat_get_target_pwr_state(unsigned int lvl,
++					     const plat_local_state_t *states,
++					     unsigned int ncpu)
++{
++	return 0U;
++}
++
++int plat_setup_psci_ops(uintptr_t sec_entrypoint,
++			const plat_psci_ops_t **psci_ops)
++{
++	return 0;
++}
++#endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 7c25958e7a..c4eb07830f 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -242,7 +242,6 @@ endif
+ 
+ PLAT_BL_COMMON_SOURCES		+=	drivers/st/iwdg/stm32_iwdg.c				\
+ 					drivers/st/reset/stm32mp2_reset.c			\
+-					plat/st/stm32mp2/stm32mp2_context.c			\
+ 					plat/st/stm32mp2/stm32mp2_pwr.c				\
+ 					plat/st/stm32mp2/stm32mp2_syscfg.c
+ 
+@@ -253,6 +252,10 @@ PLAT_BL_COMMON_SOURCES		+=	drivers/st/clk/clk-stm32-core.c				\
+ 
+ PLAT_BL_COMMON_SOURCES  	+=	drivers/st/nvmem/stm32mp_tamp_nvram_mp2.c
+ 
++ifeq ($(filter 1,${STM32MP_UART_PROGRAMMER} ${STM32MP_USB_PROGRAMMER}),)
++PLAT_BL_COMMON_SOURCES  	+=	plat/st/stm32mp2/stm32mp2_context.c
++endif
++
+ BL2_SOURCES			+=	plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+ 
+ BL2_SOURCES			+=	drivers/st/crypto/stm32_hash.c				\
+@@ -338,9 +341,12 @@ endif #STM32MP_M33_TDCID
+ BL31_SOURCES			+=	${FDT_WRAPPERS_SOURCES}
+ 
+ BL31_SOURCES			+=	plat/st/stm32mp2/bl31_plat_setup.c			\
+-					plat/st/stm32mp2/stm32mp2_pm.c				\
+ 					plat/st/stm32mp2/stm32mp2_topology.c
+ 
++ifeq ($(filter 1,${STM32MP_UART_PROGRAMMER} ${STM32MP_USB_PROGRAMMER}),)
++BL31_SOURCES			+=	plat/st/stm32mp2/stm32mp2_pm.c
++endif
++
+ BL31_SOURCES			+=	drivers/st/ddr/stm32mp2_ddr_helpers.c
+ 
+ # Generic GIC v2
+-- 
+2.53.0
+

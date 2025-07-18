@@ -1,0 +1,60 @@
+From 44394620d83d5b3377972a9a2bac0c2dc5372b13 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 8 Nov 2023 11:02:49 +0100
+Subject: [PATCH 399/954] feat(stm32mp2): save gicv2 configuration for STOP2
+ modes
+
+With OSI and S2IDLE the GIC configuration is not restored in Linux side,
+when the power supply of cluster is deactivated in STOP2 low power modes.
+
+This patch save and restore the GICv2 configuration for ALL the SPI.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b7eeff85c0097d4cb00dc97f0beeb95085fffbe7 feat(stm32mp2): save gicv2 configuration for STOP2 modes]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I7414513696a32584b848a9e50692b534477b0444
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/339284
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 68f9fba6da..8fc824a92b 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -406,6 +406,7 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		mmio_write_32(pwr_base + PWR_CPU2CR, 0U);
+ 
+ 		stm32mp_gic_cpuif_disable();
++		stm32mp_gic_save();
+ 		stm32mp2_pll1_disable();
+ 		break;
+ 
+@@ -415,6 +416,7 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		mmio_write_32(pwr_base + PWR_CPU2CR, PWR_CPU2CR_LPDS_D2);
+ 
+ 		stm32mp_gic_cpuif_disable();
++		stm32mp_gic_save();
+ 		stm32mp2_pll1_disable();
+ 		break;
+ 
+@@ -425,6 +427,7 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		mmio_write_32(pwr_base + PWR_CPU2CR, PWR_CPU2CR_LPDS_D2 | PWR_CPU2CR_LVDS_D2);
+ 
+ 		stm32mp_gic_cpuif_disable();
++		stm32mp_gic_save();
+ 		stm32mp2_pll1_disable();
+ 		break;
+ 
+@@ -521,6 +524,7 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 		ddr_sr_exit();
+ 		ddr_restore_sr_mode();
+ 
++		stm32mp_gic_resume();
+ 		stm32mp_gic_cpuif_enable();
+ 
+ 		/* Restore register in CA35SS */
+-- 
+2.53.0
+

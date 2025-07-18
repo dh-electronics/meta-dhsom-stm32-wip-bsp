@@ -1,0 +1,53 @@
+From 506f18df18ffbd1ce0ca9a1b4c534e4e15b1fd01 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 27 Jan 2023 17:21:12 +0100
+Subject: [PATCH 261/954] feat(stm32mp2): save encryption key info before
+ unmapping DT
+
+To give more space when loading other binaries in SYSRAM, the BL2 DT
+is unmapped after loading FW-CONFIG file. All the required information
+from this DT must then be saved before. This is the case for encrytion
+key details. The function stm32_get_enc_key_otp_idx_len() is then
+called before this DT unmapping.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git abd2ba6dc54b6f122cf4b976e68536c9aae7ab22 feat(stm32mp2): save encryption key info before unmapping DT]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I38f0be56f10868e24dd71a1ea5bd27aff35196da
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/287591
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 4889944753..a090a17209 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -332,6 +332,8 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		BL33_IMAGE_ID,
+ 		HW_CONFIG_ID,
+ 	};
++	uint32_t otp_idx __maybe_unused;
++	uint32_t otp_len __maybe_unused;
+ 
+ 	assert(bl_mem_params != NULL);
+ 
+@@ -392,6 +394,13 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			}
+ 		}
+ 
++#ifndef DECRYPTION_SUPPORT_none
++		/* Load encryption key info before DT is unmapped */
++		err = stm32_get_enc_key_otp_idx_len(&otp_idx, &otp_len);
++		if (err) {
++			panic();
++		}
++#endif
+ 		mmap_remove_dynamic_region(DTB_BASE, DTB_LIMIT - DTB_BASE);
+ 
+ 		break;
+-- 
+2.53.0
+

@@ -1,0 +1,67 @@
+From 9023b801dc2948732cab0dc87d906ed4a7e14187 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 5 Aug 2025 15:39:39 +0200
+Subject: [PATCH 919/954] perf(st-spi): improve memory mapped read throughput
+
+Improve memory mapped read throughput by reading 8-bytes per 8-bytes
+instead of reading byte per byte.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3cf546af88a537b27bf91160d02d9257a21fbb18 perf(st-spi): improve memory mapped read throughput
+b6123cb1e9430cc59213c4eba367fabb7dddab76 perf(st-spi): improve memory mapped read throughput]
+Change-Id: I61d02fb75b11e6e4fd45bdf2a492164c3e6daa0a
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/480822
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/spi/stm32_qspi.c | 30 +++++++++++++++++++++++++++---
+ 1 file changed, 27 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_qspi.c b/drivers/st/spi/stm32_qspi.c
+index 73aa9ac60d..ee73827f73 100644
+--- a/drivers/st/spi/stm32_qspi.c
++++ b/drivers/st/spi/stm32_qspi.c
+@@ -209,9 +209,33 @@ static int stm32_qspi_poll(const struct spi_mem_op *op)
+ 
+ static int stm32_qspi_mm(const struct spi_mem_op *op)
+ {
+-	memcpy(op->data.buf,
+-	       (void *)(stm32_qspi.mm_base + (size_t)op->addr.val),
+-	       op->data.nbytes);
++	uintptr_t from = (uintptr_t)(stm32_qspi.mm_base + op->addr.val);
++	uint8_t *buf = (uint8_t *)op->data.buf;
++	uint64_t length = op->data.nbytes;
++	uint64_t tmp;
++	uint64_t i = 0U;
++
++	while ((length != 0U) && ((from & (sizeof(uint64_t) - UL(1))) != 0U)) {
++		buf[i] = mmio_read_8(from);
++		i++;
++		from++;
++		length--;
++	}
++
++	while (length >= sizeof(uint64_t)) {
++		tmp = mmio_read_64(from);
++		(void)memcpy((void *)&buf[i], (const void *)&tmp, sizeof(uint64_t));
++		i += sizeof(uint64_t);
++		from += sizeof(uint64_t);
++		length -= sizeof(uint64_t);
++	}
++
++	while (length != 0U) {
++		buf[i] = mmio_read_8(from);
++		i++;
++		from++;
++		length--;
++	}
+ 
+ 	return 0;
+ }
+-- 
+2.53.0
+

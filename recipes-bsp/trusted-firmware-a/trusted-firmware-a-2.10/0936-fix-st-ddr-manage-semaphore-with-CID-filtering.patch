@@ -1,0 +1,59 @@
+From f45870d34569958e48511a3f6692890d587778d5 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Wed, 19 Nov 2025 16:29:41 +0100
+Subject: [PATCH 936/954] fix(st-ddr): manage semaphore with CID filtering
+
+Disabling CID filtering clears the semaphore enabling.
+If semaphore was enabled before CID filtering disable/enable sequence,
+semaphore must be re-enabled after.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 599986c2b4f2785b544586cb1493ddb2ee187c27 fix(st-ddr): manage semaphore with CID filtering]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I1df056b8bebe279d8d97313e0c55a563d29cc09d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/510659
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr_helpers.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index bd6af9652d..188f5ec52e 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -21,6 +21,7 @@
+ #define HW_IDLE_PERIOD			0x3U
+ 
+ static enum stm32mp2_ddr_sr_mode saved_ddr_sr_mode;
++static uint32_t saved_sem_mutex;
+ 
+ #pragma weak stm32_ddrdbg_get_base
+ uintptr_t stm32_ddrdbg_get_base(void)
+@@ -236,10 +237,20 @@ bool is_ddr_cid_filtering_enabled(void)
+ void ddr_enable_cid_filtering(void)
+ {
+ 	mmio_setbits_32(stm32mp_rcc_base() + RCC_R104CIDCFGR, RCC_R104CIDCFGR_CFEN);
++	if (saved_sem_mutex != 0U) {
++		mmio_setbits_32(stm32mp_rcc_base() + RCC_R104SEMCR, RCC_R104SEMCR_SEM_MUTEX);
++	}
+ }
+ 
+ void ddr_disable_cid_filtering(void)
+ {
++	/*
++	 * Save the current mutex state to restore it later,
++	 * since disabling CID filtering automatically releases the
++	 * semaphore.
++	 */
++	saved_sem_mutex = mmio_read_32(stm32mp_rcc_base() + RCC_R104SEMCR) &
++			  RCC_R104SEMCR_SEM_MUTEX;
+ 	mmio_clrbits_32(stm32mp_rcc_base() + RCC_R104CIDCFGR, RCC_R104CIDCFGR_CFEN);
+ }
+ 
+-- 
+2.53.0
+

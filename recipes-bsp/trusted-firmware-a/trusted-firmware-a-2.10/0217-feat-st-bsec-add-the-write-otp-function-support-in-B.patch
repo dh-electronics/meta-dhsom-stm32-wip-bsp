@@ -1,0 +1,68 @@
+From 27a7e5b5be7f64a9f5d00616eb738eec6c48afc3 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Wed, 21 Sep 2022 14:59:43 +0200
+Subject: [PATCH 217/954] feat(st-bsec): add the write otp function support in
+ BSEC3
+
+Add the function that allow a write in shadow OTP.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b9abac5ed87ea71c0a762142eb2ccd1f5740c464 feat(st-bsec): add the write otp function support in BSEC3]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: I283c89d237e78278268fe8b788625aa78350560f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/267242
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec3.c | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/drivers/st/bsec/bsec3.c b/drivers/st/bsec/bsec3.c
+index ce8fa8634f..6e00a6c4d3 100644
+--- a/drivers/st/bsec/bsec3.c
++++ b/drivers/st/bsec/bsec3.c
+@@ -218,6 +218,40 @@ static uint32_t bsec_shadow_register(uint32_t otp)
+ 	return result;
+ }
+ 
++/*
++ * bsec_write_otp: write a value in shadow OTP.
++ * val: value to program.
++ * otp: OTP number.
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_write_otp(uint32_t val, uint32_t otp)
++{
++	bool state;
++	uint32_t result;
++
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	if (!is_fuse_shadowed(otp)) {
++		return BSEC_ERROR;
++	}
++
++	if (is_bsec_write_locked()) {
++		return BSEC_WRITE_LOCKED;
++	}
++
++	result = bsec_read_sw_lock(otp, &state);
++	if (result != BSEC_OK) {
++		WARN("Shadow register is SW locked\n");
++		return result;
++	}
++
++	mmio_write_32(BSEC_BASE + BSEC_FVR(otp), val);
++
++	return BSEC_OK;
++}
++
+ /*
+  * bsec_program_otp: program a bit in SAFMEM after the prog.
+  *	The OTP data is not refreshed.
+-- 
+2.53.0
+

@@ -1,0 +1,97 @@
+From 6f3b72edd5b90ffddb4e839bcbc2484711e1fce7 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 11 Oct 2023 16:41:33 +0200
+Subject: [PATCH 404/954] refactor(st-clock): remove unused clk function in API
+
+Remove the unused functions in stm32mp clk API:
+- stm32mp_stgen_get_counter (change to static, no more exported)
+- stm32mp_stgen_restore_counter
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c169c7f3ab22a2588462e3dccd3cfc87ba727234 refactor(st-clock): remove unused clk function in API]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ib6ca72723eac3e133f1ca0dee504ef344c72e0bf
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/333628
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/clk/stm32mp_clkfunc.c     | 44 ++++++++--------------------
+ include/drivers/st/stm32mp_clkfunc.h |  3 --
+ 2 files changed, 13 insertions(+), 34 deletions(-)
+
+diff --git a/drivers/st/clk/stm32mp_clkfunc.c b/drivers/st/clk/stm32mp_clkfunc.c
+index 5b47cb68a7..5741dc28ee 100644
+--- a/drivers/st/clk/stm32mp_clkfunc.c
++++ b/drivers/st/clk/stm32mp_clkfunc.c
+@@ -334,6 +334,19 @@ static void stgen_set_counter(unsigned long long counter)
+ #endif
+ }
+ 
++/*******************************************************************************
++ * This function returns the STGEN counter value.
++ ******************************************************************************/
++static unsigned long long stm32mp_stgen_get_counter(void)
++{
++#ifdef __aarch64__
++	return mmio_read_64(STGEN_BASE + CNTCV_OFF);
++#else
++	return (((unsigned long long)mmio_read_32(STGEN_BASE + CNTCVU_OFF) << 32) |
++		mmio_read_32(STGEN_BASE + CNTCVL_OFF));
++#endif
++}
++
+ /*******************************************************************************
+  * This function configures and restores the STGEN counter depending on the
+  * connected clock.
+@@ -375,34 +388,3 @@ void stm32mp_stgen_restore_rate(void)
+ 
+ 	write_cntfrq_el0((u_register_t)rate);
+ }
+-
+-/*******************************************************************************
+- * This function returns the STGEN counter value.
+- ******************************************************************************/
+-unsigned long long stm32mp_stgen_get_counter(void)
+-{
+-#ifdef __aarch64__
+-	return mmio_read_64(STGEN_BASE + CNTCV_OFF);
+-#else
+-	return (((unsigned long long)mmio_read_32(STGEN_BASE + CNTCVU_OFF) << 32) |
+-		mmio_read_32(STGEN_BASE + CNTCVL_OFF));
+-#endif
+-}
+-
+-/*******************************************************************************
+- * This function restores the STGEN counter value.
+- * It takes a first input value as a counter backup value to be restored and a
+- * offset in ms to be added.
+- ******************************************************************************/
+-void stm32mp_stgen_restore_counter(unsigned long long value,
+-				   unsigned long long offset_in_ms)
+-{
+-	unsigned long long cnt;
+-
+-	cnt = value + ((offset_in_ms *
+-			mmio_read_32(STGEN_BASE + CNTFID_OFF)) / 1000U);
+-
+-	mmio_clrbits_32(STGEN_BASE + CNTCR_OFF, CNTCR_EN);
+-	stgen_set_counter(cnt);
+-	mmio_setbits_32(STGEN_BASE + CNTCR_OFF, CNTCR_EN);
+-}
+diff --git a/include/drivers/st/stm32mp_clkfunc.h b/include/drivers/st/stm32mp_clkfunc.h
+index 64f935a162..9d10429db1 100644
+--- a/include/drivers/st/stm32mp_clkfunc.h
++++ b/include/drivers/st/stm32mp_clkfunc.h
+@@ -30,8 +30,5 @@ unsigned long fdt_get_uart_clock_freq(uintptr_t instance);
+ 
+ void stm32mp_stgen_config(unsigned long rate);
+ void stm32mp_stgen_restore_rate(void);
+-void stm32mp_stgen_restore_counter(unsigned long long value,
+-				   unsigned long long offset_in_ms);
+-unsigned long long stm32mp_stgen_get_counter(void);
+ 
+ #endif /* STM32MP_CLKFUNC_H */
+-- 
+2.53.0
+

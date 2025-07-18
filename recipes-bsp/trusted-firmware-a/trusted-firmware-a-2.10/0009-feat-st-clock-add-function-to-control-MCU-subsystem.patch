@@ -1,0 +1,54 @@
+From 9b1af2e40d26e7e53ffb260ebfa85af9d512440e Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@st.com>
+Date: Tue, 15 Dec 2020 13:22:27 +0100
+Subject: [PATCH 009/954] feat(st-clock): add function to control MCU subsystem
+
+Add a new function to control the MCU subsystem
+security state.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git de7b459c0ff5ff83d4357d675b7a9c0cc70ee375 feat(st-clock): add function to control MCU subsystem]
+Signed-off-by: Lionel Debieve <lionel.debieve@st.com>
+Change-Id: I070eec06fc93a1214227f25a6a4f1c40c66c86b0
+---
+ drivers/st/clk/stm32mp1_clk.c     | 11 +++++++++++
+ include/drivers/st/stm32mp1_clk.h |  2 ++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/drivers/st/clk/stm32mp1_clk.c b/drivers/st/clk/stm32mp1_clk.c
+index c9c3c5f9b4..29165922a6 100644
+--- a/drivers/st/clk/stm32mp1_clk.c
++++ b/drivers/st/clk/stm32mp1_clk.c
+@@ -2326,6 +2326,17 @@ void stm32mp1_register_clock_parents_secure(unsigned long clock_id)
+ }
+ #endif /* STM32MP_SHARED_RESOURCES */
+ 
++void stm32mp1_clk_mcuss_protect(bool enable)
++{
++	uintptr_t rcc_base = stm32mp_rcc_base();
++
++	if (enable) {
++		mmio_setbits_32(rcc_base + RCC_TZCR, RCC_TZCR_MCKPROT);
++	} else {
++		mmio_clrbits_32(rcc_base + RCC_TZCR, RCC_TZCR_MCKPROT);
++	}
++}
++
+ static void sync_earlyboot_clocks_state(void)
+ {
+ 	unsigned int idx;
+diff --git a/include/drivers/st/stm32mp1_clk.h b/include/drivers/st/stm32mp1_clk.h
+index e2395bc5cd..2257e7d884 100644
+--- a/include/drivers/st/stm32mp1_clk.h
++++ b/include/drivers/st/stm32mp1_clk.h
+@@ -32,6 +32,8 @@ bool stm32mp1_rcc_is_mckprot(void);
+ void stm32mp1_clk_rcc_regs_lock(void);
+ void stm32mp1_clk_rcc_regs_unlock(void);
+ 
++void stm32mp1_clk_mcuss_protect(bool enable);
++
+ #ifdef STM32MP_SHARED_RESOURCES
+ void stm32mp1_register_clock_parents_secure(unsigned long id);
+ #endif
+-- 
+2.53.0
+

@@ -1,0 +1,110 @@
+From d016698acea5033e49c24fc479294d779ccdc574 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 20 Sep 2023 15:33:04 +0200
+Subject: [PATCH 347/954] refactor(st-bsec): harmonize bsec_shadow_read_otp
+
+Use the same function parameters as bsec_read_otp().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git df1440af3fdfd53c0a366db87accbaf3f3ab732f refactor(st-bsec): harmonize bsec_shadow_read_otp]
+Change-Id: I412f3592ee280aef37e9c03e33247e4a9911e074
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec2.c   | 14 +++++++-------
+ drivers/st/bsec/bsec3.c   | 12 ++++++------
+ include/drivers/st/bsec.h |  2 +-
+ 3 files changed, 14 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index e2500ca43e..e414209658 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -768,23 +768,23 @@ static uint32_t bsec_power_safmem(bool power)
+ 
+ /*
+  * bsec_shadow_read_otp: Load OTP from SAFMEM and provide its value.
+- * otp_value: read value.
+- * word: OTP number.
++ * val: read value.
++ * otp: OTP number.
+  * return value: BSEC_OK if no error.
+  */
+-uint32_t bsec_shadow_read_otp(uint32_t *otp_value, uint32_t word)
++uint32_t bsec_shadow_read_otp(uint32_t *val, uint32_t otp)
+ {
+ 	uint32_t result;
+ 
+-	result = bsec_shadow_register(word);
++	result = bsec_shadow_register(otp);
+ 	if (result != BSEC_OK) {
+-		ERROR("BSEC: %u Shadowing Error %u\n", word, result);
++		ERROR("BSEC: %u Shadowing Error %u\n", otp, result);
+ 		return result;
+ 	}
+ 
+-	result = bsec_read_otp(otp_value, word);
++	result = bsec_read_otp(val, otp);
+ 	if (result != BSEC_OK) {
+-		ERROR("BSEC: %u Read Error %u\n", word, result);
++		ERROR("BSEC: %u Read Error %u\n", otp, result);
+ 	}
+ 
+ 	return result;
+diff --git a/drivers/st/bsec/bsec3.c b/drivers/st/bsec/bsec3.c
+index 6e00a6c4d3..d0af8c03da 100644
+--- a/drivers/st/bsec/bsec3.c
++++ b/drivers/st/bsec/bsec3.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -475,18 +475,18 @@ uint32_t bsec_get_secure_state(void)
+ 
+ /*
+  * bsec_shadow_read_otp: Load OTP from SAFMEM and provide its value
+- * value: read value.
++ * val: read value.
+  * otp: OTP number.
+  * return value: BSEC_OK if no error.
+  */
+-uint32_t bsec_shadow_read_otp(uint32_t *value, uint32_t otp)
++uint32_t bsec_shadow_read_otp(uint32_t *val, uint32_t otp)
+ {
+-	assert(value != NULL);
++	assert(val != NULL);
+ 	if (otp > STM32MP2_OTP_MAX_ID) {
+ 		panic();
+ 	}
+ 
+-	*value = 0U;
++	*val = 0U;
+ 
+ 	if (is_bsec_write_locked()) {
+ 		return BSEC_WRITE_LOCKED;
+@@ -501,7 +501,7 @@ uint32_t bsec_shadow_read_otp(uint32_t *value, uint32_t otp)
+ 		}
+ 	}
+ 
+-	*value = mmio_read_32(BSEC_BASE + BSEC_FVR(otp));
++	*val = mmio_read_32(BSEC_BASE + BSEC_FVR(otp));
+ 
+ 	return BSEC_OK;
+ }
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index 8e072f756c..64f96eb6dd 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -45,7 +45,7 @@
+ uint32_t bsec_probe(void);
+ 
+ uint32_t bsec_read_otp(uint32_t *val, uint32_t otp);
+-uint32_t bsec_shadow_read_otp(uint32_t *otp_value, uint32_t word);
++uint32_t bsec_shadow_read_otp(uint32_t *val, uint32_t otp);
+ uint32_t bsec_write_otp(uint32_t val, uint32_t otp);
+ uint32_t bsec_program_otp(uint32_t val, uint32_t otp);
+ 
+-- 
+2.53.0
+

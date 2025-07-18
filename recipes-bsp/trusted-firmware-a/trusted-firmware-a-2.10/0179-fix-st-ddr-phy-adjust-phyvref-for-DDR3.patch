@@ -1,0 +1,43 @@
+From 89b600dcca2ff33abde2550d9b300bc8d8cb7ebf Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 5 Jul 2022 16:00:37 +0200
+Subject: [PATCH 179/954] fix(st-ddr): phy: adjust phyvref for DDR3
+
+Set Vref at 50% to increase efficiency.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cba6888492d0d8ee97f0651b9671cff1e6bc3a3e fix(st-ddr): phy: adjust phyvref for DDR3]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I730642b521d26dd64c0026ad3d10f538728fefb9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/259464
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c
+index 08bae4d205..a63e1d0285 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c
+@@ -69,10 +69,17 @@ void ddrphy_phyinit_initstruct(void)
+ 					 * Set cspresent[3]   = 1 (if CS3 is populated with DRAM)
+ 					 * Set cspresent[7:4] = 0 (Reserved; must be set to 0)
+ 					 */
++#if STM32MP_DDR3_TYPE
++	uint8_t phyvref = 0x40U;	/*
++					 * Use Analytical VREF and Compensate for T28 Attenuator,
++					 * see PHY databook
++					 */
++#else
+ 	uint8_t phyvref = 0x56U;	/*
+ 					 * Use Analytical VREF and Compensate for T28 Attenuator,
+ 					 * see PHY databook
+ 					 */
++#endif /* STM32MP_DDR3_TYPE */
+ 	uint8_t dfimrlmargin = 0x01U;	/* 1 is typically good in DDR3 */
+ #if STM32MP_DDR3_TYPE
+ 	uint8_t addrmirror = 0x00U;	/*
+-- 
+2.53.0
+

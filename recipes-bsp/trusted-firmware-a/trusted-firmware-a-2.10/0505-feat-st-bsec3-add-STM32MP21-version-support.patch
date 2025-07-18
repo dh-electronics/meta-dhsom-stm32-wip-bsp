@@ -1,0 +1,52 @@
+From 4ee61ea9594112b04d093a573e56edf8c5f494ca Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 10 Oct 2023 13:50:01 +0200
+Subject: [PATCH 505/954] feat(st-bsec3): add STM32MP21 version support
+
+STM32MP21 is designed with BSEC IP v1.2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 74c01c8c6840b8f133ebbc18851e36216dc700d5 feat(st-bsec3): add STM32MP21 version support]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I722b27c62d4c022040e3435ce7e4bb67f6260107
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/356324
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec3.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/bsec/bsec3.c b/drivers/st/bsec/bsec3.c
+index cb9b8cf301..ea5de914fb 100644
+--- a/drivers/st/bsec/bsec3.c
++++ b/drivers/st/bsec/bsec3.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022-2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -20,6 +20,7 @@
+ #include <lib/spinlock.h>
+ 
+ #define BSEC_IP_VERSION_1_0	U(0x10)
++#define BSEC_IP_VERSION_1_2	U(0x12)
+ #define BSEC_IP_ID_3		U(0x100033)
+ 
+ #define MAX_NB_TRIES		3U
+@@ -178,7 +179,11 @@ uint32_t bsec_probe(void)
+ 	uint32_t version = bsec_get_version();
+ 	uint32_t id = bsec_get_id();
+ 
++#if STM32MP21
++	if ((version != BSEC_IP_VERSION_1_2) || (id != BSEC_IP_ID_3)) {
++#else /* STM32MP21 */
+ 	if ((version != BSEC_IP_VERSION_1_0) || (id != BSEC_IP_ID_3)) {
++#endif /* STM32MP21 */
+ 		EARLY_ERROR("%s: version = 0x%x, id = 0x%x\n", __func__, version, id);
+ 		panic();
+ 	}
+-- 
+2.53.0
+

@@ -1,0 +1,93 @@
+From 2926e76971140abf97e3e14602e182a46221245c Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Tue, 30 Aug 2022 11:51:19 +0200
+Subject: [PATCH 003/954] feat(bl): allow platform to define backup partitions
+
+In case of load error, on MTD devices such as NAND, it is required
+to defined backup partitions. This is an alternate choice to
+retry a new image load.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5d4ab75b2456df5be157bcc082606aa5d18f28d1 feat(bl): allow platform to define backup partitions]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Ideaecaf296c0037a26fb4e6680f33e507111378a
+---
+ common/bl_common.c             | 10 +++++++---
+ include/plat/common/platform.h |  1 +
+ plat/common/plat_bl_common.c   |  8 +++++++-
+ 3 files changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/common/bl_common.c b/common/bl_common.c
+index 8fce02fbad..e757913d12 100644
+--- a/common/bl_common.c
++++ b/common/bl_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2022, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2023, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -216,11 +216,15 @@ int load_auth_image(unsigned int image_id, image_info_t *image_data)
+  * when PSA FWU is enabled.
+  */
+ #if PSA_FWU_SUPPORT
+-	err = load_auth_image_internal(image_id, image_data);
++	do {
++		err = load_auth_image_internal(image_id, image_data);
++	} while ((err != 0) && (plat_try_backup_partitions(image_id) != 0));
+ #else
+ 	do {
+ 		err = load_auth_image_internal(image_id, image_data);
+-	} while ((err != 0) && (plat_try_next_boot_source() != 0));
++	} while (((err != 0) && ((plat_try_next_boot_source() != 0) ||
++				 (plat_try_backup_partitions(image_id) != 0))));
++
+ #endif /* PSA_FWU_SUPPORT */
+ 
+ 	if (err == 0) {
+diff --git a/include/plat/common/platform.h b/include/plat/common/platform.h
+index 2bb23c450f..621f9910c3 100644
+--- a/include/plat/common/platform.h
++++ b/include/plat/common/platform.h
+@@ -155,6 +155,7 @@ void plat_system_reset(void) __dead2;
+ const char *plat_log_get_prefix(unsigned int log_level);
+ void bl2_plat_preload_setup(void);
+ int plat_try_next_boot_source(void);
++int plat_try_backup_partitions(unsigned int image_id);
+ 
+ #if MEASURED_BOOT
+ int plat_mboot_measure_image(unsigned int image_id, image_info_t *image_data);
+diff --git a/plat/common/plat_bl_common.c b/plat/common/plat_bl_common.c
+index 89b77ba6ce..ceaf3c6d27 100644
+--- a/plat/common/plat_bl_common.c
++++ b/plat/common/plat_bl_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2020, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2023, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -25,6 +25,7 @@
+ #pragma weak bl2_plat_handle_pre_image_load
+ #pragma weak bl2_plat_handle_post_image_load
+ #pragma weak plat_try_next_boot_source
++#pragma weak plat_try_backup_partitions
+ #pragma weak plat_get_enc_key_info
+ #pragma weak plat_is_smccc_feature_available
+ #pragma weak plat_get_soc_version
+@@ -74,6 +75,11 @@ int plat_try_next_boot_source(void)
+ 	return 0;
+ }
+ 
++int plat_try_backup_partitions(unsigned int image_id)
++{
++	return 0;
++}
++
+ /*
+  * Weak implementation to provide dummy decryption key only for test purposes,
+  * platforms must override this API for any real world firmware encryption
+-- 
+2.53.0
+

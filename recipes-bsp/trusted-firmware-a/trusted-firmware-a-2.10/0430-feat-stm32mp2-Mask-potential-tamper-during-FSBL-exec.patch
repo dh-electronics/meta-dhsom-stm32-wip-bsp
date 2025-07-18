@@ -1,0 +1,104 @@
+From e4a469abb01e31102480fc4b5186c7f0e0482cd2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 8 Dec 2023 16:08:25 +0100
+Subject: [PATCH 430/954] feat(stm32mp2): Mask potential tamper during FSBL
+ execution
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Secure OS is responsible for handling potential tamper, not BL2.
+FSBL should protect its execution against potential tamper.
+To address this, specific functions were added to mask potential tampering.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 08bd710270472be5e70c1fe381d8b9659fb2622d feat(stm32mp2): Mask potential tamper during FSBL execution]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I8102a30104c3707067ca658c284583c0b1bbb424
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/344970
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c           |  6 ++++++
+ plat/st/stm32mp2/include/stm32mp2_private.h |  2 ++
+ plat/st/stm32mp2/stm32mp2_syscfg.c          | 21 +++++++++++++++++++++
+ 3 files changed, 29 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index d93e3a1995..b3eb003c2a 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -300,6 +300,9 @@ void bl2_el3_plat_arch_setup(void)
+ 
+ 	iac_dump();
+ 
++	/* Masking potential tamper during BL2 */
++	stm32mp2_syscfg_mask_potential_tamper_enable();
++
+ 	stm32mp_print_cpuinfo();
+ 
+ 	board_model = dt_get_board_model();
+@@ -590,4 +593,7 @@ void bl2_el3_plat_prepare_exit(void)
+ 
+ 	stm32mp_io_exit();
+ 	stm32mp2_security_setup();
++
++	/* Unmask potential tamper before exit */
++	stm32mp2_syscfg_mask_potential_tamper_disable();
+ }
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index ddbe925154..bfdf0c55c1 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -14,6 +14,8 @@ void stm32mp2_security_setup(void);
+ 
+ uint32_t stm32mp2_syscfg_get_chip_version(void);
+ uint32_t stm32mp2_syscfg_get_chip_dev_id(void);
++void stm32mp2_syscfg_mask_potential_tamper_enable(void);
++void stm32mp2_syscfg_mask_potential_tamper_disable(void);
+ size_t stm32mp2_syscfg_get_mm_size(uint8_t bank);
+ int stm32mp2_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
+ 			      uint16_t period_ps);
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index f58bfd18ba..c9296d2517 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -78,6 +78,11 @@
+ #define SYSCFG_DLYBOS_TAPSEL_NB		33U
+ #define SYSCFG_DLYBOS_CMD_NB		24U
+ 
++/* SYSCFG potential tamper reset control register */
++#define SYSCFG_POTTAMPRSTCR		U(0x1804)
++
++#define SYSCFG_POTTAMPRSTCR_RSTMASK	BIT(0)
++
+ /* ICN registers */
+ #define SYSCFG_ICNQPCR1			U(0x2000)
+ #define SYSCFG_ICNQPCR2			U(0x2004)
+@@ -498,6 +503,22 @@ int stm32mp2_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
+ }
+ #endif
+ 
++void stm32mp2_syscfg_mask_potential_tamper_enable(void)
++{
++#if !STM32MP_M33_TDCID
++	mmio_setbits_32(SYSCFG_BASE + SYSCFG_POTTAMPRSTCR,
++			SYSCFG_POTTAMPRSTCR_RSTMASK);
++#endif
++}
++
++void stm32mp2_syscfg_mask_potential_tamper_disable(void)
++{
++#if !STM32MP_M33_TDCID
++	mmio_clrbits_32(SYSCFG_BASE + SYSCFG_POTTAMPRSTCR,
++			SYSCFG_POTTAMPRSTCR_RSTMASK);
++#endif
++}
++
+ /*
+  * @brief  Set ICN QOS priority per master.
+  *	   By default, SYSCFG_ICN* register keep their reset values
+-- 
+2.53.0
+

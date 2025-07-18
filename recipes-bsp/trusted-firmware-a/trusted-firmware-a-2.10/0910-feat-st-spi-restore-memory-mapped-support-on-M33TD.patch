@@ -1,0 +1,57 @@
+From 1418dea8b62472747bb7700eba3923a2129dfe6b Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Tue, 17 Jun 2025 17:16:52 +0200
+Subject: [PATCH 910/954] feat(st-spi): restore memory mapped support on M33TD
+
+Memory mapped support has been removed on M33TD because SNOR boot case
+wasn't possible due to a dual access needed (secure and non-secure) on
+an OSPI memory area.
+Now RISAF subregions with CID delegation are managed, this can be
+handled thanks to a specific RIF configuration.
+
+This reverts commit 45263ed4711c17bcf8f050e771ecc086354fd57e.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8c775e7bc1164bbb87348cd2f561930b39fc99dc feat(st-spi): restore memory mapped support on M33TD]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I1e6968d1050b02e4122ea3142c9e1d37c1e4d607
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/472630
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/st/spi/stm32_ospi.c | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index 6d70938bd4..cbb84aad33 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -1015,9 +1015,7 @@ static int stm32_ospi_exec_op(const struct spi_mem_op *op)
+ 
+ static int stm32_ospi_dirmap_read(const struct spi_mem_op *op)
+ {
+-#if defined(STM32MP_M33_TDCID) && !STM32MP_M33_TDCID
+ 	size_t addr_max;
+-#endif /* STM32MP_M33_TDCID */
+ 	uint8_t fmode = _OSPI_CR_FMODE_INDR;
+ 
+ 	if (op->cmd.dtr) {
+@@ -1028,12 +1026,10 @@ static int stm32_ospi_dirmap_read(const struct spi_mem_op *op)
+ 		}
+ 	}
+ 
+-#if defined(STM32MP_M33_TDCID) && !STM32MP_M33_TDCID
+ 	addr_max = op->addr.val + op->data.nbytes + 1U;
+ 	if ((addr_max < stm32_ospi.mm_size) && (op->addr.buswidth != 0U)) {
+ 		fmode = _OSPI_CR_FMODE_MM;
+ 	}
+-#endif /* STM32MP_M33_TDCID */
+ 
+ 	return stm32_ospi_send(op, fmode);
+ }
+-- 
+2.53.0
+

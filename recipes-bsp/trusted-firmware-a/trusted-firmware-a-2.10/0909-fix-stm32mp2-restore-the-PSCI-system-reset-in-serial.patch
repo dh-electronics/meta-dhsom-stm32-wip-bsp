@@ -1,0 +1,64 @@
+From 9076e5a028b85e62c5c17f34a7812e4d3651bcff Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 2 Sep 2025 13:51:44 +0200
+Subject: [PATCH 909/954] fix(stm32mp2): restore the PSCI system reset in
+ serial boot
+
+Only support system reset for serial boot but still remove the other PSCI
+features defined in plat/st/stm32mp2/stm32mp2_pm.c to reduce the BL31 size.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d7af534bd94caa2a14cd366f881dbecd224e961a fix(stm32mp2): restore the PSCI system reset in serial boot]
+Fixes: c8362c244f14 ("feat(stm32mp2): remove PM in serial boot")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ib57692db05d74c54b8227f2924fc37bce1afbec9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/486525
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/bl31_plat_setup.c | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index 12404dfd43..bd84e1d438 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -12,6 +12,7 @@
+ #include <common/runtime_svc.h>
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/st/stm32_console.h>
++#include <drivers/st/stm32mp_reset.h>
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+ #include <plat/common/platform.h>
+ 
+@@ -203,8 +204,16 @@ entry_point_info_t *bl31_plat_get_next_image_ep_info(unsigned int type)
+ 	return next_image_info;
+ }
+ 
++/* Only support system reset for serial boot and no low power feature to reduce BL31 size */
+ #if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
+-static const plat_psci_ops_t null_psci_ops;
++static void __dead2 stm32_system_reset(void)
++{
++	stm32mp_system_reset();
++}
++
++static const plat_psci_ops_t stm32_psci_ops = {
++	.system_reset = stm32_system_reset,
++};
+ 
+ /* Stub PSCI platform functions */
+ plat_local_state_t plat_get_target_pwr_state(unsigned int lvl,
+@@ -217,7 +226,7 @@ plat_local_state_t plat_get_target_pwr_state(unsigned int lvl,
+ int plat_setup_psci_ops(uintptr_t sec_entrypoint,
+ 			const plat_psci_ops_t **psci_ops)
+ {
+-	*psci_ops = &null_psci_ops;
++	*psci_ops = &stm32_psci_ops;
+ 	return 0;
+ }
+ #endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+-- 
+2.53.0
+

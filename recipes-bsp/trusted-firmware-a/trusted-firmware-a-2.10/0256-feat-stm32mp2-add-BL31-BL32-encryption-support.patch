@@ -1,0 +1,81 @@
+From 89c0f37517251ee482aa1783641688f4e5126325 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 20 Jan 2023 14:31:42 +0100
+Subject: [PATCH 256/954] feat(stm32mp2): add BL31 & BL32 encryption support
+
+Use the same feature as STM32MP1 for BL32 encryption and add BL31
+encryption.
+Increase the size of BL2 to add this feature.
+The secret used to derive TF-A decryption key is stored in OTP fuses,
+from OTP364 to OTP367.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3418092e4f31049a74b7e0c6df0b7f9c786532b4 feat(stm32mp2): add BL31 & BL32 encryption support]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Iedb7bf6fcecc07c936e0fb414b9b3dfcf892662d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/286065
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/common/stm32mp_fconf_io.c | 7 +++++++
+ plat/st/stm32mp2/platform.mk      | 2 +-
+ plat/st/stm32mp2/stm32mp2_def.h   | 5 +++--
+ 3 files changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/common/stm32mp_fconf_io.c b/plat/st/common/stm32mp_fconf_io.c
+index 19556e007d..e12eded81f 100644
+--- a/plat/st/common/stm32mp_fconf_io.c
++++ b/plat/st/common/stm32mp_fconf_io.c
+@@ -189,6 +189,13 @@ int fconf_populate_stm32mp_io_policies(uintptr_t config)
+ 		uuid_ptr->uuid = uuid_helper.uuid_struct;
+ 		policies[load_info[i].image_id].image_spec = (uintptr_t)uuid_ptr;
+ 		switch (load_info[i].image_id) {
++#if ENCRYPT_BL31 && !defined(DECRYPTION_SUPPORT_none)
++		case BL31_IMAGE_ID:
++		case SOC_FW_CONFIG_ID:
++			policies[load_info[i].image_id].dev_handle = &enc_dev_handle;
++			policies[load_info[i].image_id].check = open_enc_fip;
++			break;
++#endif
+ #if ENCRYPT_BL32 && !defined(DECRYPTION_SUPPORT_none)
+ 		case BL32_IMAGE_ID:
+ 		case BL32_EXTRA1_IMAGE_ID:
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index ebf65c7a16..14cdc20dbe 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -96,7 +96,7 @@ FDT_SOURCES		+=	$(addprefix fdts/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_NA
+ # Add the FW_CONFIG to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
+ # Add the SOC_FW_CONFIG to FIP and specify the same to certtool
+-$(eval $(call TOOL_ADD_IMG,STM32MP_SOC_FW_CONFIG,--soc-fw-config))
++$(eval $(call TOOL_ADD_IMG,STM32MP_SOC_FW_CONFIG,--soc-fw-config,,$(ENCRYPT_BL31)))
+ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+ # Add the FW_DDR to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_IMG,STM32MP_DDR_FW,--ddr-fw))
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index cee86b64f1..8bddb2ed15 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -143,8 +143,8 @@ enum ddr_type {
+ 
+ #define STM32MP_BL31_SIZE		U(0x0001C000)	/* 112 KB for BL31 */
+ 
+-#define STM32MP_BL2_RO_SIZE		U(0x00017000)	/* 76 KB */
+-#define STM32MP_BL2_SIZE		U(0x00029000)	/* 164 KB for BL2 */
++#define STM32MP_BL2_RO_SIZE		U(0x00018000)	/* 96 KB */
++#define STM32MP_BL2_SIZE		U(0x0002B000)	/* 172 KB for BL2 */
+ #define STM32MP_BL2_BASE		(STM32MP_SEC_SYSRAM_BASE + \
+ 					 STM32MP_SEC_SYSRAM_SIZE - \
+ 					 STM32MP_BL2_SIZE)
+@@ -320,6 +320,7 @@ enum ddr_type {
+ #define UID_OTP					"uid_otp"
+ #define LIFECYCLE2_OTP				"otp18"
+ #define PKH_OTP					"otp144"
++#define ENCKEY_OTP				"otp260"
+ 
+ /* OTP mask */
+ /* PACKAGE */
+-- 
+2.53.0
+

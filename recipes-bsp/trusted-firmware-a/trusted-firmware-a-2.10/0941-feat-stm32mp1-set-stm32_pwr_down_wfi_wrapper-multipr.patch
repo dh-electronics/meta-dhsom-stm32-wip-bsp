@@ -1,0 +1,132 @@
+From 7ac62d9a29fb00a9de078b7c00d5d03ff8e415ff Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Wed, 26 Nov 2025 20:05:14 +0100
+Subject: [PATCH 941/954] feat(stm32mp1): set stm32_pwr_down_wfi_wrapper()
+ multiprocessor
+
+Store SP, VBAR, and MVBAR regs in table of 2 words (1 per CPU)
+
+Split unused BL2's stack in half (1 per CPU). And update SP of the CPU
+with right stack address.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git caa40441dc91ee6f25f301bf18fc7d792ff641db feat(stm32mp1): set stm32_pwr_down_wfi_wrapper() multiprocessor]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I7c1e3a986b0565e07878443504616e508ba624fe
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/515700
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../stm32mp1/stm32mp1_critic_power_wrapper.S  | 40 ++++++++++++++-----
+ 1 file changed, 30 insertions(+), 10 deletions(-)
+
+diff --git a/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S b/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+index c3fb5cdbf9..d22d4b9cd3 100644
+--- a/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
++++ b/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+@@ -12,6 +12,8 @@
+ #include <drivers/st/stm32_gpio.h>
+ #include <smccc_helpers.h>
+ 
++#define STM32_HALF_STACK_SIZE	((PLATFORM_STACK_SIZE) >> 1)
++
+ 	.global	stm32_pwr_down_wfi_load
+ 	.global	stm32_pwr_cstop_critic_exit
+ 	.global	stm32_pwr_down_wfi_wrapper
+@@ -25,31 +27,39 @@
+ 
+ .section .data
+ 	.balign 4
+-saved_sp:		.word	0x00000000
+-saved_vbar:		.word	0x00000000
+-saved_mvbar:		.word	0x00000000
++saved_sp:		.word 0x00000000, 0x00000000
++saved_vbar:		.word 0x00000000, 0x00000000
++saved_mvbar:		.word 0x00000000, 0x00000000
+ 
+ .section .text
+ 	.align	5
+ 
+ func stm32_pwr_down_wfi_wrapper
+-	push	{r4,r5,r6,lr}
++	push	{r4,r5,lr}
++
++	# Save r0 and r1 in r4 and r5
++	mov	r4, r0
++	mov	r5, r1
+ 
+-	# Save r0 and r1 in  r2 and r3, as they are used in disable_mmu_secure
++	# Load CPU_ID in r2 and WORD_SIZE in r3
++	bl	plat_my_core_pos
+ 	mov	r2, r0
+-	mov	r3, r1
++	mov	r3, #4
+ 
+ 	# Save current sp in sp1
+ 	ldr	r1, =saved_sp
++	mla	r1, r2, r3, r1
+ 	str	sp, [r1]
+ 
+ 	# Save current VBAR in vbar1
+ 	ldr	r1, =saved_vbar
++	mla	r1, r2, r3, r1
+ 	ldcopr	r0, VBAR
+ 	str	r0, [r1]
+ 
+ 	# Save current MVBAR in mvbar1
+ 	ldr	r1, =saved_mvbar
++	mla	r1, r2, r3, r1
+ 	ldcopr	r0, MVBAR
+ 	str	r0, [r1]
+ 
+@@ -59,24 +69,34 @@ func stm32_pwr_down_wfi_wrapper
+ 	stcopr	r1, MVBAR
+ 
+ 	# Set sp to BL2 STACK (as BL2 is not using it anymore)
+-	ldr	sp, =__STACKS_END__
++	ldr	r1, =__STACKS_END__
++	mov	r3, #STM32_HALF_STACK_SIZE
++	mls	sp, r2, r3, r1
+ 
+-	mov	r0, r2
+-	mov	r1, r3
++	mov	r0, r4
++	mov	r1, r5
+ 
+ 	bl	stm32_pwr_down_wfi_load
+ 
++	# Load CPU_ID in r2 and WORD_SIZE in r3
++	bl	plat_my_core_pos
++	mov	r2, r0
++	mov	r3, #4
++
+ 	# Restore stack
+ 	ldr	r1, =saved_sp
++	mla	r1, r2, r3, r1
+ 	ldr	sp, [r1]
+ 
+ 	# Restore VBAR
+ 	ldr	r1, =saved_vbar
++	mla	r1, r2, r3, r1
+ 	ldr	r0, [r1]
+ 	stcopr	r0, VBAR
+ 
+ 	# Restore MVBAR
+ 	ldr	r1, =saved_mvbar
++	mla	r1, r2, r3, r1
+ 	ldr	r0, [r1]
+ 	stcopr	r0, MVBAR
+ 
+@@ -85,7 +105,7 @@ func stm32_pwr_down_wfi_wrapper
+ 	dsb
+ 	isb
+ 
+-	pop	{r4,r5,r6,pc}
++	pop	{r4,r5,pc}
+ endfunc stm32_pwr_down_wfi_wrapper
+ 
+ #if STM32MP13
+-- 
+2.53.0
+

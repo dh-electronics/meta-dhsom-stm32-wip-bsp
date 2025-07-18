@@ -1,0 +1,34 @@
+From ecf5f6cebb00af53b20b9ac1b626bef2e67be06e Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Thu, 17 Feb 2022 10:56:24 +0100
+Subject: [PATCH 054/954] fix(stm32mp1): do not modify CPU voltage after
+ standby
+
+Do not modify CPU and vddcore voltage after standby because
+this break the case when suspend with opp max.
+OPTEE considers that the voltage is unchanged in suspend.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 185cbb0e0ff9ad002ffef9f2e647d99014f04c8d fix(stm32mp1): do not modify CPU voltage after standby]
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Change-Id: Iebe72602b5d49c74c46fabfc51e77143b617bfa6
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index d1e56ad85a..6cc9d68327 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -351,7 +351,8 @@ skip_console_init:
+ 
+ 	if (dt_pmic_status() > 0) {
+ 		initialize_pmic();
+-		if (pmic_voltages_init() != 0) {
++		if (!stm32mp1_is_wakeup_from_standby() &&
++		    pmic_voltages_init() != 0) {
+ 			ERROR("PMIC voltages init failed\n");
+ 			panic();
+ 		}
+-- 
+2.53.0
+

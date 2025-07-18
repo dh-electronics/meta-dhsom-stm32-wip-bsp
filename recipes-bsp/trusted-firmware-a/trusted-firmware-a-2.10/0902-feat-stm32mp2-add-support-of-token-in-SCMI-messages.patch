@@ -1,0 +1,60 @@
+From 7635f1e937b668cc6d87067d5b739f3a9f4cfad6 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 16 Jul 2025 18:35:19 +0200
+Subject: [PATCH 902/954] feat(stm32mp2): add support of token in SCMI messages
+
+Use an increasing token in SCMI message to detect protocol issues:
+the SCMI server must preserved this token and the added check allows to
+verify integrity of answer in mailbox.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 07ab9bc3a13c9746a6cc2d4f984064432b21d1e0 feat(stm32mp2): add support of token in SCMI messages]
+Change-Id: If87071f08d084e4175372766083a89a3032ed4db
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/475538
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/services/scmi_common.c | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/services/scmi_common.c b/plat/st/stm32mp2/services/scmi_common.c
+index 06e47a3b1b..69b2bd5356 100644
+--- a/plat/st/stm32mp2/services/scmi_common.c
++++ b/plat/st/stm32mp2/services/scmi_common.c
+@@ -81,6 +81,8 @@ struct scmi_shmem_layout {
+ 
+ static struct scmi_shmem_layout *shmem = (struct scmi_shmem_layout *)STM32MP_SCMI_SEC_SHMEM_BASE;
+ 
++unsigned int scmi_msg_token;
++
+ /**
+  * @brief Ring the SCMI doorbell to notify the remote processor.
+  *
+@@ -157,7 +159,7 @@ static int32_t scmi_channel_prepare(uint32_t protocol_id, uint32_t msg_id, uint3
+ 	shmem->message_header =
+ 		(((protocol_id) << SCMI_HEADER_PROTOCOL_SHIFT)  & SCMI_HEADER_PROTOCOL_MASK) |
+ 		(((msg_id) << SCMI_HEADER_MSG_ID_SHIFT) & SCMI_HEADER_MSG_ID_MASK) |
+-		(((0U) << SCMI_HEADER_TOKEN_SHIFT) & SCMI_HEADER_TOKEN_MASK);
++		(((++scmi_msg_token) << SCMI_HEADER_TOKEN_SHIFT) & SCMI_HEADER_TOKEN_MASK);
+ 
+ 	return SCMI_SUCCESS;
+ }
+@@ -170,6 +172,15 @@ static int32_t scmi_rsp_check(uint32_t size)
+ {
+ 	scmi_channel_clear();
+ 
++	if ((scmi_msg_token & (SCMI_HEADER_TOKEN_MASK >> SCMI_HEADER_TOKEN_SHIFT)) !=
++	     SCMI_MSG_GET_TOKEN(shmem->message_header)) {
++		INFO("SCMI 0x%x msg %u: token %x, expected %x\n",
++		     SCMI_MSG_GET_PROTOCOL(shmem->message_header),
++		     SCMI_MSG_GET_MSG_ID(shmem->message_header),
++		     SCMI_MSG_GET_TOKEN(shmem->message_header),
++		     scmi_msg_token);
++		return SCMI_COMMS_ERROR;
++	}
+ 	if (shmem->length == 2 * sizeof(uint32_t)) {
+ 		/* Return the first paylod value = status. For example, NOT SUPPORTED */
+ 		return (int32_t)shmem->payload[0];
+-- 
+2.53.0
+

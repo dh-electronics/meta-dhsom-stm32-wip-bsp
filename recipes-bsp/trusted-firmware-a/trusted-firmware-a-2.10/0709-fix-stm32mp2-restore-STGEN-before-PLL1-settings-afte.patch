@@ -1,0 +1,43 @@
+From 212677a1e735796a2eb006f7198d3346baf0a069 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Sat, 23 Nov 2024 10:42:51 +0100
+Subject: [PATCH 709/954] fix(stm32mp2): restore STGEN before PLL1 settings
+ after STOP2 modes
+
+Restore STGEN configuration before restoring PLL1 settings.
+Stm32mp2_pll1_enable API is using timeout based on STGEN.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3c930d85e0dde6094d21e129fbf8ab13a69cea62 fix(stm32mp2): restore STGEN before PLL1 settings after STOP2 modes]
+Change-Id: I32d45d57cd7e5bd791cde1f76497dd8554b149e5
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/420507
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/423127
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Tested-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 1ea01e1c53..3b5ee026fe 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -747,10 +747,10 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 	case PWRSTATE_LP_STOP2:
+ 	case PWRSTATE_LPLV_STOP2:
+ 		VERBOSE("STOP2 exit\n");
+-		/* restore PLL1 configuration for CA35 */
+-		stm32mp2_pll1_enable();
+ 		/* Restore STGEN and generic timer with current clock */
+ 		stm32mp_stgen_config(clk_get_rate(CK_KER_STGEN));
++		/* restore PLL1 configuration for CA35 */
++		stm32mp2_pll1_enable();
+ 
+ 		/* Exit DDR self refresh mode after STOP mode */
+ 		ddr_sr_exit();
+-- 
+2.53.0
+

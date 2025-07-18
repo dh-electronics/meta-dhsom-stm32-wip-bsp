@@ -1,0 +1,57 @@
+From a11cee8b5ecc131b8696c776c7a38cd0d6815ddb Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 25 Jul 2025 10:00:33 +0200
+Subject: [PATCH 889/954] feat(stm32mp2): configure RIFSC to manage CRYP1 in
+ the M33TDCID use case.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The RIFSC driver must manage the acquisition and release of the CRYP1
+semaphore. This functionality is applicable only to the M33TD variant.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5bdbf2a8bd16ea874742021e8b0b5680015b40a0 feat(stm32mp2): configure RIFSC to manage CRYP1 in the M33TDCID use case.]
+Change-Id: I52209f84e88d000c42b1586796fad4ddffbc08d3
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/477783
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index c0e4f3e3d8..58797ac960 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -514,6 +514,14 @@ void bl2_el3_plat_arch_setup(void)
+ 	if (boot_context->boot_interface_selected == BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_EMMC) {
+ 		boot_context->boot_interface_instance = 2U;
+ 	}
++
++	if (stm32_rifsc_check_peripheral_access() != 0) {
++		panic();
++	}
++
++	if (stm32_rifsc_semaphore_init() != 0) {
++		panic();
++	}
+ #endif
+ 
+ 	if (stm32_save_boot_info(boot_context) != 0) {
+@@ -843,6 +851,12 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 
+ void bl2_el3_plat_prepare_exit(void)
+ {
++#if STM32MP_M33_TDCID
++	if (stm32_rifsc_semaphore_exit() != 0) {
++		panic();
++	}
++#endif
++
+ 	flush_dcache_range(BSS_START, BSS_END - BSS_START);
+ 	flush_dcache_range(DATA_START, DATA_END - DATA_START);
+ 
+-- 
+2.53.0
+

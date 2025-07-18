@@ -1,0 +1,101 @@
+From 745c20fad6daba6b427b4c3b857775c429f17822 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Wed, 10 Sep 2025 11:33:19 +0200
+Subject: [PATCH 892/954] feat(stm32mp2): add stm32mp rse comm specific
+ function
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add key sharing function that can be used by STM32MP2X chip with RSE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 49392c84fd9645c6fffd0cea440c15af0cdfa6e5 feat(stm32mp2): add stm32mp rse comm specific function]
+Change-Id: I46164ce0c0aff8cefa2b9191fab49edb0d4874d2
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/488540
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/include/stm32_rse_comms.h | 19 +++++++++++++++
+ plat/st/stm32mp2/platform.mk               |  3 ++-
+ plat/st/stm32mp2/stm32_rse_comms.c         | 27 ++++++++++++++++++++++
+ 3 files changed, 48 insertions(+), 1 deletion(-)
+ create mode 100644 plat/st/stm32mp2/include/stm32_rse_comms.h
+ create mode 100644 plat/st/stm32mp2/stm32_rse_comms.c
+
+diff --git a/plat/st/stm32mp2/include/stm32_rse_comms.h b/plat/st/stm32mp2/include/stm32_rse_comms.h
+new file mode 100644
+index 0000000000..0148822414
+--- /dev/null
++++ b/plat/st/stm32mp2/include/stm32_rse_comms.h
+@@ -0,0 +1,19 @@
++/*
++ * Copyright (c) 2025, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef STM32_RSE_COMMS_H
++#define STM32_RSE_COMMS_H
++
++#include <lib/psa/rse_platform_api.h>
++
++/* STM32 RSE IOCTL Specific service */
++#define STM32_IOCTL_KEYSHARE_START	2
++#define STM32_IOCTL_KEYSHARE_STOP	3
++
++psa_status_t rse_platform_stm32_share_key_start(uint32_t key_id);
++psa_status_t rse_platform_stm32_share_key_stop(uint32_t key_id);
++
++#endif
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 90f69f96dc..2d94bc3077 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -397,7 +397,8 @@ BL2_SOURCES			+=	drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_d_loadimem.c				\
+ 					drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c
+ else
+ # rse drivers
+-BL2_SOURCES			+=	drivers/st/rse_shm/rse_comms_shm.c
++BL2_SOURCES			+=	drivers/st/rse_shm/rse_comms_shm.c				\
++					plat/st/stm32mp2/stm32_rse_comms.c
+ PLAT_MHU			:=	NO_MHU
+ include drivers/arm/rse/rse_comms.mk
+ BL2_SOURCES			+=	${RSE_COMMS_SOURCES}
+diff --git a/plat/st/stm32mp2/stm32_rse_comms.c b/plat/st/stm32mp2/stm32_rse_comms.c
+new file mode 100644
+index 0000000000..047edca70f
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32_rse_comms.c
+@@ -0,0 +1,27 @@
++/*
++ * Copyright (c) 2025, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <stm32_rse_comms.h>
++
++psa_status_t rse_platform_stm32_share_key_start(uint32_t key_id)
++{
++	struct psa_invec in_vec[1];
++
++	in_vec[0].base = &key_id;
++	in_vec[0].len = sizeof(key_id);
++
++	return rse_platform_ioctl(STM32_IOCTL_KEYSHARE_START, in_vec, NULL);
++}
++
++psa_status_t rse_platform_stm32_share_key_stop(uint32_t key_id)
++{
++	struct psa_invec in_vec[1];
++
++	in_vec[0].base = &key_id;
++	in_vec[0].len = sizeof(key_id);
++
++	return rse_platform_ioctl(STM32_IOCTL_KEYSHARE_STOP, in_vec, NULL);
++}
+-- 
+2.53.0
+

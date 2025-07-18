@@ -1,0 +1,70 @@
+From 428021b969320bca3db34fc76c653fb9c8b2fc7e Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 6 Oct 2023 18:33:35 +0200
+Subject: [PATCH 413/954] feat(psci): add PLAT_MIN_SUSPEND_PWR_LVL
+
+Add PLAT_MIN_SUSPEND_PWR_LVL to support a power level state inferior
+to PLAT_MAX_PWR_LVL in the PSCI system suspend request.
+
+PLAT_MIN_SUSPEND_PWR_LVL = PLAT_MAX_PWR_LVL when it is absent.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9ef0254d314832e3febbe3de54c7fb2cf9363105 feat(psci): add PLAT_MIN_SUSPEND_PWR_LVL]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ic788974539e0233e2d7cbfd4da75f56d8ac66760
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/333615
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ lib/psci/psci_main.c | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/lib/psci/psci_main.c b/lib/psci/psci_main.c
+index 0c0892f7a6..5540f34e05 100644
+--- a/lib/psci/psci_main.c
++++ b/lib/psci/psci_main.c
+@@ -181,6 +181,12 @@ int psci_system_suspend(uintptr_t entrypoint, u_register_t context_id)
+ 	int rc;
+ 	psci_power_state_t state_info;
+ 	entry_point_info_t ep;
++	unsigned int pwrlvl;
++#ifdef PLAT_MIN_SUSPEND_PWR_LVL
++	unsigned int min_pwrlvl = PLAT_MIN_SUSPEND_PWR_LVL;
++#else
++	unsigned int min_pwrlvl = PLAT_MAX_PWR_LVL;
++#endif
+ 
+ 	/* Check if the current CPU is the last ON CPU in the system */
+ 	if (!psci_is_last_on_cpu())
+@@ -198,22 +204,24 @@ int psci_system_suspend(uintptr_t entrypoint, u_register_t context_id)
+ 	 * Check if platform allows suspend to Highest power level
+ 	 * (System level)
+ 	 */
+-	if (psci_find_target_suspend_lvl(&state_info) < PLAT_MAX_PWR_LVL)
++	pwrlvl = psci_find_target_suspend_lvl(&state_info);
++	if (pwrlvl < min_pwrlvl)
+ 		return PSCI_E_DENIED;
+ 
+ 	/* Ensure that the psci_power_state makes sense */
+ 	assert(psci_validate_suspend_req(&state_info, PSTATE_TYPE_POWERDOWN)
+ 						== PSCI_E_SUCCESS);
++#ifndef PLAT_MIN_SUSPEND_PWR_LVL
+ 	assert(is_local_state_off(
+ 			state_info.pwr_domain_state[PLAT_MAX_PWR_LVL]) != 0);
+-
++#endif
+ 	/*
+ 	 * Do what is needed to enter the system suspend state. This function
+ 	 * might return if the power down was abandoned for any reason, e.g.
+ 	 * arrival of an interrupt
+ 	 */
+ 	rc = psci_cpu_suspend_start(&ep,
+-				    PLAT_MAX_PWR_LVL,
++				    pwrlvl,
+ 				    &state_info,
+ 				    PSTATE_TYPE_POWERDOWN);
+ 
+-- 
+2.53.0
+

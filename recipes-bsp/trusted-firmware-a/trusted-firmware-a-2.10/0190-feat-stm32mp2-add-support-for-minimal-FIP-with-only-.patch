@@ -1,0 +1,121 @@
+From dcab17fc3c02e28cff0a9faa35c807545268eb36 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 12 May 2022 19:01:19 +0200
+Subject: [PATCH 190/954] feat(stm32mp2): add support for minimal FIP with only
+ DDR FW
+
+Load a minimal FIP used for DDR initialization for serial boot
+when STM32MP_DDR_FIP_IO_STORAGE is activated.
+
+This FIP is loaded in internal memory SRAM2 and used with
+support of memmap features.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1d1c600923c37cc986b66d7b42f4c965cce1210b feat(stm32mp2): add support for minimal FIP with only DDR FW]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ie413233de0e4d785b2d669087da34110df557ad3
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/255408
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/bl2_io_storage.c              | 26 ++++++++++++++++++--
+ plat/st/common/include/stm32cubeprogrammer.h |  1 +
+ plat/st/common/stm32cubeprogrammer_usb.c     |  1 +
+ plat/st/stm32mp2/include/platform_def.h      |  4 +++
+ 4 files changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index c1147269ce..9ca33cb7d2 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -400,10 +400,12 @@ static void stm32cubeprogrammer_uart(uint8_t phase, uintptr_t base, size_t len)
+ static void stm32cubeprogrammer_usb(uint8_t phase, uintptr_t base, size_t len)
+ {
+ 	int ret __maybe_unused;
+-	struct usb_handle *pdev;
++	static struct usb_handle *pdev;
+ 
+ 	/* Init USB on platform */
+-	pdev = usb_dfu_plat_init();
++	if (pdev == NULL) {
++		pdev = usb_dfu_plat_init();
++	}
+ 
+ 	ret = stm32cubeprog_usb_load(pdev, phase, base, len);
+ 	assert(ret == 0);
+@@ -583,6 +585,16 @@ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+ 
+ #if STM32MP_UART_PROGRAMMER
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART:
++#if STM32MP_DDR_FIP_IO_STORAGE
++		if (image_id == DDR_FW_ID) {
++			stm32cubeprogrammer_uart(PHASE_DDR_FW,
++						 DWL_DDR_BUFFER_BASE,
++						 DWL_DDR_BUFFER_SIZE);
++			/* FIP loaded at DWL address */
++			image_block_spec.offset = DWL_DDR_BUFFER_BASE;
++			image_block_spec.length = DWL_DDR_BUFFER_SIZE;
++		}
++#endif
+ 		if (image_id == FW_CONFIG_ID) {
+ 			stm32cubeprogrammer_uart(PHASE_SSBL,
+ 						 DWL_BUFFER_BASE,
+@@ -595,6 +607,16 @@ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+ #endif
+ #if STM32MP_USB_PROGRAMMER
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_USB:
++#if STM32MP_DDR_FIP_IO_STORAGE
++		if (image_id == DDR_FW_ID) {
++			stm32cubeprogrammer_usb(PHASE_DDR_FW,
++						DWL_DDR_BUFFER_BASE,
++						DWL_DDR_BUFFER_SIZE);
++			/* FIP loaded at DWL address */
++			image_block_spec.offset = DWL_DDR_BUFFER_BASE;
++			image_block_spec.length = DWL_DDR_BUFFER_SIZE;
++		}
++#endif
+ 		if (image_id == FW_CONFIG_ID) {
+ 			stm32cubeprogrammer_usb(PHASE_SSBL,
+ 						DWL_BUFFER_BASE,
+diff --git a/plat/st/common/include/stm32cubeprogrammer.h b/plat/st/common/include/stm32cubeprogrammer.h
+index df6773b922..1bd24953ac 100644
+--- a/plat/st/common/include/stm32cubeprogrammer.h
++++ b/plat/st/common/include/stm32cubeprogrammer.h
+@@ -13,6 +13,7 @@
+ 
+ /* Phase definition */
+ #define PHASE_FLASHLAYOUT	0U
++#define PHASE_DDR_FW		2U
+ #define PHASE_SSBL		3U
+ #define PHASE_CMD		0xF1U
+ #define PHASE_RESET		0xFFU
+diff --git a/plat/st/common/stm32cubeprogrammer_usb.c b/plat/st/common/stm32cubeprogrammer_usb.c
+index 177827cd5b..c6e83b3e1b 100644
+--- a/plat/st/common/stm32cubeprogrammer_usb.c
++++ b/plat/st/common/stm32cubeprogrammer_usb.c
+@@ -137,6 +137,7 @@ static int dfu_callback_manifestation(uint8_t alt, void *user_data)
+ 	     dfu->phase, alt, dfu->address);
+ 
+ 	switch (dfu->phase) {
++	case PHASE_DDR_FW:
+ 	case PHASE_SSBL:
+ 		if (!is_valid_header((fip_toc_header_t *)dfu->base)) {
+ 			DFU_ERROR("FIP Header check failed for phase %d\n", alt);
+diff --git a/plat/st/stm32mp2/include/platform_def.h b/plat/st/stm32mp2/include/platform_def.h
+index 20c5366f1b..bebf178288 100644
+--- a/plat/st/stm32mp2/include/platform_def.h
++++ b/plat/st/stm32mp2/include/platform_def.h
+@@ -88,6 +88,10 @@
+ 
+ /* Needed by STM32CubeProgrammer support */
+ #define DWL_BUFFER_SIZE			U(0x01000000)
++#if STM32MP_DDR_FIP_IO_STORAGE
++#define DWL_DDR_BUFFER_BASE		SRAM2_BASE
++#define DWL_DDR_BUFFER_SIZE		SRAM2_SIZE
++#endif
+ 
+ /*
+  * SSBL offset in case it's stored in eMMC boot partition.
+-- 
+2.53.0
+

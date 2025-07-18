@@ -1,0 +1,91 @@
+From 9db2fdeec8df2a63d633775d194dc2cb944a6716 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 12 Apr 2022 14:19:54 +0200
+Subject: [PATCH 204/954] refactor(st-bsec): add otp_bit_mask
+
+Add a helper function otp_bit_mask() to get bit mask from OTP number.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git aaf6a7cd96bef0ce5f536fb634d099d4ac9e2480 refactor(st-bsec): add otp_bit_mask]
+Change-Id: I80d30d54696c7ce82d038686680de6b05382c94a
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/250945
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec2.c | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index ef7ce39384..193747d0bc 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -188,6 +188,11 @@ static uint32_t otp_bank_offset(uint32_t otp)
+ 	       sizeof(uint32_t);
+ }
+ 
++static uint32_t otp_bit_mask(uint32_t otp)
++{
++	return BIT(otp & BSEC_OTP_MASK);
++}
++
+ /*
+  * bsec_check_error: check BSEC error status.
+  * otp: OTP number.
+@@ -197,7 +202,7 @@ static uint32_t otp_bank_offset(uint32_t otp)
+  */
+ static uint32_t bsec_check_error(uint32_t otp, bool check_disturbed)
+ {
+-	uint32_t bit = BIT(otp & BSEC_OTP_MASK);
++	uint32_t bit = otp_bit_mask(otp);
+ 	uint32_t bank = otp_bank_offset(otp);
+ 
+ 	if ((mmio_read_32(BSEC_BASE + BSEC_ERROR_OFF + bank) & bit) != 0U) {
+@@ -567,7 +572,7 @@ static uint32_t bsec_get_id(void)
+ uint32_t bsec_set_sr_lock(uint32_t otp)
+ {
+ 	uint32_t bank = otp_bank_offset(otp);
+-	uint32_t otp_mask = BIT(otp & BSEC_OTP_MASK);
++	uint32_t otp_mask = otp_bit_mask(otp);
+ 
+ 	if (is_otp_invalid_mode()) {
+ 		return BSEC_ERROR;
+@@ -593,7 +598,7 @@ uint32_t bsec_set_sr_lock(uint32_t otp)
+ uint32_t bsec_read_sr_lock(uint32_t otp, bool *value)
+ {
+ 	uint32_t bank = otp_bank_offset(otp);
+-	uint32_t otp_mask = BIT(otp & BSEC_OTP_MASK);
++	uint32_t otp_mask = otp_bit_mask(otp);
+ 	uint32_t bank_value;
+ 
+ 	if (otp > STM32MP1_OTP_MAX_ID) {
+@@ -615,7 +620,7 @@ uint32_t bsec_read_sr_lock(uint32_t otp, bool *value)
+ uint32_t bsec_set_sw_lock(uint32_t otp)
+ {
+ 	uint32_t bank = otp_bank_offset(otp);
+-	uint32_t otp_mask = BIT(otp & BSEC_OTP_MASK);
++	uint32_t otp_mask = otp_bit_mask(otp);
+ 
+ 	if (is_otp_invalid_mode()) {
+ 		return BSEC_ERROR;
+@@ -663,7 +668,7 @@ uint32_t bsec_read_sw_lock(uint32_t otp, bool *value)
+ uint32_t bsec_set_sp_lock(uint32_t otp)
+ {
+ 	uint32_t bank = otp_bank_offset(otp);
+-	uint32_t otp_mask = BIT(otp & BSEC_OTP_MASK);
++	uint32_t otp_mask = otp_bit_mask(otp);
+ 
+ 	if (is_otp_invalid_mode()) {
+ 		return BSEC_ERROR;
+@@ -712,7 +717,7 @@ uint32_t bsec_read_sp_lock(uint32_t otp, bool *value)
+ static uint32_t bsec_read_permanent_lock(uint32_t otp, bool *value)
+ {
+ 	uint32_t bank = otp_bank_offset(otp);
+-	uint32_t otp_mask = BIT(otp & BSEC_OTP_MASK);
++	uint32_t otp_mask = otp_bit_mask(otp);
+ 	uint32_t bank_value;
+ 
+ 	if (otp > STM32MP1_OTP_MAX_ID) {
+-- 
+2.53.0
+
