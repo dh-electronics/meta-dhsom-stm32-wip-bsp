@@ -1,0 +1,55 @@
+From 4d181c4842b2817820a28d1e3a5eaa2e8742f04c Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 24 Feb 2023 13:57:34 +0100
+Subject: [PATCH 0165/1695] clk: stm32mp13: fix stm32mp13_clk_probe:3498 Failed
+ to parse clock node:-1
+
+In the node 'st,clk_opp' the 'st,pll' is an optional property.
+For e.g. to switch ck_mpu or ck_axi or ck_mklahb clocks to 64Mhz,
+you need only to change the mux on HSI clock.
+The CLK_OPS_PARENT_ENABLE and CLK_SET_RATE_PARENT flags are also missed
+for ck_axi and ck_mlahb clocks.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6bd8b09064d44536bc5bb9ead8a4aa8ff248340a clk: stm32mp13: fix stm32mp13_clk_probe:3498 Failed to parse clock node:-1]
+Change-Id: I67990f72f8d15b35e889ffc6e417bdb25e13234f
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp13.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 1891ca714..1ac1b6fe0 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -1628,8 +1628,9 @@ static int stm32_clk_parse_fdt_opp(const void *fdt, int node,
+ 						       "st,clkdiv",
+ 						       UINT32_MAX);
+ 
++		/* PLL is also optional */
+ 		ret = clk_stm32_parse_pll_fdt(fdt, subnode, &opp_cfg->pll_cfg);
+-		if (ret)
++		if (ret && (ret != -FDT_ERR_NOTFOUND))
+ 			return ret;
+ 
+ 		opp_cfg++;
+@@ -2090,7 +2091,7 @@ static struct clk ck_axi = {
+ 		.div_id	= DIV_AXI,
+ 	},
+ 	.name		= "ck_axi",
+-	.flags		= 0,
++	.flags		= CLK_OPS_PARENT_ENABLE | CLK_SET_RATE_PARENT,
+ 	.num_parents	= 3,
+ 	.parents	= { &ck_hsi, &ck_hse, &ck_pll2p },
+ };
+@@ -2102,7 +2103,7 @@ static struct clk ck_mlahb = {
+ 		.div_id	= DIV_MLAHB,
+ 	},
+ 	.name		= "ck_mlahb",
+-	.flags		= 0,
++	.flags		= CLK_OPS_PARENT_ENABLE | CLK_SET_RATE_PARENT,
+ 	.num_parents	= 4,
+ 	.parents	= { &ck_hsi, &ck_hse, &ck_csi, &ck_pll3p },
+ };
+-- 
+2.47.2
+

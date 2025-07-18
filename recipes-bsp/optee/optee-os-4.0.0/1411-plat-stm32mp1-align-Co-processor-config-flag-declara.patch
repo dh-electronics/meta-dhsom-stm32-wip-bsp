@@ -1,0 +1,49 @@
+From 6872465e088d8a563d58ebc4e2e8c436f4398b64 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Fri, 6 Dec 2024 11:15:34 +0100
+Subject: [PATCH 1411/1695] plat-stm32mp1: align Co-processor config flag
+ declaration
+
+Align the declaration on the stm32mp2 platform.
+- if CFG_REMOTEPROC_ENC_TESTKEY is enable force CFG_INSECURE
+- CFG_REMOTEPROC_PUB_KEY_VERIFY is forced to disable as not yet
+implemented on stm32mp1 platform.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a7fe853102b6bd66cb4ab75137e16fc7931fc9bb plat-stm32mp1: align Co-processor config flag declaration]
+Change-Id: Id45a0b324e42c9326ae7d699c7e6663f5d1ab1c0
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/423336
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 81c437540..8704bf786 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -251,7 +251,16 @@ ifeq ($(CFG_REMOTEPROC_PTA),y)
+ CFG_IN_TREE_EARLY_TAS += remoteproc/80a4c275-0a47-4905-8285-1486a9771a08
+ # Embed public part of this key in OP-TEE OS
+ RPROC_SIGN_KEY ?= keys/default.pem
++
++# Co-processor encryption using test key is dedicated to insecure development
++# configuration only.
+ CFG_REMOTEPROC_ENC_TESTKEY ?= n
++ifeq ($(CFG_REMOTEPROC_ENC_TESTKEY),y)
++$(call force,CFG_INSECURE,y,Required by CFG_REMOTEPROC_ENC_TESTKEY)
++endif
++
++# Co-processor public key verification against OTP fuses.
++$(call force,CFG_REMOTEPROC_PUB_KEY_VERIFY,n)
+ endif
+ 
+ ifneq ($(CFG_WITH_LPAE),y)
+-- 
+2.47.2
+

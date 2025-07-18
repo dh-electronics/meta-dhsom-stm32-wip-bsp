@@ -1,0 +1,50 @@
+From 43253a470d73ba4e19d7f992d06c67b2ec9b8962 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Fri, 1 Mar 2024 13:54:45 +0100
+Subject: [PATCH 0791/1695] drivers: stm32_remoteproc: simplify
+ stm32_rproc_map_mem function
+
+No need to call core_mmu_add_mapping before calling core_mmu_get_va.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a2f03a2d34d159e00940045a8af3f799df610b98 drivers: stm32_remoteproc: simplify stm32_rproc_map_mem function]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/364120
+Change-Id: I606fecd25d7542f7c88c777f542f56c4eabe5637
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/375027
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Gwenael TREUVEUR <gwenael.treuveur@st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 12 +++---------
+ 1 file changed, 3 insertions(+), 9 deletions(-)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index 26279f83b..efb234edf 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -234,17 +234,11 @@ TEE_Result stm32_rproc_da_to_pa(uint32_t rproc_id, paddr_t da, size_t size,
+ static TEE_Result stm32_rproc_map_mem(paddr_t pa, size_t size, void **va,
+ 				      enum teecore_memtypes type)
+ {
+-	/*
+-	 * TODO: get memory RIF access right to determine the type.
+-	 */
+-	if (!core_mmu_add_mapping(type, pa, size)) {
+-		EMSG("Can't map region %#"PRIxPA" size %zu",
+-		     pa, size);
++	*va = core_mmu_add_mapping(type, pa, size);
++	if (!*va) {
++		EMSG("Can't map region %#"PRIxPA" size %zu", pa, size);
+ 		return TEE_ERROR_GENERIC;
+ 	}
+-	*va = (void *)core_mmu_get_va(pa, type, size);
+-	if (!*va)
+-		return TEE_ERROR_ACCESS_DENIED;
+ 
+ 	return TEE_SUCCESS;
+ }
+-- 
+2.47.2
+

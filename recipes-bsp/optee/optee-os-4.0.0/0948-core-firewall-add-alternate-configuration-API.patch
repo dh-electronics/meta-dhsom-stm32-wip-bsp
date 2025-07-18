@@ -1,0 +1,270 @@
+From db8f08b00fadf3e7c581de7fccafabf7c1ca1f4c Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 21 Jun 2024 20:07:43 +0200
+Subject: [PATCH 0948/1695] core: firewall: add alternate configuration API
+
+Add firewall_dt_get_alternate_conf()/firewall_set_alternate_conf()
+firewall device API to get alternate firewall configurations from the
+device tree and set it. An alternate configuration can be composed of
+one or more firewall query(ies).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a4b849fe471fed96f8debb5ff7eb443d9473ba5f core: firewall: add alternate configuration API]
+Change-Id: If531d3a2b246dfeffc7ea4150fbfe7eff3d50e51
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/389859
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/firewall/firewall.c       | 97 ++++++++++++++++++++++++++
+ core/include/drivers/firewall_device.h | 64 +++++++++++++++++
+ 2 files changed, 161 insertions(+)
+
+diff --git a/core/drivers/firewall/firewall.c b/core/drivers/firewall/firewall.c
+index 6c9ebfa62..3f0c03e97 100644
+--- a/core/drivers/firewall/firewall.c
++++ b/core/drivers/firewall/firewall.c
+@@ -10,6 +10,7 @@
+ #include <kernel/panic.h>
+ #include <libfdt.h>
+ #include <malloc.h>
++#include <stdio.h>
+ #include <trace.h>
+ 
+ /* The firewall framework requires device tree support */
+@@ -56,6 +57,18 @@ void firewall_put(struct firewall_query *fw)
+ 	}
+ }
+ 
++void firewall_alternate_conf_put(struct firewall_alt_conf *conf)
++{
++	if (conf) {
++		size_t i = 0;
++
++		for (i = 0; i < conf->nb_queries; i++)
++			firewall_put(conf->queries[i]);
++		free(conf->queries);
++		free(conf);
++	}
++}
++
+ TEE_Result firewall_dt_get_by_index(const void *fdt, int node, uint32_t index,
+ 				    struct firewall_query **out_fw)
+ {
+@@ -80,6 +93,74 @@ TEE_Result firewall_dt_get_by_name(const void *fdt, int node, const char *name,
+ 	return firewall_dt_get_by_index(fdt, node, index, out_fw);
+ }
+ 
++TEE_Result firewall_dt_get_alternate_conf(const void *fdt, int node,
++					  const char *conf_name,
++					  struct firewall_alt_conf **out_conf)
++{
++	struct firewall_alt_conf *conf = NULL;
++	TEE_Result res = TEE_ERROR_GENERIC;
++	char *prop_name = NULL;
++	size_t nb_element = 0;
++	int max_len = 0;
++	size_t i = 0;
++
++	assert(conf_name && out_conf);
++
++	max_len = strlen(conf_name) + strlen("access-controllers-conf-") + 1;
++	prop_name = calloc(1, max_len);
++	if (!prop_name)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	snprintf(prop_name, max_len, "access-controllers-conf-%s", conf_name);
++	res = dt_driver_count_devices(prop_name, fdt, node, DT_DRIVER_FIREWALL,
++				      &nb_element);
++	if (res) {
++		if (res != TEE_ERROR_DEFER_DRIVER_INIT)
++			EMSG("Could not count devices for %s conf in node %s",
++			     prop_name, fdt_get_name(fdt, node, NULL));
++		goto out;
++	}
++
++	if (!nb_element) {
++		EMSG("No firewall alternate configuration: %s in node %s",
++		     prop_name, fdt_get_name(fdt, node, NULL));
++		res = TEE_ERROR_BAD_PARAMETERS;
++		goto out;
++	}
++
++	conf = calloc(1, sizeof(*conf));
++	if (!conf) {
++		res = TEE_ERROR_OUT_OF_MEMORY;
++		goto out;
++	}
++
++	conf->nb_queries = nb_element;
++	conf->queries = calloc(nb_element, sizeof(*conf->queries));
++	if (!conf->queries) {
++		free(conf);
++		res = TEE_ERROR_OUT_OF_MEMORY;
++		goto out;
++	}
++
++	for (i = 0; i < nb_element; i++) {
++		res = dt_driver_device_from_node_idx_prop(prop_name, fdt, node,
++							  i, DT_DRIVER_FIREWALL,
++							  conf->queries + i);
++		if (res) {
++			firewall_alternate_conf_put(conf);
++			goto out;
++		}
++	}
++
++	*out_conf = conf;
++	res = TEE_SUCCESS;
++
++out:
++	free(prop_name);
++
++	return res;
++}
++
+ TEE_Result firewall_set_configuration(struct firewall_query *fw)
+ {
+ 	assert(fw && fw->ctrl && fw->ctrl->ops);
+@@ -90,6 +171,22 @@ TEE_Result firewall_set_configuration(struct firewall_query *fw)
+ 	return fw->ctrl->ops->set_conf(fw);
+ }
+ 
++TEE_Result firewall_set_alternate_conf(struct firewall_alt_conf *conf)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	size_t i = 0;
++
++	assert(conf);
++
++	for (i = 0; i < conf->nb_queries; i++) {
++		res = firewall_set_configuration(conf->queries[i]);
++		if (res)
++			return res;
++	}
++
++	return TEE_SUCCESS;
++}
++
+ TEE_Result firewall_check_access(struct firewall_query *fw)
+ {
+ 	assert(fw && fw->ctrl && fw->ctrl->ops);
+diff --git a/core/include/drivers/firewall_device.h b/core/include/drivers/firewall_device.h
+index 8ff4cfd24..13a05ca99 100644
+--- a/core/include/drivers/firewall_device.h
++++ b/core/include/drivers/firewall_device.h
+@@ -14,6 +14,18 @@
+ /* Opaque reference to firewall_controller */
+ struct firewall_controller;
+ 
++/**
++ * struct firewall_alt_conf - Alternate firewall configuration for a device.
++ *
++ * @queries: Pointer referencing the firewall queries composing the alternate
++ * configuration
++ * @nb_queries: Number of firewall queries
++ */
++struct firewall_alt_conf {
++	struct firewall_query **queries;
++	size_t nb_queries;
++};
++
+ /**
+  * struct firewall_query - Information on a device's firewall.
+  *
+@@ -63,6 +75,24 @@ TEE_Result firewall_dt_get_by_index(const void *fdt, int node,
+ TEE_Result firewall_dt_get_by_name(const void *fdt, int node, const char *name,
+ 				   struct firewall_query **out_fw);
+ 
++/**
++ * firewall_dt_get_alternate_conf() - Get the alternate firewall configuration
++ * associated to a given name for a device node. Alternate configurations
++ * are identified by "access-controllers-conf-[conf_name]". It is composed
++ * of one or more firewall queries.
++ *
++ * @fdt: FDT to work on
++ * @node: Device node to read from
++ * @conf_name: Name of the target firewall alternate configuration
++ * @conf: Pointer to the alternate configuration
++ *
++ * Returns TEE_SUCCESS on success, TEE_ERROR_ITEM_NOT_FOUND if the property is
++ * not found or appropriate TEE_Result error code if an error occurred.
++ */
++TEE_Result firewall_dt_get_alternate_conf(const void *fdt, int node,
++					  const char *conf_name,
++					  struct firewall_alt_conf **conf);
++
+ /**
+  * firewall_set_configuration() - Reconfigure the firewall controller associated
+  * to the given firewall configuration with it.
+@@ -71,6 +101,13 @@ TEE_Result firewall_dt_get_by_name(const void *fdt, int node, const char *name,
+  */
+ TEE_Result firewall_set_configuration(struct firewall_query *fw);
+ 
++/**
++ * firewall_set_alternate_conf() - Set an alternate firewall configuration.
++ *
++ * @conf: Pointer to the alternate configuration to set
++ */
++TEE_Result firewall_set_alternate_conf(struct firewall_alt_conf *conf);
++
+ /**
+  * firewall_check_access() - Check if the access is authorized for a consumer
+  * and the given firewall configuration according to the settings of its
+@@ -151,6 +188,14 @@ void firewall_release_memory_access(struct firewall_query *fw, paddr_t paddr,
+  */
+ void firewall_put(struct firewall_query *fw);
+ 
++/**
++ * firewall_alternate_conf_put() - Release a firewall_alt_conf structure
++ * allocated by firewall_dt_get_alternate_conf()
++ *
++ * @conf: Firewall alternate configuration to put
++ */
++void firewall_alternate_conf_put(struct firewall_alt_conf *conf);
++
+ #else /* CFG_DRIVERS_FIREWALL */
+ 
+ static inline TEE_Result
+@@ -169,6 +214,14 @@ firewall_dt_get_by_name(const void *fdt __unused, int node __unused,
+ 	return TEE_ERROR_NOT_IMPLEMENTED;
+ }
+ 
++static inline TEE_Result
++firewall_dt_get_alternate_conf(const void *fdt __unused, int node __unused,
++			       const char *conf_name __unused,
++			       struct firewall_alt_conf **conf __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
+ static inline TEE_Result
+ firewall_check_access(struct firewall_query *fw __unused)
+ {
+@@ -215,9 +268,20 @@ firewall_set_configuration(struct firewall_query *fw __unused)
+ 	return TEE_ERROR_NOT_IMPLEMENTED;
+ }
+ 
++static inline TEE_Result
++firewall_set_alternate_conf(struct firewall_alt_conf *conf __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
+ static inline void firewall_put(struct firewall_query *fw __unused)
+ {
+ }
+ 
++static inline void
++firewall_alternate_conf_put(struct firewall_alt_conf *conf __unused)
++{
++}
++
+ #endif /* CFG_DRIVERS_FIREWALL */
+ #endif /* __DRIVERS_FIREWALL_DEVICE_H */
+-- 
+2.47.2
+

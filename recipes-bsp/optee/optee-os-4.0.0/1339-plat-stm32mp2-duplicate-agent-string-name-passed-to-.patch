@@ -1,0 +1,131 @@
+From f604c2040312353e6a1fa059178a077b807c3b87 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 26 Sep 2024 18:18:23 +0200
+Subject: [PATCH 1339/1695] plat-stm32mp2: duplicate agent string name passed
+ to SCP-firmware
+
+Duplicate agent string name passed to SCP-firmware to support secure DT
+outside OP-TEE core binary (case where secure DT is not reachable at
+runtime).
+
+Pass a pointer to scmi_scpfw_free_agent(), not a full structure
+and check no agent #0 configuration is specified.
+
+Fix agent name reference in error trace message.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git dd8016ccd571bd0d9fd9ea2b0c22aa9df7a1dc86 plat-stm32mp2: duplicate agent string name passed to SCP-firmware]
+Change-Id: I55b406931d9d539547c770a682f44e59ab53f424
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/407338
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     | 25 +++++++++++--------
+ 1 file changed, 15 insertions(+), 10 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index 43c67a1ab..2a91ed7b8 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -87,14 +87,14 @@ struct optee_scmi_server_protocol {
+ /* scmi_agent_configuration API */
+ static struct scpfw_config scpfw_cfg;
+ 
+-static void scmi_scpfw_free_agent(struct scpfw_agent_config agent_cfg)
++static void scmi_scpfw_free_agent(struct scpfw_agent_config *agent_cfg)
+ {
+ 	unsigned int j = 0;
+ 	unsigned int k = 0;
+ 
+-	for (j = 0; j < agent_cfg.channel_count; j++) {
++	for (j = 0; j < agent_cfg->channel_count; j++) {
+ 		struct scpfw_channel_config *channel_cfg =
+-			agent_cfg.channel_config + j;
++			agent_cfg->channel_config + j;
+ 
+ 		for (k = 0; k < channel_cfg->perfd_count; k++) {
+ 			struct scmi_perfd *perfd = channel_cfg->perfd + k;
+@@ -109,7 +109,7 @@ static void scmi_scpfw_free_agent(struct scpfw_agent_config agent_cfg)
+ 		free(channel_cfg->reset);
+ 		free(channel_cfg->clock);
+ 	}
+-	free(agent_cfg.channel_config);
++	free(agent_cfg->channel_config);
+ }
+ 
+ struct scpfw_config *scmi_scpfw_get_configuration(void)
+@@ -117,6 +117,7 @@ struct scpfw_config *scmi_scpfw_get_configuration(void)
+ 	struct scpfw_agent_config *old_agent_config = scpfw_cfg.agent_config;
+ 
+ 	assert(scpfw_cfg.agent_count >= 1);
++	assert(!old_agent_config[0].channel_count);
+ 
+ 	/*
+ 	 * Do not expose agent_config[0] as it is empty
+@@ -129,7 +130,6 @@ struct scpfw_config *scmi_scpfw_get_configuration(void)
+ 	memcpy(scpfw_cfg.agent_config, old_agent_config + 1,
+ 	       sizeof(*scpfw_cfg.agent_config) * scpfw_cfg.agent_count);
+ 
+-	scmi_scpfw_free_agent(old_agent_config[0]);
+ 	free(old_agent_config);
+ 
+ 	return &scpfw_cfg;
+@@ -140,7 +140,7 @@ void scmi_scpfw_release_configuration(void)
+ 	unsigned int i = 0;
+ 
+ 	for (i = 0; i < scpfw_cfg.agent_count; i++)
+-		scmi_scpfw_free_agent(scpfw_cfg.agent_config[i]);
++		scmi_scpfw_free_agent(scpfw_cfg.agent_config + i);
+ 
+ 	free(scpfw_cfg.agent_config);
+ }
+@@ -229,11 +229,11 @@ static TEE_Result optee_scmi_server_probe_agent(const void *fdt, int agent_node,
+ 					    &agent_ctx->mbox_chan);
+ 		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
+ 			EMSG("%s Mailbox request an impossible probe defer",
+-			     protocol_ctx->dt_name);
++			     agent_ctx->dt_name);
+ 			panic();
+ 		} else if (res) {
+ 			EMSG("%s Failed to register mailbox channel",
+-			     protocol_ctx->dt_name);
++			     agent_ctx->dt_name);
+ 			panic();
+ 		}
+ 	} else if (!fdt_node_check_compatible(fdt, agent_node,
+@@ -359,7 +359,10 @@ static TEE_Result optee_scmi_server_probe(const void *fdt, int parent_node,
+ 		struct scpfw_agent_config *agent_cfg =
+ 			scpfw_cfg.agent_config + agent_ctx->agent_id;
+ 
+-		agent_cfg->name = agent_ctx->dt_name;
++		agent_cfg->name = (const char *)strdup(agent_ctx->dt_name);
++		if (!agent_cfg->name)
++			goto fail_scpfw_cfg;
++
+ 		agent_cfg->agent_id = agent_ctx->agent_id;
+ 
+ 		if (agent_ctx->mbox_chan) {
+@@ -450,7 +453,6 @@ static TEE_Result optee_scmi_server_probe(const void *fdt, int parent_node,
+ 				break;
+ 			}
+ 		}
+-		i++;
+ 	}
+ 
+ 	return TEE_SUCCESS;
+@@ -458,6 +460,9 @@ static TEE_Result optee_scmi_server_probe(const void *fdt, int parent_node,
+ fail_scpfw_cfg:
+ 	scmi_scpfw_release_configuration();
+ 
++	for (i = 0; i < scpfw_cfg.agent_count; i++)
++		free((void *)scpfw_cfg.agent_config[i].name);
++
+ fail_agent:
+ 	while (!SIMPLEQ_EMPTY(&ctx->agent_list)) {
+ 		agent_ctx = SIMPLEQ_FIRST(&ctx->agent_list);
+-- 
+2.47.2
+

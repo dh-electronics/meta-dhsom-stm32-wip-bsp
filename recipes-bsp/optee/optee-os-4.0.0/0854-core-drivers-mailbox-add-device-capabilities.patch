@@ -1,0 +1,153 @@
+From 16e5c930e4d683055c903e2274597a0517d9789b Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Wed, 15 May 2024 10:44:12 +0200
+Subject: [PATCH 0854/1695] core: drivers: mailbox: add device capabilities
+
+Add mailbox capabilities enumeration callback to support mailbox
+devices with limited async notification.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 295cc1c248b10608d1b7e69b3a0a801567804574 core: drivers: mailbox: add device capabilities]
+Change-Id: I260d6b1bb81da16fedabde66cb71cd692996e98e
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/379902
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+---
+ core/drivers/mailbox/mailbox.c | 29 ++++++++++++++++++++++++-----
+ core/include/drivers/mailbox.h | 21 +++++++++++++++++++++
+ 2 files changed, 45 insertions(+), 5 deletions(-)
+
+diff --git a/core/drivers/mailbox/mailbox.c b/core/drivers/mailbox/mailbox.c
+index b84bdddf0..ad4d5e020 100644
+--- a/core/drivers/mailbox/mailbox.c
++++ b/core/drivers/mailbox/mailbox.c
+@@ -66,6 +66,7 @@ struct mbox_chan {
+  *
+  * @phandle: Device's handle
+  * @num_chan: Number of @hdl array element
++ * $caps: Device capabilities
+  * @desc: Mailbox descriptor
+  * @link: Link to next mbox_dev
+  * @hdl: Array for channel consumer handle
+@@ -73,6 +74,7 @@ struct mbox_chan {
+ struct mbox_dev {
+ 	int phandle;
+ 	size_t num_chan;
++	uint32_t caps;
+ 	const struct mbox_desc *desc;
+ 	SLIST_ENTRY(mbox_dev) link;
+ 	/* Flexible array size must be last */
+@@ -183,6 +185,11 @@ static TEE_Result mbox_register_internal(const int phandle,
+ 	mdev->num_chan = num_chan;
+ 	for (i = 0; i < num_chan; i++)
+ 		mdev->hdl[i].lock = SPINLOCK_UNLOCK;
++	/* Retrieve device capabilities, if device api is available*/
++	if (desc->ops->capabilities)
++		mdev->caps = desc->ops->capabilities(desc);
++	else
++		mdev->caps = MBOX_RX_NOTIF_CAP | MBOX_TX_NOTIF_CAP;
+ 
+ 	/* Register incoming message mailbox Framework call bacK */
+ 	res = desc->ops->register_callback(desc, mbox_rx_callback,
+@@ -225,6 +232,12 @@ static TEE_Result mbox_register_chan_internal(mbox_callback_t rcv_cb,
+ 	if (chan_id >= mbx_dev->num_chan)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	/*  Check Capability Support */
++	if ((!(mbx_dev->caps & MBOX_RX_NOTIF_CAP) && rcv_cb) ||
++	    (!(mbx_dev->caps & MBOX_TX_NOTIF_CAP) && txc_cb)
++	   )
++		return TEE_ERROR_NOT_SUPPORTED;
++
+ 	/* Protect against potential asynchronous event */
+ 	exceptions = cpu_spin_lock_xsave(&mbx_dev->hdl[chan_id].lock);
+ 	if (mbx_dev->hdl[chan_id].used) {
+@@ -254,7 +267,7 @@ static TEE_Result mbox_register_chan_internal(mbox_callback_t rcv_cb,
+ 	hdl->cookie = cookie;
+ 	hdl->mbox_dev = mbx_dev;
+ 	hdl->id = chan_id;
+-	if (!rcv_cb) {
++	if (!rcv_cb && (mbx_dev->caps & MBOX_RX_NOTIF_CAP)) {
+ 		res = notif_alloc_async_value(&hdl->notify_id[MBOX_EVENT_RX]);
+ 		if (res) {
+ 			cpu_spin_unlock_xrestore(&mbx_dev->hdl[chan_id].lock,
+@@ -262,7 +275,7 @@ static TEE_Result mbox_register_chan_internal(mbox_callback_t rcv_cb,
+ 			return res;
+ 		}
+ 	}
+-	if (!txc_cb) {
++	if (!txc_cb && (mbx_dev->caps & MBOX_TX_NOTIF_CAP)) {
+ 		res = notif_alloc_async_value(&hdl->notify_id[MBOX_EVENT_TX]);
+ 		if (res) {
+ 			cpu_spin_unlock_xrestore(&mbx_dev->hdl[chan_id].lock,
+@@ -421,12 +434,15 @@ TEE_Result mbox_send(const struct mbox_chan *handle, bool wait,
+ 	uint32_t except = 0;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+-	/* Check parameter */
+-	if (ops->max_data_size(hdl->mbox_dev->desc) < size)
+-		return TEE_ERROR_EXCESS_DATA;
++	if (wait && !(hdl->mbox_dev->caps & MBOX_TX_NOTIF_CAP))
++		return TEE_ERROR_NOT_SUPPORTED;
++
+ 	if (wait && hdl->cb[MBOX_EVENT_TX])
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	if (ops->max_data_size(hdl->mbox_dev->desc) < size)
++		return TEE_ERROR_EXCESS_DATA;
++
+ 	except = cpu_spin_lock_xsave(&hdl->lock);
+ 	if (hdl->notify[MBOX_EVENT_TX]) {
+ 		cpu_spin_unlock_xrestore(&hdl->lock, except);
+@@ -458,6 +474,9 @@ TEE_Result mbox_recv(const struct mbox_chan *handle, bool wait,
+ 	void *copy_data = NULL;
+ 	vaddr_t s = 0;
+ 
++	if (wait && !(hdl->mbox_dev->caps & MBOX_RX_NOTIF_CAP))
++		return TEE_ERROR_NOT_SUPPORTED;
++
+ 	if (wait && hdl->cb[MBOX_EVENT_RX])
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+diff --git a/core/include/drivers/mailbox.h b/core/include/drivers/mailbox.h
+index 26a899505..9d8625c6e 100644
+--- a/core/include/drivers/mailbox.h
++++ b/core/include/drivers/mailbox.h
+@@ -199,6 +199,17 @@ TEE_Result mbox_recv(const struct mbox_chan *handle, bool wait,
+  * Driver Interface
+  */
+ 
++/**
++ * Capability flag definition
++ */
++enum mbox_capability {
++	MBOX_RX_NOTIF = 0,
++	MBOX_TX_NOTIF
++};
++
++#define MBOX_RX_NOTIF_CAP  BIT(MBOX_RX_NOTIF)
++#define MBOX_TX_NOTIF_CAP  BIT(MBOX_TX_NOTIF)
++
+ /**
+  * struct mbox_dev - Opaque mailbox framework device .
+  */
+@@ -311,6 +322,16 @@ struct mbox_ops {
+ 	 * @retval: Return TEE_SUCCESS on success or error return code.
+ 	 */
+ 	TEE_Result (*complete)(const struct mbox_desc *desc, unsigned int id);
++
++	/**
++	 * @brief Callback API to get device capabality.
++	 *
++	 * @desc: Pointer to mailbox descriptor.
++	 *
++	 * @retval: Channel capabilities flags
++	 */
++	uint32_t (*capabilities)(const struct mbox_desc *desc);
++
+ };
+ 
+ /**
+-- 
+2.47.2
+

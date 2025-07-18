@@ -1,0 +1,147 @@
+From b8cd39b7776fcb02adce4025801b3dd5b79d1879 Mon Sep 17 00:00:00 2001
+From: Olivier Moysan <olivier.moysan@foss.st.com>
+Date: Wed, 10 Apr 2024 14:37:44 +0200
+Subject: [PATCH 0739/1695] drivers: stm32_adc: add pm support to adc driver
+
+Add PM support to the ADC driver through suspend/resume callbacks
+in ADC core and child.
+- Core callbacks: manage clocks and regulators power
+- Child callbacks: manage ADC power
+
+The hw_start/stop functions associated to these callbacks will also
+allow to manage PM runtime, when it will be supported in OP-TEE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c76459fe7d05a50493c2dabcb870cca55bc170c6 drivers: stm32_adc: add pm support to adc driver]
+Signed-off-by: Olivier Moysan <olivier.moysan@foss.st.com>
+Change-Id: Id133409365d4edf2f16ae116483e44f96c9a51d5
+---
+ core/drivers/adc/stm32_adc.c      | 41 +++++++++++++++++++++++++++++++
+ core/drivers/adc/stm32_adc_core.c | 32 ++++++++++++++++++++++++
+ 2 files changed, 73 insertions(+)
+
+diff --git a/core/drivers/adc/stm32_adc.c b/core/drivers/adc/stm32_adc.c
+index 3320058a4..6d5123fd7 100644
+--- a/core/drivers/adc/stm32_adc.c
++++ b/core/drivers/adc/stm32_adc.c
+@@ -10,6 +10,7 @@
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+ #include <kernel/dt_driver.h>
++#include <kernel/pm.h>
+ #include <libfdt.h>
+ #include <trace.h>
+ 
+@@ -561,6 +562,45 @@ static TEE_Result stm32_adc_fdt_chan_init(struct adc_device *adc_dev,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result stm32_adc_pm_resume(struct adc_device *adc_dev)
++{
++	return stm32_adc_hw_start(adc_dev);
++}
++
++static TEE_Result stm32_adc_pm_suspend(struct adc_device *adc_dev)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	/*
++	 * If there are on-going conversions, return an error.
++	 * Else the ADC can be stopped safely.
++	 * No need to protect status check against race conditions here,
++	 * as we are no more in a multi-threading context.
++	 */
++	if (adc_dev->state)
++		return TEE_ERROR_BUSY;
++
++	res = stm32_adc_hw_stop(adc_dev);
++
++	return res;
++}
++
++static TEE_Result
++stm32_adc_pm(enum pm_op op, unsigned int pm_hint __unused,
++	     const struct pm_callback_handle *pm_handle)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct adc_device *dev =
++		(struct adc_device *)PM_CALLBACK_GET_HANDLE(pm_handle);
++
++	if (op == PM_OP_RESUME)
++		res = stm32_adc_pm_resume(dev);
++	else
++		res = stm32_adc_pm_suspend(dev);
++
++	return res;
++}
++
+ static TEE_Result
+ stm32_adc_register_cons(struct dt_pargs *pargs __unused, void *data,
+ 			struct adc_consumer **adc_cons)
+@@ -668,6 +708,7 @@ static TEE_Result stm32_adc_probe(const void *fdt, int node,
+ 		goto err_start;
+ 	}
+ 
++	register_pm_core_service_cb(stm32_adc_pm, adc_dev, "stm32-adc");
+ 	DMSG("adc %s probed", fdt_get_name(fdt, node, NULL));
+ 
+ 	return TEE_SUCCESS;
+diff --git a/core/drivers/adc/stm32_adc_core.c b/core/drivers/adc/stm32_adc_core.c
+index a85288758..22edd0d10 100644
+--- a/core/drivers/adc/stm32_adc_core.c
++++ b/core/drivers/adc/stm32_adc_core.c
+@@ -9,6 +9,7 @@
+ #include <drivers/stm32_adc_core.h>
+ #include <io.h>
+ #include <kernel/dt.h>
++#include <kernel/pm.h>
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ 
+@@ -229,6 +230,34 @@ stm32_adc_core_get_common_data(struct dt_pargs *pargs __unused, void *data,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result
++stm32_adc_core_pm_resume(struct stm32_adc_core_device *adc_dev)
++{
++	return stm32_adc_core_hw_start(adc_dev);
++}
++
++static TEE_Result
++stm32_adc_core_pm_suspend(struct stm32_adc_core_device *adc_dev)
++{
++	return stm32_adc_core_hw_stop(adc_dev);
++}
++
++static TEE_Result
++stm32_adc_core_pm(enum pm_op op, unsigned int pm_hint __unused,
++		  const struct pm_callback_handle *pm_handle)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct stm32_adc_core_device *dev =
++	(struct stm32_adc_core_device *)PM_CALLBACK_GET_HANDLE(pm_handle);
++
++	if (op == PM_OP_RESUME)
++		res = stm32_adc_core_pm_resume(dev);
++	else
++		res = stm32_adc_core_pm_suspend(dev);
++
++	return res;
++}
++
+ static TEE_Result stm32_adc_core_probe(const void *fdt, int node,
+ 				       const void *compat_data __unused)
+ {
+@@ -291,6 +320,9 @@ static TEE_Result stm32_adc_core_probe(const void *fdt, int node,
+ 		goto err_stop;
+ 	}
+ 
++	register_pm_core_service_cb(stm32_adc_core_pm, adc_dev,
++				    "stm32-adc-core");
++
+ 	res = dt_driver_register_provider(fdt, node,
+ 					  (get_of_device_func)
+ 					  stm32_adc_core_get_common_data,
+-- 
+2.47.2
+

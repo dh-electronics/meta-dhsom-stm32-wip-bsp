@@ -1,0 +1,164 @@
+From 24dacb661787c240a132bfadc1e22faf6f12963f Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Thu, 21 Dec 2023 09:58:38 +0100
+Subject: [PATCH 0553/1695] drivers: stm32_remoteproc: support of the non
+ secure loading on stm32mp2
+
+Depending on the compatible:
+- give the A35SSC_M33 registers access rights to the non secure context.
+  Indeed in such configuration, non-secure context should be able to set
+  the boot addresses and to configure the Cortex-M33 trust zone.
+- bypass the reset of the remote processor
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 9ee7debf073b8a1fa93f69be53c3cc721c3f91c0 drivers: stm32_remoteproc: support of the non secure loading on stm32mp2]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I6924ed929176565793c9284854d69dd84c362aaa
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/348407
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 63 ++++++++++++++++++----
+ 1 file changed, 52 insertions(+), 11 deletions(-)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index c5468bfad..0e69585c4 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -65,10 +65,13 @@ struct stm32_rproc_instance {
+  *
+  * @rproc_id:	Unique Id of the processor
+  * @start:	remote processor start routine
++ * @ns_loading:	specify if the firmware is loaded by the OP-TEE or by the
++ *		non secure context
+  */
+ struct stm32_rproc_compat_data {
+ 	uint32_t rproc_id;
+ 	TEE_Result (*start)(struct stm32_rproc_instance *rproc);
++	bool ns_loading;
+ };
+ 
+ static SLIST_HEAD(, stm32_rproc_instance) rproc_list =
+@@ -375,6 +378,13 @@ static TEE_Result stm32_rproc_parse_mems(struct stm32_rproc_instance *rproc,
+ 	int n_regions = 0;
+ 	int i = 0;
+ 
++	/*
++	 * In case of firmware loading by the non secure context no need to
++	 * register memory regions, so we ignore them.
++	 */
++	if (rproc->cdata->ns_loading)
++		return TEE_SUCCESS;
++
+ 	list = fdt_getprop(fdt, node, "memory-region", &len);
+ 	if (!list) {
+ 		EMSG("No memory regions found in DT");
+@@ -450,6 +460,10 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ {
+ 	struct stm32_rproc_instance *rproc = NULL;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
++#ifdef CFG_STM32MP25
++	uint32_t m33_cr_right = A35SSC_M33_TZEN_CR_M33CFG_SEC |
++				A35SSC_M33_TZEN_CR_M33CFG_PRIV;
++#endif /* CFG_STM32MP25 */
+ 
+ 	rproc = calloc(1, sizeof(*rproc));
+ 	if (!rproc)
+@@ -457,9 +471,11 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 
+ 	rproc->cdata = comp_data;
+ 
+-	res = stm32_rproc_parse_mems(rproc, fdt, node);
+-	if (res)
+-		goto err;
++	if (!rproc->cdata->ns_loading) {
++		res = stm32_rproc_parse_mems(rproc, fdt, node);
++		if (res)
++			goto err;
++	}
+ 
+ 	res = rstctrl_dt_get_by_name(fdt, node, "mcu_rst", &rproc->mcu_rst);
+ 	if (res)
+@@ -470,11 +486,23 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 		goto err;
+ 
+ 	/* Ensure that the remote processor is in expected stop state */
+-	if (rproc->mcu_rst) {
+-		res = rproc_stop(rproc);
+-		if (res)
+-			goto err;
++	res = rproc_stop(rproc);
++	if (res)
++		goto err;
++
++#ifdef CFG_STM32MP25
++	if (rproc->cdata->ns_loading) {
++		/*
++		 * The remote firmware will be loaded by the non secure
++		 * Provide access rights to A35SSC_M33 registers
++		 * to the non secure context
++		 */
++		m33_cr_right = A35SSC_M33_TZEN_CR_M33CFG_PRIV;
+ 	}
++	stm32mp_syscfg_write(A35SSC_M33CFG_ACCESS_CR, m33_cr_right,
++			     A35SSC_M33_TZEN_CR_M33CFG_SEC |
++			     A35SSC_M33_TZEN_CR_M33CFG_PRIV);
++#endif /* CFG_STM32MP25 */
+ 
+ 	/*
+ 	 * The memory management should be enhance with firewall
+@@ -484,7 +512,8 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ 	 */
+ 	IMSG("Warning: the remoteproc memories are not protected by firewall");
+ 
+-	SLIST_INSERT_HEAD(&rproc_list, rproc, link);
++	if (!rproc->cdata->ns_loading)
++		SLIST_INSERT_HEAD(&rproc_list, rproc, link);
+ 
+ 	return TEE_SUCCESS;
+ 
+@@ -493,24 +522,36 @@ err:
+ 	return res;
+ }
+ 
+-static const struct stm32_rproc_compat_data stm32_rproc_m4_compat = {
++static const struct stm32_rproc_compat_data stm32_rproc_m4_tee_compat = {
+ 	.rproc_id = STM32MP1_M4_RPROC_ID,
++	.ns_loading = false,
+ };
+ 
+ static const struct stm32_rproc_compat_data stm32_rproc_m33_compat = {
+ 	.rproc_id = STM32MP2_M33_RPROC_ID,
+ 	.start = stm32mp2_rproc_start,
++	.ns_loading = true,
++};
++
++static const struct stm32_rproc_compat_data stm32_rproc_m33_tee_compat = {
++	.rproc_id = STM32MP2_M33_RPROC_ID,
++	.start = stm32mp2_rproc_start,
++	.ns_loading = false,
+ };
+ 
+ static const struct dt_device_match stm32_rproc_match_table[] = {
+ 	{
+ 		.compatible = "st,stm32mp1-m4-tee",
+-		.compat_data = &stm32_rproc_m4_compat,
++		.compat_data = &stm32_rproc_m4_tee_compat,
+ 	},
+ 	{
+-		.compatible = "st,stm32mp2-m33-tee",
++		.compatible = "st,stm32mp2-m33",
+ 		.compat_data = &stm32_rproc_m33_compat,
+ 	},
++	{
++		.compatible = "st,stm32mp2-m33-tee",
++		.compat_data = &stm32_rproc_m33_tee_compat,
++	},
+ 	{ }
+ };
+ 
+-- 
+2.47.2
+

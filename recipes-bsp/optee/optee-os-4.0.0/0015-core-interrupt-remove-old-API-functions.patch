@@ -1,0 +1,149 @@
+From edc5c363f5b73082017ca691bdd9e3cca2eea668 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 1 Jun 2023 19:24:46 +0200
+Subject: [PATCH 0015/1695] core: interrupt: remove old API functions
+
+Remove old itr_xxx() API functions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 504f6415a09da45d235694214fb7a2ba3a248892 core: interrupt: remove old API functions]
+Change-Id: I5f28964d098683981fe7940fb004f6c25a1de285
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from bb053cc1afab01d5b2bce7e1ef23a602aacfdd7c]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/include/kernel/interrupt.h | 34 -----------------
+ core/kernel/interrupt.c         | 66 ---------------------------------
+ 2 files changed, 100 deletions(-)
+
+diff --git a/core/include/kernel/interrupt.h b/core/include/kernel/interrupt.h
+index c5b66a9b8..e1942b90a 100644
+--- a/core/include/kernel/interrupt.h
++++ b/core/include/kernel/interrupt.h
+@@ -158,27 +158,6 @@ static inline int dt_get_irq(const void *fdt, int node)
+ }
+ #endif
+ 
+-struct itr_handler *itr_alloc_add_type_prio(size_t it, itr_handler_t handler,
+-					    uint32_t flags, void *data,
+-					    uint32_t type, uint32_t prio);
+-void itr_free(struct itr_handler *hdl);
+-void itr_add_type_prio(struct itr_handler *handler, uint32_t type,
+-		       uint32_t prio);
+-void itr_enable(size_t it);
+-void itr_disable(size_t it);
+-/* raise the Peripheral Interrupt corresponding to the interrupt ID */
+-void itr_raise_pi(size_t it);
+-/*
+- * raise the Software Generated Interrupt corresponding to the interrupt ID,
+- * the cpu_mask represents which cpu interface to forward.
+- */
+-void itr_raise_sgi(size_t it, uint8_t cpu_mask);
+-/*
+- * let corresponding interrupt forward to the cpu interface
+- * according to the cpu_mask.
+- */
+-void itr_set_affinity(size_t it, uint8_t cpu_mask);
+-
+ /*
+  * __weak overridable function which is called when a secure interrupt is
+  * received. The default function calls panic() immediately, platforms which
+@@ -186,19 +165,6 @@ void itr_set_affinity(size_t it, uint8_t cpu_mask);
+  */
+ void interrupt_main_handler(void);
+ 
+-static inline void itr_add(struct itr_handler *handler)
+-{
+-	itr_add_type_prio(handler, IRQ_TYPE_NONE, 0);
+-}
+-
+-static inline struct itr_handler *itr_alloc_add(size_t it,
+-						itr_handler_t handler,
+-						uint32_t flags, void *data)
+-{
+-	return itr_alloc_add_type_prio(it, handler, flags, data, IRQ_TYPE_NONE,
+-				       0);
+-}
+-
+ /*
+  * Interrupt controller chip API functions
+  */
+diff --git a/core/kernel/interrupt.c b/core/kernel/interrupt.c
+index 9fbc9b2b0..a49bbf2d1 100644
+--- a/core/kernel/interrupt.c
++++ b/core/kernel/interrupt.c
+@@ -65,72 +65,6 @@ int dt_get_irq_type_prio(const void *fdt, int node, uint32_t *type,
+ }
+ #endif
+ 
+-struct itr_handler *itr_alloc_add_type_prio(size_t it, itr_handler_t handler,
+-					    uint32_t flags, void *data,
+-					    uint32_t type, uint32_t prio)
+-{
+-	struct itr_handler *hdl = calloc(1, sizeof(*hdl));
+-
+-	if (hdl) {
+-		hdl->it = it;
+-		hdl->handler = handler;
+-		hdl->flags = flags;
+-		hdl->data = data;
+-		itr_add_type_prio(hdl, type, prio);
+-	}
+-
+-	return hdl;
+-}
+-
+-void itr_free(struct itr_handler *hdl)
+-{
+-	if (!hdl)
+-		return;
+-
+-	itr_main_chip->ops->disable(itr_main_chip, hdl->it);
+-
+-	SLIST_REMOVE(&itr_main_chip->handlers, hdl, itr_handler, link);
+-	free(hdl);
+-}
+-
+-void itr_add_type_prio(struct itr_handler *h, uint32_t type, uint32_t prio)
+-{
+-	struct itr_handler __maybe_unused *hdl = NULL;
+-
+-	SLIST_FOREACH(hdl, &itr_main_chip->handlers, link)
+-		if (hdl->it == h->it)
+-			assert((hdl->flags & ITRF_SHARED) &&
+-			       (h->flags & ITRF_SHARED));
+-
+-	itr_main_chip->ops->add(itr_main_chip, h->it, type, prio);
+-	SLIST_INSERT_HEAD(&itr_main_chip->handlers, h, link);
+-}
+-
+-void itr_enable(size_t it)
+-{
+-	itr_main_chip->ops->enable(itr_main_chip, it);
+-}
+-
+-void itr_disable(size_t it)
+-{
+-	itr_main_chip->ops->disable(itr_main_chip, it);
+-}
+-
+-void itr_raise_pi(size_t it)
+-{
+-	itr_main_chip->ops->raise_pi(itr_main_chip, it);
+-}
+-
+-void itr_raise_sgi(size_t it, uint8_t cpu_mask)
+-{
+-	itr_main_chip->ops->raise_sgi(itr_main_chip, it, cpu_mask);
+-}
+-
+-void itr_set_affinity(size_t it, uint8_t cpu_mask)
+-{
+-	itr_main_chip->ops->set_affinity(itr_main_chip, it, cpu_mask);
+-}
+-
+ /* This function is supposed to be overridden in platform specific code */
+ void __weak __noreturn interrupt_main_handler(void)
+ {
+-- 
+2.47.2
+

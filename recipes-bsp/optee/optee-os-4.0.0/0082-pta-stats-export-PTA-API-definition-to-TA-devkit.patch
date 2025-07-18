@@ -1,0 +1,132 @@
+From 92e66323ff779bc6ecfc8d2312424269b5f0ea6f Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 22 Nov 2023 13:44:35 +0100
+Subject: [PATCH 0082/1695] pta: stats: export PTA API definition to TA devkit
+
+Move statistics PTA API definitions and description to a header
+file that is exported to the TA devkit. This change makes the
+description that PTA API more consistent regarding other PTAs.
+
+Explicitly include tee_api_types.h from stats.c source file.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bea659b388b43e3ed83946046a77ef27d9143e8f pta: stats: export PTA API definition to TA devkit]
+Change-Id: Ic85ba12c6f273450059ee9dd9c4153c8bc0b1d7e
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 761fc6ecd5b28631b75677621c30f5b85b89feaf]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/pta/stats.c                | 38 ++--------------------------
+ lib/libutee/include/pta_stats.h | 45 +++++++++++++++++++++++++++++++++
+ 2 files changed, 47 insertions(+), 36 deletions(-)
+ create mode 100644 lib/libutee/include/pta_stats.h
+
+diff --git a/core/pta/stats.c b/core/pta/stats.c
+index e0e8b9083..551dd6c79 100644
+--- a/core/pta/stats.c
++++ b/core/pta/stats.c
+@@ -8,49 +8,15 @@
+ #include <malloc.h>
+ #include <mm/tee_mm.h>
+ #include <mm/tee_pager.h>
++#include <pta_stats.h>
+ #include <stdio.h>
+ #include <string.h>
+ #include <string_ext.h>
++#include <tee_api_types.h>
+ #include <trace.h>
+ 
+ #define TA_NAME		"stats.ta"
+ 
+-#define STATS_UUID \
+-		{ 0xd96a5b40, 0xe2c7, 0xb1af, \
+-			{ 0x87, 0x94, 0x10, 0x02, 0xa5, 0xd5, 0xc6, 0x1b } }
+-
+-#define STATS_CMD_PAGER_STATS		0
+-#define STATS_CMD_ALLOC_STATS		1
+-#define STATS_CMD_MEMLEAK_STATS		2
+-/*
+- * UTEE_ENTRY_FUNC_DUMP_MEMSTATS
+- * [out]    memref[0]        Array of context information of loaded TAs
+- *
+- * Each cell of the TA information array contains:
+- * TEE_UUID    TA UUID
+- * uint32_t    Non zero if TA panicked, 0 otherwise
+- * uint32_t    Number of sessions opened by the TA
+- * uint32_t    Byte size currently allocated in TA heap
+- * uint32_t    Max bytes allocated since last stats reset
+- * uint32_t    TA heap pool byte size
+- * uint32_t    Number of failed allocation requests
+- * uint32_t    Biggest byte size which allocation failed
+- * uint32_t    Biggest byte size which allocation succeeded
+- */
+-#define STATS_CMD_TA_STATS		3
+-
+-/*
+- * STATS_CMD_GET_TIME - Get both REE time and TEE time
+- *
+- * [out]    value[0].a        REE time as seen by OP-TEE in seconds
+- * [out]    value[0].b        REE time as seen by OP-TEE, milliseconds part
+- * [out]    value[1].a        TEE system time in seconds
+- * [out]    value[1].b        TEE system time, milliseconds part
+- */
+-#define STATS_CMD_GET_TIME		4
+-
+-#define STATS_NB_POOLS			4
+-
+ static TEE_Result get_alloc_stats(uint32_t type, TEE_Param p[TEE_NUM_PARAMS])
+ {
+ 	struct pta_stats_alloc *stats = NULL;
+diff --git a/lib/libutee/include/pta_stats.h b/lib/libutee/include/pta_stats.h
+new file mode 100644
+index 000000000..16c1619cf
+--- /dev/null
++++ b/lib/libutee/include/pta_stats.h
+@@ -0,0 +1,45 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (C) 2023, STMicroelectronics
++ * Copyright (C) 2022, Microchip
++ */
++#ifndef __PTA_STATS_H
++#define __PTA_STATS_H
++
++#define STATS_UUID \
++		{ 0xd96a5b40, 0xe2c7, 0xb1af, \
++			{ 0x87, 0x94, 0x10, 0x02, 0xa5, 0xd5, 0xc6, 0x1b } }
++
++#define STATS_CMD_PAGER_STATS		0
++#define STATS_CMD_ALLOC_STATS		1
++#define STATS_CMD_MEMLEAK_STATS		2
++/*
++ * UTEE_ENTRY_FUNC_DUMP_MEMSTATS
++ * [out]    memref[0]        Array of context information of loaded TAs
++ *
++ * Each cell of the TA information array contains:
++ * TEE_UUID    TA UUID
++ * uint32_t    Non zero if TA panicked, 0 otherwise
++ * uint32_t    Number of sessions opened by the TA
++ * uint32_t    Byte size currently allocated in TA heap
++ * uint32_t    Max bytes allocated since last stats reset
++ * uint32_t    TA heap pool byte size
++ * uint32_t    Number of failed allocation requests
++ * uint32_t    Biggest byte size which allocation failed
++ * uint32_t    Biggest byte size which allocation succeeded
++ */
++#define STATS_CMD_TA_STATS		3
++
++/*
++ * STATS_CMD_GET_TIME - Get both REE time and TEE time
++ *
++ * [out]    value[0].a        REE time as seen by OP-TEE in seconds
++ * [out]    value[0].b        REE time as seen by OP-TEE, milliseconds part
++ * [out]    value[1].a        TEE system time in seconds
++ * [out]    value[1].b        TEE system time, milliseconds part
++ */
++#define STATS_CMD_GET_TIME		4
++
++#define STATS_NB_POOLS			4
++
++#endif /*__PTA_STATS_H*/
+-- 
+2.47.2
+

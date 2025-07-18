@@ -1,0 +1,52 @@
+From d53b3db4d3a2f92a302dae17c6ab129c35e0946c Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 29 Jun 2023 08:08:25 +0200
+Subject: [PATCH 0478/1695] clk: stm32mp25: restore plls (4 to 8) after a
+ standby
+
+Restore only gating (settings are already restored by clock device tree).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4c8d7fb1fa6b2d6612fc9d1abc9ea48d07aa5724 clk: stm32mp25: restore plls (4 to 8) after a standby]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Ice9e8bde5d6d8e9a75aac267b3477811f38bbda8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/326479
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 8f956cb6a..c97bac486 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -2523,12 +2523,24 @@ static bool clk_stm32_pll_is_enabled(struct clk *clk)
+ 	return stm32_gate_is_enabled(cfg->gate_id);
+ }
+ 
++#ifdef CFG_PM
++static void clk_stm32_pll_pm_restore(struct clk *clk)
++{
++	if (!stm32_rcc_has_access_by_id(RCC_RIF_PLL4_TO_8))
++		return;
++
++	if (clk_is_enabled(clk))
++		clk_stm32_pll_enable(clk);
++}
++#endif
++
+ static const struct clk_ops clk_stm32_pll_ops = {
+ 	.get_parent	= clk_stm32_pll_get_parent,
+ 	.get_rate	= clk_stm32_pll_get_rate,
+ 	.enable		= clk_stm32_pll_enable,
+ 	.disable	= clk_stm32_pll_disable,
+ 	.is_enabled	= clk_stm32_pll_is_enabled,
++	.restore_context = clk_stm32_pll_pm_restore,
+ };
+ 
+ static TEE_Result clk_stm32_pll3_enable(struct clk *clk)
+-- 
+2.47.2
+

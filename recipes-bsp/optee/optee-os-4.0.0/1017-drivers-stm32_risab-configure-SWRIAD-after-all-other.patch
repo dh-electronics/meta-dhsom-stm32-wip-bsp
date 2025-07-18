@@ -1,0 +1,84 @@
+From 66f11a4ac6de182e96b89b11c1122573b66f0831 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 9 Jul 2024 19:39:11 +0200
+Subject: [PATCH 1017/1695] drivers: stm32_risab: configure SWRIAD after all
+ other configs
+
+If SRWIAD is disabled before the other configuration are done, there is
+a gap where we can have secure writes forbidden to an area. This could
+occur by cache evictions, especially from TF-A BL31. In opposition,
+not enabling it if it is set in DT before configuration could lead to
+the same kind of issues. Create 2 new functions enable_srwiad_if_set()
+and disable_srwiad_if_unset(), that replace configure_srwiad(), and
+will be called respectively before and after applying the rest of RISAB
+configuration.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b8fa87ab231e46819ca989801cc312121cf171c4 drivers: stm32_risab: configure SWRIAD after all other configs]
+Change-Id: Idd520247990028c425c83ac0b44260b6f944ae1f
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/392429
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/firewall/stm32_risab.c | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_risab.c b/core/drivers/firewall/stm32_risab.c
+index acd815af3..21049f010 100644
+--- a/core/drivers/firewall/stm32_risab.c
++++ b/core/drivers/firewall/stm32_risab.c
+@@ -525,11 +525,15 @@ static TEE_Result parse_dt(const void *fdt, int node,
+ 	return TEE_SUCCESS;
+ }
+ 
+-static void configure_srwiad(struct stm32_risab_pdata *risab_d)
++static void enable_srwiad_if_set(struct stm32_risab_pdata *risab_d)
+ {
+-	if (risab_d->srwiad)
++	if (is_tdcid && risab_d->srwiad)
+ 		io_setbits32(risab_base(risab_d), _RISAB_CR_SRWIAD);
+-	else
++};
++
++static void disable_srwiad_if_unset(struct stm32_risab_pdata *risab_d)
++{
++	if (is_tdcid && !risab_d->srwiad)
+ 		io_clrbits32(risab_base(risab_d), _RISAB_CR_SRWIAD);
+ };
+ 
+@@ -807,7 +811,7 @@ static TEE_Result stm32_risab_pm_resume(struct stm32_risab_pdata *risab)
+ 	if (is_tdcid) {
+ 		if (risab->base.pa == RISAB6_BASE)
+ 			set_vderam_syscfg(risab);
+-		configure_srwiad(risab);
++		enable_srwiad_if_set(risab);
+ 		clean_iac_regs(risab);
+ 	}
+ 
+@@ -835,6 +839,8 @@ static TEE_Result stm32_risab_pm_resume(struct stm32_risab_pdata *risab)
+ 		set_cid_priv_conf(risab, &risab->subr_cfg[i]);
+ 	}
+ 
++	disable_srwiad_if_unset(risab);
++
+ 	return TEE_SUCCESS;
+ }
+ 
+@@ -923,11 +929,13 @@ static TEE_Result stm32_risab_probe(const void *fdt, int node,
+ 		if (risab_d->base.pa == RISAB6_BASE)
+ 			set_vderam_syscfg(risab_d);
+ 		clean_iac_regs(risab_d);
+-		configure_srwiad(risab_d);
++		enable_srwiad_if_set(risab_d);
+ 	}
+ 
+ 	apply_rif_config(risab_d);
+ 
++	disable_srwiad_if_unset(risab_d);
++
+ 	clk_disable(risab_d->clock);
+ 
+ 	controller = calloc(1, sizeof(*controller));
+-- 
+2.47.2
+

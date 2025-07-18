@@ -1,0 +1,155 @@
+From b5fd07ad28dbcd40c6fa86b1fc4d2ab108ba0a1d Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 2 Nov 2023 22:27:16 +0100
+Subject: [PATCH 0061/1695] plat-stm32mp1: pwr: configure HSLV for fixed VDD
+ supplied domain
+
+Update PWR driver to configure High Speed Low Voltage mode for
+fixed VDD supplied domain thanks to recently introduced SYSCFG HSLV
+API functions. This configuration must be appleid at boot time and
+when resuming from a system low power state.
+
+This configuration depends on VDD voltage level. It can protected by
+a OTP bit (HW2 bit 13) described in the chip reference manual for when
+VDD is supplied with a voltage below 2.5V. As stated in the chip
+reference manual, enabling HSLV mode with a VDD voltage level above
+2.7V may be destructive hence the driver panics in such case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e9c372c9d25d4aa18318b5cf200d5202016d780d plat-stm32mp1: pwr: configure HSLV for fixed VDD supplied domain]
+Change-Id: Id645955bde40009cfc0b6ed112985fada0620b29
+Co-developed-by: Pascal Paillet <p.paillet@foss.st.com>
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from e18d5c7a2d9781d90cb99d6dac1612184b81cd6a]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ .../arm/plat-stm32mp1/drivers/stm32mp1_pwr.c  | 73 +++++++++++++++++++
+ core/arch/arm/plat-stm32mp1/platform_config.h |  2 +
+ 2 files changed, 75 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+index 4785c9db1..38617a920 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+@@ -6,11 +6,14 @@
+ #include <assert.h>
+ #include <drivers/regulator.h>
+ #include <drivers/stm32_shared_io.h>
++#include <drivers/stm32_bsec.h>
+ #include <drivers/stm32mp1_pwr.h>
++#include <drivers/stm32mp1_syscfg.h>
+ #include <io.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt_driver.h>
+ #include <kernel/panic.h>
++#include <kernel/pm.h>
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
+@@ -24,6 +27,8 @@
+ 
+ #define TIMEOUT_US_10MS		U(10000)
+ 
++#define VOLTAGE_2V7_THREDSHOLD_UV	2700000
++
+ struct pwr_regu_desc {
+ 	unsigned int level_mv;
+ 	uint32_t cr3_enable_mask;
+@@ -178,13 +183,81 @@ struct regulator *stm32mp1_pwr_get_regulator(enum pwr_regulator id)
+ 	return NULL;
+ }
+ 
++static TEE_Result vdd_hslv_pm(enum pm_op op, uint32_t pm_hint __unused,
++			      const struct pm_callback_handle *pm_hdl __unused)
++{
++	if (op == PM_OP_RESUME)
++		stm32mp_enable_fixed_vdd_hslv();
++
++	return TEE_SUCCESS;
++}
++DECLARE_KEEP_PAGER(vdd_hslv_pm);
++
++static TEE_Result set_fixed_vdd_hslv_mode(struct regulator *vdd_supply)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	bool product_below_2v5 = false;
++	uint32_t otp_value = 0;
++	uint32_t otp_id = 0;
++
++	/*
++	 * High Speed Low Voltage Pad mode Enable for SPI, SDMMC, ETH, QSPI
++	 * and TRACE. Needed above ~50MHz and conditioned by AFMUX selection.
++	 * It could be disabled for low frequencies or if AFMUX is selected
++	 * but the function is not used, typically for TRACE.
++	 * If high speed low voltage pad mode is enabled, platform will
++	 * over consume.
++	 *
++	 * WARNING:
++	 *   Enabling High Speed mode while Vdd > 2.7V
++	 *   with the OTP product_below_2v5 (OTP 18, BIT 13)
++	 *   erroneously set to 1 can damage the SoC.
++	 */
++	res = stm32_bsec_find_otp_in_nvmem_layout("hw2_otp", &otp_id,
++						  NULL, NULL);
++	if (res)
++		panic();
++
++	res = stm32_bsec_read_otp(&otp_value, otp_id);
++	if (res)
++		panic();
++
++	if (otp_value & HW2_OTP_PRODUCT_BELOW_2V5)
++		product_below_2v5 = true;
++
++	if (regulator_get_voltage(vdd_supply) < VOLTAGE_2V7_THREDSHOLD_UV) {
++		if (!product_below_2v5) {
++			DMSG("Vdd domains HSLV protected by HW");
++		} else {
++			stm32mp_enable_fixed_vdd_hslv();
++			register_pm_driver_cb(vdd_hslv_pm, NULL,
++					      "stm32mp1-pwr-hslv");
++		}
++	} else if (product_below_2v5) {
++		panic("Vdd too high for related IO domains");
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result stm32mp1_pwr_regu_probe(const void *fdt, int node,
+ 					  const void *compat_data __unused)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	const struct regu_dt_desc *dt_desc = stm32mp1_pwr_regu_dt_desc;
++	struct regulator *vdd_supply = NULL;
+ 	int subnode = 0;
+ 
++	/* Setup High Speed Low Voltage mode for fixed VDD domain */
++	res = regulator_dt_get_supply(fdt, node, "vdd", &vdd_supply);
++	if (res)
++		return res;
++
++	res = set_fixed_vdd_hslv_mode(vdd_supply);
++	if (res)
++		return res;
++
++	/* Register PWR regulators */
+ 	fdt_for_each_subnode(subnode, fdt, node) {
+ 		const char *node_name = fdt_get_name(fdt, subnode, NULL);
+ 		unsigned int n = 0;
+diff --git a/core/arch/arm/plat-stm32mp1/platform_config.h b/core/arch/arm/plat-stm32mp1/platform_config.h
+index 3c87a37ab..c3867fc8e 100644
+--- a/core/arch/arm/plat-stm32mp1/platform_config.h
++++ b/core/arch/arm/plat-stm32mp1/platform_config.h
+@@ -135,6 +135,8 @@
+ #define HW2_OTP_IWDG_FZ_STOP_SHIFT	U(5)
+ #define HW2_OTP_IWDG_FZ_STANDBY_SHIFT	U(7)
+ 
++#define HW2_OTP_PRODUCT_BELOW_2V5	BIT(13)
++
+ /* GIC resources */
+ #define GIC_SIZE			0x2000
+ #define GICC_OFFSET			0x1000
+-- 
+2.47.2
+

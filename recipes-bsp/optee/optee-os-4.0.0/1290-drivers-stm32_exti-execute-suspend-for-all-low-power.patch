@@ -1,0 +1,46 @@
+From 905067d3eb29b39d95964e83f9e03c03071f2bba Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@foss.st.com>
+Date: Thu, 17 Oct 2024 16:29:50 +0200
+Subject: [PATCH 1290/1695] drivers: stm32_exti: execute suspend for all low
+ power modes
+
+Execute suspend callback for all low power modes, not only Standby.
+The suspend callback sets the IMR that are needed to wake-up from Stop.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 55bdc36950e2d4b75f3e81ccc0587b70dee3e86d drivers: stm32_exti: execute suspend for all low power modes]
+Change-Id: I4ab72d28cbbca67f414c12eeaa1313b84b50a09a
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/412183
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Tested-by: Pascal PAILLET <p.paillet@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/stm32_exti.c | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/core/drivers/stm32_exti.c b/core/drivers/stm32_exti.c
+index a138124f4..bc8d623ff 100644
+--- a/core/drivers/stm32_exti.c
++++ b/core/drivers/stm32_exti.c
+@@ -489,14 +489,11 @@ static void stm32_exti_pm_resume(struct stm32_exti_pdata *exti)
+ }
+ 
+ static TEE_Result
+-stm32_exti_pm(enum pm_op op, unsigned int pm_hint,
++stm32_exti_pm(enum pm_op op, unsigned int pm_hint __unused,
+ 	      const struct pm_callback_handle *pm_handle __unused)
+ {
+ 	struct stm32_exti_pdata *exti = NULL;
+ 
+-	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
+-		return TEE_SUCCESS;
+-
+ 	SLIST_FOREACH(exti, &stm32_exti_list, link) {
+ 		if (op == PM_OP_SUSPEND)
+ 			stm32_exti_pm_suspend(exti);
+-- 
+2.47.2
+

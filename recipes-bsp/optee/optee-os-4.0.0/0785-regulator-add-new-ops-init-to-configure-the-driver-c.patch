@@ -1,0 +1,71 @@
+From f9d4c6844b5d5ea5407eaf0a9dcdd2904854b174 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 9 Apr 2024 17:25:12 +0200
+Subject: [PATCH 0785/1695] regulator: add new ops init to configure the driver
+ constraints
+
+Add a new ops init which permit at the regulator drivers to manage a
+default configuration of regulator parameters before to read the DT
+properties.
+
+The regulator properties are not mandatory in device tree, they can be
+present to override the regulator default constraint value associated
+with compatible when other constraint are present, board depending for
+example.
+
+This new ops allows to simplify the device tree and is aligned with
+the Linux binding for regulators.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b8493b0591498c9ab5f1fc079b5fca60f4380f42 regulator: add new ops init to configure the driver constraints]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I8c50aee8952d68ff62e795cad67f18ad78eaf6eb
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372635
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/regulator/regulator_dt.c | 6 ++++++
+ core/include/drivers/regulator.h      | 2 ++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/core/drivers/regulator/regulator_dt.c b/core/drivers/regulator/regulator_dt.c
+index c1ff6dba6..beaa1236a 100644
+--- a/core/drivers/regulator/regulator_dt.c
++++ b/core/drivers/regulator/regulator_dt.c
+@@ -376,6 +376,12 @@ TEE_Result regulator_dt_register(const void *fdt, int node, int provider_node,
+ 		.priv = desc->priv,
+ 	};
+ 
++	if (regulator->ops->init) {
++		res = regulator->ops->init(regulator);
++		if (res)
++			goto err_free;
++	}
++
+ 	res = parse_dt(fdt, node, regulator);
+ 	if (res)
+ 		goto err_free;
+diff --git a/core/include/drivers/regulator.h b/core/include/drivers/regulator.h
+index d3ab87049..5bfce0899 100644
+--- a/core/include/drivers/regulator.h
++++ b/core/include/drivers/regulator.h
+@@ -131,6 +131,7 @@ struct regulator {
+  * @set_voltage: Set voltage level in microvolt (uV)
+  * @get_voltage: Get current voltage in microvolt (uV)
+  * @supported_voltages: Get supported levels description
++ * @init: Optional, initialization before device tree parsing
+  * @supplied_init: Optional, finalize initialization once supply is ready
+  */
+ struct regulator_ops {
+@@ -141,6 +142,7 @@ struct regulator_ops {
+ 	TEE_Result (*supported_voltages)(struct regulator *r,
+ 					 struct regulator_voltages_desc **desc,
+ 					 const int **levels);
++	TEE_Result (*init)(struct regulator *r);
+ 	TEE_Result (*supplied_init)(struct regulator *r, const void *fdt,
+ 				    int node);
+ };
+-- 
+2.47.2
+

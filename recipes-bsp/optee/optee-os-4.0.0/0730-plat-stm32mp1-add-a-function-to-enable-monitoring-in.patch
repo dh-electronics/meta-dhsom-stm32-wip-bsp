@@ -1,0 +1,70 @@
+From b743a7733090142d52aa76f65b249228b18bb7f6 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 23 Feb 2024 15:51:34 +0100
+Subject: [PATCH 0730/1695] plat-stm32mp1: add a function to enable monitoring
+ in PWR
+
+Add a new function to enable the voltage and temperature monitoring
+with the MONEN bit of PWR_CR2 register.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 69f00858e844b5c975e36e0e5356864bedcd6090 plat-stm32mp1: add a function to enable monitoring in PWR]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ifa9afc34bc73fc156bf2da09df9638f6b0f8430b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/362676
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372743
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c | 7 +++++++
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h | 8 +++++---
+ 2 files changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+index 9f857edc9..2ecfd9853 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+@@ -302,3 +302,10 @@ DEFINE_DT_DRIVER(stm32mp1_pwr_regu_dt_driver) = {
+ 	.match_table = stm32mp1_pwr_regu_match_table,
+ 	.probe = stm32mp1_pwr_regu_probe,
+ };
++
++void stm32mp_pwr_monitoring_enable(void)
++{
++	vaddr_t pwr_base = stm32_pwr_base();
++
++	io_setbits32(pwr_base + PWR_CR2_OFF, PWR_CR2_MONEN);
++}
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
+index d9c2e942f..7b2c606bc 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
+@@ -39,6 +39,9 @@
+ 
+ #define PWR_CR2_BREN		BIT(0)
+ #define PWR_CR2_RREN		BIT(1)
++#define PWR_CR2_MONEN		BIT(4)
++#define PWR_CR2_BRRDY		BIT(16)
++#define PWR_CR2_RRRDY		BIT(17)
+ 
+ #define PWR_CR3_VBE		BIT(8)
+ #define PWR_CR3_VBRS		BIT(9)
+@@ -63,9 +66,6 @@
+ 
+ #define PWR_MPUWKUPENR_MASK	GENMASK_32(5, 0)
+ 
+-#define PWR_CR2_BRRDY		BIT(16)
+-#define PWR_CR2_RRRDY		BIT(17)
+-
+ /*
+  * Flags for PWR wakeup event management
+  * PWR_WKUP_FLAG_RISING - Detect event on signal rising edge
+@@ -115,4 +115,6 @@ TEE_Result stm32mp1_pwr_itr_alloc_add(const void *fdt, int wp_node, size_t it,
+ void stm32mp1_pwr_itr_enable(size_t it);
+ void stm32mp1_pwr_itr_disable(size_t it);
+ 
++void stm32mp_pwr_monitoring_enable(void);
++
+ #endif /*__STM32MP1_PWR_H*/
+-- 
+2.47.2
+

@@ -1,0 +1,171 @@
+From 34fa4fe078af3d7db6903736a4db3e3c00a69a8c Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Tue, 1 Feb 2022 13:06:13 +0100
+Subject: [PATCH 0207/1695] plat-stm32mp1: plat-tzc400: flexible check of
+ firewall config
+
+OP-TEE must only check that secure OS regions are defined
+as expected. As the configuration is made by BL2 stage,
+we can not check other requested regions.
+
+Verification of the reserved SHM is made upon CFG_CORE_RESERVED_SHM
+being enabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f73051025fb4147d156b539a1880b5c305a65997 plat-stm32mp1: plat-tzc400: flexible check of firewall config]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: I1e329e57b65192ef80bd72b5e358d3d0b364c0ae
+---
+ core/arch/arm/plat-stm32mp1/plat_tzc400.c | 102 ++++++++++------------
+ 1 file changed, 46 insertions(+), 56 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/plat_tzc400.c b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+index 375d9cd29..004c8db1a 100644
+--- a/core/arch/arm/plat-stm32mp1/plat_tzc400.c
++++ b/core/arch/arm/plat-stm32mp1/plat_tzc400.c
+@@ -19,13 +19,6 @@
+ #include <trace.h>
+ #include <util.h>
+ 
+-#ifdef CFG_STM32MP15
+-#define TZC_FILTERS_MASK	GENMASK_32(1, 0)
+-#endif
+-#ifdef CFG_STM32MP13
+-#define TZC_FILTERS_MASK	GENMASK_32(0, 0)
+-#endif
+-
+ struct stm32mp_tzc_region {
+ 	uint32_t cfg;
+ 	uint32_t addr;
+@@ -57,6 +50,8 @@ struct tzc_device {
+ 	bool *reg_locked;
+ };
+ 
++#define filter_mask(_width) GENMASK_32(((_width) - 1U), 0U)
++
+ static enum itr_return tzc_it_handler(struct itr_handler *handler __unused)
+ {
+ 	EMSG("TZC permission failure");
+@@ -71,68 +66,63 @@ static enum itr_return tzc_it_handler(struct itr_handler *handler __unused)
+ }
+ DECLARE_KEEP_PAGER(tzc_it_handler);
+ 
+-static bool tzc_region_is_non_secure(unsigned int i, uint64_t pa, size_t size)
++static int tzc_find_region(vaddr_t base, size_t size,
++			   struct tzc_region_config *region_cfg)
+ {
+-	struct tzc_region_config region_cfg = { };
+-	uint32_t ns_cpu_mask = TZC_REGION_ACCESS_RDWR(STM32MP1_TZC_A7_ID);
+-	uint32_t filters_mask = TZC_FILTERS_MASK;
+-	vaddr_t base = pa;
++	uint8_t i = 1;
+ 
+-	if (tzc_get_region_config(i, &region_cfg))
+-		panic();
++	while (true) {
++		if (tzc_get_region_config(i, region_cfg) != TEE_SUCCESS)
++			return 0;
++
++		if (region_cfg->base <= base &&
++		    region_cfg->top >= (base + size - 1))
++			return i;
+ 
+-	return region_cfg.base == base && region_cfg.top == (base + size - 1) &&
+-	       region_cfg.sec_attr == TZC_REGION_S_NONE &&
+-	       (region_cfg.ns_device_access & ns_cpu_mask) == ns_cpu_mask &&
+-	       region_cfg.filters == filters_mask;
++		i++;
++		region_cfg++;
++	}
+ }
+ 
+-static bool tzc_region_is_secure(unsigned int i, vaddr_t base, size_t size)
++#ifdef CFG_CORE_RESERVED_SHM
++static bool tzc_region_is_non_secure(unsigned int i, uint64_t pa, size_t size)
+ {
+ 	struct tzc_region_config region_cfg = { };
++	uint32_t ns_cpu_mask = TZC_REGION_ACCESS_RDWR(STM32MP1_TZC_A7_ID);
+ 	uint32_t filters_mask = TZC_FILTERS_MASK;
++	vaddr_t base = pa;
+ 
+-	if (tzc_get_region_config(i, &region_cfg))
+-		panic();
+-
+-	return region_cfg.base == base && region_cfg.top == (base + size - 1) &&
+-	       region_cfg.sec_attr == TZC_REGION_S_RDWR &&
+-	       region_cfg.ns_device_access == 0 &&
+-	       region_cfg.filters == filters_mask;
++	return region_cfg->sec_attr == TZC_REGION_S_NONE &&
++		(region_cfg->ns_device_access & ns_cpu_mask) == ns_cpu_mask &&
++		region_cfg->filters == filters_mask;
+ }
++#endif
+ 
+-static void stm32mp_tzc_check_boot_region(void)
++static bool tzc_region_is_secure(struct tzc_device *tzc_dev,
++				 struct tzc_region_config *region_cfg)
+ {
+-	unsigned int region_index = 1;
+-	const uint64_t dram_start = DDR_BASE;
+-	const uint64_t dram_end = dram_start + CFG_DRAM_SIZE;
+-	const uint64_t tzdram_start = CFG_TZDRAM_START;
+-	const uint64_t tzdram_size = CFG_TZDRAM_SIZE;
+-	const uint64_t tzdram_end = tzdram_start + tzdram_size;
+-
+-	/*
+-	 * Early boot stage is in charge of configuring memory regions
+-	 * OP-TEE hence here only check this complies with static Core
+-	 * expectations.
+-	 */
+-	if (dram_start < tzdram_start) {
+-		if (!tzc_region_is_non_secure(region_index, dram_start,
+-					      tzdram_start - dram_start))
+-			panic("Unexpected TZC area on non-secure region");
+-
+-		region_index++;
+-	}
+-
+-	if (!tzc_region_is_secure(region_index, tzdram_start, tzdram_size))
+-		panic("Unexpected TZC configuration on secure region");
++	uint32_t filters_mask = filter_mask(tzc_dev->ddata->nb_filters);
+ 
+-	if (tzdram_end < dram_end) {
+-		region_index++;
++	return region_cfg->sec_attr == TZC_REGION_S_RDWR &&
++		region_cfg->ns_device_access == 0 &&
++		region_cfg->filters == filters_mask;
++}
+ 
+-		if (!tzc_region_is_non_secure(region_index, tzdram_end,
+-					      dram_end - tzdram_end))
+-			panic("Unexpected TZC area on non-secure region");
+-	}
++static void stm32mp_tzc_check_boot_region(struct tzc_device *tzc_dev)
++{
++	int idx = 0;
++
++	idx = tzc_find_region(CFG_TZDRAM_START, CFG_TZDRAM_SIZE,
++			      &tzc_dev->reg[1]);
++	if (!idx || !tzc_region_is_secure(tzc_dev, &tzc_dev->reg[idx]))
++		panic("TZC: bad permissions on TEE RAM");
++
++#ifdef CFG_CORE_RESERVED_SHM
++	idx = tzc_find_region(CFG_SHMEM_START, CFG_SHMEM_SIZE,
++			      &tzc_dev->reg[1]);
++	if (!idx || !tzc_region_is_non_secure(tzc_dev, &tzc_dev->reg[idx]))
++		panic("TZC: bad permissions on TEE reserved SHMEM");
++#endif
+ }
+ 
+ static void tzc_set_driverdata(struct tzc_device *tzc_dev)
+@@ -262,7 +252,7 @@ static TEE_Result stm32mp1_tzc_probe(const void *fdt, int node,
+ 	tzc_init((vaddr_t)tzc_dev->pdata.base);
+ 	tzc_dump_state();
+ 
+-	stm32mp_tzc_check_boot_region();
++	stm32mp_tzc_check_boot_region(tzc_dev);
+ 
+ 	res = interrupt_create_handler(tzc_dev->pdata.itr_chip,
+ 				       tzc_dev->pdata.itr_num, tzc_it_handler,
+-- 
+2.47.2
+

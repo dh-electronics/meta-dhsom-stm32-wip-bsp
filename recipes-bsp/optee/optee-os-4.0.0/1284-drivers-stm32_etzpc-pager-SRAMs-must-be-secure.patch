@@ -1,0 +1,131 @@
+From d0ff7f47ec2dc7164a0ae28e1fcb8f3125c425b3 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 10 Oct 2024 16:20:25 +0200
+Subject: [PATCH 1284/1695] drivers: stm32_etzpc: pager SRAMs must be secure
+
+STM32MP SRAMs used by pager can only be configured as secure access
+only.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1737ba130cd1bf730e2af84f2bce42ec1f8969fa drivers: stm32_etzpc: pager SRAMs must be secure]
+Change-Id: Id18f508a3734d39d1d9ee2993eede3ffdda72b1d
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/410433
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/firewall/stm32_etzpc.c | 70 ++++++++++++++++++++++++++---
+ 1 file changed, 64 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_etzpc.c b/core/drivers/firewall/stm32_etzpc.c
+index b563ec667..73d7df347 100644
+--- a/core/drivers/firewall/stm32_etzpc.c
++++ b/core/drivers/firewall/stm32_etzpc.c
+@@ -441,6 +441,52 @@ stm32_etzpc_acquire_memory_access(struct firewall_query *firewall,
+ 	return TEE_ERROR_ACCESS_DENIED;
+ }
+ 
++#ifdef CFG_STM32MP15
++static bool pager_permits_decprot_config(uint32_t decprot_id,
++					 enum etzpc_decprot_attributes attr)
++{
++	paddr_t ram_base = 0;
++	size_t ram_size = 0;
++
++	if (!IS_ENABLED(CFG_WITH_PAGER))
++		return true;
++
++	switch (decprot_id) {
++	case ETZPC_TZMA1_ID:
++		ram_base = SYSRAM_BASE;
++		ram_size = SYSRAM_SEC_SIZE;
++		break;
++	case STM32MP1_ETZPC_SRAM1_ID:
++		ram_base = SRAM1_BASE;
++		ram_size = SRAM1_SIZE;
++		break;
++	case STM32MP1_ETZPC_SRAM2_ID:
++		ram_base = SRAM2_BASE;
++		ram_size = SRAM2_SIZE;
++		break;
++	case STM32MP1_ETZPC_SRAM3_ID:
++		ram_base = SRAM3_BASE;
++		ram_size = SRAM3_SIZE;
++		break;
++	case STM32MP1_ETZPC_SRAM4_ID:
++		ram_base = SRAM4_BASE;
++		ram_size = SRAM4_SIZE;
++		break;
++	default:
++		return true;
++	}
++
++	if (stm32mp1_ram_intersect_pager_ram(ram_base, ram_size) &&
++	    attr != ETZPC_DECPROT_S_RW) {
++		EMSG("Internal RAM %#"PRIxPA"..%#"PRIxPA" is used by pager, shall be secure",
++		     ram_base, ram_base + ram_size);
++		return false;
++	}
++
++	return true;
++}
++#endif
++
+ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 					       paddr_t paddr, size_t size)
+ {
+@@ -462,12 +508,8 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 	     id == STM32MP1_ETZPC_SRAM3_ID)) {
+ 		uint32_t mode = 0;
+ 
+-		/*
+-		* Internal RAM configuration, we assume the configuration is as
+-		* follows:
+-		* firewall->args[0]: Memory configuration to apply, with memory
+-		* size replacing mode field.
+-		*/
++		paddr = stm32mp1_pa_or_sram_alias_pa(paddr);
++
+ 		switch (id) {
+ 		case (STM32MP1_ETZPC_SRAM1_ID):
+ 			if (paddr != SRAM1_BASE || size != SRAM1_SIZE)
+@@ -504,6 +546,11 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 			return TEE_ERROR_ACCESS_DENIED;
+ 		}
+ 
++#ifdef CFG_STM32MP15
++		if (!pager_permits_decprot_config(id, attr))
++			return TEE_ERROR_ACCESS_DENIED;
++#endif
++
+ 		etzpc_do_configure_decprot(etzpc_dev, id, attr);
+ 		if (firewall->args[0] & ETZPC_LOCK_MASK)
+ 			etzpc_do_lock_decprot(etzpc_dev, id);
+@@ -587,6 +634,11 @@ static TEE_Result stm32_etzpc_configure(struct firewall_query *firewall)
+ 		DMSG("Setting access config for periph %"PRIu32" - attr %s", id,
+ 		     etzpc_decprot_strings[attr]);
+ 
++#ifdef CFG_STM32MP15
++		if (!pager_permits_decprot_config(id, attr))
++			return TEE_ERROR_ACCESS_DENIED;
++#endif
++
+ 		etzpc_do_configure_decprot(etzpc_dev, id, attr);
+ 		if (firewall->args[0] & ETZPC_LOCK_MASK)
+ 			etzpc_do_lock_decprot(etzpc_dev, id);
+@@ -670,6 +722,12 @@ static void fdt_etzpc_conf_decprot(struct etzpc_device *dev,
+ 		}
+ 
+ 		attr = etzpc_binding2decprot(mode);
++
++#ifdef CFG_STM32MP15
++		if (!pager_permits_decprot_config(id, attr))
++			panic();
++#endif
++
+ 		etzpc_do_configure_decprot(dev, id, attr);
+ 
+ 		if (lock)
+-- 
+2.47.2
+

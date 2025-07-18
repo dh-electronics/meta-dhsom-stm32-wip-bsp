@@ -1,0 +1,102 @@
+From fe930edd0276b6e429b415574624847a81b02a08 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 4 Sep 2024 15:44:04 +0200
+Subject: [PATCH 1136/1695] drivers: stpmic2: update lp mode only when it
+ changes
+
+Save the current selected low power mode for each regulator and don't
+change the STPMIC25 LP settings, with associated I2C request, when
+the LP mode don't change (it is set to DEFAULT for example on
+RUN1 => STOP1 => RUN1 transition).
+
+This patch allow to optimize the suspend/resume time for Stop1 modes
+on STM32MP25 SoC.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git aab4fb2bd23a4ffbafec04c3062df9f4feb38e82 drivers: stpmic2: update lp mode only when it changes]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Change-Id: I15cd783e159651885ee17135a87bd57b6f0ef923
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/402275
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/stm32mp_pmic2.c | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/core/drivers/stm32mp_pmic2.c b/core/drivers/stm32mp_pmic2.c
+index c12deb8ff..2a2dd29a8 100644
+--- a/core/drivers/stm32mp_pmic2.c
++++ b/core/drivers/stm32mp_pmic2.c
+@@ -37,6 +37,8 @@ static bool stm32_pmic2;
+ #define STPMIC2_LP_STATE_ON		BIT(1)
+ #define STPMIC2_LP_STATE_UNMODIFIED	BIT(2)
+ #define STPMIC2_LP_STATE_SET_VOLT	BIT(3)
++#define STPMIC2_LP_STATE_INVALID	-1
++
+ 
+ /*
+  * struct pmic_regu - STPMIC2 regulator instance
+@@ -46,6 +48,7 @@ static bool stm32_pmic2;
+  * @bypass_uv: 0 if not used, else is the voltage level to switch to bypass mode
+  * @lp_state: Regulator mode during PM low power state, per PM states
+  * @lp_level_uv: Regulator voltage level during PM low power state, per PM state
++ * @last_lp_mode: Last low power mode selected
+  * @levels_desc: Description of the supported voltage levels
+  * @levels: Voltage level value array related to description @levels_desc
+  */
+@@ -55,6 +58,7 @@ struct pmic_regu {
+ 	int bypass_uv;
+ 	uint8_t *lp_state;
+ 	int *lp_level_uv;
++	int last_lp_mode;
+ 	struct regulator_voltages_desc levels_desc;
+ 	int *levels;
+ };
+@@ -346,7 +350,7 @@ TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator, uint8_t mode)
+ 	FMSG("%s: suspend state:%#"PRIx8" %d uV",
+ 	     regulator_name(regulator), state, lp_level_uv);
+ 
+-	if (state & STPMIC2_LP_STATE_UNMODIFIED)
++	if (mode == regu->last_lp_mode)
+ 		return TEE_SUCCESS;
+ 
+ 	if (state & STPMIC2_LP_STATE_OFF) {
+@@ -369,6 +373,8 @@ TEE_Result stm32_pmic2_apply_pm_state(struct regulator *regulator, uint8_t mode)
+ 		}
+ 	}
+ 
++	regu->last_lp_mode = mode;
++
+ 	return TEE_SUCCESS;
+ }
+ 
+@@ -468,6 +474,7 @@ static void parse_low_power_mode(const void *fdt, int node,
+ 	const fdt32_t *cuint = NULL;
+ 	const char __maybe_unused *regu_name = regu_desc->name;
+ 
++	regu->last_lp_mode = STPMIC2_LP_STATE_INVALID;
+ 	regu->lp_state[mode] = 0;
+ 
+ 	if (fdt_getprop(fdt, node, "regulator-off-in-suspend", NULL)) {
+@@ -581,6 +588,8 @@ static TEE_Result register_pmic_regulator(const void *fdt, struct stpmic2 *pmic,
+ 
+ 	pmic_parse_regu_node(&desc, fdt, node);
+ 
++	parse_low_power_modes(fdt, node, &desc);
++
+ 	res = regulator_dt_register(fdt, node, parent_node, &desc);
+ 	if (res) {
+ 		EMSG("Failed to register %s", regu_name);
+@@ -590,8 +599,6 @@ static TEE_Result register_pmic_regulator(const void *fdt, struct stpmic2 *pmic,
+ 		return res;
+ 	}
+ 
+-	parse_low_power_modes(fdt, node, &desc);
+-
+ 	return TEE_SUCCESS;
+ }
+ 
+-- 
+2.47.2
+

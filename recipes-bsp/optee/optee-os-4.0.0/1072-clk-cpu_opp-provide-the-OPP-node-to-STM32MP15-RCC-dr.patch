@@ -1,0 +1,119 @@
+From 638e5315ebd8ff4e11815d1f6ae2740bd134c9e8 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@foss.st.com>
+Date: Fri, 9 Aug 2024 10:10:22 +0200
+Subject: [PATCH 1072/1695] clk: cpu_opp provide the OPP node to STM32MP15 RCC
+ driver
+
+Avoid using operating-points-v2 in STM32MP15 RCC driver.
+The OPP node is now provided by CPU OPP driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 55f87d6035d7e33a2b7d1c1fd928316fcd65fb91 clk: cpu_opp provide the OPP node to STM32MP15 RCC driver]
+Change-Id: If273eb6144fb5877d13733836aaede5ee02b9a0b
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/398307
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Pascal PAILLET <p.paillet@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/clk/clk-stm32mp15.c         | 19 ++++++-------------
+ core/drivers/stm32_cpu_opp.c             |  2 +-
+ core/include/drivers/stm32mp1_rcc_util.h |  3 ++-
+ 3 files changed, 9 insertions(+), 15 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index 29ad2320d..6ad9eb6bb 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -37,8 +37,6 @@
+ #define MAX_OPP		(2U)
+ #endif
+ 
+-#define DT_OPP_COMPAT		"operating-points-v2"
+-
+ /* PLL settings computation related definitions */
+ #define POST_DIVM_MIN	8000000
+ #define POST_DIVM_MAX	16000000
+@@ -1437,7 +1435,7 @@ static void save_current_opp(void)
+  * Gets OPP parameters (frequency in KHz and voltage in mV) from an OPP table
+  * subnode. Platform HW support capabilities are also checked.
+  */
+-static int get_opp_freqvolt_from_dt_subnode(void *fdt, int subnode,
++static int get_opp_freqvolt_from_dt_subnode(const void *fdt, int subnode,
+ 					    uint32_t *freq_khz,
+ 					    uint32_t *voltage_mv)
+ {
+@@ -1497,20 +1495,14 @@ static int get_opp_freqvolt_from_dt_subnode(void *fdt, int subnode,
+  * Note that @*count has to be set by caller to the effective size allocated
+  * for both tables. Its value is then replaced by the number of filled elements.
+  */
+-static int get_all_opp_freqvolt_from_dt(uint32_t *count)
++static int get_all_opp_freqvolt_from_dt(const void *fdt, int node,
++					uint32_t *count)
+ {
+-	void *fdt = NULL;
+-	int node = 0;
+ 	int subnode = 0;
+ 	uint32_t idx = 0;
+ 
+ 	assert(count);
+ 
+-	fdt = get_embedded_dt();
+-	node = fdt_node_offset_by_compatible(fdt, -1, DT_OPP_COMPAT);
+-	if (node < 0)
+-		return node;
+-
+ 	fdt_for_each_subnode(subnode, fdt, node) {
+ 		uint32_t read_freq = 0;
+ 		uint32_t read_voltage = 0;
+@@ -1735,7 +1727,8 @@ static uint32_t stm32mp1_clk_get_pll1_current_clksrc(void)
+ 	}
+ }
+ 
+-int stm32mp1_clk_compute_all_pll1_settings(uint32_t buck1_voltage)
++int stm32mp1_clk_compute_all_pll1_settings(const void *fdt, int node,
++					   uint32_t buck1_voltage)
+ {
+ 	unsigned int i = 0;
+ 	int ret = 0;
+@@ -1743,7 +1736,7 @@ int stm32mp1_clk_compute_all_pll1_settings(uint32_t buck1_voltage)
+ 	uint32_t count = MAX_OPP;
+ 	uint32_t clksrc = 0;
+ 
+-	ret = get_all_opp_freqvolt_from_dt(&count);
++	ret = get_all_opp_freqvolt_from_dt(fdt, node, &count);
+ 	switch (ret) {
+ 	case 0:
+ 		break;
+diff --git a/core/drivers/stm32_cpu_opp.c b/core/drivers/stm32_cpu_opp.c
+index 084b98d82..1d7ba8d73 100644
+--- a/core/drivers/stm32_cpu_opp.c
++++ b/core/drivers/stm32_cpu_opp.c
+@@ -751,7 +751,7 @@ stm32_cpu_opp_init(const void *fdt, int node, const void *compat_data __unused)
+ #ifdef CFG_STM32MP15
+ 	cpu_voltage = regulator_get_voltage(cpu_opp.regul);
+ 
+-	if (stm32mp1_clk_compute_all_pll1_settings(cpu_voltage))
++	if (stm32mp1_clk_compute_all_pll1_settings(fdt, node, cpu_voltage))
+ 		panic();
+ #endif
+ 
+diff --git a/core/include/drivers/stm32mp1_rcc_util.h b/core/include/drivers/stm32mp1_rcc_util.h
+index 8c618ce54..18fa8d3ed 100644
+--- a/core/include/drivers/stm32mp1_rcc_util.h
++++ b/core/include/drivers/stm32mp1_rcc_util.h
+@@ -44,7 +44,8 @@ void stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *data, size_t size);
+ /*
+  * Util for PLL1 settings management based on DT OPP table content.
+  */
+-int stm32mp1_clk_compute_all_pll1_settings(uint32_t buck1_voltage);
++int stm32mp1_clk_compute_all_pll1_settings(const void *fdt, int node,
++					   uint32_t buck1_voltage);
+ TEE_Result stm32mp1_set_opp_khz(uint32_t freq_khz);
+ int stm32mp1_round_opp_khz(uint32_t *freq_khz);
+ #endif
+-- 
+2.47.2
+

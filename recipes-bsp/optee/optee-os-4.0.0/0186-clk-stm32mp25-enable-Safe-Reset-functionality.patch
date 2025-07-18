@@ -1,0 +1,59 @@
+From c2d78c9ce9b7ea3f9be5d3ba6469f3b2aba141f6 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 3 May 2023 08:31:50 +0200
+Subject: [PATCH 0186/1695] clk: stm32mp25: enable Safe Reset functionality.
+
+RCC has the capability to manage safely master IP reset.
+For that it should be activated in syscfg SYSCFG safe reset
+control register (SYSCFG_SAFERSTCR)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git fc44a503d5ad00e3af6f9f52b2618be69feebd19 clk: stm32mp25: enable Safe Reset functionality.]
+Change-Id: I5e3ff0d3947ef1acea4b0a9bd2429d36978c84b8
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 819bcdada..774884816 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -16,6 +16,7 @@
+ #include <kernel/dt.h>
+ #include <mm/core_memprot.h>
+ #include <stdio.h>
++#include <stm32_sysconf.h>
+ #include <stm32_util.h>
+ 
+ #include "clk-stm32-core.h"
+@@ -119,6 +120,7 @@ struct stm32_clk_platdata {
+ 	uint32_t nflexgen;
+ 	uint32_t *flexgen;
+ 	uint32_t c1msrd;
++	bool safe_rst;
+ };
+ 
+ #define A35SSC_BASE	0x48800000
+@@ -1204,6 +1206,9 @@ static int stm32_clk_parse_fdt(const void *fdt, int node,
+ 	pdata->c1msrd = fdt_read_uint32_default(fdt, node, "st,c1msrd",
+ 						UINT32_MAX);
+ 
++	pdata->safe_rst = fdt_getprop(fdt, node, "st,safe_rst",
++				      NULL) ? true : false;
++
+ 	return 0;
+ }
+ 
+@@ -3168,6 +3173,9 @@ static TEE_Result clk_stm32_apply_rcc_config(struct stm32_clk_platdata *pdata)
+ 		io_write32(pdata->rcc_base + RCC_C1MSRDCR, pdata->c1msrd &
+ 			   RCC_C1MSRDCR_C1MSRD_MASK);
+ 
++	if (pdata->safe_rst)
++		stm32mp25_syscfg_set_safe_reset(true);
++
+ 	return TEE_SUCCESS;
+ }
+ 
+-- 
+2.47.2
+

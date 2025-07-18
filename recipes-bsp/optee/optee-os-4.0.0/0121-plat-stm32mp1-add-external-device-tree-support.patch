@@ -1,0 +1,46 @@
+From cb9009b9bf5076765dace3066dc89ebd27cb26dd Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 5 May 2023 16:57:05 +0200
+Subject: [PATCH 0121/1695] plat-stm32mp1: add external device tree support
+
+Adds the possibility to use and external repository for device tree source
+files for this platform. By default, this external path is set to
+external-dt/optee.
+
+If a device tree is not found in OP-TEE source code, search it in the
+external repository, if any.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 281a708f11f5f19ff57b015f0bd33a188ebd3382 plat-stm32mp1: add external device tree support]
+Change-Id: I4a8905b2211494057f63281e3e95f90d6f53fce1
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index f60718bf1..ba454c32b 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -42,6 +42,19 @@ flavorlist-MP15 = $(flavor_dts_file-157A_DHCOR_AVENGER96) \
+ 
+ flavorlist-MP13 = $(flavor_dts_file-135F_DK)
+ 
++# Check if device-tree exist in OP-TEE source code, else search it in external
++# device tree repository
++ifeq ($(wildcard $(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE)),)
++# External device tree default path
++CFG_EXT_DTS ?= $(arch-dir)/dts/external-dt/optee
++ifneq ($(wildcard $(CFG_EXT_DTS)/$(CFG_EMBED_DTB_SOURCE_FILE)),)
++override dts-source-path := $(CFG_EXT_DTS)
++-include $(CFG_EXT_DTS)/conf.mk
++else
++$(error Cannot find DTS file $(CFG_EXT_DTS)/$(CFG_EMBED_DTB_SOURCE_FILE))
++endif
++endif
++
+ ifneq ($(PLATFORM_FLAVOR),)
+ ifeq ($(flavor_dts_file-$(PLATFORM_FLAVOR)),)
+ $(error Invalid platform flavor $(PLATFORM_FLAVOR))
+-- 
+2.47.2
+

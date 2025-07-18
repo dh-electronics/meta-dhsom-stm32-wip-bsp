@@ -1,0 +1,68 @@
+From e5a7338d3eec66f90a00ed5854853ab7efed488e Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Wed, 25 Aug 2021 10:32:04 +0200
+Subject: [PATCH 0662/1695] plat-stm32mp1: scmi: simplify find_*() for
+ deterministic delay
+
+The functions find_clock(), find_rd() and find_perfd() are based
+on a useless loop that just checks the loop counter against the
+input parameter.
+
+Replace the loop with a simple check for out-of-bound index, thus
+making deterministic the execution delay of these function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bac2cfd013678b003eed4b1d67ecdf3eb98e3fd6 plat-stm32mp1: scmi: simplify find_*() for deterministic delay]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I07a3eefabf69460b4b9cd772273e3eacff95c714
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/217359
+Tested-by: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+Reviewed-by: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/361722
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Tested-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/scmi_server.c | 16 ++++------------
+ 1 file changed, 4 insertions(+), 12 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index ffe871dd3..93d51c817 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -324,13 +324,9 @@ static struct stm32_scmi_clk *find_clock(unsigned int channel_id,
+ 					 unsigned int scmi_id)
+ {
+ 	const struct channel_resources *resource = find_resource(channel_id);
+-	size_t n = 0;
+ 
+-	if (resource) {
+-		for (n = 0; n < resource->clock_count; n++)
+-			if (n == scmi_id)
+-				return &resource->clock[n];
+-	}
++	if (resource && scmi_id < resource->clock_count)
++		return &resource->clock[scmi_id];
+ 
+ 	return NULL;
+ }
+@@ -528,13 +524,9 @@ static struct stm32_scmi_rd *find_rd(unsigned int channel_id,
+ 				     unsigned int scmi_id)
+ {
+ 	const struct channel_resources *resource = find_resource(channel_id);
+-	size_t n = 0;
+ 
+-	if (resource) {
+-		for (n = 0; n < resource->rd_count; n++)
+-			if (n == scmi_id)
+-				return &resource->rd[n];
+-	}
++	if (resource && scmi_id < resource->rd_count)
++		return &resource->rd[scmi_id];
+ 
+ 	return NULL;
+ }
+-- 
+2.47.2
+
