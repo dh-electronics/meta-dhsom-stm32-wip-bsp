@@ -1,0 +1,58 @@
+From f418e2f340ef6d60a14c038f3167402a6a4ff0b8 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@linaro.org>
+Date: Tue, 5 Jul 2022 15:46:35 +0200
+Subject: [PATCH 0103/1695] plat-stm32mp1: get DRAM size from embedded DTB
+
+Set CFG_DRAM_SIZE based on the embedded DTB if any. This change forces
+CFG_DRAM_SIZE to the size read from the generated embedded DTB.
+
+With this change, the value in CFG_DRAM_SIZE set in the make files
+cannot be used straight as its value may be modified when generating
+optee_os config files (header file, makefile and cmake file).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bc1176a20928a4d72c309f04a1688ca01e61baa4 plat-stm32mp1: get DRAM size from embedded DTB]
+Change-Id: I6beaf70a2c4af0ff04e813e4be74cf54062e320d
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+---
+ core/arch/arm/plat-stm32mp1/link.mk | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/link.mk b/core/arch/arm/plat-stm32mp1/link.mk
+index 01a9b8ed5..4f92d15ef 100644
+--- a/core/arch/arm/plat-stm32mp1/link.mk
++++ b/core/arch/arm/plat-stm32mp1/link.mk
+@@ -1,5 +1,26 @@
++# Specific hack for stm32mp1: get DDR size from the generated DTB to be
++# embedded in core. This force CFG_DRAM_SIZE value when build config
++# files are generated.
++
++define get_memory_node
++$(shell fdtget -l $(core-embed-fdt-dtb) / | grep memory@)
++endef
++define get_memory_size
++$(shell fdtget -t u $(core-embed-fdt-dtb) /$(get_memory_node) reg | cut -d ' ' -f 2)
++endef
++
+ include core/arch/arm/kernel/link.mk
+ 
++all: check_build_variables
++
++check_build_variables: $(link-out-dir)/tee.elf
++	@t=`printf "%u" ${CFG_DRAM_SIZE}`; if [ $$t -ne ${get_memory_size} ]; then \
++	    t_cfg=$$(($$t / (1024*1024))); t_dtb=$$((${get_memory_size} / (1024*1024))); \
++	    echo "Wrong CFG_DRAM_SIZE $${t_cfg}MBytes, in device-tree: $${t_dtb}MBytes"; \
++	    exit 1; \
++	fi
++
++ifeq ($(CFG_STM32MP15x_STM32IMAGE),y)
+ # Create stm32 formatted images from the native binary images
+ 
+ define stm32image_cmd
+@@ -22,3 +43,4 @@ all: $(link-out-dir)/tee-pageable_v2.stm32
+ cleanfiles += $(link-out-dir)/tee-pageable_v2.stm32
+ $(link-out-dir)/tee-pageable_v2.stm32: $(link-out-dir)/tee-pageable_v2.bin
+ 	$(stm32image_cmd) --source $< --dest $@ --bintype 0x22
++endif
+-- 
+2.47.2
+

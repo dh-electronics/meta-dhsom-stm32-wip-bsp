@@ -1,0 +1,87 @@
+From f6e267411f5f618a94e8ebc7221d9e5f0f3fd431 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 29 Nov 2023 09:49:13 +0100
+Subject: [PATCH 0085/1695] core: dt_driver: do not defer probe on skip
+ phandler arguments
+
+Prevent dt_driver_device_from_node_idx_prop() to request driver probe
+deferral when needing to skip phandle arguments cells related to
+providers not yet registered. When skipping these phandle argument cells
+we don't really need the skipped provider is registered, we can read
+the #xxx-cells property in the provider DT node straight.
+
+For example, consider a driver which DT node defines:
+  clocks = <&foo_clock 1 2 3>, <&bar_clock 2>;
+  clock-names = "foo", "bar";
+If driver calls clk_get_by_name(fdt, node, "bar"), it does not need to
+wait &foo_clock related driver to be already probed, it does not even
+need the driver to be ever probed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8229cb0097805e2e4014d6f5dffca443c6b7185b core: dt_driver: do not defer probe on skip phandler arguments]
+Change-Id: Ibaba71e3ae48658b8eced8f95c5fa7d06ba4abc6
+Fixes: a22e85b25772 ("core: dt_driver: factorize clk_dt_get_from_provider()")
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from c038f3dadfc2f3f75dcd6610f9624760f1d67a63]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/kernel/dt_driver.c | 34 +++++++++++++++++++++++++++++-----
+ 1 file changed, 29 insertions(+), 5 deletions(-)
+
+diff --git a/core/kernel/dt_driver.c b/core/kernel/dt_driver.c
+index 4ffac3785..48fc4fc12 100644
+--- a/core/kernel/dt_driver.c
++++ b/core/kernel/dt_driver.c
+@@ -383,21 +383,45 @@ TEE_Result dt_driver_device_from_node_idx_prop(const char *prop_name,
+ 				return TEE_ERROR_GENERIC;
+ 
+ 			prv = dt_driver_get_provider_by_node(nodeoffset, type);
+-			if (!prv)
+-				return TEE_ERROR_DEFER_DRIVER_INIT;
+ 		} else {
+ 			prv = dt_driver_get_provider_by_phandle(phandle, type);
+-			if (!prv)
+-				return TEE_ERROR_DEFER_DRIVER_INIT;
+ 		}
+ 
+-		prv_cells = dt_driver_provider_cells(prv);
++		if (prv) {
++			prv_cells = dt_driver_provider_cells(prv);
++		} else if (prop_idx) {
++			/*
++			 * When we need to skip another provider phandle
++			 * arguments cells (aka when prop_idx != 0), we don't
++			 * really need the skipped provider to be already
++			 * registered, we can look straight in its DT node.
++			 */
++			phandle_node = fdt_node_offset_by_phandle(fdt, phandle);
++			if (phandle_node < 0) {
++				DMSG("Can't find node for phandle %"PRIu32,
++				     phandle);
++				return TEE_ERROR_GENERIC;
++			}
++
++			prv_cells = fdt_get_dt_driver_cells(fdt, phandle_node,
++							    type);
++			if (prv_cells < 0) {
++				DMSG("Can't find cells count on node %s: %d",
++				     fdt_get_name(fdt, phandle_node, NULL),
++				     prv_cells);
++				return TEE_ERROR_GENERIC;
++			}
++		}
++
+ 		if (prop_idx) {
+ 			prop_idx--;
+ 			idx += sizeof(phandle) + prv_cells * sizeof(uint32_t);
+ 			continue;
+ 		}
+ 
++		if (!prv)
++			return TEE_ERROR_DEFER_DRIVER_INIT;
++
+ 		/* Skip property cell with the phandle, already handled */
+ 		idx32++;
+ 
+-- 
+2.47.2
+

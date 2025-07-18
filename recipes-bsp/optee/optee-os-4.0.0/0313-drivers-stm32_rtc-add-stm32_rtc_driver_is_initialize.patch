@@ -1,0 +1,57 @@
+From 72d33ff7c7a3cdc6442ed948279c75f20832738e Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 1 Dec 2023 12:18:05 +0100
+Subject: [PATCH 0313/1695] drivers: stm32_rtc: add
+ stm32_rtc_driver_is_initialized()
+
+Add stm32_rtc_driver_is_initialized() to manage other drivers dependency
+on this driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7737e4403e24eb038f7bfd072d26516dd2a71aa3 drivers: stm32_rtc: add stm32_rtc_driver_is_initialized()]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I3ed97e9ae5a997789db49465b3fd2cd971ad16ed
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/343292
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_rtc.c         | 8 ++++++++
+ core/include/drivers/stm32_rtc.h | 2 ++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/core/drivers/stm32_rtc.c b/core/drivers/stm32_rtc.c
+index ba085fcbf..e926128e3 100644
+--- a/core/drivers/stm32_rtc.c
++++ b/core/drivers/stm32_rtc.c
+@@ -552,6 +552,14 @@ TEE_Result stm32_rtc_is_timestamp_enable(bool *ret)
+ 	return TEE_SUCCESS;
+ }
+ 
++TEE_Result stm32_rtc_driver_is_initialized(void)
++{
++	if (rtc_dev.pclk)
++		return TEE_SUCCESS;
++
++	return TEE_ERROR_DEFER_DRIVER_INIT;
++}
++
+ static TEE_Result check_rif_config(void)
+ {
+ 	uint32_t rxcidcfgr = io_read32(get_base() +
+diff --git a/core/include/drivers/stm32_rtc.h b/core/include/drivers/stm32_rtc.h
+index 515eb318b..c64dda7f2 100644
+--- a/core/include/drivers/stm32_rtc.h
++++ b/core/include/drivers/stm32_rtc.h
+@@ -82,4 +82,6 @@ TEE_Result stm32_rtc_is_timestamp_enable(bool *ret);
+  */
+ TEE_Result stm32_rtc_get_timestamp(struct stm32_rtc_time *tamp_ts);
+ 
++TEE_Result stm32_rtc_driver_is_initialized(void);
++
+ #endif /* __PLAT_RTC_H__ */
+-- 
+2.47.2
+

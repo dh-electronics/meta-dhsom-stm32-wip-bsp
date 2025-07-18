@@ -1,0 +1,71 @@
+From 26d7d6228860267f4b5dbdec444a5b9e07bde7ae Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 2 Apr 2025 11:51:49 +0200
+Subject: [PATCH 1685/1695] drivers: stm32_bsec: export stm32mp2x debug defines
+ in header file
+
+Add definition of stm32mp2x BSEC debug controls to header file to allow
+ADAC glue to convert permissions mask to apply into BSEC debug
+configurations.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a51dfdb83b19aecfa419cc3163faa23ac5613342 drivers: stm32_bsec: export stm32mp2x debug defines in header file]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: Ib458d224daefa911d5f5d041b99312d39169f8aa
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/451703
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/include/drivers/stm32_bsec.h | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/core/include/drivers/stm32_bsec.h b/core/include/drivers/stm32_bsec.h
+index effad82bc..88e5b5191 100644
+--- a/core/include/drivers/stm32_bsec.h
++++ b/core/include/drivers/stm32_bsec.h
+@@ -12,6 +12,19 @@
+ #include <types_ext.h>
+ 
+ /* BSEC_DEBUG */
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23) || defined(CFG_STM32MP21)
++#define BSEC_DBGENA			BIT(1)
++#define BSEC_NIDENA			BIT(2)
++#define BSEC_DEVICEEN			BIT(3)
++#define BSEC_HDPEN			BIT(4)
++#define BSEC_SPIDENA			BIT(5)
++#define BSEC_SPNIDENA			BIT(6)
++#define BSEC_DBGSWEN			BIT(7)
++#define BSEC_DBGENM			BIT(8)
++#define BSEC_NIDENM			BIT(9)
++#define BSEC_SPIDENM			BIT(10)
++#define BSEC_SPNIDENM			BIT(11)
++#else /* STM32MP1x */
+ #define BSEC_HDPEN			BIT(4)
+ #define BSEC_SPIDEN			BIT(5)
+ #define BSEC_SPINDEN			BIT(6)
+@@ -20,6 +33,21 @@
+ 					 BSEC_SPIDEN | \
+ 					 BSEC_SPINDEN | \
+ 					 BSEC_DBGSWGEN)
++#endif
++#if defined(CFG_STM32MP21)
++#define BSEC_AUTH_UNLOCK_MSK		GENMASK_32(15, 8)
++#define BSEC_AUTH_UNLOCK(val)		(((val) << 8) & BSEC_AUTH_UNLOCK_MSK)
++#define BSEC_AUTH_HDPL_MSK		GENMASK_32(23, 16)
++#define BSEC_AUTH_HDPL(val)		(((val) << 16) & BSEC_AUTH_HDPL_MSK)
++#define BSEC_AUTH_SEC_MSK		GENMASK_32(31, 24)
++#define BSEC_AUTH_SEC(val)		(((val) << 24) & BSEC_AUTH_SEC_MSK)
++#define BSEC_AUTH_UNLOCKED		0xb4
++#define BSEC_AUTH_LOCKED		0xff
++#define BSEC_AUTH_HDPL0			0xb4
++#define BSEC_AUTH_HDPL1			0x51
++#define BSEC_AUTH_HDPL2			0x8a
++#define BSEC_AUTH_HDPL3			0x6f
++#endif
+ 
+ #define BSEC_BITS_PER_WORD		(8U * sizeof(uint32_t))
+ #define BSEC_BYTES_PER_WORD		sizeof(uint32_t)
+-- 
+2.47.2
+

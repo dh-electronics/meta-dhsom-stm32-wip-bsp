@@ -1,0 +1,44 @@
+From ba96f3d0c3545a8ec8f78eee75ab95ae731630f9 Mon Sep 17 00:00:00 2001
+From: Jens Wiklander <jens.wiklander@linaro.org>
+Date: Fri, 1 Dec 2023 11:55:54 +0100
+Subject: [PATCH 0087/1695] core: panic(): avoid panic in panic
+
+When configured with CFG_HALT_CORES_ON_PANIC=y panic() sends a secure
+SGI to all other CPUs to trap all of them, but if interrupts haven't
+been configured yet it triggers a cascade of panics. So add a check to
+see if interrupts are configured before trying to trap the other CPUs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ddf7ded1eaeddbab763a7a2324570bb893c72251 core: panic(): avoid panic in panic]
+Change-Id: Ibfac00031aa7d3529691229f811ecad1bb23ac40
+Fixes: 2b719df0fc1c ("core: interrupt: halt other cores when one is panicking")
+Signed-off-by: Jens Wiklander <jens.wiklander@linaro.org>
+[etienne: cherry-picked from 01ef3c7903e8a54f24a9245feca4644941b6bc62]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/kernel/panic.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/core/kernel/panic.c b/core/kernel/panic.c
+index 7939854bb..9edef97d8 100644
+--- a/core/kernel/panic.c
++++ b/core/kernel/panic.c
+@@ -34,9 +34,13 @@ DECLARE_KEEP_PAGER(multi_core_panic_handler);
+ 
+ static void notify_other_cores(void)
+ {
+-	interrupt_raise_sgi(interrupt_get_main_chip(),
+-			    CFG_HALT_CORES_ON_PANIC_SGI,
+-			    ITR_CPU_MASK_TO_OTHER_CPUS);
++	struct itr_chip *chip = interrupt_get_main_chip_may_fail();
++
++	if (chip)
++		interrupt_raise_sgi(chip, CFG_HALT_CORES_ON_PANIC_SGI,
++				    ITR_CPU_MASK_TO_OTHER_CPUS);
++	else
++		EMSG("Can't notify other cores, main interrupt chip not set");
+ }
+ 
+ static TEE_Result init_multi_core_panic_handler(void)
+-- 
+2.47.2
+

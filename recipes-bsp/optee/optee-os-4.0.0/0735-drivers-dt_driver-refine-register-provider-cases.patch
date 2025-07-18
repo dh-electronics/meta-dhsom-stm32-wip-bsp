@@ -1,0 +1,66 @@
+From fa1f98d9a6c3abad9e5f3790b6abdfdd0d40d801 Mon Sep 17 00:00:00 2001
+From: Olivier Moysan <olivier.moysan@foss.st.com>
+Date: Wed, 10 Apr 2024 15:49:35 +0200
+Subject: [PATCH 0735/1695] drivers: dt_driver: refine register provider cases
+
+When registering different kinds of providers, each provider may or may
+not needs to get specific information from the device tree.
+
+This commit specifies which information each type of provider needs
+to grab from the DT. Pinctrl never need driver cells so
+fdt_get_dt_driver_cells() is not called anymore.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2992f286b7c9d59be43132db6b3b9477e14f4bd8 drivers: dt_driver: refine register provider cases]
+Change-Id: I7c14af585952a8ef1b697256cbc70003db07fb13
+Signed-off-by: Olivier Moysan <olivier.moysan@foss.st.com>
+Signed-off-by: Gatien Chevallier <gatien.chevallier@st.com>
+---
+ core/include/kernel/dt_driver.h | 2 ++
+ core/kernel/dt_driver.c         | 4 ++++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/core/include/kernel/dt_driver.h b/core/include/kernel/dt_driver.h
+index d8610bc29..9eb52c2e2 100644
+--- a/core/include/kernel/dt_driver.h
++++ b/core/include/kernel/dt_driver.h
+@@ -26,6 +26,7 @@
+  * DT_DRIVER_INTERRUPT Interrupt controller using generic DT bindings
+  * DT_DRIVER_REGULATOR Voltage regulator controller using generic DT bindings
+  * DT_DRIVER_NVMEM NVMEM controller using generic NVMEM DT bindings
++ * DT_DRIVER_ADC ADC controller using generic reset DT bindings
+  */
+ enum dt_driver_type {
+ 	DT_DRIVER_NOTYPE,
+@@ -38,6 +39,7 @@ enum dt_driver_type {
+ 	DT_DRIVER_INTERRUPT,
+ 	DT_DRIVER_REGULATOR,
+ 	DT_DRIVER_NVMEM,
++	DT_DRIVER_ADC,
+ };
+ 
+ /*
+diff --git a/core/kernel/dt_driver.c b/core/kernel/dt_driver.c
+index 30dfa46cf..42644d637 100644
+--- a/core/kernel/dt_driver.c
++++ b/core/kernel/dt_driver.c
+@@ -108,6 +108,7 @@ static void assert_type_is_valid(enum dt_driver_type type)
+ 	case DT_DRIVER_UART:
+ 	case DT_DRIVER_GPIO:
+ 	case DT_DRIVER_I2C:
++	case DT_DRIVER_ADC:
+ 	case DT_DRIVER_PINCTRL:
+ 	case DT_DRIVER_INTERRUPT:
+ 	case DT_DRIVER_REGULATOR:
+@@ -186,6 +187,9 @@ int fdt_get_dt_driver_cells(const void *fdt, int nodeoffset,
+ 		return 0;
+ 
+ 	switch (type) {
++	case DT_DRIVER_ADC:
++		cells_name = "#io-channel-cells";
++		break;
+ 	case DT_DRIVER_CLK:
+ 		cells_name = "#clock-cells";
+ 		break;
+-- 
+2.47.2
+

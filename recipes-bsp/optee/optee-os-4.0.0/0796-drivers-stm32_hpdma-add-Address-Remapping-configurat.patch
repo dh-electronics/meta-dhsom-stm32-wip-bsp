@@ -1,0 +1,107 @@
+From 260deb3601b7bc2c5ac83ef5f87e03264ca5f1eb Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Mon, 19 Feb 2024 14:33:14 +0100
+Subject: [PATCH 0796/1695] drivers: stm32_hpdma: add Address Remapping
+ configuration support
+
+Based on st,syscfg-arcr DT property, configure the address remapping
+logic in front of the HPDMA AXI port.
+When remapping is enabled, the 4GB address space accessible by the HPDMA
+AXI port starts at 0x80000000, while it starts at 0x0 when remapping is
+disabled.
+When remapping is enabled, HPDMA is able to address 4GB of DDR.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c8e1b9fac789fa292e630f3698c15d68c9927ceb drivers: stm32_hpdma: add Address Remapping configuration support]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: Ie2e7302da81aac9a731cd38c61a2ea5eff6a5978
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372998
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_hpdma.c | 41 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/core/drivers/stm32_hpdma.c b/core/drivers/stm32_hpdma.c
+index 76364b667..89aa402be 100644
+--- a/core/drivers/stm32_hpdma.c
++++ b/core/drivers/stm32_hpdma.c
+@@ -20,6 +20,7 @@
+ #include <mm/core_memprot.h>
+ #include <stdbool.h>
+ #include <stdlib.h>
++#include <stm32_sysconf.h>
+ #include <stm32_util.h>
+ #include <trace.h>
+ 
+@@ -77,6 +78,7 @@
+ struct hpdma_pdata {
+ 	struct clk *hpdma_clock;
+ 	struct rif_conf_data conf_data;
++	uint32_t syscfg_arcr[2];
+ 	unsigned int nb_channels;
+ 	vaddr_t base;
+ 
+@@ -86,6 +88,35 @@ struct hpdma_pdata {
+ static SLIST_HEAD(, hpdma_pdata) hpdma_list =
+ 		SLIST_HEAD_INITIALIZER(hpdma_list);
+ 
++static TEE_Result stm32_hpdma_syscfg_set_arcr(struct hpdma_pdata *hpdma_d)
++{
++	uint32_t offset = hpdma_d->syscfg_arcr[0];
++	uint32_t mask = hpdma_d->syscfg_arcr[1];
++
++	if (!IS_ENABLED(CFG_STM32MP21) || !offset)
++		return TEE_SUCCESS;
++
++	/* Verify that offset is consistent */
++	if (SYSCON_ID(SYSCON_SYSCFG, offset) != SYSCFG_HPDMAARCR) {
++		EMSG("HPDMA offset for axi address remap is incorrect: %u",
++		     offset);
++		return TEE_ERROR_BAD_PARAMETERS;
++	}
++
++	/* Verify that mask is consistent */
++	if (!(mask == SYSCFG_HPDMAARCR_HPDMA1AREN ||
++	      mask == SYSCFG_HPDMAARCR_HPDMA2AREN ||
++	      mask == SYSCFG_HPDMAARCR_HPDMA3AREN)) {
++		EMSG("HPDMA bitmask for axi address remap is incorrect: %u",
++		     mask);
++		return TEE_ERROR_BAD_PARAMETERS;
++	}
++
++	stm32mp_syscfg_write(SYSCFG_HPDMAARCR, mask, mask);
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result apply_rif_config(struct hpdma_pdata *hpdma_d, bool is_tdcid)
+ {
+ 	TEE_Result res = TEE_ERROR_ACCESS_DENIED;
+@@ -245,6 +276,12 @@ static TEE_Result parse_dt(const void *fdt, int node,
+ 				    HPDMA_RIF_CHANNELS);
+ 	}
+ 
++	cuint = fdt_getprop(fdt, node, "st,syscfg-arcr", &lenp);
++	if (cuint && (lenp / sizeof(uint32_t)) == 3) {
++		hpdma_d->syscfg_arcr[0] = fdt32_to_cpu(cuint[1]);
++		hpdma_d->syscfg_arcr[1] = fdt32_to_cpu(cuint[2]);
++	}
++
+ 	return TEE_SUCCESS;
+ }
+ 
+@@ -337,6 +374,10 @@ static TEE_Result stm32_hpdma_probe(const void *fdt, int node,
+ 	if (res)
+ 		panic("Failed to apply RIF config");
+ 
++	res = stm32_hpdma_syscfg_set_arcr(hpdma_d);
++	if (res)
++		panic("Failed to apply hpdma AXI port configuration");
++
+ 	clk_disable(hpdma_d->hpdma_clock);
+ 
+ 	SLIST_INSERT_HEAD(&hpdma_list, hpdma_d, link);
+-- 
+2.47.2
+

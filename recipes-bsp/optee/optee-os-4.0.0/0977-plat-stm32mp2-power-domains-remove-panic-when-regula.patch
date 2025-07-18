@@ -1,0 +1,56 @@
+From 1a66f95ad8765a8869c059286d43dd162d02789c Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 28 Jun 2024 15:02:48 +0200
+Subject: [PATCH 0977/1695] plat-stm32mp2: power-domains: remove panic when
+ regulator not found
+
+Panic breaks the boot of mp251 boards that have not a GPU regulator
+defined. So just print a debug message to warn the user.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git df9af71e73ded64c2b3296578660b5a0f6fe3085 plat-stm32mp2: power-domains: remove panic when regulator not found]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I29343d11d57dd94f273b9f16cbc98a8f2cf65ba2
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/390374
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     | 22 +++++++------------
+ 1 file changed, 8 insertions(+), 14 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index 84c9425e4..473f21f17 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -769,20 +769,14 @@ static void scmi_scpfw_cfg_init_channel(const char *name,
+ 			for (j = 0; j < channel_cfg->pd_count; j++) {
+ 				struct clk *clk = stm32mp_rcc_clock_id_to_clk(
+ 					chan_res.pd[j].clock_id);
+-				struct regulator *regu = NULL;
+-
+-				if (chan_res.pd[j].regu_name) {
+-					regu = regulator_get_by_name(
+-						chan_res.pd[j].regu_name);
+-
+-					if (!regu) {
+-						EMSG("Regulator %s not found "
+-						     "for %s power domain",
+-						     chan_res.pd[j].regu_name,
+-						     chan_res.pd[j].name);
+-						panic();
+-					}
+-				}
++				struct regulator *regu = regulator_get_by_name(
++					chan_res.pd[j].regu_name);
++
++				if (!regu)
++					DMSG("Regulator %s not found "
++					     "for %s power domain",
++					     chan_res.pd[j].regu_name,
++					     chan_res.pd[j].name);
+ 
+ 				if (!clk)
+ 					DMSG("Clock ID %ld not found for %s "
+-- 
+2.47.2
+

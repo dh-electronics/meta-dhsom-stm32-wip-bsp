@@ -1,0 +1,49 @@
+From e8033c3c68e7b06242a08d95b712d82c0a0f9d4f Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 19 Mar 2024 14:21:50 +0100
+Subject: [PATCH 0766/1695] plat-stm32mp1: fix calibration failed
+
+Add break condition to finalize the calibration (when the difference
+is equal to the last one).
+This patch also remove useless test with freq == 0 (already tested
+by a panic in get_freq())
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 58d5f51443b8b9df7a9897dcaa02637fd4a5d156 plat-stm32mp1: fix calibration failed]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Id44b58283aabc68a313a60a42e56594410d0c04b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/367768
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/374133
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c
+index 52855dfa5..a21b577fb 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_calib.c
+@@ -285,16 +285,13 @@ static void osc_calibration(struct stm32mp1_clk_cal *clk_cal)
+ 
+ 		clk_cal->set_trim(new_trim, clk_cal->cal_ref);
+ 		freq = get_freq(clk_cal);
+-		if (freq == 0) {
+-			/* Calibration will be stopped */
+-			clk_cal->ref_freq = 0U;
+-			return;
+-		}
+ 		conv = (clk_cal->ref_freq < freq) ?
+ 			freq - clk_cal->ref_freq : clk_cal->ref_freq - freq;
+ 		if (conv < min_conv) {
+ 			min_conv = conv;
+ 			trim = new_trim;
++		} else if (conv == min_conv) {
++			break;
+ 		}
+ 
+ 		if (timeout_elapsed(timeout_ref))
+-- 
+2.47.2
+

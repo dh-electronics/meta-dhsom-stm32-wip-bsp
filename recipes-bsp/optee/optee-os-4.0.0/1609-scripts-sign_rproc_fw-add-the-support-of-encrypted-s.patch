@@ -1,0 +1,73 @@
+From db03be84d5326b766a2cebb8275b7f0ceb318bdd Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Wed, 26 Feb 2025 18:23:54 +0100
+Subject: [PATCH 1609/1695] scripts: sign_rproc_fw: add the support of
+ encrypted signature key
+
+Add possibility to provide a passphrase for an encrypted PEM key
+used for the signature.
+
+The passphrase is provided with the optional --key_pwd argument.
+
+usage:
+ --key_pwd="my password"
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 00fd68f7f3becc16ca81c806cceaabdf9e1b8347 scripts: sign_rproc_fw: add the support of encrypted signature key]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Acked-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Acked-by: Jerome Forissier <jerome.forissier@linaro.org>
+Change-Id: Ifbe0d662496de142f309219e3a17ff7a17fde9d6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/442850
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+---
+ scripts/sign_rproc_fw.py | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/scripts/sign_rproc_fw.py b/scripts/sign_rproc_fw.py
+index 30f91bc7a..cf6c53fe8 100755
+--- a/scripts/sign_rproc_fw.py
++++ b/scripts/sign_rproc_fw.py
+@@ -419,6 +419,9 @@ def get_args(logger):
+                         help='Type of signing key: should be RSA or ECC',
+                         default='RSA',
+                         dest='key_type')
++    parser.add_argument('--key_pwd', required=False,
++                        help='passphrase for the private key decryption',
++                        dest='key_pwd')
+     parser.add_argument('--plat-tlv', required=False, nargs=2,
+                         metavar=("ID", "value"), action='append',
+                         help='Platform TLV that will be placed into image '
+@@ -441,12 +444,12 @@ def get_args(logger):
+     return parsed
+ 
+ 
+-def rsa_key(key_file):
+-    return RSA.importKey(open(key_file).read())
++def rsa_key(key_file, key_pwd):
++    return RSA.importKey(open(key_file).read(), key_pwd)
+ 
+ 
+-def ecc_key(key_file):
+-    return ECC.import_key(open(key_file).read())
++def ecc_key(key_file, key_pwd):
++    return ECC.import_key(open(key_file).read(), key_pwd)
+ 
+ 
+ key_type = {
+@@ -491,7 +494,7 @@ def main():
+     sign_type = ENUM_SIGNATURE_TYPE[args.key_type]
+     get_key = key_type.get(sign_type, lambda: "Invalid sign type")
+ 
+-    key = get_key(args.key_file)
++    key = get_key(args.key_file, args.key_pwd)
+ 
+     if not key.has_private():
+         print('Provided key cannot be used for signing, ')
+-- 
+2.47.2
+

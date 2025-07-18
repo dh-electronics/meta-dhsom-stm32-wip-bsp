@@ -1,0 +1,82 @@
+From 5f59d55a4fdb20bb9dec1e4b177de0fa7c604788 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 23 Nov 2023 23:32:36 +0100
+Subject: [PATCH 0080/1695] core: rename struct tee_ta_dump_stats
+
+Rename struct tee_ta_dump_stats to struct pta_stats_ta to prepare
+the creation of pta_stats.h header file that will define the
+whole statistics PTA API and ABI, located in libutee/include/
+as already done for all other PTAs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 27baa1e24fa9891f2c4a848e9c13fce7b93ac3af core: rename struct tee_ta_dump_stats]
+Change-Id: Ie3b13b5a75a995a3da9ed967cf72c7de49470ff8
+Reviewed-by: Jens Wiklander <jens.wiklander@linaro.org>
+Acked-by: Jerome Forissier <jerome.forissier@linaro.org>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 5411580903380bf16dc8709def469db2464bc0fa]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/kernel/tee_ta_manager.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/core/kernel/tee_ta_manager.c b/core/kernel/tee_ta_manager.c
+index f17ef926f..adde89c37 100644
+--- a/core/kernel/tee_ta_manager.c
++++ b/core/kernel/tee_ta_manager.c
+@@ -37,7 +37,7 @@
+ 
+ #if defined(CFG_TA_STATS)
+ #define MAX_DUMP_SESS_NUM	(16)
+-struct tee_ta_dump_stats {
++struct pta_stats_ta {
+ 	TEE_UUID uuid;
+ 	uint32_t panicked;	/* True if TA has panicked */
+ 	uint32_t sess_num;	/* Number of opened session */
+@@ -879,7 +879,7 @@ static void init_dump_ctx(struct tee_ta_dump_ctx *dump_ctx)
+ }
+ 
+ static TEE_Result dump_ta_stats(struct tee_ta_dump_ctx *dump_ctx,
+-				struct tee_ta_dump_stats *dump_stats,
++				struct pta_stats_ta *dump_stats,
+ 				size_t ta_count)
+ {
+ 	TEE_Result res = TEE_SUCCESS;
+@@ -892,7 +892,7 @@ static TEE_Result dump_ta_stats(struct tee_ta_dump_ctx *dump_ctx,
+ 	nsec_sessions_list_head(&open_sessions);
+ 
+ 	for (i = 0; i < ta_count; i++) {
+-		struct tee_ta_dump_stats *stats = &dump_stats[i];
++		struct pta_stats_ta *stats = &dump_stats[i];
+ 
+ 		memcpy(&stats->uuid, &dump_ctx[i].uuid,
+ 		       sizeof(dump_ctx[i].uuid));
+@@ -932,7 +932,7 @@ static TEE_Result dump_ta_stats(struct tee_ta_dump_ctx *dump_ctx,
+ TEE_Result tee_ta_instance_stats(void *buf, size_t *buf_size)
+ {
+ 	TEE_Result res = TEE_SUCCESS;
+-	struct tee_ta_dump_stats *dump_stats = NULL;
++	struct pta_stats_ta *dump_stats = NULL;
+ 	struct tee_ta_dump_ctx *dump_ctx = NULL;
+ 	struct tee_ta_ctx *ctx = NULL;
+ 	size_t sz = 0;
+@@ -948,7 +948,7 @@ TEE_Result tee_ta_instance_stats(void *buf, size_t *buf_size)
+ 		if (is_user_ta_ctx(&ctx->ts_ctx))
+ 			ta_count++;
+ 
+-	sz = sizeof(struct tee_ta_dump_stats) * ta_count;
++	sz = sizeof(struct pta_stats_ta) * ta_count;
+ 	if (!sz) {
+ 		/* sz = 0 means there is no UTA, return no item found. */
+ 		res = TEE_ERROR_ITEM_NOT_FOUND;
+@@ -964,7 +964,7 @@ TEE_Result tee_ta_instance_stats(void *buf, size_t *buf_size)
+ 		DMSG("Data alignment");
+ 		res = TEE_ERROR_BAD_PARAMETERS;
+ 	} else {
+-		dump_stats = (struct tee_ta_dump_stats *)buf;
++		dump_stats = (struct pta_stats_ta *)buf;
+ 		dump_ctx = malloc(sizeof(struct tee_ta_dump_ctx) * ta_count);
+ 		if (!dump_ctx)
+ 			res = TEE_ERROR_OUT_OF_MEMORY;
+-- 
+2.47.2
+

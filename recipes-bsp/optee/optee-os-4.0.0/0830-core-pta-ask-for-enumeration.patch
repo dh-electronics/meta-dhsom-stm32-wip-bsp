@@ -1,0 +1,54 @@
+From 297dc1065746160f4ec3838efe3a8dd27e6d54ad Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 25 Apr 2024 10:01:25 +0200
+Subject: [PATCH 0830/1695] core: pta: ask for enumeration
+
+Add a .ask_for_enumeration operation for PTAs that know at boot time
+whether they can operate (registered dependencies) or not.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d510150c55f556a958b2b893c4bf1fabc20e4296 core: pta: ask for enumeration]
+Change-Id: Ia2133952399ea9df0333eba51b3a7d82bf70a62d
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/377161
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/include/kernel/pseudo_ta.h | 1 +
+ core/pta/device.c               | 7 ++++++-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/core/include/kernel/pseudo_ta.h b/core/include/kernel/pseudo_ta.h
+index 965ca0d43..b2a138ca0 100644
+--- a/core/include/kernel/pseudo_ta.h
++++ b/core/include/kernel/pseudo_ta.h
+@@ -40,6 +40,7 @@ struct pseudo_ta_head {
+ 	TEE_Result (*invoke_command_entry_point)(void *pSessionContext,
+ 			uint32_t nCommandID, uint32_t nParamTypes,
+ 			TEE_Param pParams[TEE_NUM_PARAMS]);
++	bool (*ask_for_enumeration)(void);
+ };
+ 
+ #define pseudo_ta_register(...)	\
+diff --git a/core/pta/device.c b/core/pta/device.c
+index 1a026a62b..90db69da1 100644
+--- a/core/pta/device.c
++++ b/core/pta/device.c
+@@ -60,8 +60,13 @@ static TEE_Result get_devices(uint32_t types,
+ 	buf =  params[0].memref.buffer;
+ 	blen = params[0].memref.size;
+ 
+-	SCATTERED_ARRAY_FOREACH(ta, pseudo_tas, struct pseudo_ta_head)
++	SCATTERED_ARRAY_FOREACH(ta, pseudo_tas, struct pseudo_ta_head) {
++		/* PTA may dynamically request not be enumerated */
++		if (ta->ask_for_enumeration && !ta->ask_for_enumeration())
++			continue;
++
+ 		add_ta(ta->flags, &ta->uuid, buf, blen, &pos, rflags);
++	}
+ 
+ 	if (stmm_get_uuid())
+ 		add_ta(TA_FLAG_DEVICE_ENUM_SUPP, stmm_get_uuid(), buf, blen,
+-- 
+2.47.2
+

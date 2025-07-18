@@ -1,0 +1,46 @@
+From 6c1c0b861b8c051cada0cd961a7d83eec99b125c Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 9 Aug 2024 15:08:54 +0200
+Subject: [PATCH 1058/1695] tfm: ensure -std=gnu11 compiler flag is not
+ overridden.
+
+CMAKE_C_STANDARD statements are not enough as they are overridden by TFM
+build-system:
+
+    ... -std=gnu11 ... -std=c99 ... -std=c11
+        ^^^^^^^^^^     ^^^^^^^^      ^^^^^^^^
+        |              |             + contribution from this patch
+        |              + contribution from tfm/toolchain_GNUARM.cmake:macro(tfm_toolchain_reset_compiler_flags)
+        + contribution from scp/CMakeLists.txt:set(CMAKE_C_STANDARD 11)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d9ab60de0e4f07d2ec67737326718552c3e8e62a tfm: ensure -std=gnu11 compiler flag is not overridden.]
+Change-Id: I9f141f1f70f988f26a659d114e7d06d7848dd395
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Signed-off-by: Cedric Vincent <cedric.vincent@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/397773
+Domain-Review: Ludovic BARRE <ludovic.barre@foss.st.com>
+Tested-by: Ludovic BARRE <ludovic.barre@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../SCP-firmware/product/tfm-stm32mp2/fw/CMakeLists.txt     | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/CMakeLists.txt
+index 040e655b8..341869942 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/CMakeLists.txt
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/CMakeLists.txt
+@@ -27,3 +27,9 @@ target_sources(
+     ${SCP_FIRMWARE_TARGET}
+     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/config_all.c"
+ )
++
++#
++# Ensure TF-M build-system does not override requested C standard.
++#
++
++add_compile_options(-std=gnu11)
+-- 
+2.47.2
+

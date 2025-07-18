@@ -1,0 +1,80 @@
+From 71ab55a892daa5f8b67ebd86036e58750d1e25e3 Mon Sep 17 00:00:00 2001
+From: Nicolas Toromanoff <nicolas.toromanoff@foss.st.com>
+Date: Fri, 14 Mar 2025 15:22:24 +0100
+Subject: [PATCH 1634/1695] drivers: stm32_ltdc: fix shadow registers usage
+
+The LTDC_LX* registers are shadowed,
+written value are only read back after the next VSYNC.
+the io_clrbits32() action wont be "active" at the io_setbits32() call,
+so some bits may never be cleared.
+This is visible in mp13 where the secured layer can also be used
+by the non secured, and some bits will stay at 1 even if we expect them
+lowered to 0.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git dd0a5c1fbae4397ee93cd829f7d18b083f7fdd4d drivers: stm32_ltdc: fix shadow registers usage]
+Change-Id: Ia5cb21d4567ad1e90bd13f880a4176636815119b
+Signed-off-by: Nicolas Toromanoff <nicolas.toromanoff@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/444322
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Nicolas TOROMANOFF <nicolas.toromanoff@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Nicolas TOROMANOFF <nicolas.toromanoff@st.com>
+Domain-Review: Yannick FERTRE <yannick.fertre@foss.st.com>
+---
+ core/drivers/stm32_ltdc.c | 24 ++++++++++--------------
+ 1 file changed, 10 insertions(+), 14 deletions(-)
+
+diff --git a/core/drivers/stm32_ltdc.c b/core/drivers/stm32_ltdc.c
+index e87e5c1e5..8d18b3fd3 100644
+--- a/core/drivers/stm32_ltdc.c
++++ b/core/drivers/stm32_ltdc.c
+@@ -97,7 +97,6 @@ struct ltdc_device {
+ #define LTDC_LXDCCR_DCGREEN	GENMASK_32(15, 8)
+ #define LTDC_LXDCCR_DCRED	GENMASK_32(23, 16)
+ #define LTDC_LXDCCR_DCALPHA	GENMASK_32(31, 24)
+-#define LTDC_LXCFBAR_CFBADD	GENMASK_32(31, 0)
+ 
+ enum ltdc_pix_fmt {
+ 	LXPFCR_PF_ARGB8888,
+@@ -291,27 +290,24 @@ static TEE_Result stm32_ltdc_activate(void *device,
+ 			LTDC_LXWVPCR_WVSTPOS | LTDC_LXWVPCR_WVSPPOS, value);
+ 
+ 	/* Specifies the pixel format, hard coded */
+-	io_clrbits32(ldev->regs + LTDC_LXPFCR, LTDC_LXPFCR_PF);
+-	io_setbits32(ldev->regs + LTDC_LXPFCR, LXPFCR_PF_ARGB8888);
++	io_clrsetbits32(ldev->regs + LTDC_LXPFCR, LTDC_LXPFCR_PF,
++			LXPFCR_PF_ARGB8888);
+ 
+ 	/* Configure the default color values, hard coded */
+-	io_clrbits32(ldev->regs + LTDC_LXDCCR,
+-		     LTDC_LXDCCR_DCBLUE | LTDC_LXDCCR_DCGREEN |
+-		     LTDC_LXDCCR_DCRED | LTDC_LXDCCR_DCALPHA);
+-	io_setbits32(ldev->regs + LTDC_LXDCCR, 0x00FFFFFF);
++	io_clrsetbits32(ldev->regs + LTDC_LXDCCR,
++			LTDC_LXDCCR_DCBLUE | LTDC_LXDCCR_DCGREEN |
++			LTDC_LXDCCR_DCRED | LTDC_LXDCCR_DCALPHA,
++			0x00FFFFFF);
+ 
+ 	/* Specifies the constant alpha value, hard coded. */
+-	io_clrbits32(ldev->regs + LTDC_LXCACR, LTDC_LXCACR_CONSTA);
+-	io_setbits32(ldev->regs + LTDC_LXCACR, 0xFF);
++	io_clrsetbits32(ldev->regs + LTDC_LXCACR, LTDC_LXCACR_CONSTA, 0xFF);
+ 
+ 	/* Specifies the blending factors, hard coded. */
+-	io_clrbits32(ldev->regs + LTDC_LXBFCR, LXBFCR_BF2 | LXBFCR_BF1);
+-	io_setbits32(ldev->regs + LTDC_LXBFCR,
+-		     LXBFCR_BF1_PAXCA | LXBFCR_BF2_PAXCA);
++	io_clrsetbits32(ldev->regs + LTDC_LXBFCR, LXBFCR_BF2 | LXBFCR_BF1,
++			LXBFCR_BF1_PAXCA | LXBFCR_BF2_PAXCA);
+ 
+ 	/* Configure the color frame buffer start address. */
+-	io_clrbits32(ldev->regs + LTDC_LXCFBAR, LTDC_LXCFBAR_CFBADD);
+-	io_setbits32(ldev->regs + LTDC_LXCFBAR, fb_pbase);
++	io_write32(ldev->regs + LTDC_LXCFBAR, fb_pbase);
+ 
+ 	/* Configure the color frame buffer pitch in byte, assuming ARGB32. */
+ 	value =	((fb->width * 4) << 16) | (((x1 - x0) * 4)  + 3);
+-- 
+2.47.2
+

@@ -1,0 +1,45 @@
+From 38483769a0d5ecfb6bc2080557614ad86e8bb875 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 16 Apr 2024 10:22:59 +0200
+Subject: [PATCH 0897/1695] core: lib: scmi-server: add CMake defines for
+ embedded modules
+
+Enable CMake directive CMAKE_C_COMPILER_WORKS to prevent SCP-firmware
+CMake configuration sequence to check the cross compilation toolchain
+since it is not needed here: OP-TEE only uses CMake to configure
+SCP-firmware, not to build source files. This change is required when
+building OP-TEE with CFG_SCMI_SCPFW=y and using a CMake >= 3.27.0.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cfe0776c66aaa517009bbcc6a4dd602a6fe21a72 core: lib: scmi-server: add CMake defines for embedded modules]
+Suggested-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: I9b479cd1721d24feb990c29eaaf79719c5df2387
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Acked-by: Jerome Forissier <jerome.forissier@linaro.org>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/385400
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/lib/scmi-server/sub.mk | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/core/lib/scmi-server/sub.mk b/core/lib/scmi-server/sub.mk
+index 0064954c3..f321c12f9 100644
+--- a/core/lib/scmi-server/sub.mk
++++ b/core/lib/scmi-server/sub.mk
+@@ -38,6 +38,11 @@ scpfw-cmake-flags-y = -DSCP_FIRMWARE_SOURCE_DIR:PATH=$(scpfw-product)/fw \
+ 		      -DSCP_OPTEE_DIR:PATH=$(CURDIR) \
+ 		      -DCFG_CROSS_COMPILE=$(lastword $(CROSS_COMPILE_core))
+ 
++# CMake does not need to check the cross compilation toolchain since we do not
++# compile any source file with CMake, we only generate some SCP-firmware
++# files.
++scpfw-cmake-flags-y += -DCMAKE_C_COMPILER_WORKS=1
++
+ ifeq ($(cmd-echo-silent),true)
+ scpfw-cmake-redirect = >/dev/null
+ endif
+-- 
+2.47.2
+

@@ -1,0 +1,146 @@
+From 1445147fd5d46cef1c639ddda7bcf0341fc1c078 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Mon, 6 Dec 2021 10:54:12 +0100
+Subject: [PATCH 0316/1695] plat-stm32mp1: move the initialisation function in
+ the bsec interface
+
+Move the static BSEC structure and the interface to access this
+static structure in the bsec API.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 408484c4703aa8cfd5f328de5791bd068592ed16 plat-stm32mp1: move the initialisation function in the bsec interface]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Ib560e3829e352254bfb8c792f9cb89b54e534e34
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/247730
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/297446
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c             |  3 ++-
+ core/arch/arm/plat-stm32mp1/shared_resources.c |  1 +
+ core/arch/arm/plat-stm32mp1/stm32_util.h       | 16 ----------------
+ core/drivers/stm32_bsec.c                      |  2 +-
+ core/include/drivers/stm32_bsec.h              | 18 ++++++++++++++++++
+ 5 files changed, 22 insertions(+), 18 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index d382ced80..365838448 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -9,6 +9,7 @@
+ #include <console.h>
+ #include <drivers/gic.h>
+ #include <drivers/pinctrl.h>
++#include <drivers/stm32_bsec.h>
+ #include <drivers/stm32_etzpc.h>
+ #include <drivers/stm32_firewall.h>
+ #include <drivers/stm32_gpio.h>
+@@ -423,7 +424,7 @@ vaddr_t get_gicd_base(void)
+ 	return io_pa_or_va_secure(&base, 1);
+ }
+ 
+-void stm32mp_get_bsec_static_cfg(struct stm32_bsec_static_cfg *cfg)
++void plat_bsec_get_static_cfg(struct stm32_bsec_static_cfg *cfg)
+ {
+ 	cfg->base = BSEC_BASE;
+ 	cfg->upper_start = STM32MP1_UPPER_OTP_START;
+diff --git a/core/arch/arm/plat-stm32mp1/shared_resources.c b/core/arch/arm/plat-stm32mp1/shared_resources.c
+index 73f359116..94640b666 100644
+--- a/core/arch/arm/plat-stm32mp1/shared_resources.c
++++ b/core/arch/arm/plat-stm32mp1/shared_resources.c
+@@ -5,6 +5,7 @@
+ 
+ #include <config.h>
+ #include <drivers/pinctrl.h>
++#include <drivers/stm32_bsec.h>
+ #include <drivers/stm32_etzpc.h>
+ #include <drivers/stm32_gpio.h>
+ #include <drivers/stm32mp1_rcc.h>
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index ac37a26f6..996ce12ac 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -9,7 +9,6 @@
+ #include <assert.h>
+ #include <drivers/clk.h>
+ #include <drivers/pinctrl.h>
+-#include <drivers/stm32_bsec.h>
+ #include <drivers/stm32mp1_rcc_util.h>
+ #include <kernel/panic.h>
+ #include <stdbool.h>
+@@ -89,21 +88,6 @@ static inline bool stm32mp_nsec_can_access_reset(unsigned int reset_id __unused)
+ }
+ #endif /* CFG_STM32MP1_SHARED_RESOURCES */
+ 
+-/*
+- * Structure and API function for BSEC driver to get some platform data.
+- *
+- * @base: BSEC interface registers physical base address
+- * @upper_start: Base ID for the BSEC upper words in the platform
+- * @max_id: Max value for BSEC word ID for the platform
+- */
+-struct stm32_bsec_static_cfg {
+-	paddr_t base;
+-	unsigned int upper_start;
+-	unsigned int max_id;
+-};
+-
+-void stm32mp_get_bsec_static_cfg(struct stm32_bsec_static_cfg *cfg);
+-
+ /*
+  * Shared reference counter: increments by 2 on secure increment
+  * request, decrements by 2 on secure decrement request. Bit #0
+diff --git a/core/drivers/stm32_bsec.c b/core/drivers/stm32_bsec.c
+index 4a8796990..e0175af20 100644
+--- a/core/drivers/stm32_bsec.c
++++ b/core/drivers/stm32_bsec.c
+@@ -937,7 +937,7 @@ static TEE_Result initialize_bsec(void)
+ {
+ 	struct stm32_bsec_static_cfg cfg = { };
+ 
+-	stm32mp_get_bsec_static_cfg(&cfg);
++	plat_bsec_get_static_cfg(&cfg);
+ 
+ 	bsec_dev.base.pa = cfg.base;
+ 	bsec_dev.upper_base = cfg.upper_start;
+diff --git a/core/include/drivers/stm32_bsec.h b/core/include/drivers/stm32_bsec.h
+index f0577bc8b..8f3f2b2dd 100644
+--- a/core/include/drivers/stm32_bsec.h
++++ b/core/include/drivers/stm32_bsec.h
+@@ -9,6 +9,7 @@
+ #include <compiler.h>
+ #include <stdint.h>
+ #include <tee_api.h>
++#include <types_ext.h>
+ 
+ /* BSEC_DEBUG */
+ #define BSEC_HDPEN			BIT(4)
+@@ -30,6 +31,23 @@ enum stm32_bsec_sec_state {
+ 	BSEC_STATE_INVALID
+ };
+ 
++/*
++ * Structure and API function for BSEC driver to get some platform data.
++ *
++ * @base: BSEC interface registers physical base address
++ * @shadow: BSEC shadow base address
++ * @upper_start: Base ID for the BSEC upper words in the platform
++ * @max_id: Max value for BSEC word ID for the platform
++ */
++struct stm32_bsec_static_cfg {
++	paddr_t base;
++	paddr_t shadow;
++	unsigned int upper_start;
++	unsigned int max_id;
++};
++
++void plat_bsec_get_static_cfg(struct stm32_bsec_static_cfg *cfg);
++
+ /*
+  * Load OTP from SAFMEM and provide its value
+  * @value: Output read value
+-- 
+2.47.2
+

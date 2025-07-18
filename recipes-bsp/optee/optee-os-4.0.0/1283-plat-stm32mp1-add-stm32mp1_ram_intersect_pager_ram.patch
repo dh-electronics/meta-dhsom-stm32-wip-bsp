@@ -1,0 +1,69 @@
+From 5939601aec4c1f5c10ae44642c824197a7121b18 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 10 Oct 2024 18:28:07 +0200
+Subject: [PATCH 1283/1695] plat-stm32mp1: add
+ stm32mp1_ram_intersect_pager_ram()
+
+Add stm32mp1_ram_intersect_pager_ram() helper function to ease checking
+when a memory range falls into OP-TEE pager pool. This will be needed
+later to ensure memory used by OP-TEE pager is not re-assigned to
+another purpose. This change only consider STM32MP15 variant where
+OP-TEE pager can be used in internal RAMs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ac0ff5b190c3174f44c363fd13a3b3920714fc67 plat-stm32mp1: add stm32mp1_ram_intersect_pager_ram()]
+Change-Id: I95bdd0783f2cb37a0dfcb14b44b1c766d6d2d403
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/410509
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c       | 8 ++++++++
+ core/arch/arm/plat-stm32mp1/stm32_util.h | 9 +++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index ead6aa16c..f4b235bd9 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -877,4 +877,12 @@ paddr_t stm32mp1_pa_or_sram_alias_pa(paddr_t pa)
+ 
+ 	return pa;
+ }
++
++bool stm32mp1_ram_intersect_pager_ram(paddr_t base, size_t size)
++{
++	base = stm32mp1_pa_or_sram_alias_pa(base);
++
++	return core_is_buffer_intersect(base, size, CFG_TZSRAM_START,
++					CFG_TZSRAM_SIZE);
++}
+ #endif
+diff --git a/core/arch/arm/plat-stm32mp1/stm32_util.h b/core/arch/arm/plat-stm32mp1/stm32_util.h
+index 77569d02a..0dc36be4b 100644
+--- a/core/arch/arm/plat-stm32mp1/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp1/stm32_util.h
+@@ -352,10 +352,19 @@ bool stm32mp_allow_probe_shared_device(const void *fdt, int node);
+  * @pa if it does not relate to an SRAMx non-aliased memory address.
+  */
+ paddr_t stm32mp1_pa_or_sram_alias_pa(paddr_t pa);
++
++/* Return whether or not the physical address range intersec pager secure RAM */
++bool stm32mp1_ram_intersect_pager_ram(paddr_t base, size_t size);
+ #else
+ static inline paddr_t stm32mp1_pa_or_sram_alias_pa(paddr_t pa)
+ {
+ 	return pa;
+ }
++
++static inline bool stm32mp1_ram_intersect_pager_ram(paddr_t base __unused,
++						    size_t size __unused)
++{
++	return false;
++}
+ #endif
+ #endif /*__STM32_UTIL_H__*/
+-- 
+2.47.2
+

@@ -1,0 +1,130 @@
+From 19b4286575145964d1ada4409641071700607ded Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 27 Jun 2024 11:11:13 +0200
+Subject: [PATCH 0958/1695] plat-stm32mp2: remove filtering on exposed SCMI
+ reset lines
+
+The SCMI reset controllers we used to filter are related to OSPI
+resources that are currently not used at all by the secure world
+(aka OP-TEE), therefore we can simplify the implementation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 37321d7f695faa26d75bbcc22cb08def1228afa0 plat-stm32mp2: remove filtering on exposed SCMI reset lines
+3e0189422c8f02603cc82da4d40209ed4fd2e962 plat-stm32mp2: remove filtering on exposed SCMI reset lines]
+Change-Id: Ia8003d241a75178689a38ae9f5fae4f01b33c273
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/390161
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     | 43 +++++--------------
+ 1 file changed, 10 insertions(+), 33 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index 4388a3fde..19a2a9e6c 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -55,7 +55,6 @@ struct stm32_scmi_clk {
+  * struct stm32_scmi_rd - Data for the exposed reset controller
+  * @reset_id: Reset identifier in RCC reset driver
+  * @is_exposed: True if SMCI reset is exposed, false if it is not reachable
+- * @base: Physical controller address
+  * @name: Reset string ID exposed to channel
+  * @rstctrl: Reset controller manipulated by the SCMI channel
+  * @rstctrl_be: Backend reset controller device
+@@ -63,7 +62,6 @@ struct stm32_scmi_clk {
+ struct stm32_scmi_rd {
+ 	unsigned long reset_id;
+ 	bool is_exposed;
+-	paddr_t base;
+ 	const char *name;
+ 	struct rstctrl *rstctrl;
+ 	struct rstctrl *rstctrl_be;
+@@ -106,10 +104,9 @@ struct stm32_scmi_pd {
+ 		.is_exposed = true, \
+ 	}
+ 
+-#define RESET_CELL(_scmi_id, _id, _base, _name) \
++#define RESET_CELL(_scmi_id, _id, _name) \
+ 	[_scmi_id] = { \
+ 		.reset_id = _id, \
+-		.base = _base, \
+ 		.name = _name, \
+ 		.is_exposed = true, \
+ 	}
+@@ -447,19 +444,19 @@ static struct stm32_scmi_clk stm32_scmi_clock[] = {
+ #endif
+ 
+ static struct stm32_scmi_rd stm32_scmi_reset[] = {
+-	RESET_CELL(RST_SCMI_C1_R, C1_R, 0, "c1"),
+-	RESET_CELL(RST_SCMI_C2_R, C2_R, 0, "c2"),
+-	RESET_CELL(RST_SCMI_C1_HOLDBOOT_R, C1_HOLDBOOT_R, 0, "c1_holdboot"),
+-	RESET_CELL(RST_SCMI_C2_HOLDBOOT_R, C2_HOLDBOOT_R, 0, "c2_holdboot"),
++	RESET_CELL(RST_SCMI_C1_R, C1_R, "c1"),
++	RESET_CELL(RST_SCMI_C2_R, C2_R, "c2"),
++	RESET_CELL(RST_SCMI_C1_HOLDBOOT_R, C1_HOLDBOOT_R, "c1_holdboot"),
++	RESET_CELL(RST_SCMI_C2_HOLDBOOT_R, C2_HOLDBOOT_R, "c2_holdboot"),
+ 	/* SCMI FMC reset allowed: RCC driver stubs request if necessary */
+-	RESET_CELL(RST_SCMI_FMC, FMC_R, 0, "fmc"),
+-	RESET_CELL(RST_SCMI_OSPI1, OSPI1_R, OSPI1_BASE, "ospi1"),
++	RESET_CELL(RST_SCMI_FMC, FMC_R, "fmc"),
++	RESET_CELL(RST_SCMI_OSPI1, OSPI1_R, "ospi1"),
+ #if (defined(CFG_STM32MP25) || defined(CFG_STM32MP23))
+-	RESET_CELL(RST_SCMI_OSPI2, OSPI2_R, OSPI2_BASE, "ospi2"),
++	RESET_CELL(RST_SCMI_OSPI2, OSPI2_R, "ospi2"),
+ #endif
+-	RESET_CELL(RST_SCMI_OSPI1DLL, OSPI1DLL_R, OSPI1_BASE, "ospi1_ddl"),
++	RESET_CELL(RST_SCMI_OSPI1DLL, OSPI1DLL_R, "ospi1_ddl"),
+ #ifdef CFG_STM32MP25
+-	RESET_CELL(RST_SCMI_OSPI2DLL, OSPI2DLL_R, OSPI2_BASE, "ospi2_ddl"),
++	RESET_CELL(RST_SCMI_OSPI2DLL, OSPI2DLL_R, "ospi2_ddl"),
+ #endif
+ };
+ 
+@@ -560,20 +557,10 @@ static struct rstctrl plat_resets[ARRAY_SIZE(stm32_scmi_reset)];
+ static TEE_Result plat_scmi_reset_assert_level(struct rstctrl *rstctrl,
+ 					       unsigned int to_us)
+ {
+-	const struct stm32_firewall_cfg nsec_cfg[] = {
+-		{ FWLL_NSEC_PRIV_RW | FWLL_MASTER(0) },
+-		{ }, /* Null terminated */
+-	};
+ 	int index = rstctrl - plat_resets;
+-	paddr_t domain_iobase = 0;
+ 	unsigned long __maybe_unused reset_id = 0;
+ 
+ 	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
+-	domain_iobase = stm32_scmi_reset[index].base;
+-
+-	if (domain_iobase &&
+-	    stm32_firewall_check_access(domain_iobase, 0, nsec_cfg))
+-		return TEE_ERROR_ACCESS_DENIED;
+ 
+ #ifdef CFG_STM32MP_REMOTEPROC
+ 	reset_id = stm32_scmi_reset[index].reset_id;
+@@ -588,20 +575,10 @@ static TEE_Result plat_scmi_reset_assert_level(struct rstctrl *rstctrl,
+ static TEE_Result plat_scmi_reset_deassert_level(struct rstctrl *rstctrl,
+ 						 unsigned int to_us)
+ {
+-	const struct stm32_firewall_cfg nsec_cfg[] = {
+-		{ FWLL_NSEC_PRIV_RW | FWLL_MASTER(0) },
+-		{ }, /* Null terminated */
+-	};
+ 	int index = rstctrl - plat_resets;
+-	paddr_t domain_iobase = 0;
+ 	unsigned long __maybe_unused reset_id = 0;
+ 
+ 	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
+-	domain_iobase = stm32_scmi_reset[index].base;
+-
+-	if (domain_iobase &&
+-	    stm32_firewall_check_access(domain_iobase, 0, nsec_cfg))
+-		return TEE_ERROR_ACCESS_DENIED;
+ 
+ #ifdef CFG_STM32MP_REMOTEPROC
+ 	reset_id = stm32_scmi_reset[index].reset_id;
+-- 
+2.47.2
+

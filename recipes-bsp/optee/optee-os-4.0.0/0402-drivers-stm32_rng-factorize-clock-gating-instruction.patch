@@ -1,0 +1,156 @@
+From bf5eff5bda22cf388eddc7690e004a8b543d0819 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 12 Mar 2024 17:11:28 +0100
+Subject: [PATCH 0402/1695] drivers: stm32_rng: factorize clock gating
+ instructions
+
+Factorize STM32 RNG clock gating instructions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 42fccfedc8b8ffac2d7a712743667d1e1c996e33 drivers: stm32_rng: factorize clock gating instructions]
+Change-Id: Ib2dfdf7f36cd53c97134c2c2137c5b0f5f54c546
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/366181
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/stm32_rng.c | 66 ++++++++++++++++------------------------
+ 1 file changed, 27 insertions(+), 39 deletions(-)
+
+diff --git a/core/drivers/stm32_rng.c b/core/drivers/stm32_rng.c
+index 622094087..f17ba7ba8 100644
+--- a/core/drivers/stm32_rng.c
++++ b/core/drivers/stm32_rng.c
+@@ -283,6 +283,26 @@ static uint32_t stm32_rng_clock_freq_restrain(void)
+ 	return clock_div;
+ }
+ 
++static TEE_Result enable_rng_clock(void)
++{
++	TEE_Result res = clk_enable(stm32_rng->clock);
++
++	if (!res && stm32_rng->bus_clock) {
++		res = clk_enable(stm32_rng->bus_clock);
++		if (res)
++			clk_disable(stm32_rng->clock);
++	}
++
++	return res;
++}
++
++static void disable_rng_clock(void)
++{
++	clk_disable(stm32_rng->clock);
++	if (stm32_rng->bus_clock)
++		clk_disable(stm32_rng->bus_clock);
++}
++
+ static TEE_Result init_rng(void)
+ {
+ 	vaddr_t rng_base = get_base();
+@@ -373,18 +393,10 @@ static TEE_Result stm32_rng_read(uint8_t *out, size_t size)
+ 		return TEE_ERROR_NOT_SUPPORTED;
+ 	}
+ 
+-	rc = clk_enable(stm32_rng->clock);
++	rc = enable_rng_clock();
+ 	if (rc)
+ 		return rc;
+ 
+-	if (stm32_rng->bus_clock) {
+-		rc = clk_enable(stm32_rng->bus_clock);
+-		if (rc) {
+-			clk_disable(stm32_rng->clock);
+-			return rc;
+-		}
+-	}
+-
+ 	rng_base = get_base();
+ 
+ 	/* Arm timeout */
+@@ -422,9 +434,7 @@ static TEE_Result stm32_rng_read(uint8_t *out, size_t size)
+ 
+ out:
+ 	assert(!rc || rc == TEE_ERROR_GENERIC);
+-	clk_disable(stm32_rng->clock);
+-	if (stm32_rng->bus_clock)
+-		clk_disable(stm32_rng->bus_clock);
++	disable_rng_clock();
+ 
+ 	return rc;
+ }
+@@ -534,26 +544,16 @@ stm32_rng_pm(enum pm_op op, unsigned int pm_hint __unused,
+ 
+ 	assert(stm32_rng && (op == PM_OP_SUSPEND || op == PM_OP_RESUME));
+ 
+-	res = clk_enable(stm32_rng->clock);
++	res = enable_rng_clock();
+ 	if (res)
+ 		return res;
+ 
+-	if (stm32_rng->bus_clock) {
+-		res = clk_enable(stm32_rng->bus_clock);
+-		if (res) {
+-			clk_disable(stm32_rng->clock);
+-			return res;
+-		}
+-	}
+-
+ 	if (op == PM_OP_RESUME)
+ 		res = stm32_rng_pm_resume();
+ 	else
+ 		res = stm32_rng_pm_suspend();
+ 
+-	clk_disable(stm32_rng->clock);
+-	if (stm32_rng->bus_clock)
+-		clk_disable(stm32_rng->bus_clock);
++	disable_rng_clock();
+ 
+ 	return res;
+ }
+@@ -627,18 +627,10 @@ static TEE_Result stm32_rng_probe(const void *fdt, int offs,
+ 	if (res)
+ 		goto err;
+ 
+-	res = clk_enable(stm32_rng->clock);
++	res = enable_rng_clock();
+ 	if (res)
+ 		goto err;
+ 
+-	if (stm32_rng->bus_clock) {
+-		res = clk_enable(stm32_rng->bus_clock);
+-		if (res) {
+-			clk_disable(stm32_rng->clock);
+-			goto err;
+-		}
+-	}
+-
+ 	version = io_read32(get_base() + RNG_VERR);
+ 	DMSG("RNG version Major %u, Minor %u",
+ 	     (version & RNG_VERR_MAJOR_MASK) >> RNG_VERR_MAJOR_SHIFT,
+@@ -660,9 +652,7 @@ static TEE_Result stm32_rng_probe(const void *fdt, int offs,
+ 	if (res)
+ 		goto err_clk;
+ 
+-	clk_disable(stm32_rng->clock);
+-	if (stm32_rng->bus_clock)
+-		clk_disable(stm32_rng->bus_clock);
++	disable_rng_clock();
+ 
+ 	if (IS_ENABLED(CFG_WITH_SOFTWARE_PRNG))
+ 		stm32mp_register_non_secure_periph_iomem(stm32_rng->base.pa);
+@@ -680,9 +670,7 @@ static TEE_Result stm32_rng_probe(const void *fdt, int offs,
+ 	return TEE_SUCCESS;
+ 
+ err_clk:
+-	clk_disable(stm32_rng->clock);
+-	if (stm32_rng->bus_clock)
+-		clk_disable(stm32_rng->bus_clock);
++	disable_rng_clock();
+ err:
+ 	free(stm32_rng);
+ 	stm32_rng = NULL;
+-- 
+2.47.2
+

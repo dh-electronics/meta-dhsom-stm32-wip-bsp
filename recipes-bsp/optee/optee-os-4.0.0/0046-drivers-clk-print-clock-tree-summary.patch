@@ -1,0 +1,223 @@
+From d4a33d9cbb0413272d62e9f3fc7949b2071681de Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 17 Nov 2023 13:29:21 +0100
+Subject: [PATCH 0046/1695] drivers: clk: print clock tree summary
+
+Adds clk_print_summary() to print the clock tree current state on core
+console using the info trace level. Clock framework spinlock is help
+while clock tree is printed.
+
+The feature depends on CFG_DRIVERS_CLK_PRINT_TREE being enabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a72d5d9caea8c723666b64918ea22481a083d699 drivers: clk: print clock tree summary]
+Change-Id: I655f4b080ce22bb18ced6ea695fd1d8744c3b2cc
+Co-developed-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from cd04d138b5951f0ce2858df1e940247c032c87dd]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 105 +++++++++++++++++++++++++++++++++++++
+ core/include/drivers/clk.h |   8 +++
+ mk/config.mk               |   3 ++
+ 3 files changed, 116 insertions(+)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index 00cb57e26..0d605ad3b 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -1,8 +1,10 @@
+ // SPDX-License-Identifier: BSD-2-Clause
+ /*
+  * Copyright (c) 2021, Bootlin
++ * Copyright (c) 2023, STMicroelectronics
+  */
+ 
++#include <config.h>
+ #include <drivers/clk.h>
+ #include <kernel/boot.h>
+ #include <kernel/panic.h>
+@@ -10,10 +12,15 @@
+ #include <libfdt.h>
+ #include <malloc.h>
+ #include <stddef.h>
++#include <stdio.h>
+ 
+ /* Global clock tree lock */
+ static unsigned int clk_lock = SPINLOCK_UNLOCK;
+ 
++#ifdef CFG_DRIVERS_CLK_PRINT_TREE
++static STAILQ_HEAD(, clk) clock_list = STAILQ_HEAD_INITIALIZER(clock_list);
++#endif
++
+ struct clk *clk_alloc(const char *name, const struct clk_ops *ops,
+ 		      struct clk **parent_clks, size_t parent_count)
+ {
+@@ -101,6 +108,10 @@ TEE_Result clk_register(struct clk *clk)
+ 	clk_init_parent(clk);
+ 	clk_compute_rate_no_lock(clk);
+ 
++#ifdef CFG_DRIVERS_CLK_PRINT_TREE
++	STAILQ_INSERT_TAIL(&clock_list, clk, link);
++#endif
++
+ 	DMSG("Registered clock %s, freq %lu", clk->name, clk_get_rate(clk));
+ 
+ 	return TEE_SUCCESS;
+@@ -310,3 +321,97 @@ TEE_Result clk_get_rates_array(struct clk *clk, size_t start_index,
+ 
+ 	return clk->ops->get_rates_array(clk, start_index, rates, nb_elts);
+ }
++
++/* Return updated message buffer position of NULL on failure */
++static __printf(3, 4) char *add_msg(char *cur, char *end, const char *fmt, ...)
++{
++	va_list ap = { };
++	int max_len = end - cur;
++	int ret = 0;
++
++	va_start(ap, fmt);
++	ret = vsnprintf(cur, max_len, fmt, ap);
++	va_end(ap);
++
++	if (ret < 0 || ret >= max_len)
++		return NULL;
++
++	return cur + ret;
++}
++
++static void __maybe_unused print_clock(struct clk *clk, int indent)
++{
++	static const char * const rate_unit[] = { "Hz", "kHz", "MHz", "GHz" };
++	int max_unit = ARRAY_SIZE(rate_unit);
++	unsigned long rate = 0;
++	char msg_buf[128] = { };
++	char *msg_end = msg_buf + sizeof(msg_buf);
++	char *msg = msg_buf;
++	int n = 0;
++
++	/*
++	 * Currently prints the clock state based on the clock refcount.
++	 * A future change could print the hardware clock state when
++	 * related clock driver provides a struct clk_ops::is_enabled handler
++	 */
++
++	if (indent) {
++		for (n = 0; n < indent - 1; n++) {
++			msg = add_msg(msg, msg_end, "|   ");
++			if (!msg)
++				goto out;
++		}
++
++		msg = add_msg(msg, msg_end, "+-- ");
++		if (!msg)
++			goto out;
++	}
++
++	rate = clk_get_rate(clk);
++	for (n = 1; rate && !(rate % 1000) && n < max_unit; n++)
++		rate /= 1000;
++
++	msg = add_msg(msg, msg_end, "%s \t(%3s / refcnt %u / %ld %s)",
++		      clk_get_name(clk),
++		      refcount_val(&clk->enabled_count) ? "on " : "off",
++		      refcount_val(&clk->enabled_count),
++		      rate, rate_unit[n - 1]);
++	if (!msg)
++		goto out;
++
++out:
++	if (!msg)
++		snprintf(msg_end - 4, 4, "...");
++
++	IMSG("%s", msg_buf);
++}
++
++static void print_clock_subtree(struct clk *clk_root __maybe_unused,
++				int indent __maybe_unused)
++{
++#ifdef CFG_DRIVERS_CLK_PRINT_TREE
++	struct clk *clk = NULL;
++
++	STAILQ_FOREACH(clk, &clock_list, link) {
++		if (clk_get_parent(clk) == clk_root) {
++			print_clock(clk, indent + 1);
++			print_clock_subtree(clk, indent + 1);
++			if (indent == -1)
++				IMSG("%s", "");
++		}
++	}
++#endif
++}
++
++void clk_print_tree(void)
++{
++	if (IS_ENABLED(CFG_DRIVERS_CLK_PRINT_TREE)) {
++		uint32_t exceptions = 0;
++
++		exceptions = cpu_spin_lock_xsave(&clk_lock);
++		IMSG("Clock tree summary");
++		IMSG("%s", "");
++		print_clock_subtree(NULL, -1);
++		cpu_spin_unlock_xrestore(&clk_lock, exceptions);
++	}
++}
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 13cc9faee..ddfa46677 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -8,6 +8,7 @@
+ 
+ #include <kernel/refcount.h>
+ #include <stdint.h>
++#include <sys/queue.h>
+ #include <tee_api_types.h>
+ 
+ /* Flags for clock */
+@@ -26,6 +27,7 @@
+  * @enabled_count: Enable/disable reference counter
+  * @num_parents: Number of parents
+  * @parents: Array of possible parents of the clock
++ * @link: Link the clock list
+  */
+ struct clk {
+ 	const char *name;
+@@ -35,6 +37,9 @@ struct clk {
+ 	unsigned long rate;
+ 	unsigned int flags;
+ 	struct refcount enabled_count;
++#ifdef CFG_DRIVERS_CLK_PRINT_TREE
++	STAILQ_ENTRY(clk) link;
++#endif
+ 	size_t num_parents;
+ 	struct clk *parents[];
+ };
+@@ -194,4 +199,7 @@ TEE_Result clk_set_parent(struct clk *clk, struct clk *parent);
+ TEE_Result clk_get_rates_array(struct clk *clk, size_t start_index,
+ 			       unsigned long *rates, size_t *nb_elts);
+ 
++/* Print current clock tree summary on output console (info trace level) */
++void clk_print_tree(void);
++
+ #endif /* __DRIVERS_CLK_H */
+diff --git a/mk/config.mk b/mk/config.mk
+index 8c4b7e4f2..5dbfe6061 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -859,10 +859,13 @@ CFG_PREALLOC_RPC_CACHE ?= y
+ # CFG_DRIVERS_CLK_DT embeds devicetree clock parsing support
+ # CFG_DRIVERS_CLK_FIXED add support for "fixed-clock" compatible clocks
+ # CFG_DRIVERS_CLK_EARLY_PROBE makes clocks probed at early_init initcall level.
++# CFG_DRIVERS_CLK_PRINT_TREE embeds a helper function to print the clock tree
++# state on OP-TEE core console with the info trace level.
+ CFG_DRIVERS_CLK ?= n
+ CFG_DRIVERS_CLK_DT ?= $(call cfg-all-enabled,CFG_DRIVERS_CLK CFG_DT)
+ CFG_DRIVERS_CLK_FIXED ?= $(CFG_DRIVERS_CLK_DT)
+ CFG_DRIVERS_CLK_EARLY_PROBE ?= $(CFG_DRIVERS_CLK_DT)
++CFG_DRIVERS_CLK_PRINT_TREE ?= n
+ 
+ $(eval $(call cfg-depends-all,CFG_DRIVERS_CLK_DT,CFG_DRIVERS_CLK CFG_DT))
+ $(eval $(call cfg-depends-all,CFG_DRIVERS_CLK_FIXED,CFG_DRIVERS_CLK_DT))
+-- 
+2.47.2
+

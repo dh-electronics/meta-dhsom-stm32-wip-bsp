@@ -1,0 +1,2655 @@
+From 720c90e4cbc3f347d4fa3b292a1e761affe33b14 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Wed, 8 Dec 2021 14:51:21 +0100
+Subject: [PATCH 0526/1695] plat-stm32mp1: add low power drivers for stm32mp1
+
+Implements system suspend/resume for STM32MP1 when board supports
+STPMIC1. Defines boolean configuration switch CFG_PM to embed or not
+PM (standby) support.
+
+STMP32MP15 implements a specific sequence to encrypt and sign TEE RAM
+(SYSRAM) content in DDR at suspend and restore it at resume.
+
+OP-TEE uses a piece or secure retention memory to store information
+when suspending and have BL2 bootstage use them to resume the system.
+
+Adds config switch CFG_STM32MP1_OPTEE_IN_SYSRAM that defines if
+STM32MP1 OP-TEE executes in internal RAM with pager. When disabled,
+OP-TEE low power sequence relies on TF-A BL2 resident service left
+in SYSRAM. When CFG_STM32MP1_OPTEE_IN_SYSRAM is enabled, the low power
+suspend sequence in fully implemented in OP-TEE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cf483e4784e54008ce147f9826c99f05313aae04 plat-stm32mp1: add low power drivers for stm32mp1]
+Change-Id: I00555ec75ccbd7ca4cf0fdf3e51f6353b65cbf2d
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/358369
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Tested-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/arch/arm/include/arm32.h                 |   9 +
+ .../arm/plat-stm32mp1/drivers/stm32mp1_pwr.h  |   3 +
+ core/arch/arm/plat-stm32mp1/main.c            |   8 +
+ core/arch/arm/plat-stm32mp1/platform_config.h |  23 +
+ core/arch/arm/plat-stm32mp1/pm/context.c      | 644 ++++++++++++++++
+ core/arch/arm/plat-stm32mp1/pm/context.h      | 107 +++
+ .../plat-stm32mp1/pm/context_asm_defines.c    |  28 +
+ core/arch/arm/plat-stm32mp1/pm/low_power.c    | 511 ++++++++++++
+ core/arch/arm/plat-stm32mp1/pm/pm_helpers.S   | 729 ++++++++++++++++++
+ core/arch/arm/plat-stm32mp1/pm/power.h        |  29 +
+ core/arch/arm/plat-stm32mp1/pm/power_config.c | 255 ++++++
+ core/arch/arm/plat-stm32mp1/pm/psci.c         |  29 +-
+ core/arch/arm/plat-stm32mp1/pm/sub.mk         |   6 +
+ core/arch/arm/plat-stm32mp1/reset.S           |  28 +-
+ core/arch/arm/plat-stm32mp1/stm32mp_pm.h      |  24 +
+ core/include/drivers/stm32mp_dt_bindings.h    |   1 +
+ 16 files changed, 2421 insertions(+), 13 deletions(-)
+ create mode 100644 core/arch/arm/plat-stm32mp1/pm/context.c
+ create mode 100644 core/arch/arm/plat-stm32mp1/pm/context.h
+ create mode 100644 core/arch/arm/plat-stm32mp1/pm/context_asm_defines.c
+ create mode 100644 core/arch/arm/plat-stm32mp1/pm/low_power.c
+ create mode 100644 core/arch/arm/plat-stm32mp1/pm/pm_helpers.S
+ create mode 100644 core/arch/arm/plat-stm32mp1/pm/power.h
+ create mode 100644 core/arch/arm/plat-stm32mp1/pm/power_config.c
+ create mode 100644 core/arch/arm/plat-stm32mp1/stm32mp_pm.h
+
+diff --git a/core/arch/arm/include/arm32.h b/core/arch/arm/include/arm32.h
+index ef729d492..cbb9d22e2 100644
+--- a/core/arch/arm/include/arm32.h
++++ b/core/arch/arm/include/arm32.h
+@@ -163,6 +163,15 @@
+ #define IDPFR1_GENTIMER_SHIFT        U(16)
+ #define IDPFR1_GENTIMER_MASK         SHIFT_U32(0xF, IDPFR1_GENTIMER_SHIFT)
+ 
++/* Generic timer registers and fields */
++#define CNTCR_OFFSET		0x000
++#define CNTSR_OFFSET		0x004
++#define CNTCVL_OFFSET		0x008
++#define CNTCVU_OFFSET		0x00C
++#define CNTFID_OFFSET		0x020
++
++#define CNTCR_EN		BIT(0)
++
+ #ifndef __ASSEMBLER__
+ #include <generated/arm32_sysreg.h>
+ #ifdef CFG_ARM_GICV3
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
+index 9eec69b35..ea8ab7e50 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.h
+@@ -61,6 +61,9 @@
+ 
+ #define PWR_MPUWKUPENR_MASK	GENMASK_32(5, 0)
+ 
++#define PWR_CR2_BRRDY		BIT(16)
++#define PWR_CR2_RRRDY		BIT(17)
++
+ enum pwr_regulator {
+ 	PWR_REG11 = 0,
+ 	PWR_REG18,
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index 77ea562e2..92d6a1aed 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -50,6 +50,14 @@ register_phys_mem_pgdir(MEM_AREA_IO_SEC, GIC_BASE, GIC_SIZE);
+ 
+ register_ddr(DDR_BASE, CFG_DRAM_SIZE);
+ 
++#ifdef CFG_STM32MP15
++/* Map non-secure DDR bottom for the low power sequence */
++register_phys_mem(MEM_AREA_RAM_NSEC, DDR_BASE, SMALL_PAGE_SIZE);
++
++/* Map TEE physical RAM as read-only for content storage when suspending */
++register_phys_mem(MEM_AREA_ROM_SEC, TEE_RAM_START, TEE_RAM_PH_SIZE);
++#endif /* CFG_STM32MP15 */
++
+ #define _ID2STR(id)		(#id)
+ #define ID2STR(id)		_ID2STR(id)
+ 
+diff --git a/core/arch/arm/plat-stm32mp1/platform_config.h b/core/arch/arm/plat-stm32mp1/platform_config.h
+index 4672edc72..c1fb658ac 100644
+--- a/core/arch/arm/plat-stm32mp1/platform_config.h
++++ b/core/arch/arm/plat-stm32mp1/platform_config.h
+@@ -208,6 +208,19 @@
+ #define GIC_SEC_SGI_0			8
+ #define GIC_SEC_SGI_1			9
+ 
++#define GIC_MPU_WAKEUP_PIN		157
++
++#define STM32MP_GIC_PRIORITY_CSTOP	U(0xC0)
++
++/* RCC platform resources */
++#ifdef CFG_STM32MP13
++#define RCC_WAKEUP_IT			U(154)
++#endif
++
++#ifdef CFG_STM32MP15
++#define RCC_WAKEUP_IT			U(177)
++#endif
++
+ #define TARGET_CPU0_GIC_MASK		BIT(0)
+ #define TARGET_CPU1_GIC_MASK		BIT(1)
+ #define TARGET_CPUS_GIC_MASK		GENMASK_32(CFG_TEE_CORE_NB_CORE - 1, 0)
+@@ -271,6 +284,16 @@
+ #define BKPSRAM_SIZE			U(0x1000)
+ #endif
+ 
++#define BKPSRAM_PM_OFFSET		U(0x0000)
++#define BKPSRAM_PM_SIZE			(BKPSRAM_PM_MAILBOX_SIZE + \
++						BKPSRAM_PM_CONTEXT_SIZE)
++
++#define BKPSRAM_PM_MAILBOX_OFFSET	BKPSRAM_PM_OFFSET
++#define BKPSRAM_PM_MAILBOX_SIZE		U(0x100)
++#define BKPSRAM_PM_CONTEXT_OFFSET	(BKPSRAM_PM_MAILBOX_OFFSET + \
++						BKPSRAM_PM_MAILBOX_SIZE)
++#define BKPSRAM_PM_CONTEXT_SIZE		U(0xF00)
++
+ /* SYSRAM layout */
+ #ifdef CFG_STM32MP13
+ #define SYSRAM_SIZE			0x20000
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.c b/core/arch/arm/plat-stm32mp1/pm/context.c
+new file mode 100644
+index 000000000..c37256075
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/pm/context.c
+@@ -0,0 +1,644 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2018-2021, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2017-2021, ARM Limited and Contributors. All rights reserved.
++ */
++
++#include <arm32.h>
++#include <boot_api.h>
++#include <crypto/crypto.h>
++#include <drivers/clk.h>
++#include <drivers/gic.h>
++#include <drivers/stm32_rng.h>
++#include <drivers/stm32_rtc.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stm32mp1_ddrc.h>
++#include <generated/context_asm_defines.h>
++#include <initcall.h>
++#include <io.h>
++#include <kernel/cache_helpers.h>
++#include <kernel/delay.h>
++#include <keep.h>
++#include <kernel/panic.h>
++#include <kernel/pm.h>
++#include <mm/core_memprot.h>
++#include <mm/mobj.h>
++#include <platform_config.h>
++#include <stdlib.h>
++#include <stm32_util.h>
++#include <stm32mp_pm.h>
++#include <string.h>
++
++#include "context.h"
++#include "power.h"
++
++/*
++ * Workaround for compilation until CPU freq OPP is integrated
++ */
++#define PLAT_MAX_OPP_NB 2
++#define PLAT_MAX_PLLCFG_NB 6
++static void
++__unused stm32mp1_clk_lp_save_opp_pll1_settings(uint8_t *a __maybe_unused,
++						size_t b __maybe_unused) { };
++/*
++ * end of Workaround for compilation until CPU freq OPP is integrated
++ */
++
++#define TRAINING_AREA_SIZE		64
++
++/*
++ * STANDBY_CONTEXT_MAGIC0:
++ * Context provides magic, resume entry, zq0cr0 zdata and DDR training buffer.
++ *
++ * STANDBY_CONTEXT_MAGIC1:
++ * Context provides MAGIC0 content and PLL1 dual OPP settings structure
++ * (86 bytes).
++ *
++ * STANDBY_CONTEXT_MAGIC2:
++ * Context provides MAGIC1 content, low power entry point, BL2 code start, end
++ * and BL2_END (102 bytes). And, only for STM32MP13, add MCE master key
++ * (16 bytes).
++ */
++#define STANDBY_CONTEXT_MAGIC0		(0x0001 << 16)
++#define STANDBY_CONTEXT_MAGIC1		(0x0002 << 16)
++#define STANDBY_CONTEXT_MAGIC2		(0x0003 << 16)
++
++#if CFG_STM32MP1_PM_CONTEXT_VERSION == 1
++#define STANDBY_CONTEXT_MAGIC	(STANDBY_CONTEXT_MAGIC0 | TRAINING_AREA_SIZE)
++#elif CFG_STM32MP1_PM_CONTEXT_VERSION == 2
++#define STANDBY_CONTEXT_MAGIC	(STANDBY_CONTEXT_MAGIC1 | TRAINING_AREA_SIZE)
++#elif CFG_STM32MP1_PM_CONTEXT_VERSION == 3
++#define STANDBY_CONTEXT_MAGIC	(STANDBY_CONTEXT_MAGIC2 | TRAINING_AREA_SIZE)
++#else
++#error Invalid value for CFG_STM32MP1_PM_CONTEXT_VERSION
++#endif
++
++#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 2
++#if (PLAT_MAX_OPP_NB != 2) || (PLAT_MAX_PLLCFG_NB != 6)
++#error STANDBY_CONTEXT_MAGIC does not support expected PLL1 settings
++#endif
++
++/* pll_settings structure size definitions (reference to clock driver) */
++#define PLL1_SETTINGS_SIZE		(((PLAT_MAX_OPP_NB * \
++					  (PLAT_MAX_PLLCFG_NB + 3)) + 1) * \
++					 sizeof(uint32_t))
++#endif
++
++#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 3 && defined(CFG_STM32MP13)
++#define MCE_KEY_SIZE_IN_BYTES		16
++#endif
++
++/*
++ * Context saved in TEE RAM during lower power sequence.
++ * Can be allocated if to big for static allocation.
++ *
++ * @stgen_cnt_h: Upper 32bit of the STGEN counter
++ * @stgen_cnt_l: Lower 32bit of the STGEN counter
++ * @rtc: RTC time read at suspend
++ */
++struct pm_context {
++	uint32_t stgen_cnt_h;
++	uint32_t stgen_cnt_l;
++	struct stm32_rtc_calendar rtc;
++};
++
++static struct pm_context plat_ctx;
++
++/*
++ * Clocks used during PM sequences. Stores clock references
++ * saved at boot time for clk.h API functions.
++ */
++struct pm_clocks {
++	struct clk *rtcapb;
++	struct clk *bkpsram;
++	struct clk *cryp1;
++	struct clk *rtc;
++};
++
++static struct pm_clocks pm_clocks;
++
++/*
++ * BKPSRAM contains a mailbox used with early boot stages for resume sequence.
++ * The mailbox content data that must be restored before OP-TEE is resumed.
++ *
++ * @magic: magic value read by early boot stage for consistency
++ * @zq0cr0_zdata: DDRPHY configuration to be restored.
++ * @ddr_training_backup: DDR area saved at suspend and backed up at resume
++ */
++struct pm_mailbox {
++	uint32_t magic;
++	uint32_t core0_resume_ep;
++	uint32_t zq0cr0_zdata;
++	uint8_t ddr_training_backup[TRAINING_AREA_SIZE];
++#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 2
++	uint8_t pll1_settings[PLL1_SETTINGS_SIZE];
++#endif
++#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 3
++	uint32_t low_power_ep;
++	uint32_t bl2_code_base;
++	uint32_t bl2_code_end;
++	uint32_t bl2_end;
++#ifdef CFG_STM32MP13
++	uint8_t mce_mkey[MCE_KEY_SIZE_IN_BYTES];
++#endif
++#endif
++};
++
++/*
++ * BKPSRAM contains OP-TEE resume instruction sequence which restores
++ * TEE RAM content. The BKPSRAM contains restoration materials
++ * (key, tag) and the resume entry point in restored TEE RAM.
++ */
++static struct retram_resume_ctx *get_retram_resume_ctx(void)
++{
++	vaddr_t bkpsram_base = stm32mp_bkpsram_base();
++	vaddr_t context_base = bkpsram_base + BKPSRAM_PM_CONTEXT_OFFSET;
++
++	return (struct retram_resume_ctx *)context_base;
++}
++
++static struct pm_mailbox *get_pm_mailbox(void)
++{
++	vaddr_t bkpsram_base = stm32mp_bkpsram_base();
++	vaddr_t mailbox_base = bkpsram_base + BKPSRAM_PM_MAILBOX_OFFSET;
++
++	return (struct pm_mailbox *)mailbox_base;
++}
++
++#if TRACE_LEVEL >= TRACE_DEBUG
++static void __maybe_unused dump_context(void)
++{
++	struct pm_mailbox *mailbox = get_pm_mailbox();
++	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
++
++	clk_enable(pm_clocks.rtcapb);
++
++	DMSG("Backup registers: address 0x%" PRIx32 ", magic 0x%" PRIx32,
++	     *(uint32_t *)stm32mp_bkpreg(BCKR_CORE1_BRANCH_ADDRESS),
++	     *(uint32_t *)stm32mp_bkpreg(BCKR_CORE1_MAGIC_NUMBER));
++
++	clk_disable(pm_clocks.rtcapb);
++
++	clk_enable(pm_clocks.bkpsram);
++
++	DMSG("BKPSRAM mailbox:  0x%" PRIx32 ", zd 0x%" PRIx32 ", ep 0x%" PRIx32,
++	     mailbox->magic, mailbox->zq0cr0_zdata,
++	     mailbox->core0_resume_ep);
++
++	DMSG("BKPSRAM context:  teeram backup @%" PRIx32 ", resume @0x%" PRIx32,
++	     ctx->teeram_bkp_pa, ctx->resume_pa);
++
++	clk_disable(pm_clocks.bkpsram);
++}
++#else
++static void __maybe_unused dump_context(void)
++{
++}
++#endif
++
++/*
++ * Save and restore functions
++ */
++static void save_time(void)
++{
++	vaddr_t stgen = stm32mp_stgen_base();
++
++	plat_ctx.stgen_cnt_h = io_read32(stgen + CNTCVU_OFFSET);
++	plat_ctx.stgen_cnt_l = io_read32(stgen + CNTCVL_OFFSET);
++	if (plat_ctx.stgen_cnt_l < 10)
++		plat_ctx.stgen_cnt_h = io_read32(stgen + CNTCVU_OFFSET);
++
++	clk_enable(pm_clocks.rtc);
++
++	if (stm32_rtc_get_calendar(&plat_ctx.rtc))
++		panic();
++}
++
++#if TRACE_LEVEL >= TRACE_DEBUG
++static void __maybe_unused print_ccm_decryption_duration(void)
++{
++	vaddr_t stgen = stm32mp_stgen_base();
++	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
++
++	clk_enable(pm_clocks.bkpsram);
++
++	DMSG("CCM decryption duration %llums",
++	     ((unsigned long long)ctx->stgen_cnt * 1000) /
++	     io_read32(stgen + CNTFID_OFFSET));
++
++	clk_disable(pm_clocks.bkpsram);
++}
++#else
++static void __maybe_unused print_ccm_decryption_duration(void)
++{
++}
++#endif
++
++static void restore_time(void)
++{
++	struct stm32_rtc_calendar current_calendar = { };
++	unsigned long long stdby_time_in_ms = 0;
++	unsigned long long cnt = 0;
++	vaddr_t stgen = stm32mp_stgen_base();
++	struct retram_resume_ctx __maybe_unused *ctx = get_retram_resume_ctx();
++
++	if (stm32_rtc_get_calendar(&current_calendar))
++		panic();
++
++	stdby_time_in_ms = stm32_rtc_diff_calendar_ms(&current_calendar,
++						      &plat_ctx.rtc);
++
++	cnt = ((uint64_t)plat_ctx.stgen_cnt_h << 32) | plat_ctx.stgen_cnt_l;
++	cnt += (stdby_time_in_ms * io_read32(stgen + CNTFID_OFFSET)) / 1000U;
++
++	io_clrbits32(stgen + CNTCR_OFFSET, CNTCR_EN);
++	io_write32(stgen + CNTCVL_OFFSET, (uint32_t)cnt);
++	io_write32(stgen + CNTCVU_OFFSET, (uint32_t)(cnt >> 32));
++	io_setbits32(stgen + CNTCR_OFFSET, CNTCR_EN);
++
++	/* Balance clock enable(RTC) at save_time() */
++	clk_disable(pm_clocks.rtc);
++
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	print_ccm_decryption_duration();
++#endif
++}
++
++static bool __maybe_unused pm_cb_is_valid(void (*cb)(enum pm_op op, void *hdl),
++					  void *hdl)
++{
++	void *cb_voidp = (void *)(vaddr_t)cb;
++	paddr_t cb_phy = virt_to_phys(cb_voidp);
++	paddr_t hdl_phy = virt_to_phys(hdl);
++	bool valid = false;
++
++	valid = (phys_to_virt(cb_phy, MEM_AREA_TEE_RAM_RX, 1) == cb_voidp) &&
++		((phys_to_virt(hdl_phy, MEM_AREA_TEE_RAM_RX, 1) == hdl) ||
++		 (phys_to_virt(hdl_phy, MEM_AREA_TEE_RAM_RO, 1) == hdl) ||
++		 (phys_to_virt(hdl_phy, MEM_AREA_TEE_RAM_RW, 1) == hdl));
++
++	if (!valid)
++		EMSG("pm_cb mandates unpaged arguments %p %p", cb_voidp, hdl);
++
++	return valid;
++}
++
++uintptr_t stm32mp_pm_retram_resume_ep(void)
++{
++	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
++
++	return (uintptr_t)&ctx->resume_sequence;
++}
++
++/* Clear the content of the PM mailbox */
++void stm32mp_pm_wipe_context(void)
++{
++	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
++	struct pm_mailbox __maybe_unused *mailbox = get_pm_mailbox();
++
++	clk_enable(pm_clocks.bkpsram);
++
++	memset(ctx, 0xa5, sizeof(*ctx));
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	memset(mailbox, 0xa5, sizeof(*mailbox));
++#endif
++
++	clk_disable(pm_clocks.bkpsram);
++}
++
++static tee_mm_entry_t *teeram_bkp_mm;
++
++static void init_retram_resume_resources(void)
++{
++	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
++	size_t __maybe_unused csize = 0;
++	paddr_t __maybe_unused pa = 0;
++
++	COMPILE_TIME_ASSERT(sizeof(struct pm_mailbox) <
++			    BKPSRAM_PM_MAILBOX_SIZE);
++	COMPILE_TIME_ASSERT(sizeof(struct retram_resume_ctx) <
++			    BKPSRAM_PM_CONTEXT_SIZE);
++	csize = (vaddr_t)stm32mp_bkpsram_image_end -
++		(vaddr_t)stm32mp_bkpsram_resume;
++	assert((sizeof(*ctx) + csize) < BKPSRAM_PM_CONTEXT_SIZE);
++
++	teeram_bkp_mm = tee_mm_alloc(&tee_mm_sec_ddr, TEE_RAM_PH_SIZE);
++	if (!teeram_bkp_mm)
++		panic();
++
++	assert(tee_mm_get_smem(teeram_bkp_mm) &&
++	       phys_to_virt(tee_mm_get_smem(teeram_bkp_mm), MEM_AREA_TA_RAM,
++			    TEE_RAM_PH_SIZE));
++
++	clk_enable(pm_clocks.bkpsram);
++	memset(ctx, 0, sizeof(*ctx));
++	clk_disable(pm_clocks.bkpsram);
++}
++
++/*
++ * When returning from STANDBY, the 64 first bytes of DDR will be overwritten
++ * during DDR DQS training. This area must then be saved before going to
++ * standby in the PM mailbox with the earlier boot stages.
++ */
++__maybe_unused static void save_ddr_training_area(void)
++{
++	struct pm_mailbox *mailbox = get_pm_mailbox();
++	size_t size = sizeof(mailbox->ddr_training_backup);
++	paddr_t pa = DDR_BASE;
++	void *va = phys_to_virt(pa, MEM_AREA_RAM_NSEC, SMALL_PAGE_SIZE);
++
++	assert(va);
++
++	memcpy(&mailbox->ddr_training_backup[0], va, size);
++}
++
++/*
++ * When returning from STANDBY, warm boot boot stage needs to access to PLL1
++ * settings. This avoids to re-compute them and optimizes performances. This
++ * structure must then be saved before going to STANDBY in the PM mailbox
++ * shared with the warm boot boot stage.
++ */
++#if (CFG_STM32MP1_PM_CONTEXT_VERSION >= 2) && \
++    defined(CFG_STM32MP1_OPTEE_IN_SYSRAM)
++__maybe_unused static void save_pll1_settings(void)
++{
++	struct pm_mailbox *mailbox = get_pm_mailbox();
++	size_t size = sizeof(mailbox->pll1_settings);
++	uint8_t *data = &mailbox->pll1_settings[0];
++
++	stm32mp1_clk_lp_save_opp_pll1_settings(data, size);
++}
++#endif
++
++static void load_earlyboot_pm_mailbox(void)
++{
++	struct pm_mailbox *mailbox __maybe_unused = get_pm_mailbox();
++
++	COMPILE_TIME_ASSERT(sizeof(struct pm_mailbox) <
++			    BKPSRAM_PM_MAILBOX_SIZE);
++
++	assert(clk_is_enabled(pm_clocks.bkpsram));
++
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	memset(mailbox, 0, sizeof(*mailbox));
++
++	mailbox->zq0cr0_zdata = get_ddrphy_calibration();
++
++#if CFG_STM32MP1_PM_CONTEXT_VERSION >= 2
++	save_pll1_settings();
++#endif
++#endif /* CFG_STM32MP1_OPTEE_IN_SYSRAM */
++
++	save_ddr_training_area();
++}
++
++#if defined(CFG_STM32_CRYP) && defined(CFG_STM32MP1_OPTEE_IN_SYSRAM)
++/*
++ * CRYP relies on standard format for CCM IV/B0/CRT0 data. Our sequence uses
++ * no AAD, 4 bytes to encode the payload byte size and a 11 byte nonce.
++ */
++#define PM_CCM_Q			4
++#define PM_CCM_Q_FLAGS			(PM_CCM_Q - 1)
++#define PM_CCM_TAG_LEN			16
++#define PM_CCM_TAG_FLAGS		(((PM_CCM_TAG_LEN - 2) / 2) << 3)
++
++static void save_teeram_in_ddr(void)
++{
++	struct retram_resume_ctx *ctx = get_retram_resume_ctx();
++	size_t __maybe_unused size = (vaddr_t)stm32mp_bkpsram_image_end -
++				     (vaddr_t)stm32mp_bkpsram_resume;
++	struct ccm_unpg_ctx *ccm = &ctx->ccm_ctx;
++	void *teeram = phys_to_virt(TEE_RAM_START, MEM_AREA_ROM_SEC,
++				    TEE_RAM_PH_SIZE);
++	void *teeram_bkp =  phys_to_virt(tee_mm_get_smem(teeram_bkp_mm),
++					 MEM_AREA_TA_RAM, TEE_RAM_PH_SIZE);
++
++	COMPILE_TIME_ASSERT(PM_CTX_CCM_KEY_SIZE == sizeof(ccm->key));
++	COMPILE_TIME_ASSERT(PM_CTX_CCM_CTR1_SIZE == sizeof(ccm->ctr1));
++	COMPILE_TIME_ASSERT(PM_CTX_CCM_B0_SIZE == sizeof(ccm->b0));
++	COMPILE_TIME_ASSERT(PM_CTX_CCM_CTR0_SIZE == sizeof(ccm->ctr0));
++	COMPILE_TIME_ASSERT(PM_CTX_CCM_TAG_SIZE == sizeof(ccm->tag));
++
++	if (!stm32mp_supports_hw_cryp())
++		panic();
++
++	if (IS_ENABLED(CFG_WITH_SOFTWARE_PRNG)) {
++		/*
++		 * Re-init STM32 RNG1 (including reset cycle) since non-secure
++		 * world may have loaded a weak configuration.
++		 */
++		if (stm32_rng_init())
++			panic();
++	}
++
++	assert(clk_is_enabled(pm_clocks.bkpsram) &&
++	       clk_is_enabled(pm_clocks.cryp1));
++
++	memcpy(ctx->resume_sequence,
++	       (void *)(vaddr_t)stm32mp_bkpsram_resume, size);
++
++	memset(ctx, 0, sizeof(*ctx));
++	ctx->resume_pa = virt_to_phys((void *)(vaddr_t)stm32mp_sysram_resume);
++	ctx->teeram_bkp_pa = (uint32_t)tee_mm_get_smem(teeram_bkp_mm);
++	ctx->cryp1_base = (uint32_t)phys_to_virt(CRYP1_BASE, MEM_AREA_IO_SEC, 1);
++	ctx->rcc_base = (uint32_t)phys_to_virt(RCC_BASE, MEM_AREA_IO_SEC, 1);
++	ctx->stgen_base = (uint32_t)phys_to_virt(STGEN_BASE, MEM_AREA_IO_SEC, 1);
++
++	if (stm32_rng_read((uint8_t *)ccm->key, sizeof(ccm->key)))
++		panic();
++
++	assert(((PM_CCM_TAG_FLAGS & ~0x38U) | (PM_CCM_Q_FLAGS & ~0x07U)) == 0);
++	COMPILE_TIME_ASSERT(PM_CCM_Q <= 4);
++	COMPILE_TIME_ASSERT(TEE_RAM_PH_SIZE > UINT16_MAX);
++	COMPILE_TIME_ASSERT(TEE_RAM_PH_SIZE < UINT32_MAX);
++
++	if (stm32_rng_read((uint8_t *)ccm->ctr1, sizeof(ccm->ctr1)))
++		panic();
++
++	ccm->ctr1[0] &= GENMASK_32(24, 0);
++	memcpy(ccm->b0, ccm->ctr1, sizeof(ccm->b0));
++	memcpy(ccm->ctr0, ccm->ctr1, sizeof(ccm->ctr0));
++
++	ccm->ctr0[0] |= PM_CCM_Q_FLAGS << 24;
++	ccm->ctr0[3] = 0;
++	ccm->ctr1[0] |= PM_CCM_Q_FLAGS << 24;
++	ccm->ctr1[3] = 1;
++	ccm->b0[0] |= (PM_CCM_Q_FLAGS | PM_CCM_TAG_FLAGS) << 24;
++	ccm->b0[3] = TEE_RAM_PH_SIZE;
++
++	stm32mp_ccm_encrypt_teeram(ctx, teeram_bkp, teeram, TEE_RAM_PH_SIZE);
++	dcache_clean_range(teeram_bkp, TEE_RAM_PH_SIZE);
++
++	memcpy(ctx->ccm_ref_tag, ccm->tag, sizeof(ctx->ccm_ref_tag));
++
++	DMSG("CCM encryption duration %llums",
++	     ((unsigned long long)ctx->stgen_cnt * 1000) /
++	     io_read32(ctx->stgen_base + CNTFID_OFFSET));
++	ctx->stgen_cnt = 0;
++}
++#else
++static void __maybe_unused save_teeram_in_ddr(void)
++{
++	panic("Mandates CRYP support");
++}
++#endif /* CFG_STM32_CRYP && CFG_STM32MP1_OPTEE_IN_SYSRAM */
++
++/* Finalize the PM mailbox now that everything is loaded */
++static void enable_pm_mailbox(unsigned int suspend)
++{
++	struct pm_mailbox *mailbox = get_pm_mailbox();
++	uint32_t magic = 0;
++	uint32_t hint = 0;
++
++	assert(clk_is_enabled(pm_clocks.bkpsram) &&
++	       clk_is_enabled(pm_clocks.rtcapb));
++
++	if (suspend) {
++		magic = BOOT_API_A7_CORE0_MAGIC_NUMBER;
++		mailbox->magic = STANDBY_CONTEXT_MAGIC;
++
++#ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
++		hint = virt_to_phys(stm32mp_sysram_resume);
++#else
++		hint = virt_to_phys(&get_retram_resume_ctx()->resume_sequence);
++#endif
++	} else {
++		mailbox->magic = 0;
++	}
++
++	io_write32(stm32mp_bkpreg(BCKR_CORE1_MAGIC_NUMBER), magic);
++	io_write32(stm32mp_bkpreg(BCKR_CORE1_BRANCH_ADDRESS), hint);
++
++	mailbox->core0_resume_ep = hint;
++}
++
++static void gate_pm_context_clocks(bool enable)
++{
++	static bool clocks_enabled;
++
++	if (enable) {
++		assert(!clocks_enabled);
++		clk_enable(pm_clocks.bkpsram);
++		clk_enable(pm_clocks.rtcapb);
++		clk_enable(pm_clocks.cryp1);
++		clocks_enabled = true;
++		return;
++	}
++
++	/* Suspended TEE RAM state left the clocks enabled */
++	if (clocks_enabled) {
++		clk_disable(pm_clocks.bkpsram);
++		clk_disable(pm_clocks.rtcapb);
++		clk_disable(pm_clocks.cryp1);
++		clocks_enabled = false;
++	}
++}
++
++/*
++ * Context (TEE RAM content + peripherals) must be restored
++ * only if system may reach STANDBY state.
++ */
++TEE_Result stm32mp_pm_save_context(unsigned int soc_mode)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	save_time();
++
++	res = pm_change_state(PM_OP_SUSPEND, soc_mode);
++	if (res)
++		return res;
++
++	if (!need_to_backup_cpu_context(soc_mode)) {
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++		if (need_to_backup_stop_context(soc_mode))
++			stm32mp1_clk_save_context_for_stop();
++#endif
++
++		return TEE_SUCCESS;
++	}
++
++	gate_pm_context_clocks(true);
++	load_earlyboot_pm_mailbox();
++
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	save_teeram_in_ddr();
++#endif
++	enable_pm_mailbox(1);
++
++	return TEE_SUCCESS;
++}
++
++void stm32mp_pm_restore_context(unsigned int soc_mode)
++{
++	if (need_to_backup_cpu_context(soc_mode))
++		gate_pm_context_clocks(false);
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	else if (need_to_backup_stop_context(soc_mode))
++		stm32mp1_clk_restore_context_for_stop();
++#endif
++
++	if (pm_change_state(PM_OP_RESUME, 0))
++		panic();
++
++	restore_time();
++}
++
++void stm32mp_pm_shutdown_context(void)
++{
++	gate_pm_context_clocks(true);
++	load_earlyboot_pm_mailbox();
++	enable_pm_mailbox(0);
++	gate_pm_context_clocks(false);
++}
++
++#ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
++TEE_Result stm32mp_pm_call_bl2_lp_entry(unsigned int soc_mode)
++{
++	struct pm_mailbox *mailbox = NULL;
++	void (*stm32_pwr_down_wfi)(bool is_cstop, unsigned int soc_mode) = NULL;
++
++	clk_enable(pm_clocks.bkpsram);
++
++	mailbox = get_pm_mailbox();
++
++	FMSG("BL2 low_power_ep %#"PRIx32, mailbox->low_power_ep);
++
++	stm32_pwr_down_wfi = (void *)mailbox->low_power_ep;
++
++	dcache_op_all(DCACHE_OP_CLEAN_INV);
++
++	/* Disable Cache & MMU before calling low_power section */
++	write_sctlr(read_sctlr() & ~(SCTLR_C | SCTLR_M));
++
++	dsb();
++	isb();
++
++	(*stm32_pwr_down_wfi)(true, soc_mode);
++
++	/* Enable Cache & MMU */
++	write_sctlr(read_sctlr() | SCTLR_C | SCTLR_M);
++
++	clk_disable(pm_clocks.bkpsram);
++
++	return TEE_SUCCESS;
++}
++#endif /* CFG_STM32MP1_OPTEE_IN_SYSRAM */
++
++static TEE_Result init_pm_support(void)
++{
++	pm_clocks.rtcapb = stm32mp_rcc_clock_id_to_clk(RTCAPB);
++	pm_clocks.bkpsram = stm32mp_rcc_clock_id_to_clk(BKPSRAM);
++	pm_clocks.cryp1 = stm32mp_rcc_clock_id_to_clk(CRYP1);
++	pm_clocks.rtc = stm32mp_rcc_clock_id_to_clk(RTC);
++
++	if (!pm_clocks.rtcapb || !pm_clocks.bkpsram ||
++	    !pm_clocks.cryp1 || !pm_clocks.rtc)
++		panic();
++
++	init_retram_resume_resources();
++
++	stm32mp_pm_wipe_context();
++
++	return TEE_SUCCESS;
++}
++driver_init(init_pm_support);
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.h b/core/arch/arm/plat-stm32mp1/pm/context.h
+new file mode 100644
+index 000000000..a71ac95ec
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/pm/context.h
+@@ -0,0 +1,107 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2018, ARM Limited and Contributors. All rights reserved.
++ */
++
++#ifndef __STM32MP_PM_CONTEXT_H__
++#define __STM32MP_PM_CONTEXT_H__
++
++#ifndef __ASSEMBLER__
++#include <compiler.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <stddef.h>
++#include <stm32mp_pm.h>
++#include <tee_api_types.h>
++#endif
++
++#define PM_CTX_CCM_KEY_SIZE		32
++#define PM_CTX_CCM_CTR1_SIZE		16
++#define PM_CTX_CCM_B0_SIZE		16
++#define PM_CTX_CCM_CTR0_SIZE		16
++#define PM_CTX_CCM_TAG_SIZE		16
++
++#ifndef __ASSEMBLER__
++/*
++ * All materials for the CCM sequence using CRYP support are preloaded
++ * in this specific structure. Note that the sequence does not use AAD.
++ *
++ * @key: AES key material buffer
++ * @ctr1: Preformatted 128bit CTR1 block
++ * @ctr1: Preformatted 128bit B0 block
++ * @ctr1: Preformatted 128bit CTR0 block
++ * @tag: Buffer where the generated CCM tag is stored
++ */
++struct ccm_unpg_ctx {
++	uint32_t key[PM_CTX_CCM_KEY_SIZE / sizeof(uint32_t)];
++	uint32_t ctr1[PM_CTX_CCM_CTR1_SIZE / sizeof(uint32_t)];
++	uint32_t b0[PM_CTX_CCM_B0_SIZE / sizeof(uint32_t)];
++	uint32_t ctr0[PM_CTX_CCM_CTR0_SIZE / sizeof(uint32_t)];
++	uint32_t tag[PM_CTX_CCM_TAG_SIZE / sizeof(uint32_t)];
++};
++
++/*
++ * This structure is used by pm_helpers.S at early resume from retention RAM.
++ * It is defined here and used by context_asm_defines.c to generate offset
++ * macros for the assembly implementation in pm_helpers.S.
++ *
++ * To lower the memory footprint of suspend sequence, The same function is
++ * used for encryption (executed from TEE RAM with MMU enabled) and for
++ * decryption (executed from BKPSRAM with MMU disabled). Therefore some
++ * required addresses are provided by the caller through this structure
++ * especially some SoC interface registers that are likely to have different
++ * physical and virtual addresses.
++ *
++ * @resume_pa: OP-TEE resume physical entry in TEE RAM (once restored)
++ * @teeram_bkp_pa: Physical base address in TEE RAM backup in DDR
++ * @cryp1_base: Base address of the CRYP1 registers (physical or virtual)
++ * @rcc_base: Base address of the RCC registers (physical or virtual)
++ * @stgen_base: Base address of the STGEN registers (physical or virtual)
++ * @stgen_cnt: STGEN cycle counter backup cell and measure of cycles spent
++ * @ccm_ref_tag: 128bit arrays storing tag generated during encryption
++ * @ccm_ctx: Structure storing CCM configuration and generated tag
++ * @resume_sequence: Code/data array for the BKPSRAM resume sequence
++ */
++struct retram_resume_ctx {
++	uint32_t resume_pa;
++	uint32_t teeram_bkp_pa;
++	uint32_t cryp1_base;
++	uint32_t rcc_base;
++	uint32_t stgen_base;
++	uint32_t stgen_cnt;
++	uint8_t ccm_ref_tag[PM_CTX_CCM_TAG_SIZE];
++	struct ccm_unpg_ctx ccm_ctx;
++	/* Last start the resume routine ARM (32bit) instructions sequence */
++	uint32_t resume_sequence[];
++};
++
++extern const uint8_t stm32mp_bkpsram_image_end[];
++void stm32mp_bkpsram_resume(void);
++void stm32mp_sysram_resume(void);
++
++void stm32mp_cpu_reset_state(void);
++
++TEE_Result stm32mp_pm_save_context(unsigned int soc_mode);
++void stm32mp_pm_restore_context(unsigned int soc_mode);
++void stm32mp_pm_shutdown_context(void);
++void stm32mp_pm_wipe_context(void);
++
++#ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
++TEE_Result stm32mp_pm_call_bl2_lp_entry(unsigned int soc_mode);
++#endif
++
++int stm32mp1_set_pm_domain_state(enum stm32mp1_pm_domain domain, bool status);
++
++uint32_t stm32mp1_get_lp_soc_mode(uint32_t psci_mode);
++int stm32mp1_set_lp_deepest_soc_mode(uint32_t psci_mode, uint32_t soc_mode);
++
++uintptr_t stm32mp_pm_retram_resume_ep(void);
++bool stm32mp1_is_retram_during_standby(void);
++
++int stm32mp_ccm_encrypt_teeram(struct retram_resume_ctx *ctx,
++			       void *dst, void *src, size_t size);
++int stm32mp_ccm_decrypt_teeram(struct retram_resume_ctx *ctx,
++			       void *dst, void *src, size_t size);
++#endif /*__ASSEMBLER__*/
++
++#endif /*__STM32MP_PM_CONTEXT_H__*/
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context_asm_defines.c b/core/arch/arm/plat-stm32mp1/pm/context_asm_defines.c
+new file mode 100644
+index 000000000..34c797f52
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/pm/context_asm_defines.c
+@@ -0,0 +1,28 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2018, STMicroelectronics
++ * Copyright (c) 2018, Linaro Limited
++ */
++
++#include <gen-asm-defines.h>
++
++#include "context.h"
++
++#define OFFSET_OF_CTX_STRUCT(_f)	offsetof(struct retram_resume_ctx, _f)
++#define OFFSET_OF_CMM_CTX_STRUCT(_f)	(OFFSET_OF_CTX_STRUCT(ccm_ctx) + \
++					 offsetof(struct ccm_unpg_ctx, _f))
++DEFINES
++{
++	DEFINE(PM_CTX_RESUME_PA, OFFSET_OF_CTX_STRUCT(resume_pa));
++	DEFINE(PM_CTX_TEERAM_BKP_PA, OFFSET_OF_CTX_STRUCT(teeram_bkp_pa));
++	DEFINE(PM_CTX_CRYP1_BASE, OFFSET_OF_CTX_STRUCT(cryp1_base));
++	DEFINE(PM_CTX_RCC_BASE, OFFSET_OF_CTX_STRUCT(rcc_base));
++	DEFINE(PM_CTX_STGEN_BASE, OFFSET_OF_CTX_STRUCT(stgen_base));
++	DEFINE(PM_CTX_STGEN_CNT, OFFSET_OF_CTX_STRUCT(stgen_cnt));
++	DEFINE(PM_CTX_CCM_KEY, OFFSET_OF_CMM_CTX_STRUCT(key));
++	DEFINE(PM_CTX_CCM_CTR1, OFFSET_OF_CMM_CTX_STRUCT(ctr1));
++	DEFINE(PM_CTX_CCM_B0, OFFSET_OF_CMM_CTX_STRUCT(b0));
++	DEFINE(PM_CTX_CCM_CTR0, OFFSET_OF_CMM_CTX_STRUCT(ctr0));
++	DEFINE(PM_CTX_CCM_TAG, OFFSET_OF_CMM_CTX_STRUCT(tag));
++	DEFINE(PM_CTX_CCM_REF_TAG, OFFSET_OF_CTX_STRUCT(ccm_ref_tag));
++}
+diff --git a/core/arch/arm/plat-stm32mp1/pm/low_power.c b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+new file mode 100644
+index 000000000..eb616effc
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+@@ -0,0 +1,511 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2017-2022, STMicroelectronics - All Rights Reserved
++ */
++
++#include <arm.h>
++#include <assert.h>
++#include <boot_api.h>
++#include <console.h>
++#include <config.h>
++#include <drivers/clk.h>
++#include <drivers/gic.h>
++#include <drivers/regulator.h>
++#include <drivers/stm32_etzpc.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <drivers/stm32mp1_ddrc.h>
++#include <drivers/stm32mp1_pmic.h>
++#include <drivers/stm32mp1_pwr.h>
++#ifdef CFG_STM32MP13
++#include <drivers/stm32mp13_rcc.h>
++#else
++#include <drivers/stm32mp1_rcc.h>
++#endif
++#include <drivers/stpmic1.h>
++#include <drivers/wdt.h>
++#include <initcall.h>
++#include <io.h>
++#include <keep.h>
++#include <kernel/cache_helpers.h>
++#include <kernel/delay.h>
++#include <kernel/misc.h>
++#include <kernel/panic.h>
++#include <mm/core_memprot.h>
++#include <platform_config.h>
++#include <sm/psci.h>
++#include <stdbool.h>
++#include <stm32mp_pm.h>
++#include <stm32_util.h>
++#include <trace.h>
++
++#include "context.h"
++#include "power.h"
++
++#define TIMEOUT_US_1MS		1000
++
++#define PWRLP_TEMPO_5_HSI	5
++
++static uint8_t gicd_rcc_wakeup;
++static uint8_t gicc_pmr;
++
++struct pwr_lp_config {
++	uint32_t pwr_cr1;
++	uint32_t pwr_mpucr;
++	const char *regul_suspend_node_name;
++};
++
++#define TIMEOUT_US_10MS		(10 * 1000)
++
++#ifdef CFG_STM32MP13
++#define PWR_CR1_MASK	(PWR_CR1_LPDS | PWR_CR1_LPCFG | PWR_CR1_LVDS |\
++			 PWR_CR1_STOP2)
++#define PWR_MPUCR_MASK	(PWR_MPUCR_CSSF | PWR_MPUCR_PDDS)
++
++static const struct pwr_lp_config config_pwr[STM32_PM_MAX_SOC_MODE] = {
++	[STM32_PM_CSLEEP_RUN] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = 0U,
++		.regul_suspend_node_name = NULL,
++	},
++	[STM32_PM_CSTOP_ALLOW_STOP] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = PWR_MPUCR_CSSF,
++		.regul_suspend_node_name = NULL,
++	},
++	[STM32_PM_CSTOP_ALLOW_LP_STOP] = {
++		.pwr_cr1 = PWR_CR1_LPDS,
++		.pwr_mpucr = PWR_MPUCR_CSSF,
++		.regul_suspend_node_name = "lp-stop",
++	},
++	[STM32_PM_CSTOP_ALLOW_LPLV_STOP] = {
++		.pwr_cr1 = PWR_CR1_LVDS | PWR_CR1_LPDS,
++		.pwr_mpucr = PWR_MPUCR_CSSF,
++		.regul_suspend_node_name = "lplv-stop",
++	},
++	[STM32_PM_CSTOP_ALLOW_LPLV_STOP2] = {
++		.pwr_cr1 = PWR_CR1_LVDS | PWR_CR1_LPDS | PWR_CR1_STOP2,
++		.pwr_mpucr = PWR_MPUCR_CSSF,
++		.regul_suspend_node_name = "lplv-stop2",
++	},
++	[STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = PWR_MPUCR_CSSF |
++			PWR_MPUCR_PDDS,
++		.regul_suspend_node_name = "standby-ddr-sr",
++	},
++	[STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = PWR_MPUCR_CSSF |
++			PWR_MPUCR_PDDS,
++		.regul_suspend_node_name = "standby-ddr-off",
++	},
++	[STM32_PM_SHUTDOWN] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = 0U,
++		.regul_suspend_node_name = "standby-ddr-off",
++	},
++};
++#else
++#define PWR_CR1_MASK	(PWR_CR1_LPDS | PWR_CR1_LPCFG | PWR_CR1_LVDS)
++#define PWR_MPUCR_MASK	(PWR_MPUCR_CSTDBYDIS | PWR_MPUCR_CSSF | PWR_MPUCR_PDDS)
++
++static const struct pwr_lp_config config_pwr[STM32_PM_MAX_SOC_MODE] = {
++	[STM32_PM_CSLEEP_RUN] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = 0U,
++		.regul_suspend_node_name = NULL,
++	},
++	[STM32_PM_CSTOP_ALLOW_STOP] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = PWR_MPUCR_CSTDBYDIS | PWR_MPUCR_CSSF,
++		.regul_suspend_node_name = NULL,
++	},
++	[STM32_PM_CSTOP_ALLOW_LP_STOP] = {
++		.pwr_cr1 = PWR_CR1_LPDS,
++		.pwr_mpucr = PWR_MPUCR_CSTDBYDIS | PWR_MPUCR_CSSF,
++		.regul_suspend_node_name = "lp-stop",
++	},
++	[STM32_PM_CSTOP_ALLOW_LPLV_STOP] = {
++		.pwr_cr1 = PWR_CR1_LVDS | PWR_CR1_LPDS,
++		.pwr_mpucr = PWR_MPUCR_CSTDBYDIS | PWR_MPUCR_CSSF,
++		.regul_suspend_node_name = "lplv-stop",
++	},
++	[STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = PWR_MPUCR_CSTDBYDIS | PWR_MPUCR_CSSF |
++			PWR_MPUCR_PDDS,
++		.regul_suspend_node_name = "standby-ddr-sr",
++	},
++	[STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = PWR_MPUCR_CSTDBYDIS | PWR_MPUCR_CSSF |
++			PWR_MPUCR_PDDS,
++		.regul_suspend_node_name = "standby-ddr-off",
++	},
++	[STM32_PM_SHUTDOWN] = {
++		.pwr_cr1 = 0U,
++		.pwr_mpucr = 0U,
++		.regul_suspend_node_name = "standby-ddr-off",
++	},
++};
++#endif
++
++static void set_rcc_it_priority(uint8_t *it_prio, uint8_t *pmr)
++{
++	*it_prio = gic_set_ipriority(RCC_WAKEUP_IT, GIC_HIGHEST_SEC_PRIORITY);
++	*pmr = gic_set_pmr(STM32MP_GIC_PRIORITY_CSTOP);
++}
++
++static void restore_rcc_it_priority(uint8_t it_prio, uint8_t pmr)
++{
++	(void)gic_set_ipriority(RCC_WAKEUP_IT, it_prio);
++	(void)gic_set_pmr(pmr);
++}
++
++const char *stm32mp_pm_hint2mode_name(uint32_t pm_hint)
++{
++	assert(pm_hint < ARRAY_SIZE(config_pwr));
++
++	return config_pwr[pm_hint].regul_suspend_node_name;
++}
++
++const char *plat_get_lp_mode_name(int mode)
++{
++	return stm32mp_pm_hint2mode_name(mode);
++}
++
++#define CONSOLE_FLUSH_DELAY_MS		10
++
++#if TRACE_LEVEL >= TRACE_DEBUG
++static void wait_console_flushed(void)
++{
++	console_flush();
++	mdelay(CONSOLE_FLUSH_DELAY_MS);
++}
++#else
++static void wait_console_flushed(void)
++{
++}
++#endif
++
++static void cpu_wfi(void)
++{
++	dsb();
++	isb();
++	wfi();
++}
++
++void stm32_pm_cpu_wfi(void)
++{
++	wait_console_flushed();
++	cpu_wfi();
++}
++
++/*
++ * stm32_enter_cstop - Prepare CSTOP mode
++ *
++ * @mode - Target low power mode
++ */
++void stm32_enter_cstop(uint32_t mode)
++{
++	uint32_t pwr_cr1 = config_pwr[mode].pwr_cr1;
++	vaddr_t pwr_base = stm32_pwr_base();
++	vaddr_t rcc_base = stm32_rcc_base();
++
++	IMSG("Enter cstop mode %u", mode);
++
++#ifdef CFG_STM32MP15
++	if (mode == STM32_PM_CSTOP_ALLOW_LPLV_STOP2)
++		panic("LPLV-Stop2 mode not supported");
++#endif
++
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	/* Save Self-Refresh (SR) mode and switch to Software SR mode */
++	ddr_save_sr_mode(DDR_SSR_MODE);
++#endif
++
++	if (stm32mp_with_pmic() && (mode == STM32_PM_CSTOP_ALLOW_LP_STOP ||
++				    mode == STM32_PM_CSTOP_ALLOW_LPLV_STOP ||
++				    mode == STM32_PM_CSTOP_ALLOW_LPLV_STOP2))
++		pwr_cr1 |= PWR_CR1_LPCFG;
++
++	if (stm32mp_with_pmic()) {
++		stm32mp_get_pmic();
++		stm32mp_pmic_apply_lp_config(config_pwr[mode].regul_suspend_node_name);
++		stm32mp_put_pmic();
++	}
++
++	if (mode == STM32_PM_CSTOP_ALLOW_LPLV_STOP2) {
++		struct clk *hsi_clk = stm32mp_rcc_clock_id_to_clk(CK_HSI);
++		unsigned long freq = clk_get_rate(hsi_clk);
++		/* Wait for 2ms before re-enabling PLLs after LPLV-Stop2 mode */
++		uint32_t dly = 2U * freq / 1000U;
++
++		io_clrsetbits32(rcc_base + RCC_PWRLPDLYCR,
++				RCC_PWRLPDLYCR_PWRLP_DLY_MASK,
++				dly);
++	} else {
++		/* Wait 6 HSI periods after other Stop modes */
++		io_clrsetbits32(rcc_base + RCC_PWRLPDLYCR,
++				RCC_PWRLPDLYCR_PWRLP_DLY_MASK,
++				PWRLP_TEMPO_5_HSI);
++	}
++
++	/* Workaround for non secure cache issue: this should not be needed */
++	dcache_op_all(DCACHE_OP_CLEAN_INV);
++
++	/* Clear RCC interrupt before enabling it */
++	io_setbits32(rcc_base + RCC_MP_CIFR, RCC_MP_CIFR_WKUPF);
++
++	/* Enable RCC Wake-up */
++	io_setbits32(rcc_base + RCC_MP_CIER, RCC_MP_CIFR_WKUPF);
++
++	/* Configure low power mode */
++	io_clrsetbits32(pwr_base + PWR_MPUCR_OFF, PWR_MPUCR_MASK,
++			config_pwr[mode].pwr_mpucr);
++	io_clrsetbits32(pwr_base + PWR_CR1_OFF, PWR_CR1_MASK, pwr_cr1);
++
++	/* Clear RCC pending interrupt flags */
++	io_write32(rcc_base + RCC_MP_CIFR, RCC_MP_CIFR_MASK);
++
++#ifdef CFG_STM32MP13
++	/* Request CSTOP mode to RCC */
++	io_setbits32(rcc_base + RCC_MP_SREQSETR, RCC_MP_SREQSETR_STPREQ_P0);
++#else
++	io_setbits32(rcc_base + RCC_MP_SREQSETR,
++		     RCC_MP_SREQSETR_STPREQ_P0 | RCC_MP_SREQSETR_STPREQ_P1);
++
++	watchdog_ping();
++#endif
++
++	set_rcc_it_priority(&gicd_rcc_wakeup, &gicc_pmr);
++
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	if (ddr_standby_sr_entry() != 0)
++		panic();
++#endif
++
++	if (mode == STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR) {
++		/* set POPL to 20ms */
++		io_clrsetbits32(pwr_base + PWR_CR3_OFF, PWR_CR3_POPL_MASK,
++				20U << PWR_CR3_POPL_SHIFT);
++
++#ifdef CFG_STM32MP15
++		if (stm32mp1_is_retram_during_standby()) {
++			uint64_t to = 0;
++
++			/* Keep retention in standby */
++			to = timeout_init_us(TIMEOUT_US_10MS);
++			io_setbits32(pwr_base + PWR_CR2_OFF, PWR_CR2_RREN);
++
++			while (!(io_read32(pwr_base + PWR_CR2_OFF) &
++				 PWR_CR2_RRRDY))
++				if (timeout_elapsed(to))
++					panic();
++		}
++#endif
++	}
++}
++
++/*
++ * stm32_exit_cstop - Exit from CSTOP mode
++ */
++void stm32_exit_cstop(void)
++{
++	vaddr_t rcc_base = stm32_rcc_base();
++
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	if (ddr_standby_sr_exit())
++		panic();
++
++	/* Restore Self-Refresh mode saved in stm32_enter_cstop() */
++	ddr_restore_sr_mode();
++#endif
++
++	restore_rcc_it_priority(gicd_rcc_wakeup, gicc_pmr);
++
++#ifdef CFG_STM32MP13
++	/* Disable STOP request */
++	io_setbits32(rcc_base + RCC_MP_SREQCLRR, RCC_MP_SREQSETR_STPREQ_P0);
++#else
++	/* Disable STOP request */
++	io_setbits32(rcc_base + RCC_MP_SREQCLRR,
++		     RCC_MP_SREQSETR_STPREQ_P0 | RCC_MP_SREQSETR_STPREQ_P1);
++#endif
++
++	/* Disable RCC Wake-up */
++	io_clrbits32(rcc_base + RCC_MP_CIER, RCC_MP_CIFR_WKUPF);
++
++	dsb();
++	isb();
++
++#ifndef CFG_STM32MP13
++	/* Disable retention and backup RAM content after stop */
++	io_clrbits32(stm32_pwr_base() + PWR_CR2_OFF, PWR_CR2_RREN);
++#endif
++}
++
++/*
++ * stm32_enter_cstop_shutdown - Shutdown CPUs to target low power mode
++ * @mode - Target low power mode
++ */
++void __noreturn stm32_enter_cstop_shutdown(uint32_t mode)
++{
++#ifdef CFG_STM32MP15
++	if (stm32mp_supports_second_core() && (get_core_pos() == 0)) {
++		struct itr_chip *itr_chip = interrupt_get_main_chip();
++
++		/* Prepare CPU reset */
++		io_setbits32(stm32_rcc_base() + RCC_MP_GRSTCSETR,
++			     RCC_MP_GRSTCSETR_MPUP1RST);
++
++		interrupt_raise_sgi(itr_chip, CFG_HALT_CORES_ON_PANIC_SGI,
++				    TARGET_CPU1_GIC_MASK);
++	}
++#endif
++
++	switch (mode) {
++	case STM32_PM_SHUTDOWN:
++		if (stm32mp_with_pmic()) {
++			wait_console_flushed();
++			stm32mp_get_pmic();
++			stpmic1_switch_off();
++			udelay(100);
++		}
++		break;
++	case STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF:
++		stm32mp_pm_shutdown_context();
++		stm32_enter_cstop(mode);
++		dsb();
++		isb();
++		for ( ; ; )
++			wfi();
++		break;
++	default:
++		break;
++	}
++
++	panic();
++}
++
++/*
++ * stm32_enter_cstop_reset - Reset CPUs to target low power mode
++ * @mode - Target low power mode
++ */
++void __noreturn stm32_enter_cstop_reset(uint32_t mode)
++{
++	switch (mode) {
++	case STM32_PM_SHUTDOWN:
++		stm32_reset_system();
++		udelay(100);
++		break;
++	default:
++		IMSG("Forced system reset");
++		wait_console_flushed();
++		stm32_reset_system();
++		udelay(100);
++		break;
++	}
++
++	panic();
++}
++
++/*
++ * stm32_enter_csleep - enter CSLEEP state while WFI and exit in CRUN
++ *
++ * Configure PWR for CSLEEP state. CPU shall execute a WFI and return
++ * once a interrupt is pending.
++ */
++void stm32_enter_csleep(void)
++{
++	vaddr_t pwr_base = stm32_pwr_base();
++
++	io_clrsetbits32(pwr_base + PWR_MPUCR_OFF, PWR_MPUCR_MASK,
++			config_pwr[STM32_PM_CSLEEP_RUN].pwr_mpucr);
++	io_clrsetbits32(pwr_base + PWR_CR1_OFF, PWR_CR1_MASK,
++			config_pwr[STM32_PM_CSLEEP_RUN].pwr_cr1);
++
++	stm32_pm_cpu_wfi();
++}
++
++/* RCC Wakeup interrupt is used to wake from suspended mode */
++static enum itr_return rcc_wakeup_it_handler(struct itr_handler *hdl __unused)
++{
++	/* This interrupt is not expected to be handled */
++	panic("RCC  wakeup interrupt");
++	return ITRR_HANDLED;
++}
++
++static struct itr_handler rcc_wakeup_handler = {
++	.it = RCC_WAKEUP_IT,
++	.handler = rcc_wakeup_it_handler,
++};
++DECLARE_KEEP_PAGER(rcc_wakeup_handler);
++
++static TEE_Result init_low_power(void)
++{
++	vaddr_t pwr_base __maybe_unused = stm32_pwr_base();
++	vaddr_t rcc_base = stm32_rcc_base();
++	uint64_t to = 0;
++
++	if (interrupt_add_handler_with_chip(interrupt_get_main_chip(),
++					    &rcc_wakeup_handler))
++		panic();
++
++	interrupt_enable(interrupt_get_main_chip(), rcc_wakeup_handler.it);
++
++#ifdef CFG_STM32MP13
++	/* Disable STOP request */
++	io_setbits32(rcc_base + RCC_MP_SREQCLRR, RCC_MP_SREQSETR_STPREQ_P0);
++#else
++	/*
++	 * Configure Standby mode available for MCU by default
++	 * and allow to switch in standby SoC in all case
++	 */
++	io_setbits32(pwr_base + PWR_MCUCR_OFF, PWR_MCUCR_PDDS);
++
++	/* Disable STOP request */
++	io_setbits32(rcc_base + RCC_MP_SREQCLRR,
++		     RCC_MP_SREQSETR_STPREQ_P0 | RCC_MP_SREQSETR_STPREQ_P1);
++#endif
++
++	/* Keep backup RAM content in standby */
++	io_setbits32(pwr_base + PWR_CR2_OFF, PWR_CR2_BREN);
++
++	to = timeout_init_us(TIMEOUT_US_10MS);
++	while (!(io_read32(pwr_base + PWR_CR2_OFF) & PWR_CR2_BRRDY))
++		if (timeout_elapsed(to))
++			panic();
++
++	return TEE_SUCCESS;
++}
++driver_init_late(init_low_power);
++
++/*
++ * CPU low power sequences
++ */
++void __noreturn stm32_pm_cpu_power_down_wfi(void)
++{
++	vaddr_t __maybe_unused rcc_base = stm32_rcc_base();
++
++	if (get_core_pos() == 0) {
++		void (*reset_ep)(void) = stm32mp_sysram_resume;
++
++		stm32_pm_cpu_wfi();
++
++		/* STANDBY not reached: resume from retained SYSRAM */
++		stm32_exit_cstop();
++		stm32mp_cpu_reset_state();
++		reset_ep();
++		panic();
++	}
++
++	dcache_op_level1(DCACHE_OP_CLEAN);
++#ifdef CFG_STM32MP13
++	panic();
++#else
++	io_write32(rcc_base + RCC_MP_GRSTCSETR, RCC_MP_GRSTCSETR_MPUP1RST);
++#endif
++	cpu_wfi();
++	panic();
++}
+diff --git a/core/arch/arm/plat-stm32mp1/pm/pm_helpers.S b/core/arch/arm/plat-stm32mp1/pm/pm_helpers.S
+new file mode 100644
+index 000000000..452535700
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/pm/pm_helpers.S
+@@ -0,0 +1,729 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2018-2021, STMicroelectronics
++ * Copyright (c) 2017-2021 NXP
++ * Copyright (c) 2016-2021, ARM Limited and Contributors. All rights reserved.
++ */
++
++#include <arm.h>
++#include <arm32_macros.S>
++#include <asm.S>
++#include <boot_api.h>
++#include <drivers/stm32mp1_rcc.h>
++#include <generated/context_asm_defines.h>
++#include <kernel/cache_helpers.h>
++#include <kernel/tz_proc_def.h>
++#include <kernel/tz_ssvce_def.h>
++#include <platform_config.h>
++#include <mm/core_mmu.h>
++#include <util.h>
++
++#include "context.h"
++
++/*
++ * Right bit shift distance to reach timeout from a 1s STGEN freq count
++ * Value N relates to 1000ms / 2^N, i.e 7 relates to 7.8125ms=~8ms
++ */
++#define CCM_TIMEOUT_128MS		2
++#define CCM_TIMEOUT_8MS			7
++#define CCM_TIMEOUT_1MS			10
++#define CCM_TIMEOUT_16US		16
++#define CCM_TIMEOUT			CCM_TIMEOUT_8MS
++
++/*
++ * CRYP interface register used for AES CCM
++ */
++#define CRYP_CR				0x000
++#define CRYP_SR				0x004
++#define CRYP_DIN			0x008
++#define CRYP_DOUT			0x00c
++#define CRYP_KEYR_BASE			0x020
++#define CRYP_IVR_BASE			0x040
++
++#define CRYP_CR_ALGODIR_DECRYPT		BIT(2)
++#define CRYP_CR_ALGOMODE_MASK		(BIT(19) | GENMASK_32(5, 3))
++#define CRYP_CR_ALGOMODE(m)		(((m & BIT(3)) << 16) | (m & 0x7) << 3)
++#define ALGOMODE_AES_CCM		0x9
++#define CRYP_CR_DATATYPE_SHIFT		6
++#define CRYP_CR_DATATYPE_8BIT		(2 << CRYP_CR_DATATYPE_SHIFT)
++#define CRYP_CR_KEYSIZE_SHIFT		8
++#define CRYP_CR_KEYSIZE_256BIT		(2U << CRYP_CR_KEYSIZE_SHIFT)
++#define CRYP_CR_CRYPEN			BIT(15)
++#define CRYP_CR_FFLUSH			BIT(14)
++#define CRYP_CR_GCM_CCMPH_SHIFT		16
++#define CRYP_CR_PHASE_MASK		(0x3 << CRYP_CR_GCM_CCMPH_SHIFT)
++#define CRYP_CR_INIT_PHASE		(0 << CRYP_CR_GCM_CCMPH_SHIFT)
++#define CRYP_CR_HEADER_PHASE		(1 << CRYP_CR_GCM_CCMPH_SHIFT)
++#define CRYP_CR_PAYLOAD_PHASE		(2 << CRYP_CR_GCM_CCMPH_SHIFT)
++#define CRYP_CR_FINAL_PHASE		(3 << CRYP_CR_GCM_CCMPH_SHIFT)
++
++#define CRYP_SR_BUSY			BIT(4)
++#define CRYP_SR_OFFU			BIT(3)
++#define CRYP_SR_OFNE			BIT(2)
++#define CRYP_SR_IFNF			BIT(1)
++#define CRYP_SR_IFEM			BIT(0)
++
++/*
++ * Enable TRACE_SYSRAM_RESTORE to get some UART console traces
++ * at resume time.
++ */
++#if defined(TRACE_SYSRAM_RESTORE)
++
++#define UART_BASE			UART4_BASE
++#define UART_ISR_OFF			0x1c
++#define UART_TDR_OFF			0x28
++#define USART_ISR_TXE_TXFNF		(1<< 7)
++
++	.macro PRINT_CHAR _reg0, _reg1, _char
++		/* Trace only at resume when MMU is OFF */
++		read_sctlr \_reg0
++		ands	\_reg0, #SCTLR_M
++	101:
++		bne	102f
++		mov_imm	\_reg0, UART4_BASE
++		ldr	\_reg1, [\_reg0, #UART_ISR_OFF]
++		ands	\_reg1, #USART_ISR_TXE_TXFNF
++		beq 101b
++		mov_imm	\_reg1, (\_char)
++		str	\_reg1, [\_reg0, #UART_TDR_OFF]
++	102:
++	.endm
++#else
++	.macro PRINT_CHAR _reg0, _reg1, _char
++	.endm
++#endif
++
++	/* Bound of the binary image loaded in retained memory */
++	.global stm32mp_bkpsram_image_end
++
++/*
++ * stm32mp_bkpsram_resume - Restore TEE RAM from backup memory and resume into
++ *
++ * This function executes at early resume from suspend state. It is the
++ * entrypoint of the OP-TEE provided to early boot stage when SoC wakes.
++ * This code is located in a retained memory, MMU disabled. This function
++ * shall restore TEE RAM content for OP-TEE to resume execution. Once
++ * TEE RAM is restored, this function branches to the resident resume entry
++ * point in TEE_RAM. This function and its resources shall execute in place.
++ */
++FUNC stm32mp_bkpsram_resume , :
++UNWIND(	.cantunwind)
++
++	PRINT_CHAR r0, r1, '0'
++
++	/*
++	 * Almost all sequences here expect PM context structure base address
++	 * from CPU register r11.
++	 */
++	mov_imm	r11, (BKPSRAM_BASE + BKPSRAM_PM_CONTEXT_OFFSET)
++
++	/* stm32mp_ccm_teeram needs some HW interface base address */
++	mov_imm r0, CRYP1_BASE
++	str	r0, [r11, #PM_CTX_CRYP1_BASE]
++	mov_imm r0, RCC_BASE
++	str	r0, [r11, #PM_CTX_RCC_BASE]
++	mov_imm r0, STGEN_BASE
++	str	r0, [r11, #PM_CTX_STGEN_BASE]
++
++	bl	_clear_early_mailbox
++	bl	_prepare_time
++
++	mov_imm r0, TEE_RAM_START
++	ldr	r1, [r11, #PM_CTX_TEERAM_BKP_PA]
++	mov_imm r2, TEE_RAM_PH_SIZE
++	mov_imm r3, 1
++	bl	stm32mp_ccm_teeram
++	cmp	r0, #0
++	bne	_failed
++
++	PRINT_CHAR r0, r1, 'T'
++	PRINT_CHAR r0, r1, 'a'
++	PRINT_CHAR r0, r1, 'g'
++	PRINT_CHAR r0, r1, '\n'
++
++	/* Compare the generated and reference tags */
++	add	r8, r11, #PM_CTX_CCM_TAG
++	add	r9, r11, #PM_CTX_CCM_REF_TAG
++	ldm	r8, {r2-r5}
++	ldm	r9, {r6-r9}
++	mov	r0, #0
++	cmp	r2, r6
++	addeq	r0, #1
++	cmp	r3, r7
++	addeq	r0, #1
++	cmp	r4, r8
++	addeq	r0, #1
++	cmp	r5, r9
++	addeq	r0, #1
++	cmp	r0, #4
++	bne	_failed
++	bl	_save_resume_time
++
++	PRINT_CHAR r1, r2, 'O'
++	PRINT_CHAR r1, r2, 'k'
++	PRINT_CHAR r1, r2, '\n'
++
++	/* Resume into the restored TEE RAM */
++	ldr	r1, [r11, #PM_CTX_RESUME_PA]
++	bx	r1
++
++_failed:
++	PRINT_CHAR r0, r12, 'F'
++	PRINT_CHAR r0, r12, '\n'
++
++	/* Clear context including key and reference tag */
++	mov	r0, #0xa5
++	mov_imm	r12, BKPSRAM_PM_CONTEXT_SIZE
++	add	r12, r11, r12
++1:	str	r0, [r11], #4
++	cmp	r11, r12
++	blt	1b
++	b	.
++
++	/*
++	 * _clear_early_mailbox - Wipe mailbox in case of reset
++	 *
++	 * Sratches r0-r4.
++	 * All other CPU registers are preserved.
++	 */
++_clear_early_mailbox:
++	/* Clear the backup registers (first enable RTCAPB clock) */
++	mov_imm r0, (RCC_BASE + RCC_MP_APB5ENSETR)
++	mov_imm	r2, RCC_MP_APB5ENSETR_RTCAPBEN
++	ldr	r1, [r0]
++	ands	r1, r1, r2
++	moveq	r1, r2
++	movne	r1, #0
++	str	r2, [r0]
++	mov_imm	r2, (TAMP_BASE + TAMP_BKP_REGISTER_OFF)
++	mov_imm	r3, (BCKR_CORE1_MAGIC_NUMBER * 4)
++	mov_imm	r4, BOOT_API_A7_RESET_MAGIC_NUMBER
++	str	r4, [r2, r3]
++	mov_imm	r3, (BCKR_CORE1_BRANCH_ADDRESS * 4)
++	mov	r4, #0
++	str	r4, [r2, r3]
++	/* Restore RTCAPB clock initial state */
++	str	r1, [r0, #RCC_MP_ENCLRR_OFFSET]
++	bx	lr
++
++	/*
++	 * prepare_time - save/reset cycle counter to prevent later overflow
++	 *
++	 * Save current 32bit lower counter and reset to 0 so that later
++	 * timeout test do not need to care about overflow.
++	 *
++	 * Expects r11 is context base and lr is return address.
++	 * Scrathes r0-r2.
++	 * All other CPU registers are preserved.
++	 */
++_prepare_time:
++	ldr	r2, [r11, #PM_CTX_STGEN_BASE]
++	/* Disable STGEN counter */
++	ldr	r1, [r2, #CNTCR_OFFSET]
++	bic	r1, r1, #CNTCR_EN
++	str	r1, [r2, #CNTCR_OFFSET]
++1:	ldr	r1, [r2, #CNTSR_OFFSET]
++	tst	r1, #CNTCR_EN
++	bne	1b
++	/* Save and reset STGEN counter */
++	ldr	r0, [r2, #CNTCVL_OFFSET]
++	str	r0, [r11, #PM_CTX_STGEN_CNT]
++	mov	r0, #0
++	str	r0, [r2, #CNTCVL_OFFSET]
++	ldr	r0, [r2, #CNTCVU_OFFSET]
++	str	r0, [r2, #CNTCVU_OFFSET]
++	/* Enable STGEN counter */
++	ldr	r1, [r2, #CNTCR_OFFSET]
++	orr	r1, r1, #CNTCR_EN
++	str	r1, [r2, #CNTCR_OFFSET]
++	bx	lr
++
++	/*
++	 * save_resume_time - save time spent and restore STGEN cycle counter
++	 *
++	 * Restore STGEN counter to initial value incremented by the current
++	 * count. Note 32bit upper may need to be incremented.
++	 *
++	 * Expects r11 is context base and lr is return address.
++	 * Scrathes r0-r3.
++	 * All other CPU registers are preserved.
++	 */
++_save_resume_time:
++	/* Compute update STGEN counter 32bit LSB value */
++	ldr	r2, [r11, #PM_CTX_STGEN_BASE]
++	ldr	r0, [r11, #PM_CTX_STGEN_CNT]
++	ldr	r3, [r2, #CNTCVL_OFFSET]
++	str	r3, [r11, #PM_CTX_STGEN_CNT]
++	adds	r0, r0, r3
++	/* Disable STGEN  */
++	ldr	r1, [r2, #CNTCR_OFFSET]
++	bic	r1, r1, #CNTCR_EN
++	str	r1, [r2, #CNTCR_OFFSET]
++1:	ldr	r1, [r2, #CNTSR_OFFSET]
++	tst	r1, #CNTCR_EN
++	bne	1b
++	/* Update counter (increment 32bit MSB if required) */
++	str	r0, [r2, #CNTCVL_OFFSET]
++	ldr	r0, [r2, #CNTCVU_OFFSET]
++	addcs	r0, r0, #1
++	str	r0, [r2, #CNTCVU_OFFSET]	/* Write CNTCVU value ... */
++	ldr	r0, [r2, #CNTCVU_OFFSET]	/* ... and wait it is set */
++	/* Enable STGEN  */
++	ldr	r0, [r2, #CNTCR_OFFSET]
++	orr	r0, r0, #CNTCR_EN
++	str	r0, [r2, #CNTCR_OFFSET]
++	bx	lr
++
++	/*
++	 * _setup_cryp1 - Enable CRYP1 hardware: reset & clock
++	 * _reset_cryp1 - Reset CRYP1 hardware
++	 *
++	 * Function call before and after CCM sequence. Note that the CRYP1
++	 * clock remain enabled. It is disabled later by the resume sequence.
++	 *
++	 * Expects r11 is context base and lr is return address.
++	 * Scratches r0-r3.
++	 */
++_setup_cryp1:
++	ldr	r1, [r11, #PM_CTX_RCC_BASE]
++	mov_imm r0, RCC_MP_AHB5ENSETR_CRYP1EN
++	str	r0, [r1, #RCC_MP_AHB5ENSETR]
++	/* Intentionnally fall through reset_cryp1 */
++_reset_cryp1:
++	ldr	r3, [r11, #PM_CTX_RCC_BASE]
++	mov_imm r0, RCC_AHB5RSTSETR_CRYP1RST
++	str	r0, [r3, #RCC_AHB5RSTSETR]
++1:	ldr	r1, [r3, #RCC_AHB5RSTSETR]
++	ands	r1, r1, r0
++	beq	1b
++	mov_imm r0, RCC_AHB5RSTSETR_CRYP1RST
++	str	r0, [r3, #RCC_AHB5RSTCLRR]
++1:	ldr	r1, [r3, #RCC_AHB5RSTSETR]
++	ands	r1, r1, r0
++	bne	1b
++	bx	lr
++
++	/*
++	 * _ccm_arm_8ms_timeout - Init 8ms threshold for _ccm_failed_on_timeout
++	 * _ccm_fail_on_timeout - Check STGEN counter against timeout threshold
++	 *
++	 * These function are used by the macro wait_flag_timeout_8ms. The
++	 * former loads the timeout in CPU register r0 while the later get the
++	 * timeout counter threshold from CPU register r0.
++	 *
++	 * Expect r11 is context base and lr is return address.
++	 * Scratch r0-r1.
++	 * All other CPU registers are preserved.
++	 */
++_ccm_arm_8ms_timeout:
++	ldr	r1, [r11, #PM_CTX_STGEN_BASE]
++	ldr	r0, [r1, #CNTFID_OFFSET]
++	lsrs	r0, r0, #CCM_TIMEOUT
++	moveq	r0, #1
++	ldr	r1, [r1, #CNTCVL_OFFSET]
++	adds	r0, r0, r1
++	bcs	_ccm_failed_on_timeout
++	bx	lr
++
++_ccm_fail_on_timeout:
++
++	ldr	r1, [r11, #PM_CTX_STGEN_BASE]
++	ldr	r1, [r1, #CNTCVL_OFFSET]
++	cmp	r1, r0
++	bge	_ccm_failed_on_timeout
++	bx	lr
++
++_ccm_failed_on_timeout:
++	PRINT_CHAR r0, r1, 'T'
++	PRINT_CHAR r0, r1, 'o'
++	PRINT_CHAR r0, r1, '\n'
++	b	_ccm_failed
++
++	/*
++	 * Macro WAIT_FLAG_TIMEOUT compares timeout threshold (r0) with
++	 * current time and branches the CCM failure entry on timeout.
++	 * It is assumed the 32bit timestamps cannot overflow.
++	 */
++	.macro WAIT_FLAG_TIMEOUT register_offset, bit_mask, awaited_mask
++		bl	_ccm_arm_8ms_timeout
++	1:
++		bl	_ccm_fail_on_timeout
++		ldr	r1, [r10, #(\register_offset)]
++		and	r1, r1, #(\bit_mask)
++		cmp	r1, #(\awaited_mask)
++		bne	1b
++	.endm
++
++/*
++ * stm32mp_ccm_teeram - Size optimzed unpaged CCM encryption/decryption
++ *
++ * This sequence encrypts or decrypts a input block using AES CCM with a
++ * 256bit key and no AAD and generates the CCM tag. The key, CTR0, CTR1
++ * and B0 block are read from PM context structure. The generated tag is
++ * stored in the PM context structure.
++ *
++ * This function is executed from TEE RAM during suspend sequence to generate
++ * the encrypted data and the tag. This function is also executed from BKPSRAM
++ * called with MMU disabled. Therefore this sequence shall be comply with
++ * position independent code constraints.
++ *
++ * Expects at entry:
++ * lr = caller return address
++ * r11 = retram_resume_ctx structure base address
++ * r0 = Destination buffer for the output data (ciphertext or plaintext)
++ * r1 = Source buffer for the input data (plaintext or ciphertext)
++ * r2 = Input (and output) data size in bytes
++ * r3 = 1 if decrypting, 0 if encrypting
++ */
++stm32mp_ccm_teeram:
++	/*
++	 * Use of the CPU registers in the whole stm32mp_ccm_teeram sequence
++	 *
++	 * sp: preserved, not used
++	 * lr: scratch register used to call subroutines.
++	 * r12: saves the caller link register for final return
++	 * r11: context from BKPSRAM
++	 * r10: CRYP1 base address
++	 * r9: destination buffer
++	 * r8: source buffer to cipher
++	 * r7: data byte counter
++	 * r0-r6 are scratch registers
++	 */
++	mov	r12, lr
++	ldr	r10, [r11, #PM_CTX_CRYP1_BASE]
++	mov	r9, r0
++	mov	r8, r1
++	mov	r7, r2
++	mov	r6, r3
++
++	PRINT_CHAR r0, r1, '1'
++
++	bl	_setup_cryp1
++
++	PRINT_CHAR r0, r1, '2'
++
++	mov_imm	r0, (CRYP_CR_ALGOMODE(ALGOMODE_AES_CCM) | \
++		     CRYP_CR_DATATYPE_8BIT | CRYP_CR_FFLUSH | \
++		     CRYP_CR_KEYSIZE_256BIT)
++	cmp	r6, #0
++	orrne	r0, r0, #CRYP_CR_ALGODIR_DECRYPT
++	str	r0, [r10, #CRYP_CR]
++
++	PRINT_CHAR r0, r1, '3'
++
++	/* Check data alignment (addresses and size) */
++	ands	r0, r7, #0x0F
++	bne	_ccm_failed
++	ands	r0, r8, #0x03
++	bne	_ccm_failed
++	ands	r0, r9, #0x03
++	bne	_ccm_failed
++
++	PRINT_CHAR r0, r1, '4'
++
++	ldr	r0, [r11, #PM_CTX_CCM_KEY]
++	str	r0, [r10, #CRYP_KEYR_BASE]
++	ldr	r0, [r11, #(PM_CTX_CCM_KEY + 4)]
++	str	r0, [r10, #(CRYP_KEYR_BASE + 4)]
++	ldr	r0, [r11, #(PM_CTX_CCM_KEY + 8)]
++	str	r0, [r10, #(CRYP_KEYR_BASE + 8)]
++	ldr	r0, [r11, #(PM_CTX_CCM_KEY + 12)]
++	str	r0, [r10, #(CRYP_KEYR_BASE + 12)]
++	ldr	r0, [r11, #(PM_CTX_CCM_KEY + 16)]
++	str	r0, [r10, #(CRYP_KEYR_BASE + 16)]
++	ldr	r0, [r11, #(PM_CTX_CCM_KEY + 20)]
++	str	r0, [r10, #(CRYP_KEYR_BASE + 20)]
++	ldr	r0, [r11, #(PM_CTX_CCM_KEY + 24)]
++	str	r0, [r10, #(CRYP_KEYR_BASE + 24)]
++	ldr	r0, [r11, #(PM_CTX_CCM_KEY + 28)]
++	str	r0, [r10, #(CRYP_KEYR_BASE + 28)]
++
++	ldr	r0, [r11, #PM_CTX_CCM_CTR1]
++	str	r0, [r10, #CRYP_IVR_BASE]
++	ldr	r0, [r11, #(PM_CTX_CCM_CTR1 + 4)]
++	str	r0, [r10, #(CRYP_IVR_BASE + 4)]
++	ldr	r0, [r11, #(PM_CTX_CCM_CTR1 + 8)]
++	str	r0, [r10, #(CRYP_IVR_BASE + 8)]
++	ldr	r0, [r11, #(PM_CTX_CCM_CTR1 + 12)]
++	str	r0, [r10, #(CRYP_IVR_BASE + 12)]
++
++	/* Setup CRYP for the CCM Init Phase */
++	ldr	r0, [r10, #CRYP_CR]
++	orr	r0, r0, #(CRYP_CR_CRYPEN | CRYP_CR_INIT_PHASE)
++	str	r0, [r10, #CRYP_CR]
++	ldr	r0, [r10, #CRYP_CR]
++
++	ldr	r0, [r11, #PM_CTX_CCM_B0]
++	str	r0, [r10, #CRYP_DIN]
++	ldr	r0, [r11, #(PM_CTX_CCM_B0 + 4)]
++	str	r0, [r10, #CRYP_DIN]
++	ldr	r0, [r11, #(PM_CTX_CCM_B0 + 8)]
++	str	r0, [r10, #CRYP_DIN]
++	ldr	r0, [r11, #(PM_CTX_CCM_B0 + 12)]
++	str	r0, [r10, #CRYP_DIN]
++
++	PRINT_CHAR r0, r1, '5'
++
++	WAIT_FLAG_TIMEOUT CRYP_CR, CRYP_CR_CRYPEN, 0
++
++	/* Setup CRYP for the CCM Payload phase */
++	ldr	r0, [r10, #CRYP_CR]
++	bic	r0, r0, #CRYP_CR_PHASE_MASK
++	orr	r0, r0, #CRYP_CR_PAYLOAD_PHASE
++	orr	r0, r0, #CRYP_CR_CRYPEN
++	str	r0, [r10, #CRYP_CR]
++	ldr	r0, [r10, #CRYP_CR]
++
++	PRINT_CHAR r0, r1, '\n'
++
++_next_block:
++	PRINT_CHAR r0, r1, 'b'
++
++	WAIT_FLAG_TIMEOUT CRYP_SR, CRYP_SR_IFEM, CRYP_SR_IFEM
++
++	/* Feed input data, r8 stores the current source buffer */
++	ldr	r0, [r8], #4
++	str	r0, [r10, #CRYP_DIN]
++	ldr	r0, [r8], #4
++	str	r0, [r10, #CRYP_DIN]
++	ldr	r0, [r8], #4
++	str	r0, [r10, #CRYP_DIN]
++	ldr	r0, [r8], #4
++	str	r0, [r10, #CRYP_DIN]
++
++	WAIT_FLAG_TIMEOUT CRYP_SR, CRYP_SR_OFNE, CRYP_SR_OFNE
++
++	/* Store output data, r9 stores the current source buffer */
++	ldr	r0, [r10, #CRYP_DOUT]
++	str	r0, [r9], #4
++	ldr	r0, [r10, #CRYP_DOUT]
++	str	r0, [r9], #4
++	ldr	r0, [r10, #CRYP_DOUT]
++	str	r0, [r9], #4
++	/* Before last 32bit word, the output FIFO shall not be empty */
++	ldr	r0, [r10, #CRYP_SR]
++	ands	r0, r0, #CRYP_SR_OFNE
++	beq	_ccm_failed
++	/* After last 32bit word for this 128block, FIFO shall be empty */
++	ldr	r0, [r10, #CRYP_DOUT]
++	str	r0, [r9], #4
++	ldr	r0, [r10, #CRYP_SR]
++	ands	r0, r0, #CRYP_SR_OFNE
++	bne	_ccm_failed
++
++	/* Another round if remaining data */
++	subs	r7, r7, #16
++	bne	_next_block;
++
++	PRINT_CHAR r0, r1, '\n'
++	PRINT_CHAR r0, r1, '6'
++
++	WAIT_FLAG_TIMEOUT CRYP_SR, CRYP_SR_BUSY, 0
++
++	/*
++	 * Data processing completed, now remains the tag generation.
++	 * Here expect SR[IFNF]=SR[OFNE]=1 and all others bits are 0.
++	 */
++	ldr	r0, [r10, #CRYP_SR]
++	cmp	r0, #(CRYP_SR_IFEM | CRYP_SR_IFNF)
++	bne	_ccm_failed
++
++	PRINT_CHAR r0, r1, '7'
++
++	/* Setup CRYP1 for the CCM Final Phase */
++	ldr	r0, [r10, #CRYP_CR]
++	bic	r0, r0, #CRYP_CR_CRYPEN
++	str	r0, [r10, #CRYP_CR]
++	ldr	r0, [r10, #CRYP_CR]
++	bic	r0, r0, #CRYP_CR_PHASE_MASK
++	bic	r0, r0, #CRYP_CR_ALGODIR_DECRYPT
++	orr	r0, r0, #CRYP_CR_FINAL_PHASE
++	orr	r0, r0, #CRYP_CR_CRYPEN
++	str	r0, [r10, #CRYP_CR]
++	ldr	r0, [r10, #CRYP_CR]
++
++	/* Load CTR0 to generate the tag */
++	ldr	r0, [r11, #PM_CTX_CCM_CTR0]
++	str	r0, [r10, #CRYP_DIN]
++	ldr	r0, [r11, #(PM_CTX_CCM_CTR0 + 4)]
++	str	r0, [r10, #CRYP_DIN]
++	ldr	r0, [r11, #(PM_CTX_CCM_CTR0 + 8)]
++	str	r0, [r10, #CRYP_DIN]
++	ldr	r0, [r11, #(PM_CTX_CCM_CTR0 + 12)]
++	str	r0, [r10, #CRYP_DIN]
++
++	PRINT_CHAR r0, r1, '8'
++
++	WAIT_FLAG_TIMEOUT CRYP_SR, CRYP_SR_OFNE, CRYP_SR_OFNE
++
++	/* Store generated tag in the PM_CTX structure */
++	ldr	r0, [r10, #CRYP_DOUT]
++	str	r0, [r11, #PM_CTX_CCM_TAG]
++	ldr	r0, [r10, #CRYP_DOUT]
++	str	r0, [r11, #(PM_CTX_CCM_TAG + 4)]
++	ldr	r0, [r10, #CRYP_DOUT]
++	str	r0, [r11, #(PM_CTX_CCM_TAG + 8)]
++	/* Before last 32bit word, the output FIFO shall not be empty */
++	ldr	r0, [r10, #CRYP_SR]
++	ands	r0, r0, #CRYP_SR_OFNE
++	beq	_ccm_failed
++	/* After last 32bit word for this 128block, FIFO shall be empty */
++	ldr	r0, [r10, #CRYP_DOUT]
++	str	r0, [r11, #(PM_CTX_CCM_TAG + 12)]
++	ldr	r0, [r10, #CRYP_SR]
++	ands	r0, r0, #CRYP_SR_OFNE
++	bne	_ccm_failed
++
++	PRINT_CHAR r0, r1, '9'
++
++	/* Successful return */
++	bl	_reset_cryp1
++	mov	r0, #0
++	bx	r12
++
++_ccm_failed:
++
++	PRINT_CHAR r0, r1, 'K'
++	PRINT_CHAR r0, r1, 'O'
++
++	bl	_reset_cryp1
++	mov	r0, #1
++	bx	r12
++
++/* End address of the PIC resume sequence copy in retained RAM */
++stm32mp_bkpsram_image_end:
++	nop
++
++END_FUNC stm32mp_bkpsram_resume
++
++/*
++ * int stm32mp_ccm_encrypt_teeram(ctx, dst, src, len)
++ */
++FUNC stm32mp_ccm_encrypt_teeram , :
++	push	{r4-r12, lr}
++UNWIND(	.save	{r4-r12, lr})
++	mov	r11, r0
++	mov	r0, r1
++	mov	r1, r2
++	mov	r2, r3
++	mov	r3, #0
++	push	{r0-r3}
++	bl	_prepare_time
++	pop	{r0-r3}
++	bl	stm32mp_ccm_teeram
++	bl	_save_resume_time
++	pop	{r4-r12, pc}
++END_FUNC stm32mp_ccm_encrypt_teeram
++
++/*
++ * int stm32mp_ccm_decrypt_teeram(ctx, cryp_base, dst, src)
++ */
++FUNC stm32mp_ccm_decrypt_teeram , :
++	push	{r4-r12, lr}
++UNWIND(	.save	{r4-r12, lr})
++	mov	r11, r0
++	mov	r0, r1
++	mov	r1, r2
++	mov	r2, r3
++	mov	r3, #1
++	push	{r0-r3}
++	bl	_prepare_time
++	pop	{r0-r3}
++	bl	stm32mp_ccm_teeram
++	bl	_save_resume_time
++	pop	{r4-r12, pc}
++END_FUNC stm32mp_ccm_decrypt_teeram
++
++/*
++ * stm32mp_sysram_resume - Resume OP-TEE execution
++ *
++ * This function is the entry point of OP-TEE core resume sequence in the TEE
++ * RAM. When TEE RAM is lost during a power cycle, stm32mp_bkpsram_resume() is
++ * called to restore TEE RAM content and branch to this stm32mp_sysram_resume()
++ * routine.
++ *
++ * This function calls the OP-TEE core generic PM resume API
++ * sm_pm_cpu_resume().
++ */
++FUNC stm32mp_sysram_resume, :
++UNWIND(	.cantunwind)
++	/* Invalidate the data cache */
++
++	read_clidr r2
++	ubfx	r3, r2, #CLIDR_LOC_SHIFT, #CLIDR_FIELD_WIDTH
++	lsl	r3, r3, #CSSELR_LEVEL_SHIFT
++	mov	r1, #0
++
++loop1:
++	add	r10, r1, r1, LSR #1	// Work out 3x current cache level
++	mov	r12, r2, LSR r10	// extract cache type bits from clidr
++	and	r12, r12, #7   		// mask the bits for current cache only
++	cmp	r12, #2			// see what cache we have at this level
++	blo	level_done      	// no cache or only instruction cache at this level
++
++	write_csselr r1			// select current cache level in csselr
++	isb				// isb to sych the new cssr&csidr
++	read_ccsidr r12			// read the new ccsidr
++	and	r10, r12, #7   		// extract the length of the cache lines
++	add	r10, r10, #4        	// add 4 (r10 = line length offset)
++	ubfx	r4, r12, #3, #10	// r4 = maximum way number (right aligned)
++	clz	r5, r4            	// r5 = the bit position of the way size increment
++	mov	r9, r4			// r9 working copy of the aligned max way number
++
++loop2:
++	ubfx	r7, r12, #13, #15	// r7 = max set number (right aligned)
++
++loop3:
++	orr	r0, r1, r9, LSL r5	// factor in the way number and cache level into r0
++	orr	r0, r0, r7, LSL r10	// factor in the set number
++
++	write_dcisw r0
++
++	subs	r7, r7, #1              // decrement the set number
++	bhs	loop3
++	subs	r9, r9, #1              // decrement the way number
++	bhs	loop2
++level_done:
++	add	r1, r1, #2		// increment the cache number
++	cmp	r3, r1
++	dsb	sy			// ensure completion of previous cache maintenance instruction
++	bhi	loop1
++
++	mov	r6, #0
++	write_csselr r6			//select cache level 0 in csselr
++	dsb	sy
++	isb
++
++	/* Resume sequence executes in Monitor mode */
++	cps	#CPSR_MODE_MON
++
++	blx	plat_cpu_reset_early
++	b	sm_pm_cpu_resume
++END_FUNC stm32mp_sysram_resume
++
++/*
++ * stm32mp_cpu_reset_state - set CPU in a reset like state
++ *
++ * Disable CPU env (interrupts, cache, SMP, MMU) and return.
++ * Preserve the execution mode in CPSR.
++ */
++FUNC stm32mp_cpu_reset_state, :
++	push	{r12, lr}
++UNWIND(	.save	{r12, lr})
++
++	cpsid	aif
++
++	bl	psci_armv7_cpu_off
++
++	write_bpiall
++	dsb
++	isb
++	read_sctlr r0
++	bic	r0, r0, #SCTLR_M
++	bic	r0, r0, #SCTLR_I
++	write_sctlr r0
++	dsb	sy
++	isb
++
++	pop	{r12, pc}
++END_FUNC stm32mp_cpu_reset_state
+diff --git a/core/arch/arm/plat-stm32mp1/pm/power.h b/core/arch/arm/plat-stm32mp1/pm/power.h
+new file mode 100644
+index 000000000..5d1fcdfd1
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/pm/power.h
+@@ -0,0 +1,29 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2017-2018, ARM Limited and Contributors. All rights reserved.
++ */
++
++#ifndef __STM32MP_PM_POWER_H__
++#define __STM32MP_PM_POWER_H__
++
++#include <compiler.h>
++#include <stdint.h>
++#include <stddef.h>
++
++const char *plat_get_lp_mode_name(int mode);
++
++bool need_to_backup_cpu_context(unsigned int soc_mode);
++bool need_to_backup_stop_context(unsigned int soc_mode);
++
++void stm32_enter_csleep(void);
++
++void stm32_enter_cstop(uint32_t mode);
++void stm32_exit_cstop(void);
++
++void stm32_enter_cstop_shutdown(uint32_t mode) __noreturn;
++void stm32_enter_cstop_reset(uint32_t mode) __noreturn;
++
++void stm32_pm_cpu_power_down_wfi(void) __noreturn;
++void stm32_pm_cpu_wfi(void);
++
++#endif /*__STM32MP_PM_POWER_H__*/
+diff --git a/core/arch/arm/plat-stm32mp1/pm/power_config.c b/core/arch/arm/plat-stm32mp1/pm/power_config.c
+new file mode 100644
+index 000000000..4a2f2b93a
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/pm/power_config.c
+@@ -0,0 +1,255 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2017-2021, STMicroelectronics - All Rights Reserved
++ */
++
++#include <assert.h>
++#include <config.h>
++#include <drivers/stm32mp_dt_bindings.h>
++#include <kernel/dt.h>
++#include <kernel/boot.h>
++#include <kernel/panic.h>
++#include <libfdt.h>
++#include <stm32_util.h>
++#include <stm32mp_pm.h>
++#include <trace.h>
++#include <util.h>
++
++#include "context.h"
++#include "power.h"
++
++#define DT_PWR_COMPAT			"st,stm32mp1,pwr-reg"
++#define SYSTEM_SUSPEND_SUPPORTED_MODES	"system_suspend_supported_soc_modes"
++#define SYSTEM_OFF_MODE			"system_off_soc_mode"
++#define RETRAM_ENABLED			"st,retram-enabled-in-standby-ddr-sr"
++
++static uint32_t deepest_suspend_mode;
++static uint32_t system_off_mode;
++static bool retram_enabled;
++static uint8_t stm32mp1_supported_soc_modes[STM32_PM_MAX_SOC_MODE];
++
++/* Boot with all domains ON */
++static bool stm32mp1_pm_dom[STM32MP1_PD_MAX_PM_DOMAIN] = {
++	[STM32MP1_PD_VSW] = false,
++	[STM32MP1_PD_CORE_RET] = false,
++	[STM32MP1_PD_CORE] = false
++};
++
++bool stm32mp1_is_retram_during_standby(void)
++{
++	return retram_enabled;
++}
++
++bool need_to_backup_cpu_context(unsigned int soc_mode)
++{
++	switch (soc_mode) {
++	case STM32_PM_CSTOP_ALLOW_LPLV_STOP2:
++	case STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR:
++		return true;
++	case STM32_PM_CSLEEP_RUN:
++	case STM32_PM_CSTOP_ALLOW_STOP:
++	case STM32_PM_CSTOP_ALLOW_LP_STOP:
++	case STM32_PM_CSTOP_ALLOW_LPLV_STOP:
++	case STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF:
++	case STM32_PM_SHUTDOWN:
++		return false;
++	default:
++		EMSG("Invalid mode 0x%x", soc_mode);
++		panic();
++	}
++}
++
++bool need_to_backup_stop_context(unsigned int soc_mode)
++{
++	switch (soc_mode) {
++	case STM32_PM_CSTOP_ALLOW_STOP:
++	case STM32_PM_CSTOP_ALLOW_LP_STOP:
++	case STM32_PM_CSTOP_ALLOW_LPLV_STOP:
++		return true;
++	default:
++		return false;
++	}
++}
++
++static bool get_pm_domain_state(uint8_t mode)
++{
++	bool res = true;
++	enum stm32mp1_pm_domain id = STM32MP1_PD_MAX_PM_DOMAIN;
++
++	while (res && (id > mode)) {
++		id--;
++		res &= stm32mp1_pm_dom[id];
++	}
++
++	return res;
++}
++
++int stm32mp1_set_pm_domain_state(enum stm32mp1_pm_domain domain, bool status)
++{
++	if (domain >= STM32MP1_PD_MAX_PM_DOMAIN)
++		return -1;
++
++	stm32mp1_pm_dom[domain] = status;
++
++	return 0;
++}
++
++#ifdef CFG_EMBED_DTB
++static void save_supported_mode(void *fdt, int pwr_node)
++{
++	int len = 0;
++	uint32_t count = 0;
++	unsigned int i = 0;
++	uint32_t supported[ARRAY_SIZE(stm32mp1_supported_soc_modes)] = { };
++	const void *prop = 0;
++
++	prop = fdt_getprop(fdt, pwr_node, SYSTEM_SUSPEND_SUPPORTED_MODES, &len);
++	if (!prop)
++		panic();
++
++	count = (uint32_t)len / sizeof(uint32_t);
++	if (count > STM32_PM_MAX_SOC_MODE)
++		panic();
++
++	if (fdt_read_uint32_array(fdt, pwr_node,
++				  SYSTEM_SUSPEND_SUPPORTED_MODES,
++				  &supported[0], count) < 0)
++		panic("PWR DT");
++
++	for (i = 0; i < count; i++) {
++		if (supported[i] >= STM32_PM_MAX_SOC_MODE)
++			panic("Invalid mode");
++
++		stm32mp1_supported_soc_modes[supported[i]] = true;
++	}
++}
++#endif
++
++static bool is_supported_mode(uint32_t soc_mode)
++{
++	assert(soc_mode < ARRAY_SIZE(stm32mp1_supported_soc_modes));
++	return stm32mp1_supported_soc_modes[soc_mode] == 1;
++}
++
++uint32_t stm32mp1_get_lp_soc_mode(uint32_t psci_mode)
++{
++	uint32_t mode = 0;
++
++	if (psci_mode == PSCI_MODE_SYSTEM_OFF)
++		return system_off_mode;
++
++	mode = deepest_suspend_mode;
++
++	if (mode == STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR &&
++	    (!get_pm_domain_state(STM32MP1_PD_CORE_RET) ||
++	     !is_supported_mode(mode)))
++		mode = STM32_PM_CSTOP_ALLOW_LPLV_STOP2;
++
++	if (mode == STM32_PM_CSTOP_ALLOW_LPLV_STOP2 &&
++	    (!get_pm_domain_state(STM32MP1_PD_CORE) ||
++	     !is_supported_mode(mode)))
++		mode = STM32_PM_CSTOP_ALLOW_LPLV_STOP;
++
++	if (mode == STM32_PM_CSTOP_ALLOW_LPLV_STOP &&
++	    (!get_pm_domain_state(STM32MP1_PD_CORE) ||
++	     !is_supported_mode(mode)))
++		mode = STM32_PM_CSTOP_ALLOW_LP_STOP;
++
++	if (mode == STM32_PM_CSTOP_ALLOW_LP_STOP &&
++	    !is_supported_mode(mode))
++		mode = STM32_PM_CSTOP_ALLOW_STOP;
++
++	if (mode == STM32_PM_CSTOP_ALLOW_STOP &&
++	    !is_supported_mode(mode))
++		mode = STM32_PM_CSLEEP_RUN;
++
++	return mode;
++}
++
++int stm32mp1_set_lp_deepest_soc_mode(uint32_t psci_mode, uint32_t soc_mode)
++{
++	if (soc_mode >= STM32_PM_MAX_SOC_MODE)
++		return -1;
++
++	if (psci_mode == PSCI_MODE_SYSTEM_SUSPEND) {
++		deepest_suspend_mode = soc_mode;
++
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++		if (!stm32mp_supports_hw_cryp() &&
++		    deepest_suspend_mode == STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR)
++			deepest_suspend_mode = STM32_PM_CSTOP_ALLOW_LPLV_STOP;
++#endif
++	}
++
++	if (psci_mode == PSCI_MODE_SYSTEM_OFF)
++		system_off_mode = soc_mode;
++
++	return 0;
++}
++
++#ifdef CFG_EMBED_DTB
++static int dt_get_pwr_node(void *fdt)
++{
++	return fdt_node_offset_by_compatible(fdt, -1, DT_PWR_COMPAT);
++}
++
++static TEE_Result stm32mp1_init_lp_states(void)
++{
++	void *fdt = NULL;
++	int pwr_node = -1;
++	const fdt32_t *cuint = NULL;
++
++	fdt = get_embedded_dt();
++	if (fdt)
++		pwr_node = dt_get_pwr_node(fdt);
++
++	if (pwr_node >= 0) {
++		if (fdt_getprop(fdt, pwr_node, RETRAM_ENABLED, NULL))
++			retram_enabled = true;
++
++		cuint = fdt_getprop(fdt, pwr_node, SYSTEM_OFF_MODE, NULL);
++	}
++
++	if (!fdt || pwr_node < 0 || !cuint) {
++		DMSG("No power configuration found in DT");
++		return TEE_SUCCESS;
++	}
++
++	system_off_mode = fdt32_to_cpu(*cuint);
++
++	/* Initialize suspend support to the deepest possible mode */
++	deepest_suspend_mode = STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR;
++
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	if (!stm32mp_supports_hw_cryp())
++		deepest_suspend_mode = STM32_PM_CSTOP_ALLOW_LPLV_STOP;
++#endif
++
++	save_supported_mode(fdt, pwr_node);
++
++	DMSG("Power configuration: shutdown to %u, suspend to %u",
++	     stm32mp1_get_lp_soc_mode(PSCI_MODE_SYSTEM_OFF),
++	     stm32mp1_get_lp_soc_mode(PSCI_MODE_SYSTEM_SUSPEND));
++
++	return TEE_SUCCESS;
++}
++#else
++static TEE_Result stm32mp1_init_lp_states(void)
++{
++	deepest_suspend_mode = STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR;
++
++#ifdef CFG_STM32MP1_OPTEE_IN_SYSRAM
++	if (!stm32mp_supports_hw_cryp())
++		deepest_suspend_mode = STM32_PM_CSTOP_ALLOW_LPLV_STOP;
++#endif
++
++	system_off_mode = STM32_PM_SHUTDOWN;
++
++	DMSG("Power configuration: shutdown to %u, suspend to %u",
++	     stm32mp1_get_lp_soc_mode(PSCI_MODE_SYSTEM_OFF),
++	     stm32mp1_get_lp_soc_mode(PSCI_MODE_SYSTEM_SUSPEND));
++
++	return TEE_SUCCESS;
++}
++#endif
++driver_init_late(stm32mp1_init_lp_states);
+diff --git a/core/arch/arm/plat-stm32mp1/pm/psci.c b/core/arch/arm/plat-stm32mp1/pm/psci.c
+index 0ec3e267e..a05044bfb 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/psci.c
++++ b/core/arch/arm/plat-stm32mp1/pm/psci.c
+@@ -27,6 +27,8 @@
+ #include <stm32_util.h>
+ #include <trace.h>
+ 
++#include "power.h"
++
+ #define CONSOLE_FLUSH_DELAY_MS		10
+ 
+ /*
+@@ -77,18 +79,9 @@ int psci_affinity_info(uint32_t affinity, uint32_t lowest_affinity_level)
+ 	}
+ }
+ 
+-#if CFG_TEE_CORE_NB_CORE == 1
+-/*
+- * Function called when a CPU is booted through the OP-TEE.
+- * All cores shall register when online.
+- */
+-void stm32mp_register_online_cpu(void)
+-{
+-	assert(core_state[0] == CORE_OFF);
+-	core_state[0] = CORE_ON;
+-}
+-#else
+-static void __noreturn stm32_pm_cpu_power_down_wfi(void)
++#ifndef CFG_PM
++/* Implements stm32_pm_cpu_power_down_wfi() when CFG_PM is disable */
++void __noreturn stm32_pm_cpu_power_down_wfi(void)
+ {
+ 	dcache_op_level1(DCACHE_OP_CLEAN);
+ 
+@@ -100,7 +93,19 @@ static void __noreturn stm32_pm_cpu_power_down_wfi(void)
+ 	wfi();
+ 	panic();
+ }
++#endif
+ 
++#if CFG_TEE_CORE_NB_CORE == 1
++/*
++ * Function called when a CPU is booted through the OP-TEE.
++ * All cores shall register when online.
++ */
++void stm32mp_register_online_cpu(void)
++{
++	assert(core_state[0] == CORE_OFF);
++	core_state[0] = CORE_ON;
++}
++#else
+ void stm32mp_register_online_cpu(void)
+ {
+ 	size_t pos = get_core_pos();
+diff --git a/core/arch/arm/plat-stm32mp1/pm/sub.mk b/core/arch/arm/plat-stm32mp1/pm/sub.mk
+index c8ae8f915..d8930a4ef 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/sub.mk
++++ b/core/arch/arm/plat-stm32mp1/pm/sub.mk
+@@ -1 +1,7 @@
++asm-defines-y += context_asm_defines.c
++
++srcs-y += context.c
++srcs-y += low_power.c
++srcs-y += pm_helpers.S
++srcs-y += power_config.c
+ srcs-$(CFG_PSCI_ARM32) += psci.c
+diff --git a/core/arch/arm/plat-stm32mp1/reset.S b/core/arch/arm/plat-stm32mp1/reset.S
+index 8a1ab6494..0a11d915a 100644
+--- a/core/arch/arm/plat-stm32mp1/reset.S
++++ b/core/arch/arm/plat-stm32mp1/reset.S
+@@ -3,7 +3,7 @@
+  * Copyright (c) 2018, STMicroelectronics
+  */
+ 
+-#include <arm32.h>
++#include <arm.h>
+ #include <arm32_macros.S>
+ #include <asm.S>
+ 
+@@ -21,7 +21,33 @@ FUNC plat_cpu_reset_early , :
+ 	mov_imm	r1, STM32MP1_NSACR_PRESERVE_MASK
+ 	and	r0, r0, r1
+ 	write_nsacr r0
++	isb
++
++	read_actlr r0
++	orr	r0, r0, #ACTLR_SMP
++	write_actlr r0
++
++	/*
++	 * Always reset CNTVOFF for the dear non secure world.
++	 * This operation requires being in Monitor mode and
++	 * non secure state.
++	 */
++	mrs	r1, cpsr
++	cps	#CPSR_MODE_MON
++	isb
++
++	read_scr r2
++	orr	r0, r2, #SCR_NS
++	write_scr r0
++	isb
++
++	mov	r0, #0
++	write_cntvoff r0, r0
+ 
++	write_scr r2
+ 	isb
++	msr	cpsr, r1
++	isb
++
+ 	bx	lr
+ END_FUNC plat_cpu_reset_early
+diff --git a/core/arch/arm/plat-stm32mp1/stm32mp_pm.h b/core/arch/arm/plat-stm32mp1/stm32mp_pm.h
+new file mode 100644
+index 000000000..291ad5d1a
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp1/stm32mp_pm.h
+@@ -0,0 +1,24 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2017-2018, STMicroelectronics
++ */
++#ifndef __STM32MP_PM_H__
++#define __STM32MP_PM_H__
++
++#define PSCI_MODE_SYSTEM_SUSPEND	0
++#define PSCI_MODE_SYSTEM_OFF		1
++
++enum stm32mp1_pm_domain {
++	STM32MP1_PD_VSW,
++	STM32MP1_PD_CORE_RET,
++	STM32MP1_PD_CORE,
++	STM32MP1_PD_MAX_PM_DOMAIN
++};
++
++void __noreturn stm32_cores_reset(void);
++
++/* Convert low power mode carried by pm_hint into pm mode name */
++const char *stm32mp_pm_hint2mode_name(uint32_t pm_hint);
++
++#endif /*__STM32MP_PM_H__*/
++
+diff --git a/core/include/drivers/stm32mp_dt_bindings.h b/core/include/drivers/stm32mp_dt_bindings.h
+index 725234ec5..006399e33 100644
+--- a/core/include/drivers/stm32mp_dt_bindings.h
++++ b/core/include/drivers/stm32mp_dt_bindings.h
+@@ -18,6 +18,7 @@
+ #ifdef CFG_STM32MP15
+ #include <dt-bindings/clock/stm32mp1-clks.h>
+ #include <dt-bindings/clock/stm32mp1-clksrc.h>
++#include <dt-bindings/power/stm32mp1-power.h>
+ #include <dt-bindings/regulator/st,stm32mp15-regulator.h>
+ #include <dt-bindings/reset/stm32mp1-resets.h>
+ #include <dt-bindings/soc/stm32mp15-etzpc.h>
+-- 
+2.47.2
+

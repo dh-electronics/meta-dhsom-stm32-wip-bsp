@@ -1,0 +1,287 @@
+From 702aae667468c80fcde992d627b5e6b4d3ba768c Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 23 Nov 2023 11:18:02 +0100
+Subject: [PATCH 0083/1695] tree wide: clarify PTA ABI
+
+Explicitly describe the statistics PTA ABI using dedicated inline
+comments and moving struct pta_stats_ta and struct pta_stats_alloc
+from respectively tee_ta_manager.c and malloc.h to pta_stats.h
+header file.
+
+For that purpose, define ALLOC_ID_* macros to identify each allocator
+one can query information from through the statistics PTA API.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0112aa2a0a2bf339b06d432b32277bf75acb8500 tree wide: clarify PTA ABI]
+Change-Id: I61add248aaf9d5ab3894161f4e17a4cd522d3e4b
+Reviewed-by: Jens Wiklander <jens.wiklander@linaro.org>
+Acked-by: Jerome Forissier <jerome.forissier@linaro.org>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked form a05577ea32ab0858a105db1e092440be9ab38bfa]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/include/mm/tee_mm.h           |  1 +
+ core/kernel/tee_ta_manager.c       |  7 +---
+ core/mm/tee_mm.c                   |  1 +
+ core/pta/stats.c                   | 14 +++----
+ lib/libutee/include/pta_stats.h    | 67 +++++++++++++++++++++++-------
+ lib/libutils/ext/mempool.c         |  1 +
+ lib/libutils/isoc/bget_malloc.c    |  1 +
+ lib/libutils/isoc/include/malloc.h | 17 +-------
+ 8 files changed, 67 insertions(+), 42 deletions(-)
+
+diff --git a/core/include/mm/tee_mm.h b/core/include/mm/tee_mm.h
+index d6683d484..aae35f871 100644
+--- a/core/include/mm/tee_mm.h
++++ b/core/include/mm/tee_mm.h
+@@ -7,6 +7,7 @@
+ #define __MM_TEE_MM_H
+ 
+ #include <malloc.h>
++#include <pta_stats.h>
+ #include <types_ext.h>
+ 
+ /* Define to indicate default pool initiation */
+diff --git a/core/kernel/tee_ta_manager.c b/core/kernel/tee_ta_manager.c
+index adde89c37..6117c3a01 100644
+--- a/core/kernel/tee_ta_manager.c
++++ b/core/kernel/tee_ta_manager.c
+@@ -21,6 +21,7 @@
+ #include <mm/core_mmu.h>
+ #include <mm/mobj.h>
+ #include <mm/vm.h>
++#include <pta_stats.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -37,12 +38,6 @@
+ 
+ #if defined(CFG_TA_STATS)
+ #define MAX_DUMP_SESS_NUM	(16)
+-struct pta_stats_ta {
+-	TEE_UUID uuid;
+-	uint32_t panicked;	/* True if TA has panicked */
+-	uint32_t sess_num;	/* Number of opened session */
+-	struct pta_stats_alloc heap;
+-};
+ 
+ struct tee_ta_dump_ctx {
+ 	TEE_UUID uuid;
+diff --git a/core/mm/tee_mm.c b/core/mm/tee_mm.c
+index dc8ddfc6c..95084ca1e 100644
+--- a/core/mm/tee_mm.c
++++ b/core/mm/tee_mm.c
+@@ -8,6 +8,7 @@
+ #include <kernel/tee_common.h>
+ #include <mm/tee_mm.h>
+ #include <mm/tee_pager.h>
++#include <pta_stats.h>
+ #include <trace.h>
+ #include <util.h>
+ 
+diff --git a/core/pta/stats.c b/core/pta/stats.c
+index 551dd6c79..41a8975d7 100644
+--- a/core/pta/stats.c
++++ b/core/pta/stats.c
+@@ -43,7 +43,7 @@ static TEE_Result get_alloc_stats(uint32_t type, TEE_Param p[TEE_NUM_PARAMS])
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+ 	size_to_retrieve = sizeof(struct pta_stats_alloc);
+-	if (!pool_id)
++	if (pool_id == ALLOC_ID_ALL)
+ 		size_to_retrieve *= STATS_NB_POOLS;
+ 
+ 	if (p[1].memref.size < size_to_retrieve) {
+@@ -53,30 +53,30 @@ static TEE_Result get_alloc_stats(uint32_t type, TEE_Param p[TEE_NUM_PARAMS])
+ 	p[1].memref.size = size_to_retrieve;
+ 	stats = p[1].memref.buffer;
+ 
+-	for (i = 1; i <= STATS_NB_POOLS; i++) {
+-		if ((pool_id) && (i != pool_id))
++	for (i = ALLOC_ID_HEAP; i <= STATS_NB_POOLS; i++) {
++		if (pool_id != ALLOC_ID_ALL && i != pool_id)
+ 			continue;
+ 
+ 		switch (i) {
+-		case 1:
++		case ALLOC_ID_HEAP:
+ 			malloc_get_stats(stats);
+ 			strlcpy(stats->desc, "Heap", sizeof(stats->desc));
+ 			if (p[0].value.b)
+ 				malloc_reset_stats();
+ 			break;
+ 
+-		case 2:
++		case ALLOC_ID_PUBLIC_DDR:
+ 			EMSG("public DDR not managed by secure side anymore");
+ 			break;
+ 
+-		case 3:
++		case ALLOC_ID_TA_RAM:
+ 			tee_mm_get_pool_stats(&tee_mm_sec_ddr, stats,
+ 					      !!p[0].value.b);
+ 			strlcpy(stats->desc, "Secure DDR", sizeof(stats->desc));
+ 			break;
+ 
+ #ifdef CFG_NS_VIRTUALIZATION
+-		case 4:
++		case ALLOC_ID_NEXUS_HEAP:
+ 			nex_malloc_get_stats(stats);
+ 			strlcpy(stats->desc, "KHeap", sizeof(stats->desc));
+ 			if (p[0].value.b)
+diff --git a/lib/libutee/include/pta_stats.h b/lib/libutee/include/pta_stats.h
+index 16c1619cf..25ed58c69 100644
+--- a/lib/libutee/include/pta_stats.h
++++ b/lib/libutee/include/pta_stats.h
+@@ -6,30 +6,71 @@
+ #ifndef __PTA_STATS_H
+ #define __PTA_STATS_H
+ 
++#include <stdint.h>
++#include <tee_api_types.h>
++
+ #define STATS_UUID \
+ 		{ 0xd96a5b40, 0xe2c7, 0xb1af, \
+ 			{ 0x87, 0x94, 0x10, 0x02, 0xa5, 0xd5, 0xc6, 0x1b } }
+ 
++/*
++ * STATS_CMD_PAGER_STATS - Get statistics on pager
++ *
++ * [out]    value[0].a        Number of unlocked pages
++ * [out]    value[0].b        Page pool size
++ * [out]    value[1].a        R/O faults since last stats dump
++ * [out]    value[1].b        R/W faults since last stats dump
++ * [out]    value[2].a        Hidden faults since last stats dump
++ * [out]    value[2].b        Zi pages released since last stats dump
++ */
+ #define STATS_CMD_PAGER_STATS		0
++
++/*
++ * STATS_CMD_ALLOC_STATS - Get statistics on core heap allocations
++ *
++ * [in]     value[0].a       ID of allocator(s) to get stats from (ALLOC_ID_*)
++ * [out]    memref[0]        Array of struct pta_stats_alloc instances
++ */
+ #define STATS_CMD_ALLOC_STATS		1
++
++#define ALLOC_ID_ALL		0	/* All allocators */
++#define ALLOC_ID_HEAP		1	/* Core heap allocator */
++#define ALLOC_ID_PUBLIC_DDR	2	/* Public DDR allocator (deprecated) */
++#define ALLOC_ID_TA_RAM		3	/* TA_RAM allocator */
++#define ALLOC_ID_NEXUS_HEAP	4	/* Nexus heap allocator */
++#define STATS_NB_POOLS		5
++
++#define TEE_ALLOCATOR_DESC_LENGTH 32
++
++struct pta_stats_alloc {
++	char desc[TEE_ALLOCATOR_DESC_LENGTH];
++	uint32_t allocated;               /* Bytes currently allocated */
++	uint32_t max_allocated;           /* Tracks max value of allocated */
++	uint32_t size;                    /* Total size for this allocator */
++	uint32_t num_alloc_fail;          /* Number of failed alloc requests */
++	uint32_t biggest_alloc_fail;      /* Size of biggest failed alloc */
++	uint32_t biggest_alloc_fail_used; /* Alloc bytes when above occurred */
++};
++
++/*
++ * STATS_CMD_MEMLEAK_STATS - Print memory leakage info to console
++ */
+ #define STATS_CMD_MEMLEAK_STATS		2
++
+ /*
+- * UTEE_ENTRY_FUNC_DUMP_MEMSTATS
+- * [out]    memref[0]        Array of context information of loaded TAs
++ * STATS_CMD_TA_STATS - Get information on TA instances
+  *
+- * Each cell of the TA information array contains:
+- * TEE_UUID    TA UUID
+- * uint32_t    Non zero if TA panicked, 0 otherwise
+- * uint32_t    Number of sessions opened by the TA
+- * uint32_t    Byte size currently allocated in TA heap
+- * uint32_t    Max bytes allocated since last stats reset
+- * uint32_t    TA heap pool byte size
+- * uint32_t    Number of failed allocation requests
+- * uint32_t    Biggest byte size which allocation failed
+- * uint32_t    Biggest byte size which allocation succeeded
++ * [out]    memref[0]        Array of struct pta_stats_ta per loaded TA
+  */
+ #define STATS_CMD_TA_STATS		3
+ 
++struct pta_stats_ta {
++	TEE_UUID uuid;
++	uint32_t panicked;	/* True if TA has panicked */
++	uint32_t sess_num;	/* Number of opened session */
++	struct pta_stats_alloc heap;
++};
++
+ /*
+  * STATS_CMD_GET_TIME - Get both REE time and TEE time
+  *
+@@ -40,6 +81,4 @@
+  */
+ #define STATS_CMD_GET_TIME		4
+ 
+-#define STATS_NB_POOLS			4
+-
+ #endif /*__PTA_STATS_H*/
+diff --git a/lib/libutils/ext/mempool.c b/lib/libutils/ext/mempool.c
+index 04c818122..e12962f0e 100644
+--- a/lib/libutils/ext/mempool.c
++++ b/lib/libutils/ext/mempool.c
+@@ -9,6 +9,7 @@
+ #include <compiler.h>
+ #include <malloc.h>
+ #include <mempool.h>
++#include <pta_stats.h>
+ #include <string.h>
+ #include <util.h>
+ 
+diff --git a/lib/libutils/isoc/bget_malloc.c b/lib/libutils/isoc/bget_malloc.c
+index d156d70e3..f9d3f6f8b 100644
+--- a/lib/libutils/isoc/bget_malloc.c
++++ b/lib/libutils/isoc/bget_malloc.c
+@@ -82,6 +82,7 @@
+ #include <config.h>
+ #include <malloc.h>
+ #include <memtag.h>
++#include <pta_stats.h>
+ #include <stdbool.h>
+ #include <stdint.h>
+ #include <stdlib_ext.h>
+diff --git a/lib/libutils/isoc/include/malloc.h b/lib/libutils/isoc/include/malloc.h
+index a842fbfdc..4e405c03c 100644
+--- a/lib/libutils/isoc/include/malloc.h
++++ b/lib/libutils/isoc/include/malloc.h
+@@ -5,6 +5,7 @@
+ #ifndef __MALLOC_H
+ #define __MALLOC_H
+ 
++#include <pta_stats.h>
+ #include <stddef.h>
+ #include <types_ext.h>
+ 
+@@ -80,21 +81,7 @@ bool malloc_buffer_overlaps_heap(void *buf, size_t len);
+ void malloc_add_pool(void *buf, size_t len);
+ 
+ #ifdef CFG_WITH_STATS
+-/*
+- * Get/reset allocation statistics
+- */
+-
+-#define TEE_ALLOCATOR_DESC_LENGTH 32
+-struct pta_stats_alloc {
+-	char desc[TEE_ALLOCATOR_DESC_LENGTH];
+-	uint32_t allocated;               /* Bytes currently allocated */
+-	uint32_t max_allocated;           /* Tracks max value of allocated */
+-	uint32_t size;                    /* Total size for this allocator */
+-	uint32_t num_alloc_fail;          /* Number of failed alloc requests */
+-	uint32_t biggest_alloc_fail;      /* Size of biggest failed alloc */
+-	uint32_t biggest_alloc_fail_used; /* Alloc bytes when above occurred */
+-};
+-
++/* Get/reset allocation statistics */
+ void malloc_get_stats(struct pta_stats_alloc *stats);
+ void malloc_reset_stats(void);
+ #endif /* CFG_WITH_STATS */
+-- 
+2.47.2
+

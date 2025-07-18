@@ -1,0 +1,83 @@
+From 91d571f4db30450ea4790ed0de2c1f3d853ea1a4 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 10 Oct 2024 12:35:58 +0200
+Subject: [PATCH 1286/1695] drivers: firewall: stm32_etzpc: allow valid locked
+ configuration
+
+Change stm32_etzpc driver to not trigger an error when the
+requested firewall configuration matches an already configured
+and locked configuration.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 45bc9eba74ce2afe2c384269e8104afe559c190d drivers: firewall: stm32_etzpc: allow valid locked configuration]
+Change-Id: I7d54c1900f63eeffee836fdd18dff12bc9b4c2b2
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/410435
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/firewall/stm32_etzpc.c | 30 ++++++++++++++++++++++-------
+ 1 file changed, 23 insertions(+), 7 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_etzpc.c b/core/drivers/firewall/stm32_etzpc.c
+index 73d7df347..c6055884d 100644
+--- a/core/drivers/firewall/stm32_etzpc.c
++++ b/core/drivers/firewall/stm32_etzpc.c
+@@ -542,8 +542,12 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 		attr = etzpc_binding2decprot(mode);
+ 
+ 		if (decprot_is_locked(etzpc_dev, id)) {
+-			EMSG("Internal RAM configuration locked");
+-			return TEE_ERROR_ACCESS_DENIED;
++			if (etzpc_do_get_decprot(etzpc_dev, id) != attr) {
++				EMSG("Internal RAM configuration locked");
++				return TEE_ERROR_ACCESS_DENIED;
++			}
++
++			return TEE_SUCCESS;
+ 		}
+ 
+ #ifdef CFG_STM32MP15
+@@ -584,12 +588,17 @@ static TEE_Result stm32_etzpc_configure_memory(struct firewall_query *firewall,
+ 		if (!IS_ALIGNED(size, SMALL_PAGE_SIZE))
+ 			return TEE_ERROR_BAD_PARAMETERS;
+ 
++		total_sz = ROUNDUP_DIV(size, SMALL_PAGE_SIZE);
++
+ 		if (tzma_is_locked(etzpc_dev, tzma_id)) {
+-			EMSG("TZMA configuration locked");
+-			return TEE_ERROR_ACCESS_DENIED;
++			if (etzpc_do_get_tzma(etzpc_dev, tzma_id) != total_sz) {
++				EMSG("TZMA configuration locked");
++				return TEE_ERROR_ACCESS_DENIED;
++			}
++
++			return TEE_SUCCESS;
+ 		}
+ 
+-		total_sz = ROUNDUP_DIV(size, SMALL_PAGE_SIZE);
+ 		etzpc_do_configure_tzma(etzpc_dev, tzma_id, total_sz);
+ 	} else {
+ 		EMSG("Unknown firewall ID: %"PRIu32, id);
+@@ -627,8 +636,15 @@ static TEE_Result stm32_etzpc_configure(struct firewall_query *firewall)
+ 		attr = etzpc_binding2decprot(mode);
+ 
+ 		if (decprot_is_locked(etzpc_dev, id)) {
+-			EMSG("Peripheral configuration locked");
+-			return TEE_ERROR_ACCESS_DENIED;
++			if (etzpc_do_get_decprot(etzpc_dev, id) != attr) {
++				EMSG("Peripheral configuration locked");
++				return TEE_ERROR_ACCESS_DENIED;
++			}
++
++			DMSG("Valid access for periph %"PRIu32" - attr %s",
++			     id, etzpc_decprot_strings[attr]);
++
++			return TEE_SUCCESS;
+ 		}
+ 
+ 		DMSG("Setting access config for periph %"PRIu32" - attr %s", id,
+-- 
+2.47.2
+

@@ -1,0 +1,97 @@
+From ab73794bcf969a93a6693c5c3ad0278a304243b1 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 11 Apr 2022 14:36:54 +0200
+Subject: [PATCH 0254/1695] drivers: stm32_risaf: add a reconfigure function
+
+Implements helper function stm32_risaf_reconfigure() to load the registered
+RISAF instance configuration. This function will be useful in case RISAFx
+configuration is lost and needs to be restored as during low power
+transition sequences.
+The configuration has been initially saved during probe execution.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 380184b1e26dc62ecdf22031428f7209745a7173 drivers: stm32_risaf: add a reconfigure function]
+Change-Id: Idbd37218651d163245f88edd40afc6585cd677b8
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+---
+ core/drivers/firewall/stm32_risaf.c | 36 +++++++++++++++++++++++++++++
+ core/include/drivers/stm32_risaf.h  | 14 +++++++++++
+ 2 files changed, 50 insertions(+)
+ create mode 100644 core/include/drivers/stm32_risaf.h
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index b0b27d7f6..d8b65a519 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -6,6 +6,7 @@
+ #include <assert.h>
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
++#include <drivers/stm32_risaf.h>
+ #include <dt-bindings/soc/stm32mp25-risaf.h>
+ #include <io.h>
+ #include <kernel/dt.h>
+@@ -326,6 +327,41 @@ static TEE_Result stm32_risaf_init_ddata(struct stm32_risaf_instance *risaf)
+ 	return TEE_SUCCESS;
+ }
+ 
++TEE_Result stm32_risaf_reconfigure(paddr_t base)
++{
++	struct stm32_risaf_instance *risaf = NULL;
++
++	SLIST_FOREACH(risaf, &risaf_list, link) {
++		struct stm32_risaf_region *regions = risaf->pdata.regions;
++		TEE_Result res = TEE_ERROR_GENERIC;
++		unsigned int i = 0;
++
++		if (base != risaf->pdata.base.pa)
++			continue;
++
++		res = clk_enable(risaf->pdata.clock);
++		if (res)
++			return res;
++
++		for (i = 0; i < risaf->pdata.nregions; i++) {
++			uint32_t id = _RISAF_GET_REGION_ID(regions[i].cfg);
++			uint32_t cfg = _RISAF_GET_REGION_CFG(regions[i].cfg);
++			uint32_t cid_cfg =
++				_RISAF_GET_REGION_CID_CFG(regions[i].cfg);
++			uintptr_t start_addr = regions[i].addr;
++			uintptr_t end_addr = start_addr + regions[i].len - 1U;
++
++			if (risaf_configure_region(risaf, id, cfg, cid_cfg,
++						   start_addr, end_addr))
++				panic();
++		}
++
++		clk_disable(risaf->pdata.clock);
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result stm32_risaf_probe(const void *fdt, int node,
+ 				    const void *compat_data)
+ {
+diff --git a/core/include/drivers/stm32_risaf.h b/core/include/drivers/stm32_risaf.h
+new file mode 100644
+index 000000000..7a39a1062
+--- /dev/null
++++ b/core/include/drivers/stm32_risaf.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ */
++
++#ifndef __DRIVERS_STM32_RISAF_H__
++#define __DRIVERS_STM32_RISAF_H__
++
++#include <tee_api_types.h>
++#include <types_ext.h>
++
++TEE_Result stm32_risaf_reconfigure(paddr_t base);
++
++#endif /*__DRIVERS_STM32_RISAF_H__*/
+-- 
+2.47.2
+

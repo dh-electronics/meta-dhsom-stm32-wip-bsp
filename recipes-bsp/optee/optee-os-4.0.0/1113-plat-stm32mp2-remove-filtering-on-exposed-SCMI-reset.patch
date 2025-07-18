@@ -1,0 +1,64 @@
+From 8d4038e33ff09e4eec371210cded061752192cab Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 1 Aug 2024 16:22:29 +0200
+Subject: [PATCH 1113/1695] plat-stm32mp2: remove filtering on exposed SCMI
+ reset lines
+
+The SCMI reset controllers filter the M33 related reset
+with stm32_rproc_reset_grant_access() function.
+
+This test should be not located in SCMI stack but directly
+in a reset provider which filter the reset requests.
+Here the filtering is provided by stm32 rproc, so these
+reset must be provided to non secure world/to SMCI by rproc.
+
+The first step to cleanup the current implementation is
+to remove this function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 37321d7f695faa26d75bbcc22cb08def1228afa0 plat-stm32mp2: remove filtering on exposed SCMI reset lines
+3e0189422c8f02603cc82da4d40209ed4fd2e962 plat-stm32mp2: remove filtering on exposed SCMI reset lines]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I47079a8ae91bf45823a8731da689fe47d6d49ab5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/396454
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c | 14 --------------
+ 1 file changed, 14 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index 473f21f17..bc2bb0462 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -561,13 +561,6 @@ static TEE_Result plat_scmi_reset_assert_level(struct rstctrl *rstctrl,
+ 
+ 	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
+ 
+-#ifdef CFG_STM32MP_REMOTEPROC
+-	reset_id = stm32_scmi_reset[index].reset_id;
+-	if ((reset_id == C2_R || reset_id == C2_HOLDBOOT_R) &&
+-	    stm32_rproc_reset_grant_access(STM32MP2_M33_RPROC_ID))
+-		return TEE_ERROR_ACCESS_DENIED;
+-#endif
+-
+ 	return rstctrl_assert_to(stm32_scmi_reset[index].rstctrl_be, to_us);
+ }
+ 
+@@ -579,13 +572,6 @@ static TEE_Result plat_scmi_reset_deassert_level(struct rstctrl *rstctrl,
+ 
+ 	assert(index >= 0 && (size_t)index < ARRAY_SIZE(stm32_scmi_reset));
+ 
+-#ifdef CFG_STM32MP_REMOTEPROC
+-	reset_id = stm32_scmi_reset[index].reset_id;
+-	if ((reset_id == C2_R || reset_id == C2_HOLDBOOT_R) &&
+-	    stm32_rproc_reset_grant_access(STM32MP2_M33_RPROC_ID))
+-		return TEE_ERROR_ACCESS_DENIED;
+-#endif
+-
+ 	return rstctrl_deassert_to(stm32_scmi_reset[index].rstctrl_be, to_us);
+ }
+ 
+-- 
+2.47.2
+

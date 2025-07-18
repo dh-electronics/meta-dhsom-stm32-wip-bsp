@@ -1,0 +1,54 @@
+From 9edecd1ac9890aa82febc7cd9a80bf1ac7f5a94c Mon Sep 17 00:00:00 2001
+From: Jens Wiklander <jens.wiklander@linaro.org>
+Date: Thu, 12 Dec 2024 11:56:46 +0100
+Subject: [PATCH 1559/1695] libmbedtls: use mempool_calloc() for temporary
+ memory
+
+mbedtls_mpi_exp_mod_optionally_safe() needs a large chunk of temporary
+memory for the mbedtls_mpi_core_exp_mod() function. The amount of memory
+is too much to reliably allocate from the heap. So use mempool_calloc()
+instead of mbedtls_calloc(), similar to using mbedtls_mpi_init_mempool()
+instead of mbedtls_mpi_init().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c99cd161e9ea6e340e62ecb096fac08233ba3092 libmbedtls: use mempool_calloc() for temporary memory]
+Change-Id: I874f7bf37d6aad075e8ae1bf5e4abd2a2afc5028
+Signed-off-by: Jens Wiklander <jens.wiklander@linaro.org>
+Acked-by: Jerome Forissier <jerome.forissier@linaro.org>
+Reviewed-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/437596
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Michel JAOUEN <michel.jaouen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Michel JAOUEN <michel.jaouen@st.com>
+---
+ lib/libmbedtls/mbedtls/library/bignum.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/lib/libmbedtls/mbedtls/library/bignum.c b/lib/libmbedtls/mbedtls/library/bignum.c
+index ce7fe1a1d..107a3972a 100644
+--- a/lib/libmbedtls/mbedtls/library/bignum.c
++++ b/lib/libmbedtls/mbedtls/library/bignum.c
+@@ -1756,7 +1756,8 @@ static int mbedtls_mpi_exp_mod_optionally_safe(mbedtls_mpi *X, const mbedtls_mpi
+      * Allocate working memory for mbedtls_mpi_core_exp_mod()
+      */
+     size_t T_limbs = mbedtls_mpi_core_exp_mod_working_limbs(N->n, E->n);
+-    mbedtls_mpi_uint *T = (mbedtls_mpi_uint *) mbedtls_calloc(T_limbs, sizeof(mbedtls_mpi_uint));
++    mbedtls_mpi_uint *T = mempool_calloc(mbedtls_mpi_mempool, T_limbs,
++                                         sizeof(mbedtls_mpi_uint));
+     if (T == NULL) {
+         return MBEDTLS_ERR_MPI_ALLOC_FAILED;
+     }
+@@ -1830,7 +1831,8 @@ static int mbedtls_mpi_exp_mod_optionally_safe(mbedtls_mpi *X, const mbedtls_mpi
+ 
+ cleanup:
+ 
+-    mbedtls_mpi_zeroize_and_free(T, T_limbs);
++    mbedtls_mpi_zeroize(T, T_limbs);
++    mempool_free(mbedtls_mpi_mempool, T);
+ 
+     if (prec_RR == NULL || prec_RR->p == NULL) {
+         mbedtls_mpi_free(&RR);
+-- 
+2.47.2
+

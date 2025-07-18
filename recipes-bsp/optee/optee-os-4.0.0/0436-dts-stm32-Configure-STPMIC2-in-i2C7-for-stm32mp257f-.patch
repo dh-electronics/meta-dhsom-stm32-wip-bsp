@@ -1,0 +1,848 @@
+From 1274b94e4459e3cea128f8d1b894ac9533d805f2 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 11 Jan 2024 10:46:55 +0100
+Subject: [PATCH 0436/1695] dts: stm32: Configure STPMIC2 in i2C7 for
+ stm32mp257f-dk|ev1
+
+Configure and enable STPMIC2 device on I2C7 bus on STM32MP25 boards
+EV1 and DK.
+
+Define PWR regulators in stm32mp2 SoC DTSI files and board DTS files.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f2ce769f71405c86827624d8808789e1672ee0c1 dts: stm32: Configure STPMIC2 in i2C7 for stm32mp257f-dk|ev1]
+Change-Id: I87873f78f04fdccf89fb889e2cf21c02365adfc7
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp25-pinctrl.dtsi |  16 +
+ core/arch/arm/dts/stm32mp251.dtsi        |  56 ++++
+ core/arch/arm/dts/stm32mp257f-dk.dts     | 333 +++++++++++++++++++++
+ core/arch/arm/dts/stm32mp257f-ev1.dts    | 353 +++++++++++++++++++++++
+ 4 files changed, 758 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp25-pinctrl.dtsi b/core/arch/arm/dts/stm32mp25-pinctrl.dtsi
+index 193014749..97ad90cfa 100644
+--- a/core/arch/arm/dts/stm32mp25-pinctrl.dtsi
++++ b/core/arch/arm/dts/stm32mp25-pinctrl.dtsi
+@@ -6,6 +6,22 @@
+ #include <dt-bindings/pinctrl/stm32-pinfunc.h>
+ 
+ &pinctrl {
++	i2c7_pins_a: i2c7-0 {
++		pins {
++			pinmux = <STM32_PINMUX('D', 15, AF10)>, /* I2C7_SCL */
++				 <STM32_PINMUX('D', 14, AF10)>; /* I2C7_SDA */
++			bias-disable;
++			drive-open-drain;
++			slew-rate = <0>;
++		};
++	};
++
++	i2c7_sleep_pins_a: i2c7-sleep-0 {
++		pins {
++			pinmux = <STM32_PINMUX('D', 15, ANALOG)>, /* I2C7_SCL */
++				 <STM32_PINMUX('D', 14, ANALOG)>; /* I2C7_SDA */
++		};
++	};
+ 
+ 	ospi1_clk_pins_a: ospi1-clk-0 {
+ 		pins {
+diff --git a/core/arch/arm/dts/stm32mp251.dtsi b/core/arch/arm/dts/stm32mp251.dtsi
+index c1b7d5155..6fcf5b9f1 100644
+--- a/core/arch/arm/dts/stm32mp251.dtsi
++++ b/core/arch/arm/dts/stm32mp251.dtsi
+@@ -196,7 +196,13 @@
+ 			};
+ 
+ 			i2c7: i2c@40180000 {
++				compatible = "st,stm32mp25-i2c";
+ 				reg = <0x40180000 0x400>;
++				clocks = <&rcc CK_KER_I2C7>;
++				resets = <&rcc I2C7_R>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				i2c-analog-filter;
+ 				status = "disabled";
+ 			};
+ 
+@@ -408,8 +414,58 @@
+ 		};
+ 
+ 		pwr: pwr@44210000 {
++			compatible = "st,stm32mp25-pwr";
+ 			reg = <0x44210000 0x400>;
+ 			status = "disabled";
++
++			vdd33ucpd: vdd33ucpd {
++				compatible = "st,stm32mp25-pwr-regu";
++				regulator-name = "vdd33ucpd";
++				status = "disabled";
++			};
++
++			vdda18adc: vdda18adc {
++				compatible = "st,stm32mp25-pwr-regu";
++				regulator-name = "vdda18adc";
++				status = "disabled";
++			};
++
++			vddgpu: vddgpu {
++				compatible = "st,stm32mp25-pwr-regu";
++				regulator-name = "vddgpu";
++				status = "disabled";
++			};
++
++			vddio1: vddio1 {
++				compatible = "st,stm32mp25-pwr-regu";
++				regulator-name = "vddio1";
++				status = "disabled";
++			};
++
++			vddio2: vddio2 {
++				compatible = "st,stm32mp25-pwr-regu";
++				regulator-name = "vddio2";
++				status = "disabled";
++			};
++
++			vddio3: vddio3 {
++				compatible = "st,stm32mp25-pwr-regu";
++				regulator-name = "vddio3";
++				status = "disabled";
++			};
++
++			vddio4: vddio4 {
++				compatible = "st,stm32mp25-pwr-regu";
++				regulator-name = "vddio4";
++				status = "disabled";
++			};
++
++			vddio: vddio {
++				compatible = "st,stm32mp25-pwr-regu";
++				regulator-name = "vddio";
++				regulator-always-on;
++				status = "disabled";
++			};
+ 		};
+ 
+ 		exti1: interrupt-controller@44220000 {
+diff --git a/core/arch/arm/dts/stm32mp257f-dk.dts b/core/arch/arm/dts/stm32mp257f-dk.dts
+index 39d0dfa93..beb031cca 100644
+--- a/core/arch/arm/dts/stm32mp257f-dk.dts
++++ b/core/arch/arm/dts/stm32mp257f-dk.dts
+@@ -39,11 +39,344 @@
+ 	};
+ };
+ 
++&i2c7 {
++	pinctrl-names = "default", "sleep";
++	pinctrl-0 = <&i2c7_pins_a>;
++	pinctrl-1 = <&i2c7_sleep_pins_a>;
++	i2c-scl-rising-time-ns = <185>;
++	i2c-scl-falling-time-ns = <20>;
++	clock-frequency = <400000>;
++	status = "okay";
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	pmic2: stpmic2@33 {
++		compatible = "st,stpmic2";
++		reg = <0x33>;
++		st,wakeup-pin-number = <1>;
++		status = "okay";
++
++		regulators {
++			compatible = "st,stpmic2-regulators";
++
++			vddcpu: buck1 {
++				regulator-name = "vddcpu";
++				regulator-min-microvolt = <800000>;
++				regulator-max-microvolt = <910000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <2>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-off-in-suspend;
++				};
++				lplv {
++					regulator-off-in-suspend;
++				};
++				standby {
++					regulator-off-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vddcore: buck2 {
++				regulator-name = "vddcore";
++				regulator-min-microvolt = <820000>;
++				regulator-max-microvolt = <820000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <820000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <670000>;
++				};
++				standby {
++					regulator-off-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vddgpu_pmic: buck3 {
++				regulator-name = "vddgpu_pmic";
++				regulator-min-microvolt = <800000>;
++				regulator-max-microvolt = <900000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++			};
++			vddio_pmic: buck4 {
++				regulator-name = "vddio_pmic";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,mask-reset;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				standby {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				off {
++					/* ToDo: switch to LP */
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++			};
++			v1v8: buck5 {
++				regulator-name = "v1v8";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1800000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1800000>;
++				};
++				standby {
++					regulator-off-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vdd2_ddr: buck6 {
++				regulator-name = "vdd2_ddr";
++				regulator-min-microvolt = <1100000>;
++				regulator-max-microvolt = <1100000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1100000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1100000>;
++				};
++				standby {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1100000>;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			v3v3: buck7 {
++				regulator-name = "v3v3";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				standby {
++					regulator-off-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vdda1v8_aon: ldo1 {
++				regulator-name = "vdda1v8_aon";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,mask-reset;
++			};
++			vdd_emmc: ldo2 {
++				regulator-name = "vdd_emmc";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				st,pwrctrl_sel = <3>;
++				st,pwrctrl_reset;
++			};
++			vdd1_ddr: ldo3 {
++				regulator-name = "vdd1_ddr";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1800000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1800000>;
++				};
++				standby {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1800000>;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vdd3v3_usb: ldo4 {
++				regulator-name = "vdd3v3_usb";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++			};
++			v5v_hdmi: ldo5 {
++				regulator-name = "v5v_hdmi";
++				regulator-min-microvolt = <5000000>;
++				regulator-max-microvolt = <5000000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				st,regulator-bypass-microvolt = <5000000>;
++				st,pwrctrl_sel = <0>;
++				st,pwrctrl_enable;
++			};
++			v5v_vconn: ldo6 {
++				regulator-name = "v5v_vconn";
++				regulator-min-microvolt = <4000000>;
++				regulator-max-microvolt = <4000000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				st,regulator-bypass-microvolt = <4000000>;
++				st,pwrctrl_sel = <0>;
++				st,pwrctrl_reset;
++			};
++			vdd_sdcard: ldo7 {
++				regulator-name = "vdd_sdcard";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,regulator-bypass-microvolt = <3300000>;
++				st,pwrctrl_sel = <3>;
++				st,pwrctrl_reset;
++			};
++			vddio_sdcard: ldo8 {
++				regulator-name = "vddio_sdcard";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				st,regulator-bypass-microvolt = <3300000>;
++				st,pwrctrl_sel = <3>;
++				st,pwrctrl_reset;
++			};
++		};
++	};
++};
++
+ &iwdg1 {
+ 	timeout-sec = <32>;
+ 	status = "okay";
+ };
+ 
++&pwr {
++	status = "okay";
++
++	vdd33ucpd: vdd33ucpd {
++		status = "okay";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		vdd33ucpd-supply = <&vdd3v3_usb>;
++		regulator-always-on;
++	};
++
++	vdda18adc: vdda18adc {
++		status = "okay";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		vdda18adc-supply = <&v1v8>;
++		regulator-always-on;
++	};
++
++	vddgpu: vddgpu {
++		status = "okay";
++		vddgpu-supply = <&vddgpu_pmic>;
++	};
++
++	vddio1: vddio1 {
++		status = "okay";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <3300000>;
++		vddio1-supply = <&vddio_sdcard>;
++	};
++
++	vddio2: vddio2 {
++		status = "okay";
++		vddio2-supply = <&v1v8>;
++		regulator-always-on;
++	};
++
++	vddio3: vddio3 {
++		status = "okay";
++		vddio3-supply = <&vddio_pmic>;
++		regulator-always-on;
++	};
++
++	vddio4: vddio4 {
++		status = "okay";
++		vddio4-supply = <&vddio_pmic>;
++		regulator-always-on;
++	};
++
++	vddio: vddio {
++		status = "okay";
++		vdd-supply = <&vddio_pmic>;
++	};
++};
++
+ &risaf2 {
+ 	status = "okay";
+ };
+diff --git a/core/arch/arm/dts/stm32mp257f-ev1.dts b/core/arch/arm/dts/stm32mp257f-ev1.dts
+index d1b4f2aa8..e0fab41b2 100644
+--- a/core/arch/arm/dts/stm32mp257f-ev1.dts
++++ b/core/arch/arm/dts/stm32mp257f-ev1.dts
+@@ -47,6 +47,304 @@
+ 	};
+ };
+ 
++&i2c7 {
++	pinctrl-names = "default", "sleep";
++	pinctrl-0 = <&i2c7_pins_a>;
++	pinctrl-1 = <&i2c7_sleep_pins_a>;
++	i2c-scl-rising-time-ns = <29>;
++	i2c-scl-falling-time-ns = <7>;
++	clock-frequency = <400000>;
++	status = "okay";
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	pmic2: stpmic2@33 {
++		compatible = "st,stpmic2";
++		reg = <0x33>;
++		st,wakeup-pin-number = <1>;
++		status = "okay";
++
++		regulators {
++			compatible = "st,stpmic2-regulators";
++
++			vddcpu: buck1 {
++				regulator-name = "vddcpu";
++				regulator-min-microvolt = <800000>;
++				regulator-max-microvolt = <910000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <2>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-off-in-suspend;
++				};
++				lplv {
++					regulator-off-in-suspend;
++				};
++				standby {
++					regulator-off-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vddcore: buck2 {
++				regulator-name = "vddcore";
++				regulator-min-microvolt = <820000>;
++				regulator-max-microvolt = <820000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <820000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <670000>;
++				};
++				standby {
++					regulator-off-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vddgpu_pmic: buck3 {
++				regulator-name = "vddgpu_pmic";
++				regulator-min-microvolt = <800000>;
++				regulator-max-microvolt = <900000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++			};
++			vddio_pmic: buck4 {
++				regulator-name = "vddio_pmic";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,mask-reset;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				standby {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				off {
++					/* ToDo: switch to LP */
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++			};
++			v1v8: buck5 {
++				regulator-name = "v1v8";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1800000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1800000>;
++				};
++				standby {
++					regulator-off-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vdd_ddr: buck6 {
++				regulator-name = "vdd_ddr";
++				regulator-min-microvolt = <1200000>;
++				regulator-max-microvolt = <1200000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1200000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1200000>;
++				};
++				standby {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <1200000>;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			v3v3: buck7 {
++				regulator-name = "v3v3";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <3300000>;
++				};
++				standby {
++					regulator-off-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vdda1v8_aon: ldo1 {
++				regulator-name = "vdda1v8_aon";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-always-on;
++				st,mask-reset;
++			};
++			vdd_emmc: ldo2 {
++				regulator-name = "vdd_emmc";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				st,pwrctrl_sel = <3>;
++				st,pwrctrl_reset;
++			};
++			vtt_ddr: ldo3 {
++				regulator-name = "vtt_ddr";
++				regulator-always-on;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-off-in-suspend;
++				};
++				lplv {
++					regulator-off-in-suspend;
++				};
++				standby {
++					regulator-off-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vdd3v3_usb: ldo4 {
++				regulator-name = "vdd3v3_usb";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++			};
++			vpp_ddr: ldo5 {
++				regulator-name = "vpp_ddr";
++				regulator-min-microvolt = <2500000>;
++				regulator-max-microvolt = <2500000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <2500000>;
++				};
++				lplv {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <2500000>;
++				};
++				standby {
++					regulator-on-in-suspend;
++					regulator-suspend-microvolt = <2500000>;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++			vdd_sdcard: ldo7 {
++				regulator-name = "vdd_sdcard";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				regulator-always-on;
++				st,regulator-bypass-microvolt = <3300000>;
++				st,pwrctrl_sel = <3>;
++				st,pwrctrl_reset;
++			};
++			vddio_sdcard: ldo8 {
++				regulator-name = "vddio_sdcard";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				st,regulator-bypass-microvolt = <3300000>;
++				st,pwrctrl_sel = <3>;
++				st,pwrctrl_reset;
++			};
++			vref_ddr: refddr {
++				regulator-name = "vref_ddr";
++				regulator-always-on;
++				regulator-ramp-delay = <2200>;
++				regulator-enable-ramp-delay = <1000>;
++				st,pwrctrl_sel = <1>;
++				st,pwrctrl_enable;
++
++				default {
++					regulator-on-in-suspend;
++				};
++				lplv {
++					regulator-on-in-suspend;
++				};
++				standby {
++					regulator-on-in-suspend;
++				};
++				off {
++					regulator-off-in-suspend;
++				};
++			};
++		};
++	};
++};
++
+ &iwdg1 {
+ 	timeout-sec = <32>;
+ 	status = "okay";
+@@ -65,6 +363,61 @@
+ 	status = "okay";
+ };
+ 
++&pwr {
++	status = "okay";
++
++	vdd33ucpd: vdd33ucpd {
++		status = "okay";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		vdd33ucpd-supply = <&vdd3v3_usb>;
++		regulator-always-on;
++	};
++
++	vdda18adc: vdda18adc {
++		status = "okay";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		vdda18adc-supply = <&v1v8>;
++		regulator-always-on;
++	};
++
++	vddgpu: vddgpu {
++		status = "okay";
++		vddgpu-supply = <&vddgpu_pmic>;
++	};
++
++	vddio1: vddio1 {
++		status = "okay";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <3300000>;
++		vddio1-supply = <&vddio_sdcard>;
++	};
++
++	vddio2: vddio2 {
++		status = "okay";
++		vddio2-supply = <&v1v8>;
++		regulator-always-on;
++	};
++
++	vddio3: vddio3 {
++		status = "okay";
++		vddio3-supply = <&vddio_pmic>;
++		regulator-always-on;
++	};
++
++	vddio4: vddio4 {
++		status = "okay";
++		vddio4-supply = <&vddio_pmic>;
++		regulator-always-on;
++	};
++
++	vddio: vddio {
++		status = "okay";
++		vdd-supply = <&vddio_pmic>;
++	};
++};
++
+ &risaf2 {
+ 	status = "okay";
+ };
+-- 
+2.47.2
+

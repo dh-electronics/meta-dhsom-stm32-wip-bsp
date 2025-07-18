@@ -1,0 +1,62 @@
+From a7e60329086801ef7997c92396bad1c8f8228604 Mon Sep 17 00:00:00 2001
+From: Vincent Mailhol <mailhol.vincent@wanadoo.fr>
+Date: Fri, 20 Oct 2023 02:28:02 +0900
+Subject: [PATCH 0045/1695] core: tee_svc.c: allow to pass non-NULL memref of
+ size 0
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Allow TAs to pass non-NULL memref of size zero to other TAs by
+changing the non-NULL pointer into a NULL one in such a case. GP TEE
+Internal Core API does not forbid such memref parameter [1] whereas
+the previous implementation generated a TEE_ERROR_BAD_PARAMETERS error
+code when converting such memref buffer pointer into a physical memory
+address.
+
+This change is specifically needed to allow a TA to forward a REE
+client memref for which GP TEE Client API explicitly allows such
+non-NULL address zero sized memref [2]. It also makes the TA
+implementation more flexible when dealing with its own memref.
+
+[1] TEE Internal Core API Specification – Public Release v1.3.1,
+    §4.9.4 "Operation Parameters in the Internal Client API"
+    Table 4-15: "Interpretation of params[i] on Entry to Internal Client
+    API"
+
+[2] TEE Client API Specification v1.0, §4.5.4 TEEC_RegisterSharedMemory,
+    paragraph "Implementers' Notes"
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e75fbfa3155af9097987551d8c881f7017d999a4 core: tee_svc.c: allow to pass non-NULL memref of size 0]
+Change-Id: Icaecc5fdf181f555f54100b14d94b32e837c4f9c
+Signed-off-by: Vincent Mailhol <mailhol.vincent@wanadoo.fr>
+[etienne: cherry-picked from 452796429d5617dbcc87652da342c3f03fafdc89]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/tee/tee_svc.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/core/tee/tee_svc.c b/core/tee/tee_svc.c
+index f4158dca1..237a27de9 100644
+--- a/core/tee/tee_svc.c
++++ b/core/tee/tee_svc.c
+@@ -700,11 +700,13 @@ static TEE_Result tee_svc_copy_param(struct ts_session *sess,
+ 		case TEE_PARAM_TYPE_MEMREF_INOUT:
+ 			va = (void *)param->u[n].mem.offs;
+ 			s = param->u[n].mem.size;
+-			if (!va) {
+-				if (s)
+-					return TEE_ERROR_BAD_PARAMETERS;
++			if (!s) {
++				param->u[n].mem.mobj = NULL;
+ 				break;
+ 			}
++			if (!va)
++				return TEE_ERROR_BAD_PARAMETERS;
++
+ 			/* uTA cannot expose its private memory */
+ 			if (vm_buf_is_inside_um_private(&utc->uctx, va, s))
+ 				return TEE_ERROR_BAD_PARAMETERS;
+-- 
+2.47.2
+

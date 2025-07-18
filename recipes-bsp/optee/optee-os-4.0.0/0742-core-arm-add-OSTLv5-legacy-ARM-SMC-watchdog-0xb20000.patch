@@ -1,0 +1,38 @@
+From 4dd54d0e88304208cd87407abbced80e20f7d6a4 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 20 Dec 2023 11:07:11 +0100
+Subject: [PATCH 0742/1695] core: arm: add OSTLv5 legacy ARM SMC watchdog
+ 0xb200005a
+
+Support OSTLv5 legacy Arm SMC watchdog function ID 0xb200005a
+until U-Boot and Linux kernel update to the new funcID 0xbc000000.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8450f25923c0c98465decc975f25efed19f82ba0 core: arm: add OSTLv5 legacy ARM SMC watchdog 0xb200005a]
+Change-Id: I67e214f35e47c5250842b1136223e348e86ede0f
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372897
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/tee/entry_fast.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/core/arch/arm/tee/entry_fast.c b/core/arch/arm/tee/entry_fast.c
+index 44b94badb..09ab47ee2 100644
+--- a/core/arch/arm/tee/entry_fast.c
++++ b/core/arch/arm/tee/entry_fast.c
+@@ -326,6 +326,10 @@ void __tee_entry_fast(struct thread_smc_args *args)
+ 		break;
+ 
+ 	/* Watchdog entry if handler ID is defined in TOS range */
++#if CFG_WDT_SM_HANDLER_ID != 0xb200005a
++	/* Consider OSTLv5 legacy WDT SMC funcID for compatibility purpose */
++	case 0xb200005a:
++#endif
+ 	case CFG_WDT_SM_HANDLER_ID:
+ 		tee_entry_watchdog(args);
+ 		break;
+-- 
+2.47.2
+

@@ -1,0 +1,53 @@
+From 6ce15bbd72f3432a939f084565e64176b076ea60 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Thu, 28 Mar 2024 16:36:03 +0100
+Subject: [PATCH 0702/1695] drivers: stm32_risaf: protect configuration against
+ non-tdcid state
+
+RISAF region configuration is only possible in TDCID state. Otherwise
+probe function simply returns OK.
+This should be reconsidered when sub-region management will be
+implemented because they can be configured in non-TDCID state.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2bf0022f8fc9fa1eee8e82b1e4370f5852751a31 drivers: stm32_risaf: protect configuration against non-tdcid state]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I19cb80cee4c10b311c37f44a2fc738b5a32e575c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/371767
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/firewall/stm32_risaf.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index 2c59c0a4d..26447993d 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -6,6 +6,7 @@
+ #include <assert.h>
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
++#include <drivers/stm32_rif.h>
+ #include <drivers/stm32_risaf.h>
+ #include <dt-bindings/soc/stm32mp25-risaf.h>
+ #include <io.h>
+@@ -585,6 +586,14 @@ static TEE_Result stm32_risaf_probe(const void *fdt, int node,
+ 	const fdt64_t *cuint = NULL;
+ 	const fdt32_t *conf_list = NULL;
+ 	const struct stm32_risaf_compat_data *compat = compat_data;
++	bool is_tdcid = false;
++
++	res = stm32_rifsc_check_tdcid(&is_tdcid);
++	if (res)
++		return res;
++
++	if (!is_tdcid)
++		return TEE_SUCCESS;
+ 
+ 	risaf = calloc(1, sizeof(*risaf));
+ 	if (!risaf)
+-- 
+2.47.2
+

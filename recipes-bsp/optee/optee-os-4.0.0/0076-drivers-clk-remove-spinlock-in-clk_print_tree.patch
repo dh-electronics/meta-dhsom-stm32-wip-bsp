@@ -1,0 +1,42 @@
+From f2428ad685759d438bbdb1bfe9ede061ffc8d725 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 27 Nov 2023 07:16:31 +0100
+Subject: [PATCH 0076/1695] drivers: clk: remove spinlock in clk_print_tree()
+
+Remove spinlock handling from clk_print_tree(). This lock may mask
+interrupts for a long period of time which and may affect the system
+behavior. Since there is no clock unregistering and clock destroying
+function, all clock references used are safe to use, even outside
+the locked state. Whether or not printed information is accurate is
+not an issue as clk_print_tree() is concerned as the function is only
+informative.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c97ab2fa88fa730758734985a3c10af8bdc91da8 drivers: clk: remove spinlock in clk_print_tree()]
+Change-Id: I18d9e128e7b0020965ad66ed420b2bdf9cc8c7a2
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 4362d4f975f6816bcdcd8cb52de4165db2b1cd17]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/clk/clk.c | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index afe81482f..333d91f68 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -482,11 +482,7 @@ static void print_tree(void)
+ void clk_print_tree(void)
+ {
+ 	if (IS_ENABLED(CFG_DRIVERS_CLK_PRINT_TREE)) {
+-		uint32_t exceptions = 0;
+-
+-		exceptions = cpu_spin_lock_xsave(&clk_lock);
+-		IMSG("Clock tree summary:");
++		IMSG("Clock tree summary (informative):");
+ 		print_tree();
+-		cpu_spin_unlock_xrestore(&clk_lock, exceptions);
+ 	}
+ }
+-- 
+2.47.2
+

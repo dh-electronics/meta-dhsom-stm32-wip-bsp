@@ -1,0 +1,75 @@
+From 94865a025189797c80b76b2aff3e98e274d889b8 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 29 Jan 2025 09:58:20 +0100
+Subject: [PATCH 1487/1695] core: plat-stm32mp2: enable CFG_PSA_ADAC on
+ stm32mp21
+
+STM32MP21 implements an authentication mailbox in DBGMCU which is
+the transport layer for Authenticated Debug Access Control (ADAC) protocol.
+PSA-ADAC library supports this secure debug protocol.
+That's why we enable it for STM32MP21.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f2e8acde1734f0bf9dca7535c159bfb80a8e8f69 core: plat-stm32mp2: enable CFG_PSA_ADAC on stm32mp21]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: I1ddc2c27b04ce664cbcbe0b62664eefaccbc0c76
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/433587
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../plat-stm32mp2/conf.disable-secure-services.mk   |  3 +++
+ core/arch/arm/plat-stm32mp2/conf.mk                 | 13 +++++++++++++
+ core/arch/arm/plat-stm32mp2/sub.mk                  |  2 ++
+ 3 files changed, 18 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk b/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
+index e3817f44b..16aa3853b 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.disable-secure-services.mk
+@@ -34,6 +34,9 @@ $(call force,CFG_REE_FS,n)
+ $(call force,CFG_REE_FS_TA,n)
+ $(call force,CFG_RPMB_FS,n)
+ 
++# Deactivate secure debug
++$(call force,CFG_PSA_ADAC,n)
++
+ # Default deactivate services related to security configuration
+ CFG_STM32_PANIC_ON_IAC_EVENT ?= n
+ CFG_STM32_PANIC_ON_SERC_EVENT ?= n
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index 3124da656..9c012b721 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -245,6 +245,19 @@ else
+ CFG_STM32_SAES_SW_FALLBACK ?= y
+ endif
+ 
++# PSA-ADAC
++# OP-TEE support on STM32MP21 CA35TDCID but not on STM32MP21 CM33TDCID
++# nor STM32MP23/25
++# Default disable CFG_PSA_ADAC on STM32MP21 CM33TD and STM32MP23/25
++ifeq ($(CFG_STM32MP21)-$(CFG_STM32_CM33TDCID), y-n)
++CFG_PSA_ADAC ?= y
++ifeq ($(CFG_PSA_ADAC), y)
++$(call force,CFG_PSA_ADAC_AUTHENTICATOR_IMPLICIT_TRANSPORT,y,Explicit Transport API not yet defined)
++endif
++else
++$(call force,CFG_PSA_ADAC,n)
++endif
++
+ CFG_DRIVERS_REMOTEPROC ?= $(CFG_STM32MP_REMOTEPROC)
+ CFG_REMOTEPROC_PTA ?= $(CFG_STM32MP_REMOTEPROC)
+ ifeq ($(CFG_REMOTEPROC_PTA),y)
+diff --git a/core/arch/arm/plat-stm32mp2/sub.mk b/core/arch/arm/plat-stm32mp2/sub.mk
+index b756b1de2..c0b884d8c 100644
+--- a/core/arch/arm/plat-stm32mp2/sub.mk
++++ b/core/arch/arm/plat-stm32mp2/sub.mk
+@@ -6,3 +6,5 @@ subdirs-y += drivers
+ 
+ srcs-$(CFG_DISPLAY) += display.c
+ srcs-$(CFG_SCMI_SCPFW) += scmi_server_scpfw.c
++
++subdirs-$(CFG_PSA_ADAC) += psa-adac
+-- 
+2.47.2
+

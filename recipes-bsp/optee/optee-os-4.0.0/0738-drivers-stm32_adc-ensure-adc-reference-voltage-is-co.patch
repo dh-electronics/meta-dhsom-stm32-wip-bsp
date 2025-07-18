@@ -1,0 +1,36 @@
+From e430c1d9c8e61dbbf93c15570679868ec8f5fa3d Mon Sep 17 00:00:00 2001
+From: Olivier Moysan <olivier.moysan@foss.st.com>
+Date: Wed, 10 Apr 2024 14:22:36 +0200
+Subject: [PATCH 0738/1695] drivers: stm32_adc: ensure adc reference voltage is
+ configured
+
+As a workaround, call regulator_set_min_voltage() to ensure that the
+ADC reference regulator voltage is well configured.
+This has to be done for time being, as regulator voltage configuration
+comes after drivers initialization.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8dbba086f647cc3627474904609fe288eb61ab55 drivers: stm32_adc: ensure adc reference voltage is configured]
+Signed-off-by: Olivier Moysan <olivier.moysan@foss.st.com>
+Change-Id: I9c26571c6ed71bc92890435dc201fa044024b150
+---
+ core/drivers/adc/stm32_adc_core.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/core/drivers/adc/stm32_adc_core.c b/core/drivers/adc/stm32_adc_core.c
+index 0f62d5402..a85288758 100644
+--- a/core/drivers/adc/stm32_adc_core.c
++++ b/core/drivers/adc/stm32_adc_core.c
+@@ -263,6 +263,10 @@ static TEE_Result stm32_adc_core_probe(const void *fdt, int node,
+ 	if (res)
+ 		goto err;
+ 
++	res = regulator_set_min_voltage(priv->vref);
++	if (res && res != TEE_ERROR_NOT_IMPLEMENTED)
++		goto err;
++
+ 	priv->common.vref_uv = regulator_get_voltage(priv->vref);
+ 
+ 	res = clk_dt_get_by_name(fdt, node, "bus", &priv->bclk);
+-- 
+2.47.2
+
