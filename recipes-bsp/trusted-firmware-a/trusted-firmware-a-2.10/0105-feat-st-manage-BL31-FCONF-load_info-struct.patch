@@ -1,0 +1,53 @@
+From 10f0a6eae48e6ac3012d46bcee08fd3d1f7800d4 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 27 Nov 2020 14:44:04 +0100
+Subject: [PATCH 105/841] feat(st): manage BL31 FCONF load_info struct
+
+As the file is common with STM32MP1, which is AARCH32, the BL31 entry
+is put under __aarch64__ flag.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9813f3dfe517fd6eb486b3f7368faeea0d44437d feat(st): manage BL31 FCONF load_info struct]
+Change-Id: I1efc406717842235264dc6cc3605229659364b02
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ plat/st/common/stm32mp_fconf_io.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/plat/st/common/stm32mp_fconf_io.c b/plat/st/common/stm32mp_fconf_io.c
+index d51c478fb..e2210de05 100644
+--- a/plat/st/common/stm32mp_fconf_io.c
++++ b/plat/st/common/stm32mp_fconf_io.c
+@@ -76,6 +76,12 @@ struct plat_io_policy policies[MAX_NUMBER_IDS] = {
+ 
+ #define DEFAULT_UUID_NUMBER	U(7)
+ 
++#ifdef __aarch64__
++#define BL31_UUID_NUMBER	U(1)
++#else
++#define BL31_UUID_NUMBER	U(0)
++#endif
++
+ #if TRUSTED_BOARD_BOOT
+ #define TBBR_UUID_NUMBER	U(6)
+ #else
+@@ -83,6 +89,7 @@ struct plat_io_policy policies[MAX_NUMBER_IDS] = {
+ #endif
+ 
+ #define FCONF_ST_IO_UUID_NUMBER	(DEFAULT_UUID_NUMBER + \
++				 BL31_UUID_NUMBER + \
+ 				 TBBR_UUID_NUMBER)
+ 
+ static io_uuid_spec_t fconf_stm32mp_uuids[FCONF_ST_IO_UUID_NUMBER];
+@@ -96,6 +103,9 @@ struct policies_load_info {
+ /* image id to property name table */
+ static const struct policies_load_info load_info[FCONF_ST_IO_UUID_NUMBER] = {
+ 	{FW_CONFIG_ID, "fw_cfg_uuid"},
++#ifdef __aarch64__
++	{BL31_IMAGE_ID, "bl31_uuid"},
++#endif
+ 	{BL32_IMAGE_ID, "bl32_uuid"},
+ 	{BL32_EXTRA1_IMAGE_ID, "bl32_extra1_uuid"},
+ 	{BL32_EXTRA2_IMAGE_ID, "bl32_extra2_uuid"},
+-- 
+2.47.2
+

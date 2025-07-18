@@ -1,0 +1,121 @@
+From 2c9e99b1f00265bef88917a70207d0184eb6a1d4 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 25 Jul 2023 19:56:41 +0200
+Subject: [PATCH 345/841] fix(stm32mp2): correctly handle STANDBY
+
+Load correct binary based on STANDBY mode with
+- stm32mp_skip_boot_device_after_standby
+- stm32mp_is_wakeup_from_standby
+
+Only BL31 is required on standby exit,
+add skip flag on DDR_FW_ID and clear the skip flag for all the image
+loaded in DDR for standby exit.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 113900c56ab67a9125fafe4431f50593cfaec4fa fix(stm32mp2): correctly handle STANDBY]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: If27a4c0a6291b1a88d9584ae2a975bfa7d04ffff
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/320083
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c   | 23 ++++++++++++++++++++++-
+ plat/st/stm32mp2/stm32mp2_private.c | 20 ++++++++++++++++++--
+ 2 files changed, 40 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index f4bdfc8e7..a8bca82a0 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -321,6 +321,17 @@ skip_console_init:
+ 		panic();
+ 	}
+ 
++#if STM32MP_DDR_FIP_IO_STORAGE
++	/* Skip DDR FW ID = the first image to load for standby exit */
++	if (stm32mp_is_wakeup_from_standby()) {
++		bl_mem_params_node_t *bl_mem_params;
++
++		bl_mem_params = get_bl_mem_params_node(DDR_FW_ID);
++		assert(bl_mem_params != NULL);
++		bl_mem_params->image_info.h.attr |= IMAGE_ATTRIB_SKIP_LOADING;
++	}
++#endif
++
+ 	stm32mp_io_setup();
+ }
+ 
+@@ -366,6 +377,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 	};
+ 	uint32_t otp_idx __maybe_unused;
+ 	uint32_t otp_len __maybe_unused;
++	bool wakeup_standby;
+ 
+ 	assert(bl_mem_params != NULL);
+ 
+@@ -381,6 +393,8 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 				FW_CONFIG_ID);
+ 		fconf_populate("FW_CONFIG", STM32MP_FW_CONFIG_BASE);
+ 
++		wakeup_standby = stm32mp_is_wakeup_from_standby();
++
+ 		/* Iterate through all the fw config IDs */
+ 		for (i = 0U; i < ARRAY_SIZE(image_ids); i++) {
+ 			bl_mem_params = get_bl_mem_params_node(image_ids[i]);
+@@ -394,7 +408,14 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			bl_mem_params->image_info.image_base = config_info->config_addr;
+ 			bl_mem_params->image_info.image_max_size = config_info->config_max_size;
+ 
+-			bl_mem_params->image_info.h.attr &= ~IMAGE_ATTRIB_SKIP_LOADING;
++			/*
++			 * If not going back from STANDBY (preserve the DDR in Self-Refresh)
++			 * or partition not located in DDR
++			 * the partitions must be loaded = remove the SKIP flag
++			 */
++			if (!wakeup_standby || (config_info->config_addr < STM32MP_DDR_BASE)) {
++				bl_mem_params->image_info.h.attr &= ~IMAGE_ATTRIB_SKIP_LOADING;
++			}
+ 
+ 			switch (image_ids[i]) {
+ 			case BL31_IMAGE_ID:
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 561844d52..e2659af8f 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -15,6 +15,7 @@
+ #include <plat/common/platform.h>
+ 
+ #include <platform_def.h>
++#include <stm32mp2_context.h>
+ 
+ #if STM32MP_DDR_FIP_IO_STORAGE && defined(IMAGE_BL2)
+ /* Map the whole SRAM1 as secure, required to load DDR FW from FIP */
+@@ -504,8 +505,23 @@ bool stm32mp_skip_boot_device_after_standby(void)
+ 
+ bool stm32mp_is_wakeup_from_standby(void)
+ {
+-	/* TODO add source code to determine if platform is waking up from standby mode */
+-	return false;
++	static int standby = -1;
++	uint32_t rstsr;
++
++	if (standby == -1) {
++		rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_C1BOOTRSTSCLRR);
++
++		if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) != 0U) {
++			return false;
++		}
++		if (stm32_pm_context_is_valid()) {
++			standby = 1;
++		} else {
++			standby = 0;
++		}
++	}
++
++	return standby == 1;
+ }
+ 
+ int stm32_risaf_get_instance(uintptr_t base)
+-- 
+2.47.2
+

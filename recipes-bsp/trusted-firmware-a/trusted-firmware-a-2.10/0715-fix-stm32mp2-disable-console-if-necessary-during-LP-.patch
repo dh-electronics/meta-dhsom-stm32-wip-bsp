@@ -1,0 +1,83 @@
+From 2fdeb54656e286e9ab43c02386b8eefa17c40824 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 8 Nov 2024 17:20:35 +0100
+Subject: [PATCH 715/841] fix(stm32mp2): disable console if necessary during LP
+ sequences
+
+Check if the uart used as console is able to print traces. If not,
+disable the console to avoid crash.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f0252b125cd31b0c4a5e51dfa551772d697450dc fix(stm32mp2): disable console if necessary during LP sequences]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I2c013e42f663b4ee4abc7fb396a432c0326f65f6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/417460
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/438340
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index d4e93cb57..c8a78205d 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -817,6 +817,9 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 	stm32mp_state_set(STM32MP_PRIMARY_CPU, STATE_DDR, true);
+ 	/* Unblock the other core in CPU standby loop */
+ 	sev();
++
++	/* Restart console output if stopped previously */
++	console_switch_state(CONSOLE_FLAG_RUNTIME);
+ }
+ 
+ static void __dead2 stm32_pwr_domain_pwr_down_wfi(const psci_power_state_t
+@@ -999,6 +1002,14 @@ static int stm32_validate_power_state(unsigned int power_state,
+ 	unsigned int state_id;
+ 	unsigned int i;
+ 
++	/*
++	 * First function called for a cpu suspend command:
++	 * disable traces when uart suspended
++	 */
++	if (!stm32mp_uart_console_is_running()) {
++		console_switch_state(0);
++	}
++
+ 	assert(req_state != NULL);
+ 
+ 	/*
+@@ -1048,6 +1059,14 @@ static int stm32_validate_power_state(unsigned int power_state,
+ 
+ static int stm32_validate_ns_entrypoint(uintptr_t entrypoint)
+ {
++	/*
++	 * First function called for a system suspend command:
++	 * disable traces when uart suspended
++	 */
++	if (!stm32mp_uart_console_is_running()) {
++		console_switch_state(0);
++	}
++
+ 	/* The non-secure entry point must be in DDR */
+ 	if (entrypoint < STM32MP_DDR_BASE) {
+ 		return PSCI_E_INVALID_ADDRESS;
+@@ -1393,3 +1412,11 @@ int plat_setup_psci_ops(uintptr_t sec_entrypoint,
+ 
+ 	return 0;
+ }
++
++/*
++ * This driver disable logs if the uart used as console is not available
++ * in function stm32_validate_power_state() after a cpu suspend command.
++ * But this function is also called by psci_get_stat(), that will never be
++ * called in our context.
++ */
++CASSERT(ENABLE_PSCI_STAT == 0, driver_not_compatible_with_psci_stat);
+-- 
+2.47.2
+

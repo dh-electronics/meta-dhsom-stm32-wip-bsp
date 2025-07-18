@@ -1,0 +1,96 @@
+From 33cf5ef2d3da8534b11e964eb6382e8d436f8633 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 1 Jun 2021 09:29:07 +0200
+Subject: [PATCH 119/841] feat(stm32mp2): add support for SPI NAND/raw NAND
+ boot device
+
+STM32MP2 platform is able to boot from SPI NAND/raw NAND
+devices.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f463908c8313a719aac753234029c20c0ff00b81 feat(stm32mp2): add support for SPI NAND/raw NAND boot device]
+Change-Id: Ia9be3d2acc293ae3e92abea561f9894bae45eb18
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ plat/st/stm32mp2/platform.mk            |  8 ++++
+ plat/st/stm32mp2/stm32mp2_boot_device.c | 50 +++++++++++++++++++++++++
+ 2 files changed, 58 insertions(+)
+ create mode 100644 plat/st/stm32mp2/stm32mp2_boot_device.c
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 6fff25d02..5f96d32f9 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -108,6 +108,14 @@ ifneq ($(filter 1,${STM32MP_EMMC} ${STM32MP_SDMMC}),)
+ BL2_SOURCES			+=	drivers/st/mmc/stm32_sdmmc2.c
+ endif
+ 
++ifeq (${STM32MP_RAW_NAND},1)
++BL2_SOURCES			+=	drivers/st/fmc/stm32_fmc2_nand.c
++endif
++
++ifneq ($(filter 1,${STM32MP_RAW_NAND} ${STM32MP_SPI_NAND} ${STM32MP_SPI_NOR}),)
++BL2_SOURCES			+=	plat/st/stm32mp2/stm32mp2_boot_device.c
++endif
++
+ # BL31 sources
+ BL31_SOURCES			+=	${FDT_WRAPPERS_SOURCES}
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_boot_device.c b/plat/st/stm32mp2/stm32mp2_boot_device.c
+new file mode 100644
+index 000000000..bed14e668
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_boot_device.c
+@@ -0,0 +1,50 @@
++/*
++ * Copyright (c) 2021-2022, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <assert.h>
++#include <errno.h>
++
++#include <drivers/nand.h>
++#include <drivers/raw_nand.h>
++#include <drivers/spi_nand.h>
++#include <drivers/spi_nor.h>
++#include <lib/utils.h>
++#include <plat/common/platform.h>
++
++#if STM32MP_RAW_NAND || STM32MP_SPI_NAND
++static int get_data_from_otp(struct nand_device *nand_dev, bool is_slc)
++{
++	/* To do: implement otp parsing */
++
++	return 0;
++}
++#endif /* STM32MP_RAW_NAND || STM32MP_SPI_NAND */
++
++#if STM32MP_RAW_NAND
++int plat_get_raw_nand_data(struct rawnand_device *device)
++{
++	device->nand_dev->ecc.mode = NAND_ECC_HW;
++	device->nand_dev->ecc.size = SZ_512;
++
++	return get_data_from_otp(device->nand_dev, true);
++}
++#endif
++
++#if STM32MP_SPI_NAND
++int plat_get_spi_nand_data(struct spinand_device *device)
++{
++	return get_data_from_otp(device->nand_dev, false);
++}
++#endif
++
++#if STM32MP_SPI_NOR
++int plat_get_nor_data(struct nor_device *device)
++{
++	device->size = SZ_64M;
++
++	return 0;
++}
++#endif
+-- 
+2.47.2
+

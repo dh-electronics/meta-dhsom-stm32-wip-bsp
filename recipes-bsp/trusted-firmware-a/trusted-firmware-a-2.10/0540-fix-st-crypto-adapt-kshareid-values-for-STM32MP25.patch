@@ -1,0 +1,119 @@
+From 38356d025f31e9a22b11d51f4672428af99f9f57 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 6 Feb 2024 14:54:19 +0100
+Subject: [PATCH 540/841] fix(st-crypto): adapt kshareid values for STM32MP25
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+KSHAREID values in CR register are different between plaforms.
+Adapt their definitions under flag condition.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c64917102c384682940398c6bd500de057bed54f fix(st-crypto): adapt kshareid values for STM32MP25]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I100591769dad4565237967ec0a4844a621534516
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/361799
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/crypto/stm32_saes.c | 7 ++++++-
+ plat/st/stm32mp1/platform.mk   | 6 +++++-
+ plat/st/stm32mp2/platform.mk   | 3 +++
+ 3 files changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/crypto/stm32_saes.c b/drivers/st/crypto/stm32_saes.c
+index fb3b13c6d..23878c15a 100644
+--- a/drivers/st/crypto/stm32_saes.c
++++ b/drivers/st/crypto/stm32_saes.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -77,7 +77,12 @@
+ #define _SAES_CR_KEYSEL_TEST		0x7U
+ #define _SAES_CR_KSHAREID_MASK		GENMASK(27, 26)
+ #define _SAES_CR_KSHAREID_SHIFT		26U
++#if STM32_SAES_VER == 0x30
+ #define _SAES_CR_KSHAREID_CRYP		0x0U
++#else /* STM32_SAES_VER != 0x30 */
++#define _SAES_CR_KSHAREID_CRYP1		0x0U
++#define _SAES_CR_KSHAREID_CRYP2		0x1U
++#endif /* STM32_SAES_VER == 0x30 */
+ #define _SAES_CR_KEYMOD_MASK		GENMASK(25, 24)
+ #define _SAES_CR_KEYMOD_SHIFT		24U
+ #define _SAES_CR_KEYMOD_NORMAL		0x0U
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index 290839706..d078710e4 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -1,5 +1,5 @@
+ #
+-# Copyright (c) 2015-2023, Arm Limited and Contributors. All rights reserved.
++# Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
+ #
+ # SPDX-License-Identifier: BSD-3-Clause
+ #
+@@ -95,9 +95,11 @@ WORKAROUND_CVE_2022_23960:=	0
+ ifeq ($(STM32MP13),1)
+ STM32_HASH_VER		:=	4
+ STM32_RNG_VER		:=	4
++STM32_SAES_VER		:=	48 # 0x30
+ else # Assuming STM32MP15
+ STM32_HASH_VER		:=	2
+ STM32_RNG_VER		:=	2
++STM32_SAES_VER		:=	0 # Unavailable in this platform
+ endif
+ 
+ # Download load address for serial boot devices
+@@ -179,6 +181,7 @@ $(eval $(call assert_numerics,\
+ 		STM32_HASH_VER \
+ 		STM32_HEADER_VERSION_MAJOR \
+ 		STM32_RNG_VER \
++		STM32_SAES_VER \
+ 		STM32_TF_A_COPIES \
+ )))
+ 
+@@ -193,6 +196,7 @@ $(eval $(call add_defines,\
+ 		STM32_HASH_VER \
+ 		STM32_HEADER_VERSION_MAJOR \
+ 		STM32_RNG_VER \
++		STM32_SAES_VER \
+ 		STM32_TF_A_COPIES \
+ 		STM32MP_CRYPTO_ROM_LIB \
+ 		STM32MP_DDR_32BIT_INTERFACE \
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 2d7af8a63..7c25958e7 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -82,6 +82,7 @@ PKA_USE_BRAINPOOL_P256T1 	?=	0
+ 
+ STM32_HASH_VER			:=	4
+ STM32_RNG_VER			:=	4
++STM32_SAES_VER			:=	50 # 0x32
+ 
+ # Set load address for serial boot devices
+ DWL_BUFFER_BASE 		?=	0x87000000
+@@ -184,6 +185,7 @@ $(eval $(call assert_numerics,\
+ 		PLAT_PARTITION_MAX_ENTRIES \
+ 		STM32_HASH_VER \
+ 		STM32_RNG_VER \
++		STM32_SAES_VER \
+ 		STM32_TF_A_COPIES \
+ )))
+ 
+@@ -197,6 +199,7 @@ $(eval $(call add_defines,\
+ 		PLAT_TBBR_IMG_DEF \
+ 		STM32_HASH_VER \
+ 		STM32_RNG_VER \
++		STM32_SAES_VER \
+ 		STM32_TF_A_COPIES \
+ 		STM32MP_CRYPTO_ROM_LIB \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
+-- 
+2.47.2
+

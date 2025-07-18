@@ -1,0 +1,54 @@
+From 5938c310e15bb8e241cde95417dab462f7cb11e2 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 13 Jan 2023 15:16:28 +0100
+Subject: [PATCH 242/841] refactor(stm32mp2): unmap BL2 DT area
+
+At the end of bl2_platform_setup(), there is no more need of DT in BL2.
+This area can be unmapped to have more room for BL31.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1e0d329a4e09038fb705eb4cd8ee1c8161c4334d refactor(stm32mp2): unmap BL2 DT area]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Iaecc482d3a56bd354ea483586a8980c56563109f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/285736
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 7977d1ba2..cf556d0c1 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -178,13 +178,13 @@ void bl2_el3_plat_arch_setup(void)
+ 			BL_CODE_END - BL_CODE_BASE,
+ 			MT_CODE | MT_SECURE);
+ 
+-	/* Prevent corruption of preloaded Device Tree */
+-	mmap_add_region(DTB_BASE, DTB_BASE,
+-			DTB_LIMIT - DTB_BASE,
+-			MT_RO_DATA | MT_SECURE);
+-
+ 	configure_mmu();
+ 
++	/* Prevent corruption of preloaded Device Tree */
++	mmap_add_dynamic_region(DTB_BASE, DTB_BASE,
++				DTB_LIMIT - DTB_BASE,
++				MT_RO_DATA | MT_SECURE);
++
+ 	if (dt_open_and_check(STM32MP_DTB_BASE) < 0) {
+ 		panic();
+ 	}
+@@ -376,6 +376,8 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			}
+ 		}
+ 
++		mmap_remove_dynamic_region(DTB_BASE, DTB_LIMIT - DTB_BASE);
++
+ 		break;
+ 
+ 	case BL32_IMAGE_ID:
+-- 
+2.47.2
+

@@ -1,0 +1,401 @@
+From 549e23f5f5bdbf6b179f421b61e3578b7cbaf3e0 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Mon, 11 Sep 2023 11:05:32 +0200
+Subject: [PATCH 335/841] feat(stm32mp2): add hyperflash support
+
+STM32MP2 platform is able to boot from hyperflash devices.
+The patch adds all the configurations needed for hyperflash devices.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 12ee73ed1b697ecb5cd3337a726e65751c983908 feat(stm32mp2): add hyperflash support]
+Change-Id: I8a4c40a26f2093e3c4cf662c017ec0a2ec481082
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/326827
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ docs/plat/st/stm32mpus.rst                  |  1 +
+ plat/st/common/bl2_io_storage.c             | 83 ++++++++++++++++++++-
+ plat/st/common/common.mk                    | 10 +++
+ plat/st/common/common_rules.mk              |  1 +
+ plat/st/common/include/stm32mp_io_storage.h | 71 +++++++++++-------
+ plat/st/stm32mp2/platform.mk                |  6 +-
+ plat/st/stm32mp2/stm32mp2_boot_device.c     | 10 +++
+ plat/st/stm32mp2/stm32mp2_syscfg.c          |  2 +-
+ 8 files changed, 151 insertions(+), 33 deletions(-)
+
+diff --git a/docs/plat/st/stm32mpus.rst b/docs/plat/st/stm32mpus.rst
+index 63840bdb3..7a3ea1547 100644
+--- a/docs/plat/st/stm32mpus.rst
++++ b/docs/plat/st/stm32mpus.rst
+@@ -39,6 +39,7 @@ Available storage medias are:
+ - ``STM32MP_RAW_NAND``
+ - ``STM32MP_SPI_NAND``
+ - ``STM32MP_SPI_NOR``
++- ``STM32MP_HYPERFLASH``
+ 
+ Serial boot devices:
+ 
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 134969c91..6f1f474b7 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -13,6 +13,9 @@
+ #include <drivers/auth/auth_mod.h>
+ #include <drivers/fwu/fwu.h>
+ #include <drivers/fwu/fwu_metadata.h>
++#if STM32MP_HYPERFLASH
++#include <drivers/hyperflash.h>
++#endif
+ #include <drivers/io/io_block.h>
+ #include <drivers/io/io_driver.h>
+ #include <drivers/io/io_encrypted.h>
+@@ -112,6 +115,17 @@ static io_mtd_dev_spec_t spi_nand_dev_spec = {
+ };
+ #endif
+ 
++#if STM32MP_HYPERFLASH
++static io_mtd_dev_spec_t hyperflash_dev_spec = {
++	.ops = {
++		.init = hyperflash_init,
++		.read = hyperflash_read,
++	},
++};
++
++static const io_dev_connector_t *hyperflash_dev_con;
++#endif
++
+ #if STM32MP_SPI_NAND || STM32MP_SPI_NOR
+ static const io_dev_connector_t *spi_dev_con;
+ #endif
+@@ -207,6 +221,11 @@ static void print_boot_device(boot_api_context_t *boot_context)
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NAND_SPI:
+ 		INFO("Using SPI NAND\n");
+ 		break;
++#if STM32MP_HYPERFLASH
++	case BOOT_API_CTX_BOOT_INTERFACE_SEL_HYPERFLASH_OSPI:
++		INFO("Using HYPERFLASH\n");
++		break;
++#endif
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART:
+ 		INFO("Using UART\n");
+ 		break;
+@@ -370,6 +389,25 @@ static void boot_spi_nand(boot_api_context_t *boot_context)
+ }
+ #endif /* STM32MP_SPI_NAND */
+ 
++#if STM32MP_HYPERFLASH
++static void boot_hyperflash(boot_api_context_t *boot_context)
++{
++	int io_result __maybe_unused = 0;
++
++	io_result = stm32_ospi_init();
++	assert(io_result == 0);
++
++	io_result = register_io_dev_mtd(&hyperflash_dev_con);
++	assert(io_result == 0);
++
++	/* Open connections to device */
++	io_result = io_dev_open(hyperflash_dev_con,
++				(uintptr_t)&hyperflash_dev_spec,
++				&storage_dev_handle);
++	assert(io_result == 0);
++}
++#endif /* STM32MP_HYPERFLASH */
++
+ #if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
+ static void mmap_io_setup(void)
+ {
+@@ -474,6 +512,12 @@ void stm32mp_io_setup(void)
+ 		boot_spi_nand(boot_context);
+ 		break;
+ #endif
++#if STM32MP_HYPERFLASH
++	case BOOT_API_CTX_BOOT_INTERFACE_SEL_HYPERFLASH_OSPI:
++		dmbsy();
++		boot_hyperflash(boot_context);
++		break;
++#endif
+ #if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
+ #if STM32MP_UART_PROGRAMMER
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART:
+@@ -584,6 +628,19 @@ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+ 		break;
+ #endif
+ 
++#if STM32MP_HYPERFLASH
++	case BOOT_API_CTX_BOOT_INTERFACE_SEL_HYPERFLASH_OSPI:
++/*
++ * With FWU Multi Bank feature enabled, the selection of
++ * the image to boot will be done by fwu_init calling the
++ * platform hook, plat_fwu_set_images_source.
++ */
++#if !PSA_FWU_SUPPORT
++		image_block_spec.offset = STM32MP_HYPERFLASH_FIP_OFFSET;
++#endif
++		break;
++#endif
++
+ #if STM32MP_UART_PROGRAMMER
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART:
+ #if STM32MP_DDR_FIP_IO_STORAGE
+@@ -826,6 +883,18 @@ void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
+ 				panic();
+ 			}
+ 			break;
++#endif
++#if STM32MP_HYPERFLASH
++		case BOOT_API_CTX_BOOT_INTERFACE_SEL_HYPERFLASH_OSPI:
++			if (guidcmp(img_uuid, &STM32MP_HYPERFLASH_FIP_A_GUID) == 0) {
++				image_spec->offset = STM32MP_HYPERFLASH_FIP_A_OFFSET;
++			} else if (guidcmp(img_uuid, &STM32MP_HYPERFLASH_FIP_B_GUID) == 0) {
++				image_spec->offset = STM32MP_HYPERFLASH_FIP_B_OFFSET;
++			} else {
++				ERROR("Invalid uuid mentioned in metadata\n");
++				panic();
++			}
++			break;
+ #endif
+ 		default:
+ 			panic();
+@@ -892,11 +961,23 @@ static int plat_set_image_source(unsigned int image_id,
+ 		spec->length = sizeof(struct fwu_metadata);
+ 		break;
+ #endif
++
++#if STM32MP_HYPERFLASH
++		case BOOT_API_CTX_BOOT_INTERFACE_SEL_HYPERFLASH_OSPI:
++		if (image_id == FWU_METADATA_IMAGE_ID) {
++			spec->offset = STM32MP_HYPERFLASH_METADATA1_OFFSET;
++		} else {
++			spec->offset = STM32MP_HYPERFLASH_METADATA2_OFFSET;
++		}
++
++		spec->length = sizeof(struct fwu_metadata);
++		break;
++#endif
++
+ 	default:
+ 		panic();
+ 		break;
+ 	}
+-
+ 	*image_spec = policy->image_spec;
+ 	*handle = *policy->dev_handle;
+ 
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index 5079bfe72..4d1b0a2df 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -62,6 +62,7 @@ STM32MP_SDMMC			?=	0
+ STM32MP_RAW_NAND		?=	0
+ STM32MP_SPI_NAND		?=	0
+ STM32MP_SPI_NOR			?=	0
++STM32MP_HYPERFLASH		?=	0
+ 
+ # Put both BL2 and FIP in eMMC boot partition
+ STM32MP_EMMC_BOOT		?=	0
+@@ -114,6 +115,7 @@ $(eval $(call assert_booleans,\
+ 		STM32MP_EARLY_CONSOLE \
+ 		STM32MP_EMMC \
+ 		STM32MP_EMMC_BOOT \
++		STM32MP_HYPERFLASH \
+ 		STM32MP_RAW_NAND \
+ 		STM32MP_RECONFIGURE_CONSOLE \
+ 		STM32MP_SDMMC \
+@@ -136,6 +138,7 @@ $(eval $(call add_defines,\
+ 		STM32MP_EARLY_CONSOLE \
+ 		STM32MP_EMMC \
+ 		STM32MP_EMMC_BOOT \
++		STM32MP_HYPERFLASH \
+ 		STM32MP_RAW_NAND \
+ 		STM32MP_RECONFIGURE_CONSOLE \
+ 		STM32MP_SDMMC \
+@@ -268,6 +271,13 @@ endif
+ BL2_SOURCES			+=	drivers/mtd/nand/core.c
+ endif
+ 
++ifeq (${STM32MP_HYPERFLASH},1)
++ifneq (${STM32MP_FORCE_MTD_START_OFFSET},)
++$(eval $(call add_define_val,STM32MP_HYPERFLASH_FIP_OFFSET,${STM32MP_FORCE_MTD_START_OFFSET}))
++endif
++BL2_SOURCES			+=	drivers/mtd/hyperflash/hyperflash.c
++endif
++
+ ifneq ($(filter 1,${STM32MP_UART_PROGRAMMER} ${STM32MP_USB_PROGRAMMER}),)
+ BL2_SOURCES			+=	drivers/io/io_memmap.c
+ endif
+diff --git a/plat/st/common/common_rules.mk b/plat/st/common/common_rules.mk
+index 659d8b9fa..59f096307 100644
+--- a/plat/st/common/common_rules.mk
++++ b/plat/st/common/common_rules.mk
+@@ -20,6 +20,7 @@ check_boot_device:
+ 	    [ ${STM32MP_RAW_NAND} != 1 ] && \
+ 	    [ ${STM32MP_SPI_NAND} != 1 ] && \
+ 	    [ ${STM32MP_SPI_NOR} != 1 ] && \
++	    [ ${STM32MP_HYPERFLASH} != 1 ] && \
+ 	    [ ${STM32MP_UART_PROGRAMMER} != 1 ] && \
+ 	    [ ${STM32MP_USB_PROGRAMMER} != 1 ]; then \
+ 		echo "No boot device driver is enabled"; \
+diff --git a/plat/st/common/include/stm32mp_io_storage.h b/plat/st/common/include/stm32mp_io_storage.h
+index ce0d64714..91c66c7d0 100644
+--- a/plat/st/common/include/stm32mp_io_storage.h
++++ b/plat/st/common/include/stm32mp_io_storage.h
+@@ -13,39 +13,54 @@
+ /*******************************************************************************
+  * STM32MP1 RAW partition offset for devices without GPT
+  ******************************************************************************/
+-#define STM32MP_EMMC_BOOT_FIP_OFFSET	U(0x00040000)
++#define STM32MP_EMMC_BOOT_FIP_OFFSET		U(0x00040000)
+ #if PSA_FWU_SUPPORT
+-#define STM32MP_NOR_METADATA1_OFFSET	U(0x00080000)
+-#define STM32MP_NOR_METADATA2_OFFSET	U(0x000C0000)
+-#define STM32MP_NOR_FIP_A_OFFSET	U(0x00100000)
+-#define STM32MP_NOR_FIP_A_GUID		(const struct efi_guid)EFI_GUID(0x4fd84c93,  \
+-					0x54ef, 0x463f, 0xa7, 0xef, 0xae, 0x25, 0xff,\
+-					0x88, 0x70, 0x87)
++#define STM32MP_NOR_METADATA1_OFFSET		U(0x00080000)
++#define STM32MP_NOR_METADATA2_OFFSET		U(0x000C0000)
++#define STM32MP_NOR_FIP_A_OFFSET		U(0x00100000)
++#define STM32MP_NOR_FIP_A_GUID			(const struct efi_guid)EFI_GUID(0x4fd84c93,  \
++						0x54ef, 0x463f, 0xa7, 0xef, 0xae, 0x25, 0xff,\
++						0x88, 0x70, 0x87)
+ 
+-#define STM32MP_NOR_FIP_B_OFFSET	U(0x00500000)
+-#define STM32MP_NOR_FIP_B_GUID		(const struct efi_guid)EFI_GUID(0x09c54952,  \
+-					0xd5bf, 0x45af, 0xac, 0xee, 0x33, 0x53, 0x03,\
+-					0x76, 0x6f, 0xb3)
++#define STM32MP_NOR_FIP_B_OFFSET		U(0x00500000)
++#define STM32MP_NOR_FIP_B_GUID			(const struct efi_guid)EFI_GUID(0x09c54952,  \
++						0xd5bf, 0x45af, 0xac, 0xee, 0x33, 0x53, 0x03,\
++						0x76, 0x6f, 0xb3)
+ 
+-#define STM32MP_NAND_METADATA1_OFFSET	U(0x00100000)
+-#define STM32MP_NAND_METADATA2_OFFSET	U(0x00180000)
+-#define STM32MP_NAND_FIP_A_OFFSET	U(0x00200000)
+-#define STM32MP_NAND_FIP_A_GUID		(const struct efi_guid)EFI_GUID(0x4fd84c93,  \
+-					0x54ef, 0x463f, 0xa7, 0xef, 0xae, 0x25, 0xff,\
+-					0x88, 0x70, 0x87)
++#define STM32MP_NAND_METADATA1_OFFSET		U(0x00100000)
++#define STM32MP_NAND_METADATA2_OFFSET		U(0x00180000)
++#define STM32MP_NAND_FIP_A_OFFSET		U(0x00200000)
++#define STM32MP_NAND_FIP_A_GUID			(const struct efi_guid)EFI_GUID(0x4fd84c93,  \
++						0x54ef, 0x463f, 0xa7, 0xef, 0xae, 0x25, 0xff,\
++						0x88, 0x70, 0x87)
+ 
+-#define STM32MP_NAND_FIP_B_OFFSET	U(0x00A00000)
+-#define STM32MP_NAND_FIP_B_GUID		(const struct efi_guid)EFI_GUID(0x09c54952,  \
+-					0xd5bf, 0x45af, 0xac, 0xee, 0x33, 0x53, 0x03,\
+-					0x76, 0x6f, 0xb3)
++#define STM32MP_NAND_FIP_B_OFFSET		U(0x00A00000)
++#define STM32MP_NAND_FIP_B_GUID			(const struct efi_guid)EFI_GUID(0x09c54952,  \
++						0xd5bf, 0x45af, 0xac, 0xee, 0x33, 0x53, 0x03,\
++						0x76, 0x6f, 0xb3)
+ 
+-#define STM32MP_NAND_FIP_B_MAX_OFFSET	U(0x01200000)
++#define STM32MP_NAND_FIP_B_MAX_OFFSET		U(0x01200000)
++
++#define STM32MP_HYPERFLASH_METADATA1_OFFSET	U(0x00080000)
++#define STM32MP_HYPERFLASH_METADATA2_OFFSET	U(0x000C0000)
++#define STM32MP_HYPERFLASH_FIP_A_OFFSET		U(0x00100000)
++#define STM32MP_HYPERFLASH_FIP_A_GUID		(const struct efi_guid)EFI_GUID(0x4fd84c93,  \
++						0x54ef, 0x463f, 0xa7, 0xef, 0xae, 0x25, 0xff,\
++						0x88, 0x70, 0x87)
++
++#define STM32MP_HYPERFLASH_FIP_B_OFFSET		U(0x00500000)
++#define STM32MP_HYPERFLASH_FIP_B_GUID		(const struct efi_guid)EFI_GUID(0x09c54952,  \
++						0xd5bf, 0x45af, 0xac, 0xee, 0x33, 0x53, 0x03,\
++						0x76, 0x6f, 0xb3)
+ #else /* PSA_FWU_SUPPORT */
+ #ifndef STM32MP_NOR_FIP_OFFSET
+-#define STM32MP_NOR_FIP_OFFSET		U(0x00080000)
++#define STM32MP_NOR_FIP_OFFSET			U(0x00080000)
+ #endif
+ #ifndef STM32MP_NAND_FIP_OFFSET
+-#define STM32MP_NAND_FIP_OFFSET		U(0x00200000)
++#define STM32MP_NAND_FIP_OFFSET			U(0x00200000)
++#endif
++#ifndef STM32MP_HYPERFLASH_FIP_OFFSET
++#define STM32MP_HYPERFLASH_FIP_OFFSET		U(0x00080000)
+ #endif
+ #endif /* PSA_FWU_SUPPORT */
+ 
+@@ -53,11 +68,11 @@
+  * Only used for MTD devices that need some backup blocks.
+  * Must define a maximum size for a partition.
+  */
+-#define PLATFORM_MTD_MAX_PART_SIZE	U(0x00400000)
++#define PLATFORM_MTD_MAX_PART_SIZE		U(0x00400000)
+ 
+-#define FIP_IMAGE_NAME			"fip"
+-#define METADATA_PART_1			"metadata1"
+-#define METADATA_PART_2			"metadata2"
++#define FIP_IMAGE_NAME				"fip"
++#define METADATA_PART_1				"metadata1"
++#define METADATA_PART_2				"metadata2"
+ 
+ /* IO devices handle */
+ extern uintptr_t storage_dev_handle;
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 1c96da587..c90778b03 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -198,11 +198,11 @@ ifeq (${STM32MP_RAW_NAND},1)
+ BL2_SOURCES			+=	drivers/st/fmc/stm32_fmc2_nand.c
+ endif
+ 
+-ifneq ($(filter 1,${STM32MP_SPI_NAND} ${STM32MP_SPI_NOR}),)
+-BL2_SOURCES		+=	drivers/st/spi/stm32_ospi.c
++ifneq ($(filter 1,${STM32MP_SPI_NAND} ${STM32MP_SPI_NOR} ${STM32MP_HYPERFLASH}),)
++BL2_SOURCES			+=	drivers/st/spi/stm32_ospi.c
+ endif
+ 
+-ifneq ($(filter 1,${STM32MP_RAW_NAND} ${STM32MP_SPI_NAND} ${STM32MP_SPI_NOR}),)
++ifneq ($(filter 1,${STM32MP_RAW_NAND} ${STM32MP_SPI_NAND} ${STM32MP_SPI_NOR} ${STM32MP_HYPERFLASH}),)
+ BL2_SOURCES			+=	plat/st/stm32mp2/stm32mp2_boot_device.c
+ endif
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_boot_device.c b/plat/st/stm32mp2/stm32mp2_boot_device.c
+index 8ca9b8b31..5fbea453c 100644
+--- a/plat/st/stm32mp2/stm32mp2_boot_device.c
++++ b/plat/st/stm32mp2/stm32mp2_boot_device.c
+@@ -7,6 +7,7 @@
+ #include <assert.h>
+ #include <errno.h>
+ 
++#include <drivers/hyperflash.h>
+ #include <drivers/nand.h>
+ #include <drivers/raw_nand.h>
+ #include <drivers/spi_nand.h>
+@@ -171,3 +172,12 @@ int plat_get_nor_data(struct nor_device *device)
+ 	return 0;
+ }
+ #endif
++
++#if STM32MP_HYPERFLASH
++int plat_get_hyperflash_data(struct hyperflash_device *device)
++{
++	device->size = SZ_64M;
++
++	return 0;
++}
++#endif
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index c8d380583..f6b17e3ca 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -174,7 +174,7 @@ void stm32mp2_syscfg_enable_io_compensation(enum syscfg_io_ids id)
+ 	mmio_clrbits_32(cccr_addr, SYSCFG_CCCR_CS);
+ }
+ 
+-#if STM32MP_SPI_NAND || STM32MP_SPI_NOR
++#if STM32MP_SPI_NAND || STM32MP_SPI_NOR || STM32MP_HYPERFLASH
+ /*
+  * SYSCFG DLYBOS register offsets (base relative)
+  */
+-- 
+2.47.2
+

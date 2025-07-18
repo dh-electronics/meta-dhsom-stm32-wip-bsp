@@ -1,0 +1,98 @@
+From 4c4b5445102d8432307bbdc70547888fd3b8c3a5 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Fri, 16 Dec 2022 15:08:24 +0100
+Subject: [PATCH 276/841] feat(stm32mp2): add STPMIC2 driver support
+
+Add support for STPMIC2 driver to STM32MP2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 854f544ca55c93edba644258b9dda7f35f8f4b85 feat(stm32mp2): add STPMIC2 driver support]
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Change-Id: I66fc6db919956b2b9af1ffef61e63c7f2fbd74c2
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/285863
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ plat/st/common/common.mk          | 1 -
+ plat/st/stm32mp1/platform.mk      | 1 +
+ plat/st/stm32mp2/bl2_plat_setup.c | 5 +++++
+ plat/st/stm32mp2/platform.mk      | 8 +++++++-
+ 4 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index f5643edb1..8e46104e3 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -142,7 +142,6 @@ PLAT_BL_COMMON_SOURCES		+=	drivers/clk/clk.c				\
+ 					drivers/st/clk/stm32mp_clkfunc.c		\
+ 					drivers/st/ddr/stm32mp_ddr.c			\
+ 					drivers/st/gpio/stm32_gpio.c			\
+-					drivers/st/pmic/stm32mp_pmic.c				\
+ 					drivers/st/regulator/regulator_core.c		\
+ 					drivers/st/regulator/regulator_fixed.c		\
+ 					drivers/st/regulator/regulator_gpio.c			\
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index d50e4e1e5..d5ab9ab06 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -226,6 +226,7 @@ PLAT_BL_COMMON_SOURCES	+=	drivers/arm/tzc/tzc400.c				\
+ 				drivers/st/ddr/stm32mp1_ddr_helpers.c			\
+ 				drivers/st/i2c/stm32_i2c.c				\
+ 				drivers/st/iwdg/stm32_iwdg.c				\
++				drivers/st/pmic/stm32mp_pmic.c				\
+ 				drivers/st/pmic/stpmic1.c				\
+ 				drivers/st/reset/stm32mp1_reset.c			\
+ 				plat/st/stm32mp1/stm32mp1_context.c			\
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 700989890..0af9988d1 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -20,6 +20,7 @@
+ #include <drivers/st/regulator.h>
+ #include <drivers/st/regulator_fixed.h>
+ #include <drivers/st/stm32_console.h>
++#include <drivers/st/stm32mp_pmic2.h>
+ #include <drivers/st/stm32mp_reset.h>
+ #include <drivers/st/stm32mp_rifsc_regs.h>
+ #include <drivers/st/stm32mp_risab_regs.h>
+@@ -255,6 +256,10 @@ skip_console_init:
+ 		panic();
+ 	}
+ 
++	if (dt_pmic_status() > 0) {
++		initialize_pmic();
++	}
++
+ 	stm32mp2_arch_security_setup();
+ 
+ 	fconf_populate("TB_FW", STM32MP_DTB_BASE);
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 0320978c7..a08e03c49 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -164,6 +164,11 @@ PLAT_BL_COMMON_SOURCES		+=	lib/cpus/${ARCH}/cortex_a35.S
+ PLAT_BL_COMMON_SOURCES		+=	drivers/st/uart/${ARCH}/stm32_console.S
+ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/${ARCH}/stm32mp2_helper.S
+ 
++PLAT_BL_COMMON_SOURCES		+=	drivers/st/pmic/stm32mp_pmic2.c				\
++					drivers/st/pmic/stpmic2.c				\
++
++PLAT_BL_COMMON_SOURCES		+=	drivers/st/i2c/stm32_i2c.c
++
+ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_private.c
+ 
+ PLAT_BL_COMMON_SOURCES		+=	drivers/st/bsec/bsec3.c					\
+@@ -180,7 +185,8 @@ BL2_SOURCES			+=	plat/st/stm32mp2/plat_bl2_mem_params_desc.c		\
+ 					plat/st/stm32mp2/stm32mp2_fconf_firewall.c
+ 
+ BL2_SOURCES			+=	drivers/st/crypto/stm32_hash.c				\
+-					plat/st/stm32mp2/bl2_plat_setup.c
++					plat/st/stm32mp2/bl2_plat_setup.c			\
++					plat/st/stm32mp2/plat_ddr.c
+ 
+ BL2_SOURCES		+=	drivers/st/rif/stm32mp2_risaf.c
+ 
+-- 
+2.47.2
+

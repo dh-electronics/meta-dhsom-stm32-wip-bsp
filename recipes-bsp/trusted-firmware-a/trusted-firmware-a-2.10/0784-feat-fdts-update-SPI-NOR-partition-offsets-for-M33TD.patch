@@ -1,0 +1,72 @@
+From 846eb2e0eb0efdaa1790331c93653384c447cdb3 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Fri, 17 Jan 2025 14:53:36 +0100
+Subject: [PATCH 784/841] feat(fdts): update SPI NOR partition offsets for
+ M33TD
+
+New flash layout is used for M33TD SPI NOR boot.
+Update metadata and FIP partition offsets accordingly.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7889fd68f85c2451447a4d63bc633d6b3bcfc571 feat(fdts): update SPI NOR partition offsets for M33TD]
+Change-Id: I0f1e781860b7535b973026e802ec042539538822
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/430033
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+---
+ plat/st/common/include/stm32mp_io_storage.h | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/common/include/stm32mp_io_storage.h b/plat/st/common/include/stm32mp_io_storage.h
+index 91c66c7d0..fb7c2d658 100644
+--- a/plat/st/common/include/stm32mp_io_storage.h
++++ b/plat/st/common/include/stm32mp_io_storage.h
+@@ -15,17 +15,27 @@
+  ******************************************************************************/
+ #define STM32MP_EMMC_BOOT_FIP_OFFSET		U(0x00040000)
+ #if PSA_FWU_SUPPORT
++#if STM32MP_SPI_NOR
++#if defined(STM32MP_M33_TDCID) && STM32MP_M33_TDCID
++#define STM32MP_NOR_METADATA1_OFFSET		U(0x01580000)
++#define STM32MP_NOR_METADATA2_OFFSET		U(0x015C0000)
++#define STM32MP_NOR_FIP_A_OFFSET		U(0x01600000)
++#define STM32MP_NOR_FIP_B_OFFSET		U(0x01A00000)
++#else /* STM32MP_M33_TDCID */
+ #define STM32MP_NOR_METADATA1_OFFSET		U(0x00080000)
+ #define STM32MP_NOR_METADATA2_OFFSET		U(0x000C0000)
+ #define STM32MP_NOR_FIP_A_OFFSET		U(0x00100000)
++#define STM32MP_NOR_FIP_B_OFFSET		U(0x00500000)
++#endif /* STM32MP_M33_TDCID */
++
+ #define STM32MP_NOR_FIP_A_GUID			(const struct efi_guid)EFI_GUID(0x4fd84c93,  \
+ 						0x54ef, 0x463f, 0xa7, 0xef, 0xae, 0x25, 0xff,\
+ 						0x88, 0x70, 0x87)
+ 
+-#define STM32MP_NOR_FIP_B_OFFSET		U(0x00500000)
+ #define STM32MP_NOR_FIP_B_GUID			(const struct efi_guid)EFI_GUID(0x09c54952,  \
+ 						0xd5bf, 0x45af, 0xac, 0xee, 0x33, 0x53, 0x03,\
+ 						0x76, 0x6f, 0xb3)
++#endif /* STM32MP_SPI_NOR */
+ 
+ #define STM32MP_NAND_METADATA1_OFFSET		U(0x00100000)
+ #define STM32MP_NAND_METADATA2_OFFSET		U(0x00180000)
+@@ -54,7 +64,13 @@
+ 						0x76, 0x6f, 0xb3)
+ #else /* PSA_FWU_SUPPORT */
+ #ifndef STM32MP_NOR_FIP_OFFSET
++#if STM32MP_SPI_NOR
++#if defined(STM32MP_M33_TDCID) && STM32MP_M33_TDCID
++#define STM32MP_NOR_FIP_OFFSET			U(0x01580000)
++#else /* STM32MP_M33_TDCID */
+ #define STM32MP_NOR_FIP_OFFSET			U(0x00080000)
++#endif /* STM32MP_M33_TDCID */
++#endif /* STM32MP_SPI_NOR */
+ #endif
+ #ifndef STM32MP_NAND_FIP_OFFSET
+ #define STM32MP_NAND_FIP_OFFSET			U(0x00200000)
+-- 
+2.47.2
+

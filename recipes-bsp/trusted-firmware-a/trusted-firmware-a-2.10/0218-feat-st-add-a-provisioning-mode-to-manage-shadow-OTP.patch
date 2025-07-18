@@ -1,0 +1,145 @@
+From 6cbfa42d6540837dcb763c4b3c65b1b4e13b64ce Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Wed, 21 Sep 2022 15:22:23 +0200
+Subject: [PATCH 218/841] feat(st): add a provisioning mode to manage shadow
+ OTP
+
+Add a provisioning feature based on firmware configuration
+framework that adds in the shadow registers some required
+functionality to avoid burning fuses for testing purpose.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 91c314da9ed646a4a4b77855f43fae12594ed5fa feat(st): add a provisioning mode to manage shadow OTP]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: I2f5a54fca8692baf008f4c6efbda1d377922e024
+---
+ plat/st/common/common.mk            |   3 +-
+ plat/st/common/stm32mp_fconf_fuse.c | 103 ++++++++++++++++++++++++++++
+ 2 files changed, 105 insertions(+), 1 deletion(-)
+ create mode 100644 plat/st/common/stm32mp_fconf_fuse.c
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index 21e128e97..f5643edb1 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -146,7 +146,8 @@ PLAT_BL_COMMON_SOURCES		+=	drivers/clk/clk.c				\
+ 					drivers/st/regulator/regulator_core.c		\
+ 					drivers/st/regulator/regulator_fixed.c		\
+ 					drivers/st/regulator/regulator_gpio.c			\
+-					plat/st/common/stm32mp_dt.c
++					plat/st/common/stm32mp_dt.c				\
++					plat/st/common/stm32mp_fconf_fuse.c
+ 
+ BL2_SOURCES			+=	${FCONF_SOURCES} ${FCONF_DYN_SOURCES}
+ BL2_SOURCES			+=	$(ZLIB_SOURCES)
+diff --git a/plat/st/common/stm32mp_fconf_fuse.c b/plat/st/common/stm32mp_fconf_fuse.c
+new file mode 100644
+index 000000000..6ab74a754
+--- /dev/null
++++ b/plat/st/common/stm32mp_fconf_fuse.c
+@@ -0,0 +1,103 @@
++/*
++ * Copyright (c) 2021-2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <assert.h>
++
++#include <common/debug.h>
++#include <common/fdt_wrappers.h>
++#include <lib/fconf/fconf.h>
++#include <libfdt.h>
++
++#include <platform_def.h>
++#include <stm32mp_fconf_getter.h>
++
++static int fconf_populate_stm32mp_fuse_provisioning(uintptr_t config)
++{
++	int node, child;
++
++	/* As libfdt uses void *, we can't avoid this cast */
++	const void *fdt = (void *)config;
++
++	/* Assert the node offset point to "st,provisioning" compatible property */
++	const char *compatible_str = "st,provisioning";
++
++	node = fdt_node_offset_by_compatible(fdt, -1, compatible_str);
++	if (node < 0) {
++		/* The node is not mandatory, just return */
++		return 0;
++	}
++
++	fdt_for_each_subnode(child, fdt, node) {
++		int rc;
++		const fdt32_t *cuint;
++		int shadow_len;
++		uint32_t phandle;
++		uint32_t otp_id;
++		uint32_t otp_len;
++		uint32_t otp_len_word;
++		unsigned int i;
++
++		cuint = fdt_getprop(fdt, child, "nvmem-cells", NULL);
++		if (cuint == NULL) {
++			panic();
++		}
++
++		phandle = fdt32_to_cpu(*cuint);
++		rc = dt_get_otp_by_phandle(phandle, &otp_id, &otp_len);
++		if (rc != 0) {
++			WARN("Phandle not found\n");
++			panic();
++		}
++
++		cuint = fdt_getprop(fdt, child, "st,shadow-value", &shadow_len);
++		if (cuint == NULL || shadow_len < 0 || (shadow_len % sizeof(uint32_t) != 0U)) {
++			panic();
++		}
++
++		otp_len_word = otp_len / sizeof(uint32_t);
++		if (otp_len % sizeof(uint32_t) != 0U) {
++			otp_len_word++;
++		}
++
++		if (otp_len_word != (shadow_len / sizeof(uint32_t))) {
++			WARN("Invalid OTP size\n");
++			panic();
++		}
++
++		for (i = 0U; i < otp_len_word; i++) {
++			uint32_t shadow_val;
++			uint32_t otp_val;
++			bool check_state;
++
++			if (bsec_read_sw_lock(otp_id + i, &check_state) != BSEC_OK) {
++				panic();
++			}
++
++			if (check_state) {
++				WARN("Shadow write lock\n");
++				panic();
++			}
++
++			shadow_val = fdt32_to_cpu(*cuint++);
++
++			if (bsec_shadow_read_otp(&otp_val, otp_id + i) != BSEC_OK) {
++				panic();
++			}
++
++			if (otp_val != 0U) {
++				INFO("Override the OTP %u initial value\n", otp_id);
++			}
++
++			if (bsec_write_otp(otp_val | shadow_val, otp_id + i) != BSEC_OK) {
++				panic();
++			}
++		}
++	}
++
++	return 0;
++}
++
++FCONF_REGISTER_POPULATOR(TB_FW, stm32mp_fuse, fconf_populate_stm32mp_fuse_provisioning);
+-- 
+2.47.2
+

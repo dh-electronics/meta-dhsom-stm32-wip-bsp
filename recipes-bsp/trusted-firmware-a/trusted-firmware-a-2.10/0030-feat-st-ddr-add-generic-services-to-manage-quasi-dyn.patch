@@ -1,0 +1,131 @@
+From bcd19ffcd32c30607b66a73aba0b3eb17903fce5 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 15 Mar 2022 19:17:38 +0100
+Subject: [PATCH 030/841] feat(st-ddr): add generic services to manage
+ quasi-dynamic registers
+
+DDRCTRL contains quasi-dynamic registers, which are dynamic only under
+some conditions defined by the user guide (with 4 groups).
+In our driver, out of reset state, only groups 3 and 4 are updated.
+Group 4 needs only sw_done/sw_done_ack sequence, already available.
+Group 3 sequence include more conditions, that are gathered in
+specific services. stm32mp_ddr_disable_host_interface() has been added
+to do this.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 28bf7490c91e31a9acc844313b20472ba3d252b3 feat(st-ddr): add generic services to manage quasi-dynamic registers]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I6dc9fdd66cacb68cc2446028b6e1ec3fac0f7c2c
+---
+ drivers/st/ddr/stm32mp_ddr.c              | 50 +++++++++++++++++++++++
+ include/drivers/st/stm32mp_ddr.h          |  3 ++
+ include/drivers/st/stm32mp_ddrctrl_regs.h |  5 +++
+ 3 files changed, 58 insertions(+)
+
+diff --git a/drivers/st/ddr/stm32mp_ddr.c b/drivers/st/ddr/stm32mp_ddr.c
+index 2f085ac80..97b19d05c 100644
+--- a/drivers/st/ddr/stm32mp_ddr.c
++++ b/drivers/st/ddr/stm32mp_ddr.c
+@@ -138,6 +138,40 @@ void stm32mp_ddr_enable_host_interface(struct stm32mp_ddrctl *ctl)
+ 		mmio_read_32((uintptr_t)&ctl->dbg1));
+ }
+ 
++void stm32mp_ddr_disable_host_interface(struct stm32mp_ddrctl *ctl)
++{
++	uint64_t timeout;
++	uint32_t dbgcam;
++	int count = 0;
++
++	mmio_setbits_32((uintptr_t)&ctl->dbg1, DDRCTRL_DBG1_DIS_HIF);
++	VERBOSE("[0x%lx] dbg1 = 0x%x\n",
++		(uintptr_t)&ctl->dbg1,
++		mmio_read_32((uintptr_t)&ctl->dbg1));
++
++	/*
++	 * Waits until all queues and pipelines are empty
++	 * Poll DBGCAM.dbg_wr_q_empty = 1
++	 * Poll DBGCAM.dbg_rd_q_empty = 1
++	 * Poll DBGCAM.dbg_wr_data_pipeline_empty = 1
++	 * Poll DBGCAM.dbg_rd_data_pipeline_empty = 1
++	 *
++	 * data_pipeline fields must be polled twice to ensure
++	 * value propoagation, so count is added to loop condition.
++	 */
++	timeout = timeout_init_us(TIMEOUT_US_1S);
++	do {
++		dbgcam = mmio_read_32((uintptr_t)&ctl->dbgcam);
++		VERBOSE("[0x%lx] dbgcam = 0x%x ",
++			(uintptr_t)&ctl->dbgcam, dbgcam);
++		if (timeout_elapsed(timeout)) {
++			panic();
++		}
++		count++;
++	} while (((dbgcam & DDRCTRL_DBG_Q_AND_DATA_PIPELINE_EMPTY) !=
++		  DDRCTRL_DBG_Q_AND_DATA_PIPELINE_EMPTY) || (count < 2));
++}
++
+ int stm32mp_ddr_sw_selfref_entry(struct stm32mp_ddrctl *ctl)
+ {
+ 	uint64_t timeout;
+@@ -179,6 +213,22 @@ void stm32mp_ddr_sw_selfref_exit(struct stm32mp_ddrctl *ctl)
+ 		mmio_read_32((uintptr_t)&ctl->pwrctl));
+ }
+ 
++void stm32mp_ddr_set_qd3_update_conditions(struct stm32mp_ddrctl *ctl)
++{
++	if (stm32mp_ddr_disable_axi_port(ctl) != 0) {
++		panic();
++	}
++	stm32mp_ddr_disable_host_interface(ctl);
++	stm32mp_ddr_start_sw_done(ctl);
++}
++
++void stm32mp_ddr_unset_qd3_update_conditions(struct stm32mp_ddrctl *ctl)
++{
++	stm32mp_ddr_wait_sw_done_ack(ctl);
++	stm32mp_ddr_enable_host_interface(ctl);
++	stm32mp_ddr_enable_axi_port(ctl);
++}
++
+ int stm32mp_board_ddr_power_init(enum ddr_type ddr_type)
+ {
+ 	if (dt_pmic_status() > 0) {
+diff --git a/include/drivers/st/stm32mp_ddr.h b/include/drivers/st/stm32mp_ddr.h
+index bfaaa52ac..ba2892ca2 100644
+--- a/include/drivers/st/stm32mp_ddr.h
++++ b/include/drivers/st/stm32mp_ddr.h
+@@ -67,8 +67,11 @@ void stm32mp_ddr_wait_sw_done_ack(struct stm32mp_ddrctl *ctl);
+ void stm32mp_ddr_enable_axi_port(struct stm32mp_ddrctl *ctl);
+ int stm32mp_ddr_disable_axi_port(struct stm32mp_ddrctl *ctl);
+ void stm32mp_ddr_enable_host_interface(struct stm32mp_ddrctl *ctl);
++void stm32mp_ddr_disable_host_interface(struct stm32mp_ddrctl *ctl);
+ int stm32mp_ddr_sw_selfref_entry(struct stm32mp_ddrctl *ctl);
+ void stm32mp_ddr_sw_selfref_exit(struct stm32mp_ddrctl *ctl);
++void stm32mp_ddr_set_qd3_update_conditions(struct stm32mp_ddrctl *ctl);
++void stm32mp_ddr_unset_qd3_update_conditions(struct stm32mp_ddrctl *ctl);
+ int stm32mp_board_ddr_power_init(enum ddr_type ddr_type);
+ 
+ #endif /* STM32MP_DDR_H */
+diff --git a/include/drivers/st/stm32mp_ddrctrl_regs.h b/include/drivers/st/stm32mp_ddrctrl_regs.h
+index 79de86b2a..6c7f7738a 100644
+--- a/include/drivers/st/stm32mp_ddrctrl_regs.h
++++ b/include/drivers/st/stm32mp_ddrctrl_regs.h
+@@ -242,11 +242,16 @@ struct stm32mp_ddrctl {
+ #define DDRCTRL_DBGCAM_WR_DATA_PIPELINE_EMPTY	BIT(29)
+ #define DDRCTRL_DBGCAM_RD_DATA_PIPELINE_EMPTY	BIT(28)
+ #define DDRCTRL_DBGCAM_DBG_WR_Q_EMPTY		BIT(26)
++#define DDRCTRL_DBGCAM_DBG_RD_Q_EMPTY		BIT(25)
+ #define DDRCTRL_DBGCAM_DBG_LPR_Q_DEPTH		GENMASK(12, 8)
+ #define DDRCTRL_DBGCAM_DBG_HPR_Q_DEPTH		GENMASK(4, 0)
+ #define DDRCTRL_DBGCAM_DATA_PIPELINE_EMPTY \
+ 		(DDRCTRL_DBGCAM_WR_DATA_PIPELINE_EMPTY | \
+ 		 DDRCTRL_DBGCAM_RD_DATA_PIPELINE_EMPTY)
++#define DDRCTRL_DBG_Q_AND_DATA_PIPELINE_EMPTY \
++		(DDRCTRL_DBGCAM_DBG_WR_Q_EMPTY | \
++		 DDRCTRL_DBGCAM_DBG_RD_Q_EMPTY | \
++		 DDRCTRL_DBGCAM_DATA_PIPELINE_EMPTY)
+ #define DDRCTRL_DBGCAM_DBG_Q_DEPTH \
+ 		(DDRCTRL_DBGCAM_DBG_WR_Q_EMPTY | \
+ 		 DDRCTRL_DBGCAM_DBG_LPR_Q_DEPTH | \
+-- 
+2.47.2
+

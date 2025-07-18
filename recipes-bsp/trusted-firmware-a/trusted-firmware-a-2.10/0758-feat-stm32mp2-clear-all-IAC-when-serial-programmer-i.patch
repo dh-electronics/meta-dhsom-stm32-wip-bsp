@@ -1,0 +1,72 @@
+From 2d96776a4b90f95cdb26e4cad07900d5a8cccfcf Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Wed, 4 Dec 2024 12:01:03 +0100
+Subject: [PATCH 758/841] feat(stm32mp2): clear all IAC when serial programmer
+ is used
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When TF-A is configured in programmer mode, IAC may be caused by bootrom
+due to VBAT domain that keeps previous backup domain configuration.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e063ecf9655f36140724c38287e220c3c12dfd75 feat(stm32mp2): clear all IAC when serial programmer is used]
+Change-Id: I039efd14ea9fb138f8fcca32612633d9b325d83c
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/424087
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index dcfbc2ce5..9fdc28e5b 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -84,6 +84,17 @@ static void iac_dump(void)
+ #endif
+ }
+ 
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++static void clean_iac(void)
++{
++	uint32_t i;
++
++	for (i = 0U; i < IAC_NB; i++) {
++		mmio_write_32((IAC_BASE + IAC_ICR(i)), (uint32_t)~0U);
++	}
++}
++#endif
++
+ static void print_reset_reason(void)
+ {
+ 	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_C1BOOTRSTSCLRR);
+@@ -343,7 +354,6 @@ end:
+ #endif /* TRUSTED_BOARD_BOOT && DYN_DISABLE_AUTH && !STM32MP21 */
+ }
+ 
+-
+ void bl2_el3_plat_arch_setup(void)
+ {
+ 	const char *board_model;
+@@ -438,6 +448,14 @@ void bl2_el3_plat_arch_setup(void)
+ 
+ 	iac_dump();
+ 
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++	/*
++	 * fixup: clean IAC that may be caused by bootrom. They are
++	 * irrelevant in programmer mode.
++	 */
++	clean_iac();
++#endif
++
+ 	stm32mp_print_cpuinfo();
+ 
+ 	board_model = dt_get_board_model();
+-- 
+2.47.2
+

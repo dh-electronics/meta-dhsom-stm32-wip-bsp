@@ -1,0 +1,85 @@
+From fc56848585e2881bf15ec2101973f6d1395da4f4 Mon Sep 17 00:00:00 2001
+From: Sughosh Ganu <sughosh.ganu@linaro.org>
+Date: Tue, 20 Feb 2024 14:20:41 +0530
+Subject: [PATCH 571/841] feat(st): add logic to boot the platform from an
+ alternate bank
+
+In a few scenarios, there is a need to boot the platform from an
+alernate bank which is not the active bank. Call the API
+fwu_get_alernate_boot_bank() to select an alternate bank to boot the
+platform from. Calling this API function might be required in a couple
+of cases. One, in the unlikely scenario of the active bank being in an
+invalid state, or if the number of times the platform boots in trial
+state exceeds a pre-set count.
+
+Also add a debug print that indicates the bank that
+the platform is booting from.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ae97bf0388f9682bc1426928ab92e1e52a61fd2c feat(st): add logic to boot the platform from an alternate bank]
+Change-Id: I688406540e64d1719af8d5c121821f5bb6335c06
+Signed-off-by: Sughosh Ganu <sughosh.ganu@linaro.org>
+(cherry picked from commit 6166051426638087b5433eff1739d26478313dff)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/372652
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/bl2_io_storage.c | 19 ++++++++++++-------
+ 1 file changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index e673e6aca..831d2aa4a 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -789,8 +789,6 @@ int plat_try_backup_partitions(unsigned int image_id)
+  *     - we already boot FWU_MAX_TRIAL_REBOOT times in trial mode.
+  * we select the previous_active_index.
+  */
+-#define INVALID_BOOT_IDX		0xFFFFFFFFU
+-
+ uint32_t plat_fwu_get_boot_idx(void)
+ {
+ 	/*
+@@ -798,20 +796,26 @@ uint32_t plat_fwu_get_boot_idx(void)
+ 	 * even if this function is called several times.
+ 	 */
+ 	static uint32_t boot_idx = INVALID_BOOT_IDX;
+-	const struct fwu_metadata *data;
+-
+-	data = fwu_get_metadata();
+ 
+ 	if (boot_idx == INVALID_BOOT_IDX) {
++		const struct fwu_metadata *data = fwu_get_metadata();
++
+ 		boot_idx = data->active_index;
++
+ 		if (data->bank_state[boot_idx] == FWU_BANK_STATE_VALID) {
+ 			if (stm32_get_and_dec_fwu_trial_boot_cnt() == 0U) {
+ 				WARN("Trial FWU fails %u times\n",
+ 				     FWU_MAX_TRIAL_REBOOT);
+-				boot_idx = data->previous_active_index;
++				boot_idx = fwu_get_alternate_boot_bank();
+ 			}
+-		} else {
++		} else if (data->bank_state[boot_idx] ==
++			   FWU_BANK_STATE_ACCEPTED) {
+ 			stm32_set_max_fwu_trial_boot_cnt();
++		} else {
++			ERROR("The active bank(%u) of the platform is in Invalid State.\n",
++				boot_idx);
++			boot_idx = fwu_get_alternate_boot_bank();
++			stm32_clear_fwu_trial_boot_cnt();
+ 		}
+ 	}
+ 
+@@ -843,6 +847,7 @@ void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
+ 
+ 	boot_idx = plat_fwu_get_boot_idx();
+ 	assert(boot_idx < NR_OF_FW_BANKS);
++	VERBOSE("Selecting to boot from bank %u\n", boot_idx);
+ 
+ 	for (i = 0U; i < NR_OF_IMAGES_IN_FW_BANK; i++) {
+ 		img_type_uuid = &metadata->img_entry[i].img_type_uuid;
+-- 
+2.47.2
+

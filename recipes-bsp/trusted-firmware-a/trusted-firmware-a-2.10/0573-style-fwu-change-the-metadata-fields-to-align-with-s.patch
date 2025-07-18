@@ -1,0 +1,196 @@
+From dd09feef76bb7cd5901694a4b2804732d31195ca Mon Sep 17 00:00:00 2001
+From: Sughosh Ganu <sughosh.ganu@linaro.org>
+Date: Fri, 2 Feb 2024 15:35:18 +0530
+Subject: [PATCH 573/841] style(fwu): change the metadata fields to align with
+ specification
+
+Change the names of some FWU metadata structure members to have them
+align with the wording used in the corresponding specification. Use
+the GUID type instead of UUID as the fields described in the
+specification are GUIDs. Make corresponding changes to the code that
+accesses these fields. No functional changes are introduced by the
+patch.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 857e28b45b57c5dc66cf6e7c96e72bc9942f7c6c style(fwu): change the metadata fields to align with specification]
+Change-Id: Id3544ed1633811b0eeee2bf99477f9b7e6667044
+Signed-off-by: Sughosh Ganu <sughosh.ganu@linaro.org>
+(cherry picked from commit 8d08a1df1e0effc42501e13c22435e546a275dae)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/372654
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ include/drivers/fwu/fwu_metadata.h | 18 +++++++-------
+ plat/st/common/bl2_io_storage.c    | 40 ++++++++++++++----------------
+ 2 files changed, 28 insertions(+), 30 deletions(-)
+
+diff --git a/include/drivers/fwu/fwu_metadata.h b/include/drivers/fwu/fwu_metadata.h
+index cc2c863d5..b441300e4 100644
+--- a/include/drivers/fwu/fwu_metadata.h
++++ b/include/drivers/fwu/fwu_metadata.h
+@@ -17,10 +17,10 @@
+ #define NR_OF_MAX_FW_BANKS	4
+ 
+ /* Properties of image in a bank */
+-struct fwu_image_properties {
++struct fwu_image_bank_info {
+ 
+-	/* UUID of the image in this bank */
+-	uuid_t img_uuid;
++	/* GUID of the image in this bank */
++	struct efi_guid img_guid;
+ 
+ 	/* [0]: bit describing the image acceptance status –
+ 	 *      1 means the image is accepted
+@@ -36,14 +36,14 @@ struct fwu_image_properties {
+ /* Image entry information */
+ struct fwu_image_entry {
+ 
+-	/* UUID identifying the image type */
+-	uuid_t img_type_uuid;
++	/* GUID identifying the image type */
++	struct efi_guid img_type_guid;
+ 
+-	/* UUID of the storage volume where the image is located */
+-	uuid_t location_uuid;
++	/* GUID of the storage volume where the image is located */
++	struct efi_guid location_guid;
+ 
+-	/* Properties of images with img_type_uuid in the different FW banks */
+-	struct fwu_image_properties img_props[NR_OF_FW_BANKS];
++	/* Properties of images with img_type_guid in the different FW banks */
++	struct fwu_image_bank_info img_bank_info[NR_OF_FW_BANKS];
+ 
+ } __packed;
+ 
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 831d2aa4a..34a16ddb6 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -575,12 +575,10 @@ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+  */
+ #if !PSA_FWU_SUPPORT
+ 			const partition_entry_t *entry;
+-			const struct efi_guid img_type_guid = STM32MP_FIP_GUID;
+-			uuid_t img_type_uuid;
++			const struct efi_guid fip_guid = STM32MP_FIP_GUID;
+ 
+-			guidcpy(&img_type_uuid, &img_type_guid);
+ 			partition_init(GPT_IMAGE_ID);
+-			entry = get_partition_entry_by_type(&img_type_uuid);
++			entry = get_partition_entry_by_type(&fip_guid);
+ 			if (entry == NULL) {
+ 				entry = get_partition_entry(FIP_IMAGE_NAME);
+ 				if (entry == NULL) {
+@@ -822,12 +820,12 @@ uint32_t plat_fwu_get_boot_idx(void)
+ 	return boot_idx;
+ }
+ 
+-static void *stm32_get_image_spec(const uuid_t *img_type_uuid)
++static void *stm32_get_image_spec(const struct efi_guid *img_type_guid)
+ {
+ 	unsigned int i;
+ 
+ 	for (i = 0U; i < MAX_NUMBER_IDS; i++) {
+-		if ((guidcmp(&policies[i].img_type_guid, img_type_uuid)) == 0) {
++		if ((guidcmp(&policies[i].img_type_guid, img_type_guid)) == 0) {
+ 			return (void *)policies[i].image_spec;
+ 		}
+ 	}
+@@ -840,8 +838,9 @@ void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
+ 	unsigned int i;
+ 	uint32_t boot_idx;
+ 	const partition_entry_t *entry __maybe_unused;
+-	const uuid_t *img_type_uuid;
+-	const uuid_t *img_uuid __maybe_unused;
++	const struct fwu_image_entry *img_entry;
++	const void *img_type_guid;
++	const void *img_guid;
+ 	io_block_spec_t *image_spec;
+ 	const uint16_t boot_itf = stm32mp_get_boot_itf_selected();
+ 
+@@ -849,12 +848,13 @@ void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
+ 	assert(boot_idx < NR_OF_FW_BANKS);
+ 	VERBOSE("Selecting to boot from bank %u\n", boot_idx);
+ 
++	img_entry = (void *)&metadata->fw_desc.img_entry;
+ 	for (i = 0U; i < NR_OF_IMAGES_IN_FW_BANK; i++) {
+-		img_type_uuid = &metadata->img_entry[i].img_type_uuid;
++		img_type_guid = &img_entry[i].img_type_guid;
+ 
+-		img_uuid = &metadata->img_entry[i].img_props[boot_idx].img_uuid;
++		img_guid = &img_entry[i].img_bank_info[boot_idx].img_guid;
+ 
+-		image_spec = stm32_get_image_spec(img_type_uuid);
++		image_spec = stm32_get_image_spec(img_type_guid);
+ 		if (image_spec == NULL) {
+ 			ERROR("Unable to get image spec for the image in the metadata\n");
+ 			panic();
+@@ -864,7 +864,7 @@ void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
+ #if (STM32MP_SDMMC || STM32MP_EMMC)
+ 		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_SD:
+ 		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_EMMC:
+-			entry = get_partition_entry_by_uuid(img_uuid);
++			entry = get_partition_entry_by_guid(img_guid);
+ 			if (entry == NULL) {
+ 				ERROR("No partition with the uuid mentioned in metadata\n");
+ 				panic();
+@@ -876,9 +876,9 @@ void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
+ #endif
+ #if STM32MP_SPI_NOR
+ 		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NOR_SPI:
+-			if (guidcmp(img_uuid, &STM32MP_NOR_FIP_A_GUID) == 0) {
++			if (guidcmp(img_guid, &STM32MP_NOR_FIP_A_GUID) == 0) {
+ 				image_spec->offset = STM32MP_NOR_FIP_A_OFFSET;
+-			} else if (guidcmp(img_uuid, &STM32MP_NOR_FIP_B_GUID) == 0) {
++			} else if (guidcmp(img_guid, &STM32MP_NOR_FIP_B_GUID) == 0) {
+ 				image_spec->offset = STM32MP_NOR_FIP_B_OFFSET;
+ 			} else {
+ 				ERROR("Invalid uuid mentioned in metadata\n");
+@@ -889,9 +889,9 @@ void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
+ #if (STM32MP_RAW_NAND || STM32MP_SPI_NAND)
+ 		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NAND_FMC:
+ 		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NAND_SPI:
+-			if (guidcmp(img_uuid, &STM32MP_NAND_FIP_A_GUID) == 0) {
++			if (guidcmp(img_guid, &STM32MP_NAND_FIP_A_GUID) == 0) {
+ 				image_spec->offset = STM32MP_NAND_FIP_A_OFFSET;
+-			} else if (guidcmp(img_uuid, &STM32MP_NAND_FIP_B_GUID) == 0) {
++			} else if (guidcmp(img_guid, &STM32MP_NAND_FIP_B_GUID) == 0) {
+ 				image_spec->offset = STM32MP_NAND_FIP_B_OFFSET;
+ 			} else {
+ 				ERROR("Invalid uuid mentioned in metadata\n");
+@@ -901,9 +901,9 @@ void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
+ #endif
+ #if STM32MP_HYPERFLASH
+ 		case BOOT_API_CTX_BOOT_INTERFACE_SEL_HYPERFLASH_OSPI:
+-			if (guidcmp(img_uuid, &STM32MP_HYPERFLASH_FIP_A_GUID) == 0) {
++			if (guidcmp(img_guid, &STM32MP_HYPERFLASH_FIP_A_GUID) == 0) {
+ 				image_spec->offset = STM32MP_HYPERFLASH_FIP_A_OFFSET;
+-			} else if (guidcmp(img_uuid, &STM32MP_HYPERFLASH_FIP_B_GUID) == 0) {
++			} else if (guidcmp(img_guid, &STM32MP_HYPERFLASH_FIP_B_GUID) == 0) {
+ 				image_spec->offset = STM32MP_HYPERFLASH_FIP_B_OFFSET;
+ 			} else {
+ 				ERROR("Invalid uuid mentioned in metadata\n");
+@@ -927,7 +927,6 @@ static int plat_set_image_source(unsigned int image_id,
+ 	const partition_entry_t *entry __maybe_unused;
+ 	const uint16_t boot_itf = stm32mp_get_boot_itf_selected();
+ 	const struct efi_guid metadata_type_guid __maybe_unused = FWU_METADATA_GUID;
+-	uuid_t metadata_type_uuid __maybe_unused;
+ 
+ 	policy = &policies[image_id];
+ 	spec = (io_block_spec_t *)policy->image_spec;
+@@ -936,10 +935,9 @@ static int plat_set_image_source(unsigned int image_id,
+ #if (STM32MP_SDMMC || STM32MP_EMMC)
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_SD:
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_EMMC:
+-		guidcpy(&metadata_type_uuid, &metadata_type_guid);
+ 		partition_init(GPT_IMAGE_ID);
+ 
+-		entry = get_partition_entry_by_type(&metadata_type_uuid);
++		entry = get_partition_entry_by_type(&metadata_type_guid);
+ 		if (entry == NULL) {
+ 			entry = (image_id == FWU_METADATA_IMAGE_ID) ?
+ 				get_partition_entry(METADATA_PART_1) :
+-- 
+2.47.2
+

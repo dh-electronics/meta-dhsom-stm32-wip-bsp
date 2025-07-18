@@ -1,0 +1,44 @@
+From 8ef1cdfc7205d2476831d406e8b69cad66ab6174 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Thu, 17 Feb 2022 17:20:57 +0100
+Subject: [PATCH 060/841] feat(st-regulator): add enable ramp-delay in BL2
+
+Permit to override enable ramp-delay value from
+the device tree in BL2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c7ef831851b07c8341f581c80c4cfd007e2468e5 feat(st-regulator): add enable ramp-delay in BL2]
+Change-Id: Id8e803b368055a50fbd14d4527917c449b958ad9
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+---
+ drivers/st/regulator/regulator_core.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/st/regulator/regulator_core.c b/drivers/st/regulator/regulator_core.c
+index 2a5d0f7ae..0b11e538d 100644
+--- a/drivers/st/regulator/regulator_core.c
++++ b/drivers/st/regulator/regulator_core.c
+@@ -420,6 +420,7 @@ int regulator_set_flag(struct rdev *rdev, uint16_t flag)
+ 
+ static int parse_properties(const void *fdt, struct rdev *rdev, int node)
+ {
++	const fdt32_t *cuint;
+ 	int ret;
+ 
+ 	if (fdt_getprop(fdt, node, "regulator-always-on", NULL) != NULL) {
+@@ -430,6 +431,13 @@ static int parse_properties(const void *fdt, struct rdev *rdev, int node)
+ 		}
+ 	}
+ 
++	cuint = fdt_getprop(fdt, node, "regulator-enable-ramp-delay", NULL);
++	if (cuint != NULL) {
++		rdev->enable_ramp_delay = fdt32_to_cpu(*cuint);
++		VERBOSE("%s: enable_ramp_delay=%u\n", rdev->desc->node_name,
++			rdev->enable_ramp_delay);
++	}
++
+ 	return 0;
+ }
+ 
+-- 
+2.47.2
+

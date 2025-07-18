@@ -1,0 +1,55 @@
+From 702eebf06f0526d5fb21d66adbe92c4fc7641099 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 14 Dec 2022 13:45:04 +0100
+Subject: [PATCH 083/841] refactor(st-bsec): remove BSEC_DEN_ALL_MSK
+
+The value of BSEC_DEN_ALL_MSK is not correct because some reserved bits
+are missing (Bit 8 and 0 for STM32MP13x and Bit 0 for STM32MP15x).
+
+This partial protection in the register update function
+bsec_write_debug_conf() can be removed to simplify the code as it should
+be managed by caller with a sequence read/modify/write to avoid update
+of reserved bits.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c4ceeb0e7d66160c341d205f05cd6fa7ce66b836 refactor(st-bsec): remove BSEC_DEN_ALL_MSK]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I2dff8fe848dcf77841d22af0b0d1ef5d8da4fe11
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/281067
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec2.c        | 2 +-
+ include/drivers/st/bsec2_reg.h | 1 -
+ 2 files changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index 68d3a5b89..ee5e780a4 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -593,7 +593,7 @@ void bsec_write_debug_conf(uint32_t val)
+ 	}
+ 
+ 	bsec_lock();
+-	mmio_write_32(bsec_base + BSEC_DEN_OFF, val & BSEC_DEN_ALL_MSK);
++	mmio_write_32(bsec_base + BSEC_DEN_OFF, val);
+ 	bsec_unlock();
+ }
+ 
+diff --git a/include/drivers/st/bsec2_reg.h b/include/drivers/st/bsec2_reg.h
+index f8950205d..d6e3ee47f 100644
+--- a/include/drivers/st/bsec2_reg.h
++++ b/include/drivers/st/bsec2_reg.h
+@@ -95,7 +95,6 @@
+ #define BSEC_SPIDEN			BIT(5)
+ #define BSEC_SPINDEN			BIT(6)
+ #define BSEC_DBGSWGEN			BIT(10)
+-#define BSEC_DEN_ALL_MSK		GENMASK(10, 0)
+ 
+ /* BSEC_FENABLE Register */
+ #define BSEC_FEN_ALL_MSK		GENMASK(14, 0)
+-- 
+2.47.2
+

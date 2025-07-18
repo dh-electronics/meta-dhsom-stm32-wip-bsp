@@ -1,0 +1,76 @@
+From b5ae939c33c03af7843cb80dbed7228547c15076 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 20 Feb 2024 18:41:14 +0100
+Subject: [PATCH 575/841] fix(stm32mp2): fix watchdog support
+
+The value of BIT(iwdg_inst + HCONF1_OTP_IWDG_XXXX_POS) with
+iwdg_inst = 0, 1, 2 is invalid according the reference manual:
+ bit 0  IWDG1_HW
+ bit 1  IWDG1_FZ_STOP
+ bit 2  IWDG1_FZ_STANDBY
+ ...
+ bit 9  IWDG4_HW
+ bit 10 IWDG4_FZ_STOP
+ bit 11 IWDG4_FZ_STANDBY
+
+This patch corrects the issue with mask = BIT(iwdg_inst * 3 + offset).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1f7f0d7b1cb2ce7a0b36e1acfded9f7de2d3858f fix(stm32mp2): fix watchdog support]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ia7be0354b6519c9b41d0ee84068bd65cb27ac642
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/361448
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/368506
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h     | 6 +++---
+ plat/st/stm32mp2/stm32mp2_private.c | 6 +++---
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index ff3fd7255..6b2c8f94d 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -466,9 +466,9 @@ enum ddr_type {
+ #define PACKAGE_OTP_PKG_SHIFT			0
+ 
+ /* IWDG OTP */
+-#define HCONF1_OTP_IWDG_HW_POS			U(0)
+-#define HCONF1_OTP_IWDG_FZ_STOP_POS		U(1)
+-#define HCONF1_OTP_IWDG_FZ_STANDBY_POS		U(2)
++#define HCONF1_OTP_IWDG_HW_MASK(i)		BIT((i) * 3U)
++#define HCONF1_OTP_IWDG_FZ_STOP_MASK(i)		BIT((i) * 3U + 1U)
++#define HCONF1_OTP_IWDG_FZ_STANDBY_MASK(i)	BIT((i) * 3U + 2U)
+ 
+ /* NAND OTP */
+ /* NAND parameter storage flag */
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index b07838455..663bd31bf 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -561,15 +561,15 @@ uint32_t stm32_iwdg_get_otp_config(uint32_t iwdg_inst)
+ 		panic();
+ 	}
+ 
+-	if ((otp_value & BIT(iwdg_inst + HCONF1_OTP_IWDG_HW_POS)) != 0U) {
++	if ((otp_value & HCONF1_OTP_IWDG_HW_MASK(iwdg_inst)) != 0U) {
+ 		iwdg_cfg |= IWDG_HW_ENABLED;
+ 	}
+ 
+-	if ((otp_value & BIT(iwdg_inst + HCONF1_OTP_IWDG_FZ_STOP_POS)) != 0U) {
++	if ((otp_value & HCONF1_OTP_IWDG_FZ_STOP_MASK(iwdg_inst)) != 0U) {
+ 		iwdg_cfg |= IWDG_DISABLE_ON_STOP;
+ 	}
+ 
+-	if ((otp_value & BIT(iwdg_inst + HCONF1_OTP_IWDG_FZ_STANDBY_POS)) != 0U) {
++	if ((otp_value & HCONF1_OTP_IWDG_FZ_STANDBY_MASK(iwdg_inst)) != 0U) {
+ 		iwdg_cfg |= IWDG_DISABLE_ON_STANDBY;
+ 	}
+ 
+-- 
+2.47.2
+

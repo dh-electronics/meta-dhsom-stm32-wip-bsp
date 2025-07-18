@@ -1,0 +1,208 @@
+From 514f65f4bdc484014f8b1f43ecff53aad7e4380c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 23 Jan 2024 17:01:35 +0100
+Subject: [PATCH 466/841] feat(stm32mp2): derivating DDRCryp encryption key
+ from HUK
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This patch changes how the DDRCryp key is generated. Instead of using
+a random key, we use a derivative key from the SAES hardware key. We
+just have to store the 32-bit random seed in the backup context instead
+of the full key.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b8a526db4c99c09cf9e71fd40e4b78a319d8030b feat(stm32mp2): derivating DDRCryp encryption key from HUK]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ibea4423274cf15e6c9482131fa6c2a7eac6ab853
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/353733
+Domain-Review: Sebastien PASDELOUP <sebastien.pasdeloup-ext@st.com>
+Reviewed-by: Sebastien PASDELOUP <sebastien.pasdeloup-ext@st.com>
+Tested-by: Sebastien PASDELOUP <sebastien.pasdeloup-ext@st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c           | 43 ++++++++++++++++++---
+ plat/st/stm32mp2/include/stm32mp2_context.h |  4 +-
+ plat/st/stm32mp2/platform.mk                |  8 ++--
+ plat/st/stm32mp2/stm32mp2_context.c         | 12 +++---
+ 4 files changed, 49 insertions(+), 18 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 3d63bcc2f..f871d13fc 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -23,6 +23,7 @@
+ #include <drivers/st/stm32_iwdg.h>
+ #include <drivers/st/stm32_rifsc.h>
+ #include <drivers/st/stm32_rng.h>
++#include <drivers/st/stm32_saes.h>
+ #include <drivers/st/stm32mp_pmic2.h>
+ #include <drivers/st/stm32mp_reset.h>
+ #include <drivers/st/stm32mp_rifsc_regs.h>
+@@ -439,33 +440,63 @@ skip_console_init:
+ 	stm32mp_io_setup();
+ }
+ 
++#if STM32MP_M33_TDCID
++static inline void prepare_encryption(void) {}
++#else /* !STM32MP_M33_TDCID */
++static int generate_enc_mkey_from_seed(uint8_t *mkey, uint8_t *seed, uint32_t seed_size){
++	int ret;
++	struct stm32_saes_context ctx;
++	uint8_t payload[RISAF_KEY_SIZE_IN_BYTES] = {0U};
++
++	assert(seed_size <= RISAF_KEY_SIZE_IN_BYTES);
++
++	ret = stm32_saes_driver_init();
++	if (ret != 0) {
++		return ret;
++	}
++
++	memcpy(payload, seed, seed_size); /* add seed in a block sized payload */
++
++	ret = stm32_saes_init(&ctx, false, STM32_SAES_MODE_ECB,
++			      STM32_SAES_KEY_DHU, NULL, RISAF_KEY_SIZE_IN_BYTES, NULL, 0U);
++	if (ret != 0) {
++		return ret;
++	}
++
++	return stm32_saes_update(&ctx, true, payload, mkey, sizeof(payload));
++}
++
+ static void prepare_encryption(void)
+ {
+-#if !STM32MP_M33_TDCID
+ 	uint8_t mkey[RISAF_KEY_SIZE_IN_BYTES];
++	uint8_t seed[RISAF_SEED_SIZE_IN_BYTES];
+ 
+ #if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
+-	if (stm32_rng_read(mkey, RISAF_KEY_SIZE_IN_BYTES) != 0) {
++	if (stm32_rng_read(seed, RISAF_SEED_SIZE_IN_BYTES) != 0) {
+ 		panic();
+ 	}
+ #else /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 	if (stm32mp_is_wakeup_from_standby()) {
+-		stm32mp_pm_get_enc_mkey_from_context(mkey);
++		stm32mp_pm_get_enc_mkey_seed_from_context(seed);
+ 	} else {
+ 		/* Generate RISAF encryption key from RNG */
+-		if (stm32_rng_read(mkey, RISAF_KEY_SIZE_IN_BYTES) != 0) {
++		if (stm32_rng_read(seed, RISAF_SEED_SIZE_IN_BYTES) != 0) {
+ 			panic();
+ 		}
+ 
+-		stm32mp_pm_save_enc_mkey_in_context(mkey);
++		stm32mp_pm_save_enc_mkey_seed_in_context(seed);
+ 	}
+ #endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 
++	if (generate_enc_mkey_from_seed(mkey, seed, RISAF_SEED_SIZE_IN_BYTES) != 0) {
++		panic();
++	}
++
+ 	if (stm32mp2_risaf_write_encryption_key(RISAF4_INST, mkey) != 0) {
+ 		panic();
+ 	}
+-#endif
+ }
++#endif /* STM32MP_M33_TDCID */
+ 
+ /*******************************************************************************
+  * This function can be used by the platforms to update/use image
+diff --git a/plat/st/stm32mp2/include/stm32mp2_context.h b/plat/st/stm32mp2/include/stm32mp2_context.h
+index bb18b49b3..b5750ad8c 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_context.h
++++ b/plat/st/stm32mp2/include/stm32mp2_context.h
+@@ -11,8 +11,8 @@
+ 
+ #include <lib/psci/psci.h>
+ 
+-void stm32mp_pm_save_enc_mkey_in_context(uint8_t *data);
+-void stm32mp_pm_get_enc_mkey_from_context(uint8_t *data);
++void stm32mp_pm_save_enc_mkey_seed_in_context(uint8_t *data);
++void stm32mp_pm_get_enc_mkey_seed_from_context(uint8_t *data);
+ 
+ bool stm32_pm_context_is_valid(void);
+ void stm32_pm_context_save(const psci_power_state_t *state);
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 7d2c8808d..98be75bf1 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -199,9 +199,10 @@ PLAT_BL_COMMON_SOURCES		+=	drivers/st/iwdg/stm32_iwdg.c				\
+ 					plat/st/stm32mp2/stm32mp2_pwr.c				\
+ 					plat/st/stm32mp2/stm32mp2_syscfg.c
+ 
+-PLAT_BL_COMMON_SOURCES		+=	drivers/st/clk/clk-stm32-core.c				\
+-					drivers/st/clk/stm32mp2_clk.c				\
+-					drivers/st/crypto/stm32_rng.c
++PLAT_BL_COMMON_SOURCES	+=	drivers/st/clk/clk-stm32-core.c				\
++				drivers/st/clk/stm32mp2_clk.c				\
++				drivers/st/crypto/stm32_rng.c				\
++				drivers/st/crypto/stm32_saes.c
+ 
+ PLAT_BL_COMMON_SOURCES  	+=	drivers/st/nvmem/stm32mp_tamp_nvram_mp2.c
+ 
+@@ -221,7 +222,6 @@ endif
+ 
+ ifeq (${TRUSTED_BOARD_BOOT},1)
+ BL2_SOURCES		+=	drivers/st/crypto/stm32_pka.c
+-BL2_SOURCES		+=	drivers/st/crypto/stm32_saes.c
+ endif
+ 
+ ifneq ($(filter 1,${STM32MP_EMMC} ${STM32MP_SDMMC}),)
+diff --git a/plat/st/stm32mp2/stm32mp2_context.c b/plat/st/stm32mp2/stm32mp2_context.c
+index 431717962..458555a09 100644
+--- a/plat/st/stm32mp2/stm32mp2_context.c
++++ b/plat/st/stm32mp2/stm32mp2_context.c
+@@ -19,14 +19,14 @@
+ 
+ #define BACKUP_CTX_ADDR		STM32MP_BACKUP_RAM_BASE
+ #define BACKUP_CTX_CLK		CK_BUS_BKPSRAM
+-#define ENC_KEY_SIZE_IN_BYTES	RISAF_KEY_SIZE_IN_BYTES
++#define KEY_SEED_SIZE_IN_BYTES	RISAF_SEED_SIZE_IN_BYTES
+ 
+ /* Magic used to indicated valid = ' ' 'M' 'P' '2' */
+ #define CONTEXT_MAGIC			0x204D5032
+ 
+ struct backup_data_s {
+ 	uint32_t magic;
+-	uint8_t enc_mkey[ENC_KEY_SIZE_IN_BYTES];
++	uint8_t mkey_seed[KEY_SEED_SIZE_IN_BYTES];
+ 	psci_power_state_t standby_pwr_state;
+ 	cpu_context_t saved_cpu_s_context[PLATFORM_CORE_COUNT];
+ 	cpu_context_t saved_cpu_ns_context[PLATFORM_CORE_COUNT];
+@@ -37,7 +37,7 @@ struct backup_data_s {
+ #endif
+ };
+ 
+-void stm32mp_pm_save_enc_mkey_in_context(uint8_t *data)
++void stm32mp_pm_save_enc_mkey_seed_in_context(uint8_t *data)
+ {
+ 	struct backup_data_s *backup_data;
+ 
+@@ -45,12 +45,12 @@ void stm32mp_pm_save_enc_mkey_in_context(uint8_t *data)
+ 
+ 	clk_enable(BACKUP_CTX_CLK);
+ 
+-	memcpy(backup_data->enc_mkey, data, ENC_KEY_SIZE_IN_BYTES);
++	memcpy(backup_data->mkey_seed, data, KEY_SEED_SIZE_IN_BYTES);
+ 
+ 	clk_disable(BACKUP_CTX_CLK);
+ }
+ 
+-void stm32mp_pm_get_enc_mkey_from_context(uint8_t *data)
++void stm32mp_pm_get_enc_mkey_seed_from_context(uint8_t *data)
+ {
+ 	struct backup_data_s *backup_data;
+ 
+@@ -58,7 +58,7 @@ void stm32mp_pm_get_enc_mkey_from_context(uint8_t *data)
+ 
+ 	clk_enable(BACKUP_CTX_CLK);
+ 
+-	memcpy(data, backup_data->enc_mkey, ENC_KEY_SIZE_IN_BYTES);
++	memcpy(data, backup_data->mkey_seed, KEY_SEED_SIZE_IN_BYTES);
+ 
+ 	clk_disable(BACKUP_CTX_CLK);
+ }
+-- 
+2.47.2
+

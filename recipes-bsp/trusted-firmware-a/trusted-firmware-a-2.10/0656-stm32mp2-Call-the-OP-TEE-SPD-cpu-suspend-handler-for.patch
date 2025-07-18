@@ -1,0 +1,91 @@
+From b9ff46b0412295071c79a6f9c2dc59e7f44636e0 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 11 Jul 2024 12:01:07 +0200
+Subject: [PATCH 656/841] stm32mp2: Call the OP-TEE SPD cpu suspend handler for
+ STOP1
+
+For power down the SPD hooks is called by the PSCI stack
+but for STM32MP25 implementation, it must also be executed for STOP1 modes
+to configure the STPMIC states with associated power control,
+in particular for LPLV-Stop1 mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git da55cce9a9c73d9c61a933c744fdf554927932fa stm32mp2: Call the OP-TEE SPD cpu suspend handler for STOP1]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ia84561f5fd3f2209cbb882443679d97bf40f3a8e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/393916
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index d9ad4ef8f..52d8bc846 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -20,6 +20,7 @@
+ #include <drivers/st/stm32mp_reset.h>
+ #include <drivers/st/stm32mp2_ddr_helpers.h>
+ #include <lib/mmio.h>
++#include <lib/el3_runtime/context_mgmt.h>
+ #include <lib/psci/psci.h>
+ #include <lib/spinlock.h>
+ #include <plat/common/platform.h>
+@@ -27,6 +28,8 @@
+ #include <platform_def.h>
+ #include <stm32mp2_context.h>
+ 
++#include "../../../lib/psci/psci_private.h"
++
+ /* Default value for STM32MP25 with STPMIC25, defined in AN5727 */
+ #define DEFAULT_POPL_D1		3U
+ #define DEFAULT_PODH_D2		1U
+@@ -396,6 +399,20 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		return;
+ 	}
+ 
++	/* For power down the SPD hooks is called by the PSCI stack */
++	if (psci_get_pstate_type(stateid) != PSTATE_TYPE_POWERDOWN) {
++		/* Call the cpu suspend handler registered by the Secure Payload */
++		if ((psci_spd_pm != NULL) && (psci_spd_pm->svc_suspend != NULL)) {
++			unsigned int max_lvl = LVL_CORE;
++
++			if (stateid == PWRSTATE_LPLV_STOP1) {
++				max_lvl = LVL_D1;
++			}
++			cm_el1_sysregs_context_save(NON_SECURE);
++			psci_spd_pm->svc_suspend(max_lvl);
++		}
++	}
++
+ 	/* Request STOP for both cores */
+ 	mmio_write_32(rcc_base + RCC_C1SREQSETR, RCC_C1SREQSETR_STPREQ_MASK);
+ 
+@@ -622,6 +639,23 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 		ddr_sr_exit();
+ 		ddr_restore_sr_mode();
+ 		stm32mp2_disable_rcc_wakeup_irq(rcc_base);
++
++		/* the cpu suspend finish handler registered by the Secure
++		 * Payload Dispatcher (SPD) to let it do any bookeeping.
++		 */
++		if ((psci_spd_pm != NULL) && (psci_spd_pm->svc_suspend_finish != NULL)) {
++			unsigned int max_lvl = LVL_CORE;
++
++			if (stateid == PWRSTATE_LPLV_STOP1) {
++				max_lvl = LVL_D1;
++			}
++
++			psci_spd_pm->svc_suspend_finish(max_lvl);
++
++			/* Restore non-secure state */
++			cm_el1_sysregs_context_restore(NON_SECURE);
++			cm_set_next_eret_context(NON_SECURE);
++		}
+ 		break;
+ 	default:
+ 		ERROR("Invalid state id %x\n", stateid);
+-- 
+2.47.2
+

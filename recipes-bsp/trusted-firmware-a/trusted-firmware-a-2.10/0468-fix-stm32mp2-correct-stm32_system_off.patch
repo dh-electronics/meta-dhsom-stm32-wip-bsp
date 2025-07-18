@@ -1,0 +1,199 @@
+From cbf66a1980d8dc32dba629e2c9e2b5c455e3c679 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 11 Jan 2024 19:29:28 +0100
+Subject: [PATCH 468/841] fix(stm32mp2): correct stm32_system_off
+
+Update stm32_system_off() to request the low power mode "standby2".
+The VBAT mode will be automatically requested when the VDD supply
+is deactivated with STPMIC2 power control, if the board support it
+(when VBAT is provided by external battery).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9d70750bebc131ebaf503caae366f60d3cd1e8c3 fix(stm32mp2): correct stm32_system_off]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I097a136f26533b08dcfb6daac76c557d22b99a7c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/351085
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp2/include/stm32mp2_context.h |  1 +
+ plat/st/stm32mp2/stm32mp2_context.c         | 13 +++
+ plat/st/stm32mp2/stm32mp2_def.h             | 15 ++++
+ plat/st/stm32mp2/stm32mp2_pm.c              | 97 +++++++++++++++++++--
+ 4 files changed, 117 insertions(+), 9 deletions(-)
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_context.h b/plat/st/stm32mp2/include/stm32mp2_context.h
+index b5750ad8c..46489ddc1 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_context.h
++++ b/plat/st/stm32mp2/include/stm32mp2_context.h
+@@ -17,5 +17,6 @@ void stm32mp_pm_get_enc_mkey_seed_from_context(uint8_t *data);
+ bool stm32_pm_context_is_valid(void);
+ void stm32_pm_context_save(const psci_power_state_t *state);
+ void stm32_pm_context_restore(void);
++void stm32_pm_context_clear(void);
+ 
+ #endif /* STM32MP2_CONTEXT_H */
+diff --git a/plat/st/stm32mp2/stm32mp2_context.c b/plat/st/stm32mp2/stm32mp2_context.c
+index 458555a09..51c9d4835 100644
+--- a/plat/st/stm32mp2/stm32mp2_context.c
++++ b/plat/st/stm32mp2/stm32mp2_context.c
+@@ -156,3 +156,16 @@ void stm32_pm_context_restore(void)
+ 
+ 	clk_disable(BACKUP_CTX_CLK);
+ }
++
++void stm32_pm_context_clear(void)
++{
++	struct backup_data_s *backup_data;
++
++	backup_data = (struct backup_data_s *)BACKUP_CTX_ADDR;
++
++	clk_enable(BACKUP_CTX_CLK);
++
++	backup_data->magic = 0U;
++
++	clk_disable(BACKUP_CTX_CLK);
++}
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 555a92a57..75a7ffb61 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -273,6 +273,21 @@ enum ddr_type {
+ 
+ #define EXTI1_C1IMR2_WKUP_MASK		GENMASK_32(57 - 32, 52 - 32)
+ 
++/*******************************************************************************
++ * STM32MP2 EXTI2
++ ******************************************************************************/
++#define STM32MP_EXTI2_BASE		U(0x46230000)
++
++#define EXTI2_C1IMR1			U(0x80)
++#define EXTI2_C1IMR2			U(0x90)
++#define EXTI2_C1IMR3			U(0xA0)
++#define EXTI2_C2IMR1			U(0xC0)
++#define EXTI2_C2IMR2			U(0xD0)
++#define EXTI2_C2IMR3			U(0xE0)
++#define EXTI2_C3IMR1			U(0x100)
++#define EXTI2_C3IMR2			U(0x110)
++#define EXTI2_C3IMR3			U(0x120)
++
+ /*******************************************************************************
+  * STM32MP2 GPIO
+  ******************************************************************************/
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 73fa4c9ec..eeb67d155 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -623,21 +623,100 @@ static void __dead2 stm32_system_off(void)
+ {
+ 	uintptr_t pwr_base = stm32mp_pwr_base();
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
++	u_register_t mpidr = read_mpidr();
++	unsigned int core_id = MPIDR_AFFLVL0_VAL(mpidr);
++	uintptr_t exti2_base = STM32MP_EXTI2_BASE;
++	uint32_t otp_idx = 0U;
++	uint32_t otp_value = 0U;
++
++	if (core_id != STM32MP_PRIMARY_CPU) {
++		ERROR("PSCI system off request on core %u\n", core_id);
++		panic();
++	}
++
++	if (!stm32_freeze_other_core(core_id)) {
++		WARN("PSCI system off with other core running.\n");
++
++		/* Core is no more running */
++		stm32mp_state_set(STM32MP_SECONDARY_CPU, STATE_RUNNING, false);
++
++		/* Program secondary CPU entry points */
++		mmio_write_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR,
++			      (uintptr_t)&stm32_stop2_entrypoint);
++
++		/* After reset, the core is stopped, waiting in WFI loop */
++		stm32mp_state_set(STM32MP_SECONDARY_CPU, STATE_START, false);
++
++		/* Reset the secondary core */
++		mmio_write_32(RCC_BASE + RCC_C1P1RSTCSETR, RCC_C1P1RSTCSETR_C1P1PORRST);
++
++		/* Forbid access to DDR */
++		stm32mp_state_set(STM32MP_PRIMARY_CPU, STATE_DDR, false);
++	}
++
++	/* If CPU2 is not in reset */
++	if ((mmio_read_32(pwr_base + PWR_CPU2D2SR) & PWR_CPU2D2SR_CSTATE_MASK) != 0U) {
++		WARN("PSCI system off with Cortex M33 running.\n");
++		/* Force Hold Boot and reset of CPU2 = Cortex M33 */
++		mmio_clrbits_32(rcc_base + RCC_CPUBOOTCR, RCC_CPUBOOTCR_BOOT_CPU2);
++		mmio_setbits_32(rcc_base + RCC_C2RSTCSETR, RCC_C2RSTCSETR_C2RST);
++	}
++
++	/* If CPU3 is not in reset */
++	if ((mmio_read_32(pwr_base + PWR_CPU3D3SR) & PWR_CPU3D3SR_CSTATE_MASK) != 0U) {
++		WARN("PSCI system off with Cortex M0 running.\n");
++		/* Force reset of CPU3 = Cortex M0+ */
++		mmio_setbits_32(rcc_base + RCC_C3CFGR, RCC_C3CFGR_C3RST);
++	}
++
++	/* Freeze all watchdog with shadow value of HCONF1 */
++	if (stm32_get_otp_index(HCONF1_OTP, &otp_idx, NULL) == 0U) {
++		if (stm32_get_otp_value_from_idx(otp_idx, &otp_value) == 0U) {
++			otp_value |= HCONF1_OTP_IWDG_FZ_STANDBY_MASK(0);
++			otp_value |= HCONF1_OTP_IWDG_FZ_STANDBY_MASK(1);
++			otp_value |= HCONF1_OTP_IWDG_FZ_STANDBY_MASK(2);
++			otp_value |= HCONF1_OTP_IWDG_FZ_STANDBY_MASK(3);
++			stm32_otp_write(otp_value, otp_idx);
++		}
++	}
++
++	/* Force DDR off */
++	ddr_sub_system_clk_off();
+ 
+ 	/* Prevent interrupts from spuriously waking up this cpu */
+ 	stm32mp_gic_cpuif_disable();
+ 
+-	/* Program the power controller to enable wakeup interrupts. */
+-	// stm32_pwr_set_wakeup(mpidr);
+-	// TODO ? RCC_C1CIESETR.
++	/* Request STOP for both cores */
++	mmio_write_32(rcc_base + RCC_C1SREQSETR, RCC_C1SREQSETR_STPREQ_MASK);
++
++	/* Request standby2 */
++	mmio_write_32(pwr_base + PWR_CPU1CR, PWR_CPU1CR_PDDS_D1 | PWR_CPU1CR_PDDS_D2);
++	mmio_write_32(pwr_base + PWR_CPU2CR, PWR_CPU2CR_PDDS_D2);
++	mmio_write_32(pwr_base + PWR_D3CR, PWR_D3CR_PDDS_D3);
++	stm32mp2_pll1_disable();
++
++	/* Do not maintain RETRAM memory content in Standby or Vbat */
++	mmio_write_32(pwr_base + PWR_CR10, PWR_CR10_RETRBSEN_DISABLE);
++
++	/* Clear PM context in BKPSRAM: cold boot at next wake-up */
++	stm32_pm_context_clear();
++
++	/* Deactivate all WakeUp except WKUP pins */
++	mmio_write_32(exti2_base + EXTI2_C1IMR1, 0U);
++	mmio_write_32(exti2_base + EXTI2_C1IMR2, 0U);
++	mmio_write_32(exti2_base + EXTI2_C1IMR3, 0U);
++	mmio_write_32(exti2_base + EXTI2_C2IMR1, 0U);
++	mmio_write_32(exti2_base + EXTI2_C2IMR2, 0U);
++	mmio_write_32(exti2_base + EXTI2_C2IMR3, 0U);
++	mmio_write_32(exti2_base + EXTI2_C3IMR1, 0U);
++	mmio_write_32(exti2_base + EXTI2_C3IMR2, 0U);
++	mmio_write_32(exti2_base + EXTI2_C3IMR3, 0U);
++
++	/* Disable STATE_RUNNING state for this core */
++	stm32mp_state_set(core_id, STATE_RUNNING, false);
+ 
+-	/* Force Hold Boot and reset of CPU2 = Cortex M33 */
+-	mmio_clrbits_32(rcc_base + RCC_CPUBOOTCR, RCC_CPUBOOTCR_BOOT_CPU2);
+-	mmio_setbits_32(rcc_base + RCC_C2RSTCSETR, RCC_C2RSTCSETR_C2RST);
++	VERBOSE("BL31: power off\n");
+ 
+-	/* Request standby, normally with DDR off */
+-	mmio_setbits_32(pwr_base + PWR_CPU1CR, PWR_CPU1CR_PDDS_D1);
+-	mmio_setbits_32(pwr_base + PWR_CPU1CR, PWR_CPU1CR_PDDS_D2);
+ 	dsb();
+ 	isb();
+ 	wfi();
+-- 
+2.47.2
+

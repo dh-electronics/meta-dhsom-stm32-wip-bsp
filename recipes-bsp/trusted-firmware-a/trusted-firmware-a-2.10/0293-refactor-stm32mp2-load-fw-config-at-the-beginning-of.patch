@@ -1,0 +1,63 @@
+From 9c5f73364f0fd1a9ec0492fc6dbc70ead4d36c09 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 14 Mar 2023 18:16:07 +0100
+Subject: [PATCH 293/841] refactor(stm32mp2): load fw-config at the beginning
+ of SYSRAM
+
+To gain 4kB of size for BL2 when compiled with TRUSTED_BOARD_BOOT and
+encryption, the fw-config DT is now loaded at the beginning of SYSRAM.
+It will be overwritten by BL31, but at this time it will no more be
+useful.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4f88d5a7a947404f5afd61a78e39105ba02aa9a2 refactor(stm32mp2): load fw-config at the beginning of SYSRAM]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I03e815aeb84fcfd7fd3c28d34fcd0bc52e4075eb
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/295492
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h | 16 +++-------------
+ 1 file changed, 3 insertions(+), 13 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 779a8c984..62ac1f616 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -89,14 +89,12 @@
+ 						 STM32MP_SEC_DEVICE_SYSRAM_SIZE)
+ 
+ #define STM32MP_SEC_SYSRAM_SIZE		(STM32MP_SYSRAM_SIZE - \
+-					 STM32MP_SEC_DEVICE_SYSRAM_SIZE - \
+-					 STM32MP_FW_CONFIG_MAX_SIZE)
++					 STM32MP_SEC_DEVICE_SYSRAM_SIZE)
+ 
+ #define STM32MP_USB_DWC3_BASE		STM32MP_SEC_DEVICE_SYSRAM_BASE
+ #define STM32MP_USB_DWC3_SIZE		PAGE_SIZE
+ #else /* STM32MP_USB_PROGRAMMER */
+-#define STM32MP_SEC_SYSRAM_SIZE		(STM32MP_SYSRAM_SIZE - \
+-					 STM32MP_FW_CONFIG_MAX_SIZE)
++#define STM32MP_SEC_SYSRAM_SIZE		STM32MP_SYSRAM_SIZE
+ #endif /* STM32MP_USB_PROGRAMMER */
+ #else /* IMAGE_BL2 */
+ #define STM32MP_NS_SYSRAM_SIZE		PAGE_SIZE
+@@ -205,15 +203,7 @@ enum ddr_type {
+ #endif
+ 
+ #define STM32MP_FW_CONFIG_MAX_SIZE	PAGE_SIZE
+-#if STM32MP_USB_PROGRAMMER
+-#define STM32MP_FW_CONFIG_BASE		(STM32MP_SEC_SYSRAM_BASE + \
+-					 STM32MP_SEC_SYSRAM_SIZE - \
+-					 STM32MP_FW_CONFIG_MAX_SIZE)
+-#else
+-#define STM32MP_FW_CONFIG_BASE		(STM32MP_SYSRAM_BASE + \
+-					 STM32MP_SYSRAM_SIZE - \
+-					 STM32MP_FW_CONFIG_MAX_SIZE)
+-#endif
++#define STM32MP_FW_CONFIG_BASE		STM32MP_SYSRAM_BASE
+ 
+ #define STM32MP_BL33_BASE		(STM32MP_DDR_BASE + U(0x04000000))
+ #define STM32MP_BL33_MAX_SIZE		U(0x400000)
+-- 
+2.47.2
+

@@ -1,0 +1,82 @@
+From 2863c4095397bcacf27b2bd235b3c4160fe98af8 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 28 Sep 2018 09:31:31 +0200
+Subject: [PATCH 018/841] feat(st-uart): add timeout management
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 525c7f38b7d4aad4d5db9d8a5fc684518de07746 feat(st-uart): add timeout management]
+Change-Id: I9a3509cc1bbe131fb38fd33bd86660084c93240a
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ drivers/st/uart/aarch32/stm32_console.S | 23 +++++++++++++++--------
+ 1 file changed, 15 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/st/uart/aarch32/stm32_console.S b/drivers/st/uart/aarch32/stm32_console.S
+index e063941d2..1c46c2bf6 100644
+--- a/drivers/st/uart/aarch32/stm32_console.S
++++ b/drivers/st/uart/aarch32/stm32_console.S
+@@ -148,17 +148,15 @@ register_fail:
+ 	pop	{r4, pc}
+ endfunc console_stm32_register
+ 
+-	/* ---------------------------------------------------------------
++	/* --------------------------------------------------------
+ 	 * int console_core_putc(int c, uintptr_t base_addr)
+-	 *
+-	 * Function to output a character over the console. It returns the
+-	 * character printed on success or -1 on error.
+-	 *
++	 * Function to output a character over the console. It
++	 * returns the character printed on success or -1 on error.
+ 	 * In : r0 - character to be printed
+ 	 *      r1 - console base address
+ 	 * Out : return -1 on error else return character.
+-	 * Clobber list : r2
+-	 * ---------------------------------------------------------------
++	 * Clobber list : r2, r3
++	 * --------------------------------------------------------
+ 	 */
+ func console_stm32_core_putc
+ 	/* Check the input parameter */
+@@ -166,13 +164,19 @@ func console_stm32_core_putc
+ 	beq	putc_error
+ 
+ 	/* Check Transmit Data Register Empty */
++	mov	r3, #USART_TIMEOUT
+ txe_loop:
++	subs	r3, r3, #1
++	beq	putc_error
+ 	ldr	r2, [r1, #USART_ISR]
+ 	tst	r2, #USART_ISR_TXE
+ 	beq	txe_loop
+ 	str	r0, [r1, #USART_TDR]
+ 	/* Check transmit complete flag */
++	mov	r3, #USART_TIMEOUT
+ tc_loop:
++	subs	r3, r3, #1
++	beq	putc_error
+ 	ldr	r2, [r1, #USART_ISR]
+ 	tst	r2, #USART_ISR_TC
+ 	beq	tc_loop
+@@ -226,7 +230,7 @@ endfunc console_stm32_core_getc
+ 	 *
+ 	 * In : r0 - console base address
+ 	 * Out : void.
+-	 * Clobber list : r0, r1
++	 * Clobber list : r0, r1, r2
+ 	 * ---------------------------------------------------------------
+ 	 */
+ func console_stm32_core_flush
+@@ -239,7 +243,10 @@ func console_stm32_core_flush
+ 	tst	r1, #USART_CR1_UE
+ 	beq	1f
+ 	/* Check Transmit Data Register Empty */
++	mov	r2, #USART_TIMEOUT
+ txe_loop_3:
++	subs	r2, r2, #1
++	beq	plat_panic_handler
+ 	ldr	r1, [r0, #USART_ISR]
+ 	tst	r1, #USART_ISR_TXE
+ 	beq	txe_loop_3
+-- 
+2.47.2
+

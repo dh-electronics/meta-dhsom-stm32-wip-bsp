@@ -1,0 +1,63 @@
+From a327237a6fb85053577dc2bb684ce6d6a0c71780 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Mon, 17 Apr 2023 11:14:56 +0200
+Subject: [PATCH 377/841] fix(stm32mp1): fix uart download issue on console
+
+NOT_UPSTREAMABLE
+
+Fix download issue when using the same UART as the console.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0406b64bf19e2f18e560101c538b23503d69dc87 fix(stm32mp1): fix uart download issue on console]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: I69eba3c2f140941acacfa0a44a24daae77552518
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/301027
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp1/stm32mp1_ssp.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/plat/st/stm32mp1/stm32mp1_ssp.c b/plat/st/stm32mp1/stm32mp1_ssp.c
+index af0c25304..6a60fbf22 100644
+--- a/plat/st/stm32mp1/stm32mp1_ssp.c
++++ b/plat/st/stm32mp1/stm32mp1_ssp.c
+@@ -919,10 +919,6 @@ void bl2_el3_plat_arch_setup(void)
+ 
+ 	boot_api_context_t *boot_context =
+ 		(boot_api_context_t *)stm32mp_get_boot_ctx_address();
+-	bool serial_uart_interface __unused =
+-				(boot_context->boot_interface_selected ==
+-				 BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART);
+-	uintptr_t uart_prog_addr __unused;
+ 
+ 	if (bsec_probe() != 0) {
+ 		panic();
+@@ -984,10 +980,12 @@ void bl2_el3_plat_arch_setup(void)
+ 	generic_delay_timer_init();
+ 
+ #if STM32MP_UART_PROGRAMMER
+-	uart_prog_addr = get_uart_address(boot_context->boot_interface_instance);
+-
+ 	/* Disable programmer UART before changing clock tree */
+-	if (serial_uart_interface) {
++	if (boot_context->boot_interface_selected ==
++	    BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART) {
++		uintptr_t uart_prog_addr =
++			get_uart_address(boot_context->boot_interface_instance);
++
+ 		stm32_uart_stop(uart_prog_addr);
+ 	}
+ #endif
+@@ -1000,6 +998,8 @@ void bl2_el3_plat_arch_setup(void)
+ 		initialize_pmic();
+ 	}
+ 
++	stm32_save_boot_info(boot_context);
++
+ #if DEBUG
+ 	if (stm32mp_uart_console_setup() != 0) {
+ 		goto skip_console_init;
+-- 
+2.47.2
+

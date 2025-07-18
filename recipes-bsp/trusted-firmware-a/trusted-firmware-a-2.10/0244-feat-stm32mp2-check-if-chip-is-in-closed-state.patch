@@ -1,0 +1,98 @@
+From 97cde15f660248b63a5cd18cb3130826352af95c Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 13 Jan 2023 14:26:37 +0100
+Subject: [PATCH 244/841] feat(stm32mp2): check if chip is in closed state
+
+To check the chip is in secured closed state, the BSEC mode should be
+closed, and the secure_boot bit in lifecycle OTP fuse (OTP18) set to 1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cc79d984a70e2254f9fcbf29579bc16982a37cd8 feat(stm32mp2): check if chip is in closed state]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Icc7f07727c209a429265c0d3e062fd80b47c5728
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/285738
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ fdts/stm32mp251.dtsi                |  3 +++
+ plat/st/stm32mp2/stm32mp2_def.h     |  5 +++++
+ plat/st/stm32mp2/stm32mp2_private.c | 26 +++++++++++++++++++++++++-
+ 3 files changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/fdts/stm32mp251.dtsi b/fdts/stm32mp251.dtsi
+index bb5ba111a..aa909814f 100644
+--- a/fdts/stm32mp251.dtsi
++++ b/fdts/stm32mp251.dtsi
+@@ -294,6 +294,9 @@
+ 			nand_otp: otp16@40 {
+ 				reg = <0x40 0x4>;
+ 			};
++			lifecycle2_otp: otp18@48 {
++				reg = <0x48 0x4>;
++			};
+ 			nand2_otp: otp20@50 {
+ 				reg = <0x50 0x4>;
+ 			};
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 280a722a3..cf6b2b277 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -314,6 +314,7 @@ enum ddr_type {
+ #define NAND2_OTP				"otp20"
+ #define BOARD_ID_OTP				"board_id"
+ #define UID_OTP					"uid_otp"
++#define LIFECYCLE2_OTP				"otp18"
+ 
+ /* OTP mask */
+ /* PACKAGE */
+@@ -377,6 +378,10 @@ enum ddr_type {
+ 
+ /* UID OTP */
+ #define UID_WORD_NB				U(3)
++
++/* Lifecycle OTP */
++#define SECURE_BOOT_CLOSED_SECURE		GENMASK_32(3, 0)
++
+ /*******************************************************************************
+  * STM32MP2 TAMP
+  ******************************************************************************/
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 603f2eafa..2a523e966 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -340,7 +340,31 @@ bool stm32mp_is_single_core(void)
+ /* Return true when device is in closed state */
+ uint32_t stm32mp_check_closed_device(void)
+ {
+-	return STM32MP_CHIP_SEC_OPEN;
++	static uint32_t otp_idx;
++	static uint32_t otp_len;
++	uint32_t otp_val;
++	uint32_t status = STM32MP_CHIP_SEC_CLOSED;
++
++	if (otp_len == 0U) {
++		if (stm32_get_otp_index(LIFECYCLE2_OTP, &otp_idx, &otp_len) != 0) {
++			panic();
++		}
++
++		if (otp_len != __WORD_BIT) {
++			panic();
++		}
++	}
++
++	if (stm32_get_otp_value_from_idx(otp_idx, &otp_val) != 0) {
++		panic();
++	}
++
++	if (!bsec_mode_is_closed_device() ||
++	    ((otp_val & SECURE_BOOT_CLOSED_SECURE) == 0U)) {
++		status = STM32MP_CHIP_SEC_OPEN;
++	}
++
++	return status;
+ }
+ 
+ /* Return true when device supports secure boot */
+-- 
+2.47.2
+

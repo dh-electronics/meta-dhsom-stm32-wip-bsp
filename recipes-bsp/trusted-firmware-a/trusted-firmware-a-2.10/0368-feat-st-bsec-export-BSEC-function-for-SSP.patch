@@ -1,0 +1,54 @@
+From 793b14cb281ee1f11256e6dcbaf061679c347ea8 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 29 Jun 2022 11:35:06 +0200
+Subject: [PATCH 368/841] feat(st-bsec): export BSEC function for SSP
+
+NOT_UPSTREAMABLE
+
+The function bsec_permanent_lock_otp is not available in TF-A BL2,
+only requested for BL32 with BSEC SVC or for SSP.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 26b538ca8fe50b8238c3eacc2b2e9f9c92901ee8 feat(st-bsec): export BSEC function for SSP]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ia6fee3e7313675600ac48029728e490ca66983b7
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/258455
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec2.c   | 2 +-
+ include/drivers/st/bsec.h | 4 +++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index e41420965..eca2d7068 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -439,7 +439,7 @@ uint32_t bsec_program_otp(uint32_t val, uint32_t otp)
+  * otp: OTP number.
+  * return value: BSEC_OK if no error.
+  */
+-#if defined(IMAGE_BL32)
++#if defined(IMAGE_BL32) || defined(STM32MP_SSP)
+ uint32_t bsec_permanent_lock_otp(uint32_t otp)
+ {
+ 	uint32_t result;
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index 64f96eb6d..eb70c6e4a 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -67,8 +67,10 @@ static inline bool bsec_mode_is_closed_device(void)
+ 	return (bsec_get_secure_state() & BSEC_STATE_MASK) == BSEC_STATE_SEC_CLOSED;
+ }
+ 
+-#if defined(IMAGE_BL32)
++#if defined(IMAGE_BL32) || defined(STM32MP_SSP)
+ uint32_t bsec_permanent_lock_otp(uint32_t otp);
++#endif
++#if defined(IMAGE_BL32)
+ uint32_t bsec_check_nsec_access_rights(uint32_t otp);
+ #endif
+ 
+-- 
+2.47.2
+

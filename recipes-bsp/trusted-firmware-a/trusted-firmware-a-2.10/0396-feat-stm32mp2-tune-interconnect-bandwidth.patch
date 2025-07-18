@@ -1,0 +1,48 @@
+From be0c62731bfd5b376040eaebe1e142001fc2d743 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 21 Nov 2023 11:44:01 +0100
+Subject: [PATCH 396/841] feat(stm32mp2): tune interconnect bandwidth
+
+Configure Interconnect bandwidth with those parameters:
+DDR4, LPDDR4
+DDR Regulator enabled
+BW GPU limiter disabled
+BW CPU limiter enabled with 0x50 (6GB)
+CFG_MODEL 00
+
+DDR3
+DDR Regulator enabled
+BW GPU limiter disabled
+BW CPU limiter enabled but sticked to default value with 0x20 (2.4GB)
+CFG_MODEL 00
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d84dcbfbba12698bd3bd379bb9f36fc80b1864c5 feat(stm32mp2): tune interconnect bandwidth]
+Change-Id: I3513bbbefbacec7c91f22db95e9a1fab8a059b6a
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_syscfg.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index 8ff8173aa..f58bfd18b 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -522,4 +522,15 @@ void stm32mp2_syscfg_set_icn_qos(void)
+  *	mmio_write_32(SYSCFG_BASE + SYSCFG_ICNDCMIPPBWLCR, U(0x00005002));
+  *	mmio_write_32(SYSCFG_BASE + SYSCFG_ICNVDEBWLCR, U(0x00003502));
+  */
++
++	/* Enable BW regulator */
++	mmio_write_32(SYSCFG_BASE + SYSCFG_ICNE2EBWRCR, U(0x00000051));
++
++	/* Disable GPU BW limiter */
++	mmio_write_32(SYSCFG_BASE + SYSCFG_ICNGPUBWLCR, U(0x00004009));
++
++#if STM32MP_DDR4_TYPE || STM32MP_LPDDR4_TYPE
++	/* Change value of CPU BW limiter */
++	mmio_write_32(SYSCFG_BASE + SYSCFG_ICNCPU1BWLCR, U(0x00005002));
++#endif
+ }
+-- 
+2.47.2
+

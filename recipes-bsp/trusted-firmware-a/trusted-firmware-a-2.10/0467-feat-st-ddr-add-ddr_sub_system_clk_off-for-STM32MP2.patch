@@ -1,0 +1,62 @@
+From a471970542a94c993fd909b9483de66accacd615 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 11 Jan 2024 18:53:17 +0100
+Subject: [PATCH 467/841] feat(st-ddr): add ddr_sub_system_clk_off for STM32MP2
+
+Add a new function to deactivate the DDR sub system before power off
+sequence.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 11bd3093550173814d6a9972e33c1d1dcd21689d feat(st-ddr): add ddr_sub_system_clk_off for STM32MP2]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I787f4abc89554d2f4c1c4035e2db48bb5d1839da
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/351084
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr_helpers.c     | 18 ++++++++++++++++++
+ include/drivers/st/stm32mp2_ddr_helpers.h |  1 +
+ 2 files changed, 19 insertions(+)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index b2ad0ff58..4feb14632 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -505,3 +505,21 @@ void ddr_sub_system_clk_init(void)
+ 	mmio_write_32(stm32mp_rcc_base() + RCC_DDRCPCFGR,
+ 		      RCC_DDRCPCFGR_DDRCPEN | RCC_DDRCPCFGR_DDRCPLPEN);
+ }
++
++void ddr_sub_system_clk_off(void)
++{
++	uintptr_t rcc_base = stm32mp_rcc_base();
++
++	/* Clear DDR IO retention */
++	mmio_clrbits_32(stm32mp_pwr_base() + PWR_CR11, PWR_CR11_DDRRETDIS);
++
++	/* Reset DDR sub system */
++	mmio_write_32(rcc_base + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPRST);
++	mmio_write_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
++	mmio_write_32(rcc_base + RCC_DDRPHYCAPBCFGR, RCC_DDRPHYCAPBCFGR_DDRPHYCAPBRST);
++	mmio_write_32(rcc_base + RCC_DDRCAPBCFGR, RCC_DDRCAPBCFGR_DDRCAPBRST);
++
++	/* Deactivate clocks and PLL2 */
++	mmio_clrbits_32(rcc_base + RCC_DDRPHYCCFGR, RCC_DDRPHYCCFGR_DDRPHYCEN);
++	mmio_clrbits_32(rcc_base + RCC_PLL2CFGR1, RCC_PLL2CFGR1_PLLEN);
++}
+diff --git a/include/drivers/st/stm32mp2_ddr_helpers.h b/include/drivers/st/stm32mp2_ddr_helpers.h
+index 91d49182c..368c408b9 100644
+--- a/include/drivers/st/stm32mp2_ddr_helpers.h
++++ b/include/drivers/st/stm32mp2_ddr_helpers.h
+@@ -30,5 +30,6 @@ void ddr_set_sr_mode(enum stm32mp2_ddr_sr_mode mode);
+ void ddr_save_sr_mode(void);
+ void ddr_restore_sr_mode(void);
+ void ddr_sub_system_clk_init(void);
++void ddr_sub_system_clk_off(void);
+ 
+ #endif /* STM32MP2_DDR_HELPERS_H */
+-- 
+2.47.2
+

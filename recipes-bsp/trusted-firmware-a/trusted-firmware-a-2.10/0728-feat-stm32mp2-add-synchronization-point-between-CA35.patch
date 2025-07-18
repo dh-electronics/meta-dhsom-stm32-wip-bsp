@@ -1,0 +1,98 @@
+From 539535241a772532dbd26b946f3d47c5df5d0ae1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 17 Sep 2024 17:23:30 +0200
+Subject: [PATCH 728/841] feat(stm32mp2): add synchronization point between
+ CA35 and M33
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When M33 is TDCID, there is a need for a synchronization point to notify
+Cortex-M that TF-A BL2 is over and that it can unset its dedicated RIF
+configuration. Moreover, the CA35 clear CPU2 SEV interruption, send by
+CM33 to wake-up CA35 when it is in standby, before to send CPU1 SEV to
+have synchronization point with TF-M.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e8f3a5d53f2efe65fd5b67aa0ac80c0a169748fc feat(stm32mp2): add synchronization point between CA35 and M33]
+Change-Id: Ida0917ceaec22354083e547d958938b2297898ec
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Ludovic Barre <ludovic.barre@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/405083
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 27 +++++++++++++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_def.h   |  9 +++++++++
+ 2 files changed, 36 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index a3c1081d6..afdfacbfd 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -129,6 +129,28 @@ static void print_reset_reason(void)
+ 	INFO("Reset reason: %s (0x%x)\n", reason_str, rstsr);
+ }
+ 
++#if STM32MP_M33_TDCID
++/*
++ * notify_cpu2 sends an event (SEV) to CPU2 to notify it that BL2 has
++ * finished its execution and doesn't need the RIF boot configuration
++ * anymore and wait clear of pending bit to acknowledge the trasaction.
++ */
++static void notify_cpu2(void)
++{
++	/* clear CPU2 SEV event to cpu1 (exti 64)*/
++	mmio_write_32(STM32MP_EXTI1_BASE + EXTI1_RPR3, EXTI1_C2SEV);
++
++	/* Send CPU1 SEV event to cpu2 (exti 65)*/
++	mmio_write_32(STM32MP_EXTI1_BASE + EXTI1_SWIER3, EXTI1_C1SEV);
++
++	for ( ; ; ) {
++		if ((mmio_read_32(STM32MP_EXTI1_BASE + EXTI1_RPR3) & EXTI1_C1SEV) == 0U) {
++			break;
++		}
++	}
++}
++#endif
++
+ void bl2_el3_early_platform_setup(u_register_t arg0 __unused,
+ 				  u_register_t arg1 __unused,
+ 				  u_register_t arg2 __unused,
+@@ -136,6 +158,11 @@ void bl2_el3_early_platform_setup(u_register_t arg0 __unused,
+ {
+ 	stm32mp_setup_early_console();
+ 
++#if STM32MP_M33_TDCID
++	/* Synchronisation point between TF-A and TF-M */
++	notify_cpu2();
++#endif
++
+ 	stm32mp_save_boot_ctx_address(BOOT_CTX_ADDR);
+ 
+ 	stm32_save_header();
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 024718f4f..779bc09f2 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -350,6 +350,15 @@ enum ddr_type {
+ 
+ #define EXTI1_C1IMR2_WKUP_MASK		GENMASK_32(57 - 32, 52 - 32)
+ 
++/* EXTI1 software interrupt event register  */
++#define EXTI1_SWIER3			U(0x48)
++#define EXTI1_RPR3			U(0x4C)
++
++#define EXTI1_BIT(_id)			BIT_32(_id % 32)
++
++#define EXTI1_C2SEV			EXTI1_BIT(64)
++#define EXTI1_C1SEV			EXTI1_BIT(65)
++
+ /*******************************************************************************
+  * STM32MP2 EXTI2
+  ******************************************************************************/
+-- 
+2.47.2
+

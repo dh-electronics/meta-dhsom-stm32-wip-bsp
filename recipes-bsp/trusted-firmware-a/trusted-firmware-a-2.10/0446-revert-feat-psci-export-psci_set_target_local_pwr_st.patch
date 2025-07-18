@@ -1,0 +1,52 @@
+From ef5e3155dfe219a1c004989a2f3732efcfcdbaf1 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 12 Dec 2023 18:03:34 +0100
+Subject: [PATCH 446/841] revert feat(psci): export
+ psci_set_target_local_pwr_states()
+
+Avoid conflict of backport for commit d34886140c74 ("fix(psci): add
+optional pwr_domain_validate_suspend to plat_psci_ops_t") with OpenSTLinux
+patch "feat(psci): export psci_set_target_local_pwr_states()"
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ca1555326855084636242444dc2bab7606fa55f0 revert feat(psci): export psci_set_target_local_pwr_states()]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I52f7529dc240acbf25ab4ed1c9520f68f394d449
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/347263
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ include/lib/psci/psci.h | 2 --
+ lib/psci/psci_common.c  | 4 ++--
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/include/lib/psci/psci.h b/include/lib/psci/psci.h
+index 24b492695..034256259 100644
+--- a/include/lib/psci/psci.h
++++ b/include/lib/psci/psci.h
+@@ -387,8 +387,6 @@ int psci_set_suspend_mode(unsigned int mode);
+ #endif
+ void __dead2 psci_power_down_wfi(void);
+ void psci_arch_setup(void);
+-void psci_set_target_local_pwr_states(unsigned int end_pwrlvl,
+-				      const psci_power_state_t *target_state);
+ 
+ #endif /*__ASSEMBLER__*/
+ 
+diff --git a/lib/psci/psci_common.c b/lib/psci/psci_common.c
+index 36e58f02e..f830a95cb 100644
+--- a/lib/psci/psci_common.c
++++ b/lib/psci/psci_common.c
+@@ -449,8 +449,8 @@ void psci_get_target_local_pwr_states(unsigned int end_pwrlvl,
+  * enter. This function will be called after coordination of requested power
+  * states has been done for each power level.
+  *****************************************************************************/
+-void psci_set_target_local_pwr_states(unsigned int end_pwrlvl,
+-				      const psci_power_state_t *target_state)
++static void psci_set_target_local_pwr_states(unsigned int end_pwrlvl,
++					const psci_power_state_t *target_state)
+ {
+ 	unsigned int parent_idx, lvl;
+ 	const plat_local_state_t *pd_state = target_state->pwr_domain_state;
+-- 
+2.47.2
+

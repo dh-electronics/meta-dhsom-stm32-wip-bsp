@@ -1,0 +1,79 @@
+From 18b7075e19d18a0f239816174cc81bfbfe85aa9b Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 15 Oct 2024 19:00:59 +0200
+Subject: [PATCH 699/841] feat(stm32mp2): limit low power mode when cortex-M0
+ is running
+
+NOT UPSTREAMABLE
+
+If the Cortex-M0 firmware is running, the LPLV-Stop1/2 and Standby modes
+are not allowed. This temporary restriction is needed to avoid Cortex-M0
+crash when D3 domain clock switch from flexclkgen clock source to local
+clock source.
+
+This workaround will be removed when this restriction will be understood.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d3fec5b71e330be9861297cd5f52fdd2309509b2 feat(stm32mp2): limit low power mode when cortex-M0 is running]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I37da73712388e9718e6f6b210249c65371455a8f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/411570
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 355db5f33..a4fd6ff71 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -452,6 +452,15 @@ bool stm32_pwr_cpu2_state_is_running(uintptr_t pwr_base)
+ 	return (mmio_read_32(pwr_base + PWR_CPU2D2SR) & PWR_CPU2D2SR_CSTATE_MASK) != 0U;
+ }
+ 
++bool stm32_pwr_cpu3_state_is_running(uintptr_t pwr_base)
++{
++#if STM32MP21
++	return false;
++#else
++	return (mmio_read_32(pwr_base + PWR_CPU3D3SR) & PWR_CPU3D3SR_CSTATE_MASK) != 0U;
++#endif
++}
++
+ static int stm32_pwr_domain_validate_suspend(const psci_power_state_t *target_state)
+ {
+ 	uintptr_t pwr_base = stm32mp_pwr_base();
+@@ -475,6 +484,16 @@ static int stm32_pwr_domain_validate_suspend(const psci_power_state_t *target_st
+ 		}
+ 	}
+ 
++	/* If CPU3 is not in reset: limit supported low power modes */
++	if (stm32_pwr_cpu3_state_is_running(pwr_base)) {
++		if (stateid == PWRSTATE_STANDBY ||
++		    stateid == PWRSTATE_LPLV_STOP2 ||
++		    stateid == PWRSTATE_LPLV_STOP1) {
++			WARN("Invalid PSCI power state %x with Cortex M0 running.\n", stateid);
++			return PSCI_E_INVALID_PARAMS;
++		}
++	}
++
+ 	if (!stm32_freeze_other_core(core_id)) {
+ 		return PSCI_E_DENIED;
+ 	}
+@@ -1098,6 +1117,12 @@ static void stm32_get_sys_suspend_power_state(psci_power_state_t *req_state)
+ 		VERBOSE("%s: max_pwr_state = PWRSTATE_LP_STOP2, M33 is running\n", __func__);
+ 	}
+ 
++	/* M0 is running: Standby1 and LPLV are not allowed */
++	if (stm32_pwr_cpu3_state_is_running(pwr_base)) {
++		max_pwr_state = PWRSTATE_LP_STOP2;
++		VERBOSE("%s: max_pwr_state = PWRSTATE_LP_STOP2, M0 is running\n", __func__);
++	}
++
+ 	/* Trace to debug low power mode restriction */
+ 	if (max_pwr_state != PWRSTATE_STANDBY) {
+ 		INFO("max_pwr_state=%x C1IMR1=%x C1IMR2=%x C1IMR3=%x CPU2D2SR=%x\n",
+-- 
+2.47.2
+

@@ -1,0 +1,38 @@
+From 48c27bf6acd214be9a0bb1bbcdd75bfadeee523e Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Tue, 7 Dec 2021 21:53:28 +0530
+Subject: [PATCH 185/841] fix(drivers/usb): Call ep0_out_start only for EP0_OUT
+
+ep0_out_start function initiates the transfer for SETUP packet
+receive. Should be called only for EP0_OUT, and not EP0_IN.
+Currently if usb_core_ctl_error is called, then ep0_out_start
+gets called twice.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 824734c187db8d9562a4b4c60e47840f6cf0499c fix(drivers/usb): Call ep0_out_start only for EP0_OUT]
+Change-Id: I5726523fbf73203a0302d061d594dc781ed9bddb
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/257178
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/usb/usb_device.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/usb/usb_device.c b/drivers/usb/usb_device.c
+index bc95911ac..bf6d4e116 100644
+--- a/drivers/usb/usb_device.c
++++ b/drivers/usb/usb_device.c
+@@ -36,7 +36,7 @@ static enum usb_status usb_core_set_stall(struct usb_handle *pdev, uint8_t ep_ad
+ 	ep->num = num;
+ 
+ 	pdev->driver->ep_set_stall(hpcd->instance, ep);
+-	if (num == 0U) {
++	if (ep_addr == EP0_OUT) {
+ 		pdev->driver->ep0_out_start(hpcd->instance);
+ 	}
+ 
+-- 
+2.47.2
+

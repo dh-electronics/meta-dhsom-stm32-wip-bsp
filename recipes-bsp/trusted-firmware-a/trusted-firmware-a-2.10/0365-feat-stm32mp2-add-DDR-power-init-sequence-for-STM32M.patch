@@ -1,0 +1,77 @@
+From fe23a063c30e5957ad835549b32d82380f3be4ea Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 11 Sep 2023 16:31:37 +0200
+Subject: [PATCH 365/841] feat(stm32mp2): add DDR power init sequence for
+ STM32MP257F-DK
+
+Implement PMIC operations for LPDDR4 supply on STM32MP257F-DK in
+pmic_ddr_power_init() function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8ce31fb59b78d2cc09696dbdd53683e8a5b2a2ad feat(stm32mp2): add DDR power init sequence for STM32MP257F-DK]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: If334c0cf33807beffa0cdd2b5c2ee576d6d4ee6d
+---
+ plat/st/stm32mp2/plat_ddr.c | 47 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/plat/st/stm32mp2/plat_ddr.c b/plat/st/stm32mp2/plat_ddr.c
+index 47472101c..b337338fe 100644
+--- a/plat/st/stm32mp2/plat_ddr.c
++++ b/plat/st/stm32mp2/plat_ddr.c
+@@ -89,6 +89,53 @@ static int pmic_ddr_power_init(enum ddr_type ddr_type)
+ 	if (status != 0) {
+ 		return status;
+ 	}
++#elif STM32MP_LPDDR4_TYPE
++	int status;
++	struct rdev *vdd1_ddr, *vdd2_ddr;
++
++	/*
++	 * DDR power on sequence is:
++	 * enable VDD1_DDR
++	 * wait 2ms
++	 * enable VDD2_DDR
++	 */
++
++	/*
++	 * FIXME: to be replaced by regulator_get_by_supply_name(... "vdd1_ddr")
++	 * vdd1-supply = <&vdd1_ddr>; in the device-tree
++	 */
++	/* vdd1_ddr */
++	vdd1_ddr = regulator_get_by_name("ldo3");
++	if (vdd1_ddr == NULL) {
++		return -ENOENT;
++	}
++	status = regulator_set_min_voltage(vdd1_ddr);
++	if (status != 0) {
++		return status;
++	}
++
++	/* vdd2_ddr */
++	vdd2_ddr = regulator_get_by_name("buck6");
++	if (vdd2_ddr == NULL) {
++		return -ENOENT;
++	}
++	status = regulator_set_min_voltage(vdd2_ddr);
++	if (status != 0) {
++		return status;
++	}
++
++	status = regulator_enable(vdd1_ddr);
++	if (status != 0) {
++		return status;
++	}
++
++	/* could be set via enable_ramp_delay on vdd1_ddr */
++	udelay(2000);
++
++	status = regulator_enable(vdd2_ddr);
++	if (status != 0) {
++		return status;
++	}
+ #else
+ 	ERROR("DDR type no supported with PMIC\n");
+ 	panic();
+-- 
+2.47.2
+

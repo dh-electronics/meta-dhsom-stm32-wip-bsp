@@ -1,0 +1,426 @@
+From 40e30cf0c5d0ff7e126c39bc2d326f6045e65e4e Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Mon, 12 Sep 2022 11:26:09 +0200
+Subject: [PATCH 067/841] feat(stm32mp1): always boot at 650MHz
+
+Switching to higher CPU frequencies requires a dedicated chip version
+(STM32MP1xxD or STM32MP1xxF), and increase CPU voltage. To avoid
+re-configuring I2C and PMIC before and after applying clock tree,
+always boot at 650MHz, which is the frequency for nominal voltage.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f75dbcd1ac71d67b51f88e2d0c0278558e113ad3 feat(stm32mp1): always boot at 650MHz]
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Id05a3ee17e7dd57e2d64dc06f8f1e7f9cb21e110
+---
+ drivers/st/clk/clk-stm32mp13.c    | 150 +++++++++++++++++++++++++++---
+ drivers/st/clk/stm32mp1_clk.c     | 149 +++++++++++++++++++++++++++--
+ include/drivers/st/stm32mp1_clk.h |   2 +-
+ plat/st/stm32mp1/bl2_plat_setup.c |   4 +-
+ 4 files changed, 282 insertions(+), 23 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32mp13.c b/drivers/st/clk/clk-stm32mp13.c
+index 9b11688b8..01ce2cbd3 100644
+--- a/drivers/st/clk/clk-stm32mp13.c
++++ b/drivers/st/clk/clk-stm32mp13.c
+@@ -1357,6 +1357,124 @@ static inline struct stm32_pll_dt_cfg *clk_stm32_pll_get_pdata(int pll_idx)
+ 	return &pdata->pll[pll_idx];
+ }
+ 
++
++/* Define characteristic for PLL1 : PLL_2000 */
++#define POST_DIVM_MIN	8000000U
++#define POST_DIVM_MAX	16000000U
++#define DIVM_MIN	0U
++#define DIVM_MAX	63U
++#define DIVN_MIN	24U
++#define DIVN_MAX	99U
++#define DIVP_MIN	0U
++#define DIVP_MAX	127U
++#define FRAC_MAX	8192U
++#define VCO_MIN		992000000U
++#define VCO_MAX		2000000000U
++
++static int clk_compute_pll1_settings(uint32_t freq_khz)
++{
++	struct stm32_clk_priv *priv = clk_stm32_get_priv();
++	struct stm32_pll_dt_cfg *pll1 = clk_stm32_pll_get_pdata(_PLL1);
++	struct stm32_pll_dt_cfg *pll2 = clk_stm32_pll_get_pdata(_PLL2);
++	unsigned long long best_diff = ULLONG_MAX;
++	unsigned int divm;
++	unsigned long input_freq = 0UL;
++	uint32_t src =  pll2->vco.src;
++
++	/* PLL1 share the same clock source than PLL2 */
++	switch (src) {
++	case CLK_PLL12_HSI:
++		input_freq = _clk_stm32_get_rate(priv, _CK_HSI);
++		break;
++	case CLK_PLL12_HSE:
++		input_freq = _clk_stm32_get_rate(priv, _CK_HSE);
++		break;
++	default:
++		break;
++	}
++
++	if (input_freq == 0UL) {
++		panic();
++	}
++
++	/* Following parameters have always the same value */
++	pll1->output.output[PLL_CFG_Q] = 0U;
++	pll1->output.output[PLL_CFG_R] = 0U;
++
++	for (divm = (DIVM_MAX + 1U); divm != DIVM_MIN; divm--) {
++		unsigned long post_divm = input_freq / divm;
++		unsigned int divp;
++
++		if ((post_divm < POST_DIVM_MIN) || (post_divm > POST_DIVM_MAX)) {
++			continue;
++		}
++
++		for (divp = DIVP_MIN; divp <= DIVP_MAX; divp++) {
++			unsigned long long output_freq = freq_khz * 1000ULL;
++			unsigned long long freq;
++			unsigned long long divn;
++			unsigned long long frac;
++			unsigned int i;
++
++			freq = output_freq * divm * (divp + 1U);
++
++			divn = (freq / input_freq) - 1U;
++			if ((divn < DIVN_MIN) || (divn > DIVN_MAX)) {
++				continue;
++			}
++
++			frac = ((freq * FRAC_MAX) / input_freq) - ((divn + 1U) * FRAC_MAX);
++
++			/* 2 loops to refine the fractional part */
++			for (i = 2U; i != 0U; i--) {
++				unsigned long long diff;
++				unsigned long long vco;
++
++				if (frac > FRAC_MAX) {
++					break;
++				}
++
++				vco = (post_divm * (divn + 1U)) + ((post_divm * frac) / FRAC_MAX);
++
++				if ((vco < (VCO_MIN / 2U)) || (vco > (VCO_MAX / 2U))) {
++					frac++;
++					continue;
++				}
++
++				freq = vco / (divp + 1U);
++				if (output_freq < freq) {
++					diff = freq - output_freq;
++				} else {
++					diff = output_freq - freq;
++				}
++
++				if (diff < best_diff)  {
++					pll1->vco.src = src;
++					pll1->vco.status = RCC_PLLNCR_DIVPEN | RCC_PLLNCR_PLLON;
++					pll1->vco.div_mn[PLL_CFG_M] = divm - 1U;
++					pll1->vco.div_mn[PLL_CFG_N] = (uint32_t)divn;
++					pll1->vco.frac = (uint32_t)frac;
++					pll1->output.output[PLL_CFG_P] = divp;
++
++					if (diff == 0U) {
++						return 0;
++					}
++
++					best_diff = diff;
++				}
++
++				frac++;
++			}
++		}
++	}
++
++	if (best_diff == ULLONG_MAX) {
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
+ static bool _clk_stm32_pll_is_enabled(struct stm32_clk_priv *priv, const struct stm32_clk_pll *pll)
+ {
+ 	uintptr_t pll_base = priv->base + pll->reg_pllxcr;
+@@ -2246,7 +2364,8 @@ static int stm32_clk_parse_fdt_all_pll(void *fdt, int node, struct stm32_clk_pla
+ {
+ 	size_t i = 0U;
+ 
+-	for (i = _PLL1; i < pdata->npll; i++) {
++	/* PLL1 is not configurable with device tree */
++	for (i = _PLL2; i < pdata->npll; i++) {
+ 		struct stm32_pll_dt_cfg *pll = &pdata->pll[i];
+ 		char name[RCC_PLL_NAME_SIZE];
+ 		int subnode = 0;
+@@ -2306,32 +2425,37 @@ static int stm32_clk_parse_fdt(struct stm32_clk_platdata *pdata)
+ 	return 0;
+ }
+ 
+-int stm32mp1_clk_init(void)
+-{
+-	return 0;
+-}
+-
+-int stm32mp1_clk_probe(void)
++int stm32mp1_clk_init(uint32_t pll1_freq_khz)
+ {
+-	uintptr_t base = RCC_BASE;
+ 	int ret;
+ 
+-	ret = stm32_clk_parse_fdt(&stm32mp13_clock_pdata);
++	/* compute the PLL1 sting, not read in device tree */
++	ret = clk_compute_pll1_settings(pll1_freq_khz);
+ 	if (ret != 0) {
+ 		return ret;
+ 	}
+ 
+-	ret = clk_stm32_init(&stm32mp13_clock_data, base);
++	ret = stm32mp1_init_clock_tree();
+ 	if (ret != 0) {
+ 		return ret;
+ 	}
+ 
+-	ret = stm32mp1_init_clock_tree();
++	clk_stm32_enable_critical_clocks();
++
++	return 0;
++}
++
++int stm32mp1_clk_probe(void)
++{
++	uintptr_t base = RCC_BASE;
++	int ret;
++
++	ret = stm32_clk_parse_fdt(&stm32mp13_clock_pdata);
+ 	if (ret != 0) {
+ 		return ret;
+ 	}
+ 
+-	clk_stm32_enable_critical_clocks();
++	ret = clk_stm32_init(&stm32mp13_clock_data, base);
+ 
+-	return 0;
++	return ret;
+ }
+diff --git a/drivers/st/clk/stm32mp1_clk.c b/drivers/st/clk/stm32mp1_clk.c
+index 443af4ef8..4f6d9ef0c 100644
+--- a/drivers/st/clk/stm32mp1_clk.c
++++ b/drivers/st/clk/stm32mp1_clk.c
+@@ -537,7 +537,18 @@ static const struct stm32mp1_clk_sel stm32mp1_clk_sel[_PARENT_SEL_NB] = {
+ };
+ 
+ /* Define characteristic of PLL according type */
+-#define DIVN_MIN	24
++#define POST_DIVM_MIN	8000000U
++#define POST_DIVM_MAX	16000000U
++#define DIVM_MIN	0U
++#define DIVM_MAX	63U
++#define DIVN_MIN	24U
++#define DIVN_MAX	99U
++#define DIVP_MIN	0U
++#define DIVP_MAX	127U
++#define FRAC_MAX	8192U
++#define VCO_MIN		800000000U
++#define VCO_MAX		1600000000U
++
+ static const struct stm32mp1_pll stm32mp1_pll[PLL_TYPE_NB] = {
+ 	[PLL_800] = {
+ 		.refclk_min = 4,
+@@ -1813,7 +1824,117 @@ static int clk_get_pll_settings_from_dt(int plloff, unsigned int *pllcfg,
+ 	return ret;
+ }
+ 
+-int stm32mp1_clk_init(void)
++static int clk_compute_pll1_settings(unsigned long input_freq,
++				     uint32_t freq_khz,
++				     uint32_t *pllcfg, uint32_t *fracv)
++{
++	unsigned long long best_diff = ULLONG_MAX;
++	unsigned int divm;
++
++	/* Following parameters have always the same value */
++	pllcfg[PLLCFG_Q] = 0U;
++	pllcfg[PLLCFG_R] = 0U;
++	pllcfg[PLLCFG_O] = PQR(1, 0, 0);
++
++	for (divm = (DIVM_MAX + 1U); divm != DIVM_MIN; divm--) {
++		unsigned long post_divm = input_freq / divm;
++		unsigned int divp;
++
++		if ((post_divm < POST_DIVM_MIN) || (post_divm > POST_DIVM_MAX)) {
++			continue;
++		}
++
++		for (divp = DIVP_MIN; divp <= DIVP_MAX; divp++) {
++			unsigned long long output_freq = freq_khz * 1000ULL;
++			unsigned long long freq;
++			unsigned long long divn;
++			unsigned long long frac;
++			unsigned int i;
++
++			freq = output_freq * divm * (divp + 1U);
++
++			divn = (freq / input_freq) - 1U;
++			if ((divn < DIVN_MIN) || (divn > DIVN_MAX)) {
++				continue;
++			}
++
++			frac = ((freq * FRAC_MAX) / input_freq) - ((divn + 1U) * FRAC_MAX);
++
++			/* 2 loops to refine the fractional part */
++			for (i = 2U; i != 0U; i--) {
++				unsigned long long diff;
++				unsigned long long vco;
++
++				if (frac > FRAC_MAX) {
++					break;
++				}
++
++				vco = (post_divm * (divn + 1U)) + ((post_divm * frac) / FRAC_MAX);
++
++				if ((vco < (VCO_MIN / 2U)) || (vco > (VCO_MAX / 2U))) {
++					frac++;
++					continue;
++				}
++
++				freq = vco / (divp + 1U);
++				if (output_freq < freq) {
++					diff = freq - output_freq;
++				} else {
++					diff = output_freq - freq;
++				}
++
++				if (diff < best_diff)  {
++					pllcfg[PLLCFG_M] = divm - 1U;
++					pllcfg[PLLCFG_N] = (uint32_t)divn;
++					pllcfg[PLLCFG_P] = divp;
++					*fracv = (uint32_t)frac;
++
++					if (diff == 0U) {
++						return 0;
++					}
++
++					best_diff = diff;
++				}
++
++				frac++;
++			}
++		}
++	}
++
++	if (best_diff == ULLONG_MAX) {
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int clk_get_pll1_settings(uint32_t clksrc, uint32_t freq_khz,
++				 uint32_t *pllcfg, uint32_t *fracv)
++{
++	unsigned long input_freq = 0UL;
++
++	assert(pllcfg != NULL);
++	assert(fracv != NULL);
++
++	switch (clksrc) {
++	case CLK_PLL12_HSI:
++		input_freq = stm32mp_clk_get_rate(CK_HSI);
++		break;
++	case CLK_PLL12_HSE:
++		input_freq = stm32mp_clk_get_rate(CK_HSE);
++		break;
++	default:
++		break;
++	}
++
++	if (input_freq == 0UL) {
++		panic();
++	}
++
++	return clk_compute_pll1_settings(input_freq, freq_khz, pllcfg, fracv);
++}
++
++int stm32mp1_clk_init(uint32_t pll1_freq_khz)
+ {
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+ 	uint32_t pllfracv[_PLL_NB];
+@@ -1858,15 +1979,27 @@ int stm32mp1_clk_init(void)
+ 		plloff[i] = fdt_rcc_subnode_offset(name);
+ 
+ 		pllcfg_valid[i] = fdt_check_node(plloff[i]);
+-		if (!pllcfg_valid[i]) {
++		if (pllcfg_valid[i]) {
++			ret = clk_get_pll_settings_from_dt(plloff[i], pllcfg[i],
++							   &pllfracv[i],
++							   pllcsg[i],
++							   &pllcsg_set[i]);
++			if (ret != 0) {
++				return ret;
++			}
++
+ 			continue;
+ 		}
+ 
+-		ret = clk_get_pll_settings_from_dt(plloff[i], pllcfg[i],
+-						   &pllfracv[i], pllcsg[i],
+-						   &pllcsg_set[i]);
+-		if (ret != 0) {
+-			return ret;
++		if ((i == _PLL1) && (pll1_freq_khz != 0U)) {
++			ret = clk_get_pll1_settings(clksrc[CLKSRC_PLL12],
++						    pll1_freq_khz,
++						    pllcfg[i], &pllfracv[i]);
++			if (ret != 0) {
++				return ret;
++			}
++
++			pllcfg_valid[i] = true;
+ 		}
+ 	}
+ 
+diff --git a/include/drivers/st/stm32mp1_clk.h b/include/drivers/st/stm32mp1_clk.h
+index 2257e7d88..c9b16bf5e 100644
+--- a/include/drivers/st/stm32mp1_clk.h
++++ b/include/drivers/st/stm32mp1_clk.h
+@@ -23,7 +23,7 @@ enum stm32mp_osc_id {
+ extern const char *stm32mp_osc_node_label[NB_OSC];
+ 
+ int stm32mp1_clk_probe(void);
+-int stm32mp1_clk_init(void);
++int stm32mp1_clk_init(uint32_t pll1_freq_khz);
+ 
+ bool stm32mp1_rcc_is_secure(void);
+ bool stm32mp1_rcc_is_mckprot(void);
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index e16b6f950..96308c927 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -40,6 +40,8 @@
+ #include <stm32mp1_context.h>
+ #include <stm32mp1_dbgmcu.h>
+ 
++#define PLL1_NOMINAL_FREQ_IN_KHZ	650000U /* 650MHz */
++
+ #if DEBUG
+ static const char debug_msg[] = {
+ 	"***************************************************\n"
+@@ -304,7 +306,7 @@ void bl2_el3_plat_arch_setup(void)
+ 		panic();
+ 	}
+ 
+-	if (stm32mp1_clk_init() < 0) {
++	if (stm32mp1_clk_init(PLL1_NOMINAL_FREQ_IN_KHZ) < 0) {
+ 		panic();
+ 	}
+ 
+-- 
+2.47.2
+

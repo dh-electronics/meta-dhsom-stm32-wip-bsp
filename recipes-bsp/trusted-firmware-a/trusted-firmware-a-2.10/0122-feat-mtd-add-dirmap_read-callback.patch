@@ -1,0 +1,101 @@
+From a188b3c85f11159e8ef6151027ff8662d6a40df6 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 15 Jun 2021 12:01:46 +0200
+Subject: [PATCH 122/841] feat(mtd): add dirmap_read callback
+
+This patch adds dirmap_read callback to allow to read data by using
+a direct mapping.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4f04feb65ef38d34313a48b25070f26890f20fcb feat(mtd): add dirmap_read callback]
+Change-Id: Ib8a80eeafa4b6a2ad46ad15ef3a1e5af3fa83458
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ drivers/mtd/spi-mem/spi_mem.c | 48 +++++++++++++++++++++++++++++++++++
+ include/drivers/spi_mem.h     |  9 +++++++
+ 2 files changed, 57 insertions(+)
+
+diff --git a/drivers/mtd/spi-mem/spi_mem.c b/drivers/mtd/spi-mem/spi_mem.c
+index c43d5196c..4a8cb80d2 100644
+--- a/drivers/mtd/spi-mem/spi_mem.c
++++ b/drivers/mtd/spi-mem/spi_mem.c
+@@ -174,6 +174,54 @@ int spi_mem_exec_op(const struct spi_mem_op *op)
+ 	return ret;
+ }
+ 
++/*
++ * spi_mem_dirmap_read() - Read data through a direct mapping
++ * @op: The memory operation to execute.
++ *
++ * This function reads data from a memory device using a direct mapping.
++ *
++ * Return: 0 in case of success, a negative error code otherwise.
++ */
++int spi_mem_dirmap_read(const struct spi_mem_op *op)
++{
++	const struct spi_bus_ops *ops = spi_slave.ops;
++	int ret;
++
++	VERBOSE("%s: cmd:%x mode:%d.%d.%d.%d addr:%" PRIx64 " len:%x\n",
++		__func__, op->cmd.opcode, op->cmd.buswidth, op->addr.buswidth,
++		op->dummy.buswidth, op->data.buswidth,
++		op->addr.val, op->data.nbytes);
++
++	if (op->data.dir != SPI_MEM_DATA_IN) {
++		return -EINVAL;
++	}
++
++	if (op->data.nbytes == 0U) {
++		return 0;
++	}
++
++	if (ops->dirmap_read == NULL) {
++		return spi_mem_exec_op(op);
++	}
++
++	if (!spi_mem_supports_op(op)) {
++		WARN("Error in spi_mem_support\n");
++		return -ENOTSUP;
++	}
++
++	ret = ops->claim_bus(spi_slave.cs);
++	if (ret != 0) {
++		WARN("Error claim_bus\n");
++		return ret;
++	}
++
++	ret = ops->dirmap_read(op);
++
++	ops->release_bus();
++
++	return ret;
++}
++
+ /*
+  * spi_mem_init_slave() - SPI slave device initialization.
+  * @fdt: Pointer to the device tree blob.
+diff --git a/include/drivers/spi_mem.h b/include/drivers/spi_mem.h
+index d1953acf4..7961bc0a0 100644
+--- a/include/drivers/spi_mem.h
++++ b/include/drivers/spi_mem.h
+@@ -121,9 +121,18 @@ struct spi_bus_ops {
+ 	 * Returns: 0 on success, a negative error code otherwise.
+ 	 */
+ 	int (*exec_op)(const struct spi_mem_op *op);
++
++	/*
++	 * Read data through a direct mapping.
++	 *
++	 * @op: The memory operation to execute.
++	 * Returns: 0 on success, a negative error code otherwise.
++	 */
++	int (*dirmap_read)(const struct spi_mem_op *op);
+ };
+ 
+ int spi_mem_exec_op(const struct spi_mem_op *op);
++int spi_mem_dirmap_read(const struct spi_mem_op *op);
+ int spi_mem_init_slave(void *fdt, int bus_node,
+ 		       const struct spi_bus_ops *ops);
+ 
+-- 
+2.47.2
+

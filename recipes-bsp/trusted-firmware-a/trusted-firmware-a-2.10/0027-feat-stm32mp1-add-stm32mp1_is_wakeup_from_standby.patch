@@ -1,0 +1,72 @@
+From fd02aeae38a7b41524a7613f0ea0d6a60e147c86 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 24 Nov 2021 18:34:49 +0100
+Subject: [PATCH 027/841] feat(stm32mp1): add stm32mp1_is_wakeup_from_standby()
+
+This function is used to know if this is a return from Standby mode,
+and the DDR was in self-refresh, allowing a a correct return to OS.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 088ef348ad7d74d9a701da0b9dec813bda45c651 feat(stm32mp1): add stm32mp1_is_wakeup_from_standby()]
+Change-Id: I3189e94485448d9afe6142b051090bd8141257fa
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ plat/st/stm32mp1/include/stm32mp1_private.h |  2 ++
+ plat/st/stm32mp1/stm32mp1_private.c         | 29 +++++++++++++++++++++
+ 2 files changed, 31 insertions(+)
+
+diff --git a/plat/st/stm32mp1/include/stm32mp1_private.h b/plat/st/stm32mp1/include/stm32mp1_private.h
+index 4a522555d..1574c4850 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_private.h
++++ b/plat/st/stm32mp1/include/stm32mp1_private.h
+@@ -14,6 +14,8 @@ void configure_mmu(void);
+ void stm32mp1_arch_security_setup(void);
+ void stm32mp1_security_setup(void);
+ 
++bool stm32mp1_is_wakeup_from_standby(void);
++
+ void stm32mp1_syscfg_init(void);
+ void stm32mp1_syscfg_enable_io_compensation_start(void);
+ void stm32mp1_syscfg_enable_io_compensation_finish(void);
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index ea35055a8..07df6c179 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -663,6 +663,35 @@ uint32_t stm32_iwdg_shadow_update(uint32_t iwdg_inst, uint32_t flags)
+ }
+ #endif
+ 
++bool stm32mp1_is_wakeup_from_standby(void)
++{
++	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_MP_RSTSCLRR);
++#if STM32MP15
++	uintptr_t bkpr_core1_addr = tamp_bkpr(BOOT_API_CORE1_BRANCH_ADDRESS_TAMP_BCK_REG_IDX);
++	uint32_t nsec_address;
++#endif
++
++	if ((rstsr & RCC_MP_RSTSCLRR_PADRSTF) != 0U) {
++		return false;
++	}
++
++	if (stm32mp_get_boot_action() != BOOT_API_CTX_BOOT_ACTION_WAKEUP_STANDBY) {
++		return false;
++	}
++
++#if STM32MP15
++	clk_enable(RTCAPB);
++	nsec_address = mmio_read_32(bkpr_core1_addr);
++	clk_disable(RTCAPB);
++
++	if (nsec_address == 0U) {
++		return false;
++	}
++#endif
++
++	return true;
++}
++
+ uintptr_t stm32_get_bkpr_boot_mode_addr(void)
+ {
+ 	return tamp_bkpr(TAMP_BOOT_MODE_BACKUP_REG_ID);
+-- 
+2.47.2
+
