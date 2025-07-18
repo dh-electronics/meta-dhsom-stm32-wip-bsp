@@ -1,0 +1,56 @@
+From 254e0a30f68db81e83bb761f21ee92f9b561b15c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 23 Jan 2025 10:51:04 +0100
+Subject: [PATCH 132/140] mailbox: stm32-ippc: don't suspend the IPI IRQ during
+ standby
+
+The SCMI ressource are based on IPCC mailbox and are used during
+suspend/resume phase so the associated IRQ are required.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git 1664229735b42693042b0c00cbd48531abf8faff mailbox: stm32-ippc: don't suspend the IPI IRQ during standby]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I540bb7b51bf1ee0f757f2bb2b1c30efcea2f56c1
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/432663
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/mailbox/stm32-ipcc.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mailbox/stm32-ipcc.c b/drivers/mailbox/stm32-ipcc.c
+index ef9e04f086193..d23c2a22b6e64 100644
+--- a/drivers/mailbox/stm32-ipcc.c
++++ b/drivers/mailbox/stm32-ipcc.c
+@@ -375,7 +375,8 @@ static int stm32_ipcc_probe(struct platform_device *pdev)
+ 		}
+ 
+ 		ret = devm_request_threaded_irq(dev, ipcc->irqs[i], NULL,
+-						irq_thread[i], IRQF_ONESHOT,
++						irq_thread[i],
++						IRQF_ONESHOT | IRQF_NO_SUSPEND,
+ 						dev_name(dev), ipcc);
+ 		if (ret) {
+ 			dev_err(dev, "failed to request irq %lu (%d)\n", i, ret);
+@@ -499,6 +500,9 @@ static int stm32_ipcc_suspend(struct device *dev)
+ 	ipcc->xmr = readl_relaxed(ipcc->reg_proc + IPCC_XMR);
+ 	ipcc->xcr = readl_relaxed(ipcc->reg_proc + IPCC_XCR);
+ 
++	if (device_may_wakeup(dev))
++		return enable_irq_wake(ipcc->irqs[IPCC_IRQ_RX]);
++
+ 	return 0;
+ }
+ 
+@@ -509,6 +513,9 @@ static int stm32_ipcc_resume(struct device *dev)
+ 	writel_relaxed(ipcc->xmr, ipcc->reg_proc + IPCC_XMR);
+ 	writel_relaxed(ipcc->xcr, ipcc->reg_proc + IPCC_XCR);
+ 
++	if (device_may_wakeup(dev))
++		return disable_irq_wake(ipcc->irqs[IPCC_IRQ_RX]);
++
+ 	return 0;
+ }
+ #endif
+-- 
+2.51.0
+

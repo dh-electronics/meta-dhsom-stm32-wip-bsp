@@ -1,0 +1,54 @@
+From fdef629532ba5597810f1edcd0b95c830f67b512 Mon Sep 17 00:00:00 2001
+From: Fabrice Gasnier <fabrice.gasnier@foss.st.com>
+Date: Wed, 27 Nov 2024 18:34:40 +0100
+Subject: [PATCH 40/95] phy: stm32: usb2phy: fix ohci register access upon
+ resume
+
+The clock should default to active after standby, as it is needed
+when resuming OHCI root hub, to access its registers.
+
+CMN is default reset to 1 (inactive during suspend), so enforce it is
+cleared (active), when the clock enable request from OHCI driver comes
+at resume time.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git d7cd480c42e60d0118602c220311df78e5cd7537 phy: stm32: usb2phy: fix ohci register access upon resume]
+Signed-off-by: Fabrice Gasnier <fabrice.gasnier@foss.st.com>
+Change-Id: Ia2d7660c4d18fcef12097a13c3a97b571d71e5af
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/421214
+Reviewed-by: Ram DAYAL <ram.dayal@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Ram DAYAL <ram.dayal@st.com>
+---
+ drivers/phy/st/phy-stm32-usb2phy.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/phy/st/phy-stm32-usb2phy.c b/drivers/phy/st/phy-stm32-usb2phy.c
+index 5ceafe4df253c..a4c98e8ba884f 100644
+--- a/drivers/phy/st/phy-stm32-usb2phy.c
++++ b/drivers/phy/st/phy-stm32-usb2phy.c
+@@ -250,6 +250,21 @@ static int stm32_usb2phy_enable(struct stm32_usb2phy *phy_dev)
+ 		return ret;
+ 	}
+ 
++	if (phy_data->valid_mode == USB2_MODE_HOST_ONLY) {
++		/*
++		 * The clock should default to active after standby, as it is
++		 * needed when resuming OHCI to access its registers.
++		 * CMN is default reset to 1, so enforce it is cleared, when the
++		 * clock enable request from OHCI driver comes at resume time.
++		 */
++		ret = regmap_clear_bits(phy_dev->regmap, phy_data->cr_offset,
++					SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK);
++		if (ret) {
++			dev_err(dev, "can't clear CMN bit (%d)\n", ret);
++			return ret;
++		}
++	}
++
+ 	if (phy_dev->mask_trim1) {
+ 		ret = regmap_update_bits(phy_dev->regmap, phy_dev->hw_data->trim1_offset,
+ 					 phy_dev->mask_trim1, phy_dev->value_trim1);
+-- 
+2.51.0
+
