@@ -1,0 +1,91 @@
+From cd29b9934d74f3ab633ee357b5a4dfd70df7e3bb Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 11 Jun 2024 10:50:32 +0200
+Subject: [PATCH 332/572] feat(st): allow booting Linux directly
+
+Manage the flag ARM_LINUX_KERNEL_AS_BL33 in ST common.mk file.
+For STM32MP1x, put Linux at the beggining of DDR + 0x8000, and with
+max size set to 0x5FF8000.
+For STM32MP2x, just increase the max allocated size for BL33 to 128MB.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cd060b6a4b61e656c4e89d5d19ccac75af101351 feat(st): allow booting Linux directly]
+Change-Id: Ic3cde7b7ab759732d4cfe8b1a9db0196f8e4c7ba
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+---
+ plat/st/common/common.mk        | 5 +++++
+ plat/st/stm32mp1/stm32mp1_def.h | 5 +++++
+ plat/st/stm32mp2/stm32mp2_def.h | 4 ++++
+ 3 files changed, 14 insertions(+)
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index 30fb267ed3..55ee6d1cb7 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -13,6 +13,9 @@ STM32MP_UART_BAUDRATE		?=	115200
+ TRUSTED_BOARD_BOOT		?=	0
+ STM32MP_USE_EXTERNAL_HEAP	?=	0
+ 
++# Don't have the Linux kernel as a BL33 image by default
++ARM_LINUX_KERNEL_AS_BL33	:=	0
++
+ # Use secure library from the ROM code for authentication
+ STM32MP_CRYPTO_ROM_LIB		?=	0
+ 
+@@ -119,6 +122,7 @@ endif
+ # Enable flags for C files
+ $(eval $(call assert_booleans,\
+ 	$(sort \
++		ARM_LINUX_KERNEL_AS_BL33 \
+ 		PLAT_XLAT_TABLES_DYNAMIC \
+ 		STM32MP_EMMC \
+ 		STM32MP_EMMC_BOOT \
+@@ -141,6 +145,7 @@ $(eval $(call assert_numerics,\
+ 
+ $(eval $(call add_defines,\
+ 	$(sort \
++		ARM_LINUX_KERNEL_AS_BL33 \
+ 		PLAT_XLAT_TABLES_DYNAMIC \
+ 		STM32_TF_VERSION \
+ 		STM32MP_EMMC \
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index 7babe85386..2eb76c5f88 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -195,6 +195,10 @@ enum ddr_type {
+  #endif
+ #endif
+ 
++#if ARM_LINUX_KERNEL_AS_BL33
++#define STM32MP_BL33_BASE		(STM32MP_DDR_BASE + U(0x8000))
++#define STM32MP_BL33_MAX_SIZE		U(0x5FF8000)
++#else /* ARM_LINUX_KERNEL_AS_BL33 */
+ #if STM32MP13
+ #define STM32MP_BL33_BASE		STM32MP_DDR_BASE
+ #endif
+@@ -202,6 +206,7 @@ enum ddr_type {
+ #define STM32MP_BL33_BASE		(STM32MP_DDR_BASE + U(0x100000))
+ #endif
+ #define STM32MP_BL33_MAX_SIZE		U(0x400000)
++#endif /* ARM_LINUX_KERNEL_AS_BL33 */
+ 
+ /* Define location for the MTD scratch buffer */
+ #if STM32MP13
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 9a6d415471..11fc670cee 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -285,7 +285,11 @@ enum ddr_type {
+ #define STM32MP_FW_CONFIG_BASE			STM32MP_SYSRAM_BASE
+ 
+ #define STM32MP_BL33_BASE			(STM32MP_DDR_BASE + U(0x04000000))
++#if ARM_LINUX_KERNEL_AS_BL33
++#define STM32MP_BL33_MAX_SIZE			U(0x8000000)
++#else
+ #define STM32MP_BL33_MAX_SIZE			U(0x400000)
++#endif
+ #define STM32MP_HW_CONFIG_BASE			(STM32MP_BL33_BASE + \
+ 						STM32MP_BL33_MAX_SIZE)
+ #define STM32MP_HW_CONFIG_MAX_SIZE		U(0x40000)
+-- 
+2.53.0
+

@@ -1,0 +1,34 @@
+From f8c7d023acd938807909b2ec116ac08e55bb4c2c Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Mon, 4 Jul 2022 12:09:19 +0200
+Subject: [PATCH 114/572] feat(st-fmc): reset FMC2 if CFGR access is allowed
+
+FMC reset should be done only if CFGR resource access is allowed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 405b0740e84f994e5db42a3dbba7ae69710b2ed5 feat(st-fmc): reset FMC2 if CFGR access is allowed]
+Change-Id: I9a175836713aea998eba649468f4c4c7f1f8fea5
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ drivers/st/fmc/stm32_fmc2_nand.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/st/fmc/stm32_fmc2_nand.c b/drivers/st/fmc/stm32_fmc2_nand.c
+index 5d664d8cb4..9e8ce0a67f 100644
+--- a/drivers/st/fmc/stm32_fmc2_nand.c
++++ b/drivers/st/fmc/stm32_fmc2_nand.c
+@@ -1007,7 +1007,12 @@ int stm32_fmc2_init(void)
+ 	clk_enable(stm32_fmc2.clock_id);
+ 
+ 	/* Reset IP */
++#ifdef STM32MP2X
++	if ((info.reset >= 0) &&
++	    (stm32_fmc2_check_rif(FMC2_RESOURCE_CFGR) != -EACCES)) {
++#else
+ 	if (info.reset >= 0) {
++#endif
+ 		unsigned int reset_id = (unsigned int)info.reset;
+ 
+ 		ret = stm32mp_reset_assert(reset_id, TIMEOUT_US_1_MS);
+-- 
+2.53.0
+

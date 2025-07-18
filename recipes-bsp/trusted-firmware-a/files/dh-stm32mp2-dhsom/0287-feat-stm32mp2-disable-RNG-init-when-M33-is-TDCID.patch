@@ -1,0 +1,37 @@
+From af748749a5721f82abb496f482dc415e1c382544 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Mon, 7 Oct 2024 11:44:32 +0200
+Subject: [PATCH 287/572] feat(stm32mp2): disable RNG init when M33 is TDCID
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+RNG is not supposed to be directly used by TF-A when M33 is TDCID.
+Put RNG init on the STM32MP_M33_TDCID flag to avoid errors.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git aec870f1ddd7fdc08495f8ab03c3337c923c14b4 feat(stm32mp2): disable RNG init when M33 is TDCID]
+Change-Id: Ied8a5d3efef629affdd35a02311c4d21eff058bd
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 3377e7a967..1700474bd4 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -494,9 +494,11 @@ skip_console_init:
+ 	}
+ #endif
+ 
++#if !STM32MP_M33_TDCID
+ 	if (stm32_rng_init() != 0) {
+ 		panic();
+ 	}
++#endif
+ 
+ 	if (fixed_regulator_register() != 0) {
+ 		panic();
+-- 
+2.53.0
+

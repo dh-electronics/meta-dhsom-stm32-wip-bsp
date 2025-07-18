@@ -1,0 +1,386 @@
+From 6373ae88b90efca96b1092bece15a15492a2911d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 22 May 2026 13:27:18 +0200
+Subject: [PATCH 503/572] fix(st-drivers): use BIT_32/GENMASK_32 in ST drivers
+
+The ST peripherals registers are 32 bit, use explicit BIT_32/GENMASK_32
+when reading from/writing to those registers. This avoids warnings when
+the drivers are compiled for AARCH64 platforms (STM32MP2).
+For example:
+drivers/st/clk/clk-stm32-core.c:727:22: warning: implicit conversion
+ loses integer precision: 'uint64_t' (aka 'unsigned long') to 'uint32_t'
+ (aka 'unsigned int')
+      [-Wshorten-64-to-32]
+  727 |         uint32_t mask_rdy = BIT(gate->bit_idx);
+      |                  ~~~~~~~~   ^~~~~~~~~~~~~~~~~~
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 43d4ae2740450e3aa03cee1e4827e3f29b3e9cc5 fix(st-drivers): use BIT_32/GENMASK_32 in ST drivers]
+Change-Id: I2510111f8b3e3bc3382f2bc35691451393435427
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572143
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/clk/clk-stm32-core.c   | 44 +++++++++++++++----------------
+ drivers/st/clk/clk-stm32-core.h   |  4 +--
+ drivers/st/clk/clk-stm32mp2.c     | 18 ++++++-------
+ drivers/st/crypto/stm32_rng.c     |  4 +--
+ drivers/st/gpio/stm32_gpio.c      | 10 +++----
+ drivers/st/reset/stm32mp2_reset.c |  4 +--
+ drivers/st/rif/stm32_rifsc.c      |  4 +--
+ 7 files changed, 44 insertions(+), 44 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32-core.c b/drivers/st/clk/clk-stm32-core.c
+index 629bf1129f..4f565c095b 100644
+--- a/drivers/st/clk/clk-stm32-core.c
++++ b/drivers/st/clk/clk-stm32-core.c
+@@ -71,7 +71,7 @@ static int clk_gate_enable(struct stm32_clk_priv *priv, int id)
+ 	const struct clk_stm32 *clk = _clk_get(priv, id);
+ 	struct clk_gate_cfg *cfg = clk->clock_cfg;
+ 
+-	mmio_setbits_32(priv->base + cfg->offset, BIT(cfg->bit_idx));
++	mmio_setbits_32(priv->base + cfg->offset, BIT_32(cfg->bit_idx));
+ 
+ 	/* Make sure the clock register has been written */
+ 	(void)mmio_read_32(priv->base + cfg->offset);
+@@ -86,7 +86,7 @@ static void clk_gate_disable(struct stm32_clk_priv *priv, int id)
+ 
+ 	dmbsy(); /* Ensure previous transactions are performed. */
+ 
+-	mmio_clrbits_32(priv->base + cfg->offset, BIT(cfg->bit_idx));
++	mmio_clrbits_32(priv->base + cfg->offset, BIT_32(cfg->bit_idx));
+ 
+ 	/* Make sure the clock register has been written */
+ 	(void)mmio_read_32(priv->base + cfg->offset);
+@@ -97,7 +97,7 @@ static bool clk_gate_is_enabled(struct stm32_clk_priv *priv, int id)
+ 	const struct clk_stm32 *clk = _clk_get(priv, id);
+ 	struct clk_gate_cfg *cfg = clk->clock_cfg;
+ 
+-	return ((mmio_read_32(priv->base + cfg->offset) & BIT(cfg->bit_idx)) != 0U);
++	return ((mmio_read_32(priv->base + cfg->offset) & BIT_32(cfg->bit_idx)) != 0U);
+ }
+ 
+ const struct stm32_clk_ops clk_gate_ops = {
+@@ -112,9 +112,9 @@ void _clk_stm32_gate_disable(struct stm32_clk_priv *priv, uint16_t gate_id)
+ 	uintptr_t addr = priv->base + gate->offset;
+ 
+ 	if (gate->set_clr != 0U) {
+-		mmio_write_32(addr + RCC_MP_ENCLRR_OFFSET, BIT(gate->bit_idx));
++		mmio_write_32(addr + RCC_MP_ENCLRR_OFFSET, BIT_32(gate->bit_idx));
+ 	} else {
+-		mmio_clrbits_32(addr, BIT(gate->bit_idx));
++		mmio_clrbits_32(addr, BIT_32(gate->bit_idx));
+ 	}
+ }
+ 
+@@ -124,10 +124,10 @@ int _clk_stm32_gate_enable(struct stm32_clk_priv *priv, uint16_t gate_id)
+ 	uintptr_t addr = priv->base + gate->offset;
+ 
+ 	if (gate->set_clr != 0U) {
+-		mmio_write_32(addr, BIT(gate->bit_idx));
++		mmio_write_32(addr, BIT_32(gate->bit_idx));
+ 
+ 	} else {
+-		mmio_setbits_32(addr, BIT(gate->bit_idx));
++		mmio_setbits_32(addr, BIT_32(gate->bit_idx));
+ 	}
+ 
+ 	return 0;
+@@ -151,7 +151,7 @@ static const struct stm32_clk_ops *_clk_get_ops(struct stm32_clk_priv *priv, int
+ 	return priv->ops_array[clk->ops];
+ }
+ 
+-#define clk_div_mask(_width) GENMASK(((_width) - 1U), 0U)
++#define clk_div_mask(_width) GENMASK_32(((_width) - 1U), 0U)
+ 
+ static unsigned int _get_table_div(const struct clk_div_table *table,
+ 				   unsigned int val)
+@@ -176,11 +176,11 @@ static unsigned int _get_div(const struct clk_div_table *table,
+ 	}
+ 
+ 	if ((flags & CLK_DIVIDER_POWER_OF_TWO) != 0UL) {
+-		return BIT(val);
++		return BIT_32(val);
+ 	}
+ 
+ 	if ((flags & CLK_DIVIDER_MAX_AT_ZERO) != 0UL) {
+-		return (val != 0U) ? val : BIT(width);
++		return (val != 0U) ? val : BIT_32(width);
+ 	}
+ 
+ 	if (table != NULL) {
+@@ -208,7 +208,7 @@ int clk_mux_set_parent(struct stm32_clk_priv *priv, uint16_t pid, uint8_t sel)
+ 
+ 	timeout = timeout_init_us(CLKSRC_TIMEOUT);
+ 
+-	mask = BIT(mux->bitrdy);
++	mask = BIT_32(mux->bitrdy);
+ 
+ 	while ((mmio_read_32(address) & mask) == 0U) {
+ 		if (timeout_elapsed(timeout)) {
+@@ -732,7 +732,7 @@ int clk_stm32_set_div(struct stm32_clk_priv *priv, uint32_t div_id, uint32_t val
+ 	}
+ 
+ 	timeout = timeout_init_us(CLKSRC_TIMEOUT);
+-	mask = BIT(divider->bitrdy);
++	mask = BIT_32(divider->bitrdy);
+ 
+ 	while ((mmio_read_32(address) & mask) == 0U) {
+ 		if (timeout_elapsed(timeout)) {
+@@ -748,12 +748,12 @@ int _clk_stm32_gate_wait_ready(struct stm32_clk_priv *priv, uint16_t gate_id,
+ {
+ 	const struct gate_cfg *gate = &priv->gates[gate_id];
+ 	uintptr_t address = priv->base + gate->offset;
+-	uint32_t mask_rdy = BIT(gate->bit_idx);
++	uint32_t mask_rdy = BIT_32(gate->bit_idx);
+ 	uint64_t timeout;
+ 	uint32_t mask_test;
+ 
+ 	if (ready_on) {
+-		mask_test = BIT(gate->bit_idx);
++		mask_test = BIT_32(gate->bit_idx);
+ 	} else {
+ 		mask_test = 0U;
+ 	}
+@@ -781,10 +781,10 @@ int clk_stm32_gate_enable(struct stm32_clk_priv *priv, int id)
+ 	uintptr_t addr = priv->base + gate->offset;
+ 
+ 	if (gate->set_clr != 0U) {
+-		mmio_write_32(addr, BIT(gate->bit_idx));
++		mmio_write_32(addr, BIT_32(gate->bit_idx));
+ 
+ 	} else {
+-		mmio_setbits_32(addr, BIT(gate->bit_idx));
++		mmio_setbits_32(addr, BIT_32(gate->bit_idx));
+ 	}
+ 
+ 	return 0;
+@@ -798,21 +798,21 @@ void clk_stm32_gate_disable(struct stm32_clk_priv *priv, int id)
+ 	uintptr_t addr = priv->base + gate->offset;
+ 
+ 	if (gate->set_clr != 0U) {
+-		mmio_write_32(addr + RCC_MP_ENCLRR_OFFSET, BIT(gate->bit_idx));
++		mmio_write_32(addr + RCC_MP_ENCLRR_OFFSET, BIT_32(gate->bit_idx));
+ 	} else {
+-		mmio_clrbits_32(addr, BIT(gate->bit_idx));
++		mmio_clrbits_32(addr, BIT_32(gate->bit_idx));
+ 	}
+ }
+ 
+ bool _clk_stm32_gate_is_enabled(struct stm32_clk_priv *priv, int gate_id)
+ {
+ 	const struct gate_cfg *gate;
+-	uint32_t addr;
++	uintptr_t addr;
+ 
+ 	gate = &priv->gates[gate_id];
+ 	addr = priv->base + gate->offset;
+ 
+-	return ((mmio_read_32(addr) & BIT(gate->bit_idx)) != 0U);
++	return ((mmio_read_32(addr) & BIT_32(gate->bit_idx)) != 0U);
+ }
+ 
+ bool clk_stm32_gate_is_enabled(struct stm32_clk_priv *priv, int id)
+@@ -850,8 +850,8 @@ unsigned long fixed_factor_recalc_rate(struct stm32_clk_priv *priv,
+ 	return (unsigned long)(rate / cfg->div);
+ };
+ 
+-#define APB_DIV_MASK	GENMASK(2, 0)
+-#define TIM_PRE_MASK	BIT(0)
++#define APB_DIV_MASK	GENMASK_32(2, 0)
++#define TIM_PRE_MASK	BIT_32(0)
+ 
+ static unsigned long timer_recalc_rate(struct stm32_clk_priv *priv,
+ 				       int id, unsigned long prate)
+diff --git a/drivers/st/clk/clk-stm32-core.h b/drivers/st/clk/clk-stm32-core.h
+index 8f654d955b..0f88785944 100644
+--- a/drivers/st/clk/clk-stm32-core.h
++++ b/drivers/st/clk/clk-stm32-core.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2022-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2022-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+  */
+@@ -139,7 +139,7 @@ struct clk_gate_cfg {
+ #define DIV_NO_BIT_RDY			UINT8_MAX
+ 
+ #define MASK_WIDTH_SHIFT(_width, _shift) \
+-	GENMASK(((_width) + (_shift) - 1U), (_shift))
++	GENMASK_32(((_width) + (_shift) - 1U), (_shift))
+ 
+ void clk_stm32_rcc_regs_lock(void);
+ void clk_stm32_rcc_regs_unlock(void);
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index 0dc834bb61..39fd9dcbb9 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2024, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2024-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+  */
+@@ -755,11 +755,11 @@ static void clk_oscillator_set_bypass(struct stm32_clk_priv *priv, int id,
+ 	address = priv->base + bypass_data->offset;
+ 
+ 	if (digbyp) {
+-		mmio_setbits_32(address, BIT(bypass_data->bit_digbyp));
++		mmio_setbits_32(address, BIT_32(bypass_data->bit_digbyp));
+ 	}
+ 
+ 	if (bypass || digbyp) {
+-		mmio_setbits_32(address, BIT(bypass_data->bit_byp));
++		mmio_setbits_32(address, BIT_32(bypass_data->bit_byp));
+ 	}
+ }
+ 
+@@ -778,7 +778,7 @@ static void clk_oscillator_set_css(struct stm32_clk_priv *priv, int id,
+ 	address = priv->base + css_data->offset;
+ 
+ 	if (css) {
+-		mmio_setbits_32(address, BIT(css_data->bit_css));
++		mmio_setbits_32(address, BIT_32(css_data->bit_css));
+ 	}
+ }
+ 
+@@ -798,7 +798,7 @@ static void clk_oscillator_set_drive(struct stm32_clk_priv *priv, int id,
+ 
+ 	address = priv->base + drive_data->offset;
+ 
+-	mask = (BIT(drive_data->drv_width) - 1U) <<  drive_data->drv_shift;
++	mask = (BIT_32(drive_data->drv_width) - 1U) <<  drive_data->drv_shift;
+ 
+ 	/*
+ 	 * Warning: not recommended to switch directly from "high drive"
+@@ -2184,10 +2184,10 @@ static int wait_predivsr(uint16_t channel)
+ 
+ 	if (channel < __WORD_BIT) {
+ 		previvsr = rcc_base + RCC_PREDIVSR1;
+-		channel_bit = BIT(channel);
++		channel_bit = BIT_32(channel);
+ 	} else {
+ 		previvsr = rcc_base + RCC_PREDIVSR2;
+-		channel_bit = BIT(channel - __WORD_BIT);
++		channel_bit = BIT_32(channel - __WORD_BIT);
+ 	}
+ 
+ 	timeout = timeout_init_us(CLKDIV_TIMEOUT);
+@@ -2213,10 +2213,10 @@ static int wait_findivsr(uint16_t channel)
+ 
+ 	if (channel < __WORD_BIT) {
+ 		finvivsr = rcc_base + RCC_FINDIVSR1;
+-		channel_bit = BIT(channel);
++		channel_bit = BIT_32(channel);
+ 	} else {
+ 		finvivsr = rcc_base + RCC_FINDIVSR2;
+-		channel_bit = BIT(channel - __WORD_BIT);
++		channel_bit = BIT_32(channel - __WORD_BIT);
+ 	}
+ 
+ 	timeout = timeout_init_us(CLKDIV_TIMEOUT);
+diff --git a/drivers/st/crypto/stm32_rng.c b/drivers/st/crypto/stm32_rng.c
+index 6ea9d600c2..e8a1f4e219 100644
+--- a/drivers/st/crypto/stm32_rng.c
++++ b/drivers/st/crypto/stm32_rng.c
+@@ -386,14 +386,14 @@ int stm32_rng_init(void)
+ 
+ 		if (dt_rng.reset >= 0) {
+ 
+-			ret = stm32mp_reset_assert((unsigned long)dt_rng.reset, TIMEOUT_US_1MS);
++			ret = stm32mp_reset_assert((uint32_t)dt_rng.reset, TIMEOUT_US_1MS);
+ 			if (ret != 0) {
+ 				panic();
+ 			}
+ 
+ 			udelay(20);
+ 
+-			ret = stm32mp_reset_deassert((unsigned long)dt_rng.reset, TIMEOUT_US_1MS);
++			ret = stm32mp_reset_deassert((uint32_t)dt_rng.reset, TIMEOUT_US_1MS);
+ 			if (ret != 0) {
+ 				panic();
+ 			}
+diff --git a/drivers/st/gpio/stm32_gpio.c b/drivers/st/gpio/stm32_gpio.c
+index c8f7662446..2bec0f24e0 100644
+--- a/drivers/st/gpio/stm32_gpio.c
++++ b/drivers/st/gpio/stm32_gpio.c
+@@ -312,9 +312,9 @@ void set_gpio_secure_cfg(uint32_t bank, uint32_t pin, bool secure)
+ 	clk_enable(clock);
+ 
+ 	if (secure) {
+-		mmio_setbits_32(base + GPIO_SECR_OFFSET, BIT(pin));
++		mmio_setbits_32(base + GPIO_SECR_OFFSET, BIT_32(pin));
+ 	} else {
+-		mmio_clrbits_32(base + GPIO_SECR_OFFSET, BIT(pin));
++		mmio_clrbits_32(base + GPIO_SECR_OFFSET, BIT_32(pin));
+ 	}
+ 
+ 	clk_disable(clock);
+@@ -338,9 +338,9 @@ void set_gpio_level(uint32_t bank, uint32_t pin, enum gpio_level level)
+ 	clk_enable(clock);
+ 
+ 	if (level == GPIO_LEVEL_HIGH) {
+-		mmio_write_32(base + GPIO_BSRR_OFFSET, BIT(pin));
++		mmio_write_32(base + GPIO_BSRR_OFFSET, BIT_32(pin));
+ 	} else {
+-		mmio_write_32(base + GPIO_BSRR_OFFSET, BIT(pin + 16U));
++		mmio_write_32(base + GPIO_BSRR_OFFSET, BIT_32(pin + 16U));
+ 	}
+ 
+ 	VERBOSE("GPIO %u level set to 0x%x\n", bank,
+@@ -359,7 +359,7 @@ enum gpio_level get_gpio_level(uint32_t bank, uint32_t pin)
+ 
+ 	clk_enable(clock);
+ 
+-	if (mmio_read_32(base + GPIO_IDR_OFFSET) & BIT(pin)) {
++	if (mmio_read_32(base + GPIO_IDR_OFFSET) & BIT_32(pin)) {
+ 		level = GPIO_LEVEL_HIGH;
+ 	}
+ 
+diff --git a/drivers/st/reset/stm32mp2_reset.c b/drivers/st/reset/stm32mp2_reset.c
+index fe5920696a..bb69afa8f8 100644
+--- a/drivers/st/reset/stm32mp2_reset.c
++++ b/drivers/st/reset/stm32mp2_reset.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2024, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2024-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -28,7 +28,7 @@ static uint8_t id2reg_bit_pos(unsigned int reset_id)
+ static int reset_toggle(uint32_t id, unsigned int to_us, bool reset_status)
+ {
+ 	uint32_t offset = id2reg_offset(id);
+-	uint32_t bitmsk = BIT(id2reg_bit_pos(id));
++	uint32_t bitmsk = BIT_32(id2reg_bit_pos(id));
+ 	uint32_t bit_check;
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+ 
+diff --git a/drivers/st/rif/stm32_rifsc.c b/drivers/st/rif/stm32_rifsc.c
+index 902b9acc34..e3bd1d1b77 100644
+--- a/drivers/st/rif/stm32_rifsc.c
++++ b/drivers/st/rif/stm32_rifsc.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -175,7 +175,7 @@ void stm32_rifsc_ip_configure(int rimu_id, int rifsc_id, uint32_t param)
+ 	assert(rifsc_id < STM32MP25_RIFSC_MAX_ID);
+ #endif /* STM32MP25 */
+ 
+-	bit = BIT(rifsc_id % U(32));
++	bit = BIT_32(rifsc_id % U(32));
+ 
+ 	/* Set peripheral accesses to Secure/Privilege only */
+ 	mmio_setbits_32(RIFSC_BASE + _RIFSC_RISC_SECCFGR(rifsc_id), bit);
+-- 
+2.53.0
+

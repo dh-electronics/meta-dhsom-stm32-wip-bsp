@@ -1,0 +1,115 @@
+From f522cf32c90f6c87d445506d0171a3ccd00d6c8d Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 10 Jun 2026 09:58:15 +0200
+Subject: [PATCH 511/572] fix(st-pmic): remove stm32mp_pmic2.h
+
+Remove the file stm32mp_pmic2.h as the API are common between
+STPMIC1 and STPMIC2 driver and are defined in drivers/st/stm32mp_pmic.h
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a1d97d68979f54203284f37656e41530471dd252 fix(st-pmic): remove stm32mp_pmic2.h]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ifdf0eee685b8728018ada202baa3891736eb47e7
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/577279
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic2.c    |  2 +-
+ include/drivers/st/stm32mp_pmic.h  |  3 ++
+ include/drivers/st/stm32mp_pmic2.h | 44 ------------------------------
+ plat/st/stm32mp2/bl2_plat_setup.c  |  2 +-
+ 4 files changed, 5 insertions(+), 46 deletions(-)
+ delete mode 100644 include/drivers/st/stm32mp_pmic2.h
+
+diff --git a/drivers/st/pmic/stm32mp_pmic2.c b/drivers/st/pmic/stm32mp_pmic2.c
+index f4c0036c40..57f34905ef 100644
+--- a/drivers/st/pmic/stm32mp_pmic2.c
++++ b/drivers/st/pmic/stm32mp_pmic2.c
+@@ -11,7 +11,7 @@
+ #include <drivers/delay_timer.h>
+ #include <drivers/st/regulator.h>
+ #include <drivers/st/stm32_i2c.h>
+-#include <drivers/st/stm32mp_pmic2.h>
++#include <drivers/st/stm32mp_pmic.h>
+ #include <drivers/st/stpmic2.h>
+ #include <lib/mmio.h>
+ #include <lib/spinlock.h>
+diff --git a/include/drivers/st/stm32mp_pmic.h b/include/drivers/st/stm32mp_pmic.h
+index cd185497d1..e810767e9f 100644
+--- a/include/drivers/st/stm32mp_pmic.h
++++ b/include/drivers/st/stm32mp_pmic.h
+@@ -2,6 +2,9 @@
+  * Copyright (c) 2017-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
++ *
++ * Generic API of PMIC drivers used by STM32MP series
++ * (STPMIC1 or STPMCI2 family = STPMIC25 STPMIC2L STPMIC1L)
+  */
+ 
+ #ifndef STM32MP_PMIC_H
+diff --git a/include/drivers/st/stm32mp_pmic2.h b/include/drivers/st/stm32mp_pmic2.h
+deleted file mode 100644
+index 65f9502e15..0000000000
+--- a/include/drivers/st/stm32mp_pmic2.h
++++ /dev/null
+@@ -1,44 +0,0 @@
+-/*
+- * Copyright (c) 2024, STMicroelectronics - All Rights Reserved
+- *
+- * SPDX-License-Identifier: BSD-3-Clause
+- */
+-
+-#ifndef STM32MP_PMIC2_H
+-#define STM32MP_PMIC2_H
+-
+-#include <stdbool.h>
+-#include <drivers/st/regulator.h>
+-
+-#include <platform_def.h>
+-
+-/*
+- * dt_pmic_status - Check PMIC status from device tree
+- *
+- * Returns the status of the PMIC (secure, non-secure), or a negative value on
+- * error
+- */
+-int dt_pmic_status(void);
+-
+-/*
+- * initialize_pmic_i2c - Initialize I2C for the PMIC control
+- *
+- * Returns true if PMIC is available, false if not found, panics on errors
+- */
+-bool initialize_pmic_i2c(void);
+-
+-/*
+- * initialize_pmic - Main PMIC initialization function, called at platform init
+- *
+- * Panics on errors
+- */
+-void initialize_pmic(void);
+-
+-/*
+- * pmic_switch_off - switch off the platform with PMIC
+- *
+- * Panics on errors
+- */
+-void pmic_switch_off(void);
+-
+-#endif /* STM32MP_PMIC2_H */
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 68b928f040..f3d776a602 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -24,7 +24,7 @@
+ #include <drivers/st/stm32mp2_ddr_helpers.h>
+ #include <drivers/st/stm32mp2_ram.h>
+ #include <drivers/st/stm32mp2_risaf.h>
+-#include <drivers/st/stm32mp_pmic2.h>
++#include <drivers/st/stm32mp_pmic.h>
+ #include <drivers/st/stm32mp_reset.h>
+ #include <drivers/st/stm32mp_risab_regs.h>
+ #include <lib/fconf/fconf.h>
+-- 
+2.53.0
+

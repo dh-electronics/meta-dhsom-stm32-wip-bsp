@@ -1,0 +1,52 @@
+From 383cf0a9b138ff00d41497c8f46c5146cdb0bbfa Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 26 Feb 2026 09:35:02 +0100
+Subject: [PATCH 442/572] fix(stm32mp2): add a check on fdt_get_address when
+ saving PM context
+
+There was no check on fdt_get_address() return. That could lead to an
+uninitialized value in fdt if the function was returning an error.
+Put the call to fdt_get_address() function  at the beginning of
+stm32_pm_context_save() to avoid enabling the BACKUP_CTX_CLK in case of
+error.
+This issue was found with Coverity analysis (unchecked_return_value).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9a0fa485fbfe9c78ca8c1d18819df14f36f4769a fix(stm32mp2): add a check on fdt_get_address when saving PM context]
+Change-Id: I39ae655853b898c1c0a6951fb10bb5f71beff191
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/541285
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_context.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_context.c b/plat/st/stm32mp2/stm32mp2_context.c
+index a8706a0cb7..23db225c8f 100644
+--- a/plat/st/stm32mp2/stm32mp2_context.c
++++ b/plat/st/stm32mp2/stm32mp2_context.c
+@@ -149,6 +149,11 @@ void stm32_pm_context_save(const psci_power_state_t *state, const void *data, si
+ 	struct backup_data_s *backup_data;
+ 	void *fdt = NULL;
+ 
++	if (fdt_get_address(&fdt) == 0) {
++		ERROR("Cannot get BL31 DT address\n");
++		panic();
++	}
++
+ 	clk_enable(BACKUP_CTX_CLK);
+ 	backup_data = (struct backup_data_s *)BACKUP_CTX_ADDR;
+ 
+@@ -179,7 +184,6 @@ void stm32_pm_context_save(const psci_power_state_t *state, const void *data, si
+ 	memcpy(&backup_data->standby_pwr_state, state, sizeof(psci_power_state_t));
+ 	backup_data->psci_suspend_mode = psci_suspend_mode;
+ 
+-	fdt_get_address(&fdt);
+ 	backup_data->fdt_bl31 = (uintptr_t)fdt;
+ 
+ 	/* Copy other data in Backup SRAM */
+-- 
+2.53.0
+

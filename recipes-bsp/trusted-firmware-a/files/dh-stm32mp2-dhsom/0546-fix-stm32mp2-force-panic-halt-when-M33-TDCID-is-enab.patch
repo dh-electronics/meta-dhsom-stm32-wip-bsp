@@ -1,0 +1,43 @@
+From 5c218358b0518e579f0e03d3b22a054f5351720d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 7 Jul 2026 11:26:57 +0200
+Subject: [PATCH 546/572] fix(stm32mp2): force panic halt when M33 TDCID is
+ enabled
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With STM32MP_M33_TDCID=1, BL2 cannot perform a system reset on panic.
+Force STM32MP_HALT_ON_PANIC=1 in build configuration so panic handling
+always halts in this mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 67bacef68e3bae36757c904f075bfb4bf4b42e6d fix(stm32mp2): force panic halt when M33 TDCID is enabled]
+Change-Id: I4c46a46c9d81ca750488025f826631aaafc67752
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/586119
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/platform.mk | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 31f0cf1dea..ec486318ca 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -6,6 +6,13 @@
+ 
+ STM32MP_M33_TDCID		?=	0
+ 
++ifeq (${STM32MP_M33_TDCID},1)
++ifeq (${STM32MP_HALT_ON_PANIC},0)
++$(warning Forcing STM32MP_HALT_ON_PANIC=1: reset-on-panic is not supported with STM32MP_M33_TDCID=1)
++endif
++override STM32MP_HALT_ON_PANIC	:=	1
++endif
++
+ # Extra partitions used to find FIP, contains:
+ ifeq (${STM32MP_M33_TDCID},1)
+ # fsbl-m (2), m33ddr (2), m33lp (2), m33fw (2), metadata (2) and the
+-- 
+2.53.0
+

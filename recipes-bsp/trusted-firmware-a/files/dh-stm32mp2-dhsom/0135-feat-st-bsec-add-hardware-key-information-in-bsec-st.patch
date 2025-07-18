@@ -1,0 +1,50 @@
+From efd9030136ea2fefef83483450f129a68e63336b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 3 Dec 2024 11:03:43 +0100
+Subject: [PATCH 135/572] feat(st-bsec): add hardware key information in bsec
+ state for STM32MP2
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+add a flag in bsec state to indicate if hardware key is valid
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a0e070223cdf7a35cfebec7ac527298628231c6d feat(st-bsec): add hardware key information in bsec state for STM32MP2]
+Change-Id: I3c597314a8d58e5ce85da772827278441d72b4ae
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+---
+ drivers/st/bsec/bsec3.c   | 4 ++++
+ include/drivers/st/bsec.h | 2 ++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/drivers/st/bsec/bsec3.c b/drivers/st/bsec/bsec3.c
+index 89c6450753..ba37c21dba 100644
+--- a/drivers/st/bsec/bsec3.c
++++ b/drivers/st/bsec/bsec3.c
+@@ -473,6 +473,10 @@ uint32_t bsec_get_secure_state(void)
+ 		}
+ 	}
+ 
++	if ((bsec_sr & BSEC_SR_HVALID) != 0U) {
++		state |= BSEC_HARDWARE_KEY;
++	}
++
+ 	return state;
+ }
+ 
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index 4a1517af36..5db74d281b 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -40,6 +40,8 @@
+ #define BSEC_STATE_INVALID		U(0x3)
+ #define BSEC_STATE_MASK			GENMASK_32(1, 0)
+ 
++#define BSEC_HARDWARE_KEY		BIT_32(8)
++
+ uint32_t bsec_probe(void);
+ 
+ uint32_t bsec_read_otp(uint32_t *val, uint32_t otp);
+-- 
+2.53.0
+

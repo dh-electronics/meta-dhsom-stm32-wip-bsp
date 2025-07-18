@@ -1,0 +1,70 @@
+From b88ba292db5010b08c19dc280af80f36e55c29c8 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 7 Nov 2025 10:45:06 +0100
+Subject: [PATCH 002/572] refactor(st): simplify rule to build .stm32 file
+
+Instead of using substitution for STM32_TF_ELF_LDFLAGS, directly use
+ld_prefix helper.
+Use TF_LDFLAGS to avoid adding -nostartfiles and -no-pie options.
+Add -static to STM32_TF_ELF_LDFLAGS options, and --build-id=none is
+already handled with TF_LDFLAGS.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 14b455de36d697e40306c0d23be424cd37342c78 refactor(st): simplify rule to build .stm32 file]
+Change-Id: I6d64b524d98701007aabf150b5c8229799e663d3
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ plat/st/common/common.mk       | 7 +++++--
+ plat/st/common/common_rules.mk | 8 ++------
+ 2 files changed, 7 insertions(+), 8 deletions(-)
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index 0bedb72246..0cb1feb277 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -1,5 +1,5 @@
+ #
+-# Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
++# Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+ # Copyright (c) 2025, Arm Limited and Contributors. All rights reserved.
+ #
+ # SPDX-License-Identifier: BSD-3-Clause
+@@ -73,8 +73,11 @@ DTC_FLAGS			+=	-Wno-interrupt_provider
+ endif
+ 
+ # Macros and rules to build TF binary
+-STM32_TF_ELF_LDFLAGS		:=	--hash-style=gnu --as-needed
+ STM32_TF_LINKERFILE		:=	${BUILD_PLAT}/${PLAT}.ld
++STM32_TF_ELF_LDFLAGS		:=	$(call ld_prefix,--hash-style=gnu)
++STM32_TF_ELF_LDFLAGS		+=	$(call ld_prefix,--as-needed)
++STM32_TF_ELF_LDFLAGS		+=	$(call ld_prefix,--script ${STM32_TF_LINKERFILE})
++STM32_TF_ELF_LDFLAGS		+=	-static
+ 
+ ASFLAGS				+=	-DBL2_BIN_PATH=\"${BUILD_PLAT}/bl2.bin\"
+ 
+diff --git a/plat/st/common/common_rules.mk b/plat/st/common/common_rules.mk
+index acd0abd60c..8557e0c6d6 100644
+--- a/plat/st/common/common_rules.mk
++++ b/plat/st/common/common_rules.mk
+@@ -1,5 +1,5 @@
+ #
+-# Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
++# Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+ #
+ # SPDX-License-Identifier: BSD-3-Clause
+ #
+@@ -56,11 +56,7 @@ $(eval $(call MAKE_LD,${STM32_TF_LINKERFILE},$(STM32_LD_FILE),bl2))
+ 
+ tf-a-%.elf: $(PLAT)-%.o ${STM32_TF_LINKERFILE}
+ 	$(s)echo "  LDS     $<"
+-ifeq ($($(ARCH)-ld-id),gnu-gcc)
+-	$(q)$($(ARCH)-ld) -o $@ $(subst --,-Wl$(comma)--,${STM32_TF_ELF_LDFLAGS}) -nostartfiles -static -Wl,--build-id=none -Wl,-Map=$(@:.elf=.map) -Wl,-dT ${STM32_TF_LINKERFILE} $<
+-else
+-	$(q)$($(ARCH)-ld) -o $@ ${STM32_TF_ELF_LDFLAGS} -static --build-id=none -Map=$(@:.elf=.map) --script ${STM32_TF_LINKERFILE} $<
+-endif
++	$(q)$($(ARCH)-ld) -o $@ ${STM32_TF_ELF_LDFLAGS} $(TF_LDFLAGS) $(call ld_prefix,-Map=$(@:.elf=.map)) $<
+ 
+ tf-a-%.bin: tf-a-%.elf
+ 	$(q)$($(ARCH)-oc) -O binary $< $@
+-- 
+2.53.0
+

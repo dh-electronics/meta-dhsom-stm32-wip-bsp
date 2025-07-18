@@ -1,0 +1,160 @@
+From 7cb26e00b5a0a7df1f93ea680e820f7d29e7d27c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 3 Dec 2024 14:49:46 +0100
+Subject: [PATCH 136/572] refactor(st-bsec): fix bsec state initialisation
+
+The value returned by bsec_get_state() give the status of BSEC.
+BSEC peripheral should always be closed.
+BSEC open is not supported by OpenSTLinux.
+
+Remove function bsec_mode_is_closed_device() as it does the same as
+stm32_otp_is_closed_device().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1f83c5a853d2ea3b57614b426fa12154d7e7fc55 refactor(st-bsec): fix bsec state initialisation]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: If391bb78f1868955e170e635ace397c01be4e0d6
+---
+ drivers/st/bsec/bsec2.c                     | 27 ++++++---------------
+ drivers/st/bsec/bsec3.c                     | 17 ++++++-------
+ include/drivers/st/bsec.h                   | 21 ++++++----------
+ plat/st/stm32mp2/include/stm32mp2_private.h |  2 +-
+ 4 files changed, 25 insertions(+), 42 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index db07d1c5cd..ff48eaccb4 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -822,28 +822,17 @@ uint32_t bsec_check_nsec_access_rights(uint32_t otp)
+ }
+ #endif
+ 
+-uint32_t bsec_get_secure_state(void)
++uint32_t bsec_get_state(void)
+ {
+ 	uint32_t status = bsec_get_status();
+-	uint32_t result = BSEC_STATE_INVALID;
+-	uint32_t otp_enc_id __maybe_unused;
+-	uint32_t otp_bit_len __maybe_unused;
+-	int res __maybe_unused;
+ 
+-	if ((status & BSEC_OTP_STATUS_INVALID) != 0U) {
+-		result = BSEC_STATE_INVALID;
+-	} else {
+-		if ((status & BSEC_OTP_STATUS_SECURE) != 0U) {
+-			if (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) {
+-				result = BSEC_STATE_SEC_CLOSED;
+-			} else {
+-				result = BSEC_STATE_SEC_OPEN;
+-			}
+-		} else {
+-			/* OTP modes OPEN1 and OPEN2 are not supported */
+-			result = BSEC_STATE_INVALID;
+-		}
++	if ((status & BSEC_OTP_STATUS_INVALID) == BSEC_OTP_STATUS_INVALID) {
++		return BSEC_STATE_INVALID;
+ 	}
+ 
+-	return result;
++	if ((status & BSEC_OTP_STATUS_SECURE) == BSEC_OTP_STATUS_SECURE) {
++		return BSEC_STATE_CLOSED;
++	}
++
++	return BSEC_STATE_INVALID;
+ }
+diff --git a/drivers/st/bsec/bsec3.c b/drivers/st/bsec/bsec3.c
+index ba37c21dba..8bc2b9bc0b 100644
+--- a/drivers/st/bsec/bsec3.c
++++ b/drivers/st/bsec/bsec3.c
+@@ -451,10 +451,10 @@ uint32_t bsec_read_sp_lock(uint32_t otp, bool *value)
+ }
+ 
+ /*
+- * bsec_get_secure_state: read state in BSEC status register.
+- * return: secure state
++ * bsec_get_state: read state in BSEC status register.
++ * return: bsec state
+  */
+-uint32_t bsec_get_secure_state(void)
++uint32_t bsec_get_state(void)
+ {
+ 	uint32_t state = BSEC_STATE_INVALID;
+ 	uint32_t status = bsec_get_status();
+@@ -462,14 +462,13 @@ uint32_t bsec_get_secure_state(void)
+ 
+ 	if ((status & BSEC_OTPSR_INIT_DONE) == BSEC_OTPSR_INIT_DONE) {
+ 		/* NVSTATE is only valid if INIT_DONE */
+-		uint32_t nvstates = (bsec_sr & BSEC_SR_NVSTATE_MASK) >> BSEC_SR_NVSTATE_SHIFT;
++		uint32_t nvstate = (bsec_sr & BSEC_SR_NVSTATE_MASK) >>
++				   BSEC_SR_NVSTATE_SHIFT;
+ 
+-		if (nvstates == BSEC_SR_NVSTATE_OPEN) {
+-			state = BSEC_STATE_SEC_OPEN;
+-		} else if (nvstates == BSEC_SR_NVSTATE_CLOSED) {
+-			state = BSEC_STATE_SEC_CLOSED;
++		if (nvstate != BSEC_SR_NVSTATE_CLOSED) {
++			ERROR("BSEC invalid nvstate %#x\n", nvstate);
+ 		} else {
+-			VERBOSE("%s nvstates = %u\n", __func__, nvstates);
++			state = BSEC_STATE_CLOSED;
+ 		}
+ 	}
+ 
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index 5db74d281b..6e022d5c1b 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -27,18 +27,17 @@
+ #define BSEC_WRITE_LOCKED		0xFFFFFFF6U
+ 
+ /*
+- * get BSEC global state: result for bsec_get_secure_state()
++ * get BSEC global state: result for bsec_get_state()
++ * BSEC open is considered invalid in OSTL use case.
+  * @state: global state
+  *           [1:0] BSEC state
+- *             00b: Sec Open
+- *             01b: Sec Closed
+- *             11b: Invalid
++ *             0b: Closed
++ *             1b: Invalid
+  *           [8]: Hardware Key set = 1b
+  */
+-#define BSEC_STATE_SEC_OPEN		U(0x0)
+-#define BSEC_STATE_SEC_CLOSED		U(0x1)
+-#define BSEC_STATE_INVALID		U(0x3)
+-#define BSEC_STATE_MASK			GENMASK_32(1, 0)
++#define BSEC_STATE_CLOSED		U(0x0)
++#define BSEC_STATE_INVALID		U(0x1)
++#define BSEC_STATE_MASK			BIT(0)
+ 
+ #define BSEC_HARDWARE_KEY		BIT_32(8)
+ 
+@@ -61,11 +60,7 @@ uint32_t bsec_read_sw_lock(uint32_t otp, bool *value);
+ uint32_t bsec_set_sp_lock(uint32_t otp);
+ uint32_t bsec_read_sp_lock(uint32_t otp, bool *value);
+ 
+-uint32_t bsec_get_secure_state(void);
+-static inline bool bsec_mode_is_closed_device(void)
+-{
+-	return (bsec_get_secure_state() & BSEC_STATE_MASK) == BSEC_STATE_SEC_CLOSED;
+-}
++uint32_t bsec_get_state(void);
+ 
+ #if defined(IMAGE_BL32)
+ uint32_t bsec_permanent_lock_otp(uint32_t otp);
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index cd3b46cb5a..9670af8258 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -77,7 +77,7 @@ static inline uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value)
+ 
+ static inline bool stm32_otp_is_closed_device(void)
+ {
+-	return bsec_mode_is_closed_device();
++	return (bsec_get_state() & BSEC_STATE_MASK) == BSEC_STATE_CLOSED;
+ }
+ 
+ void stm32mp_ca35_set_vbar(uintptr_t vbar);
+-- 
+2.53.0
+

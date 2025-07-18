@@ -1,0 +1,122 @@
+From 5ff0ad716f020d8f44895c914dd7686455d18473 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 20 Sep 2023 16:15:49 +0200
+Subject: [PATCH 203/572] feat(stm32mp2): add OTP functions M33 TDCID
+
+Add new functions stm32_otp_* functions in a dedicated file, for the
+case where Cortex-M33 is TDCID, and then BSEC cannot be accessed.
+For the moment, they are empty and just return BSEC_OK.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 87c1c849d1f8e1f0340a7fda5d03b1146028f5c0 feat(stm32mp2): add OTP functions M33 TDCID]
+Change-Id: Ic51524122e122e53853173bae4bb260616a2c83d
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/include/stm32mp2_private.h | 10 +++++
+ plat/st/stm32mp2/platform.mk                |  9 +++-
+ plat/st/stm32mp2/stm32mp2_otp.c             | 46 +++++++++++++++++++++
+ 3 files changed, 63 insertions(+), 2 deletions(-)
+ create mode 100644 plat/st/stm32mp2/stm32mp2_otp.c
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index 5a4e66ef0f..0c98b430f0 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -54,6 +54,7 @@ size_t stm32_risaf_get_memory_size(int instance);
+ uintptr_t stm32_ddrdbg_get_base(void);
+ 
+ /* Wrappers for OTP / BSEC functions */
++#if !STM32MP_M33_TDCID
+ static inline uint32_t stm32_otp_probe(void)
+ {
+ 	return bsec_probe();
+@@ -88,6 +89,15 @@ static inline bool stm32_is_bsec_closed(void)
+ {
+ 	return (bsec_get_state() & BSEC_STATE_MASK) == BSEC_STATE_CLOSED;
+ }
++#else /* STM32MP_M33_TDCID */
++uint32_t stm32_otp_probe(void);
++uint32_t stm32_otp_read(uint32_t *val, uint32_t otp);
++uint32_t stm32_otp_shadow_read(uint32_t *val, uint32_t otp);
++uint32_t stm32_otp_write(uint32_t val, uint32_t otp);
++uint32_t stm32_otp_set_sr_lock(uint32_t otp);
++uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value);
++bool stm32_is_bsec_closed(void);
++#endif /* STM32MP_M33_TDCID */
+ 
+ void stm32mp_ca35_set_vbar(uintptr_t vbar);
+ 
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 390a5000b1..28df45b174 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -258,8 +258,13 @@ PLAT_BL_COMMON_SOURCES		+=	drivers/st/i2c/stm32_i2c.c
+ 
+ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_private.c
+ 
+-PLAT_BL_COMMON_SOURCES		+=	drivers/st/bsec/bsec3.c					\
+-					drivers/st/iwdg/stm32_iwdg.c				\
++ifeq ($(STM32MP_M33_TDCID),0)
++PLAT_BL_COMMON_SOURCES		+=	drivers/st/bsec/bsec3.c
++else
++PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_otp.c
++endif
++
++PLAT_BL_COMMON_SOURCES		+=	drivers/st/iwdg/stm32_iwdg.c				\
+ 					drivers/st/reset/stm32mp2_reset.c			\
+ 					plat/st/stm32mp2/stm32mp2_pwr.c				\
+ 					plat/st/stm32mp2/stm32mp2_syscfg.c
+diff --git a/plat/st/stm32mp2/stm32mp2_otp.c b/plat/st/stm32mp2/stm32mp2_otp.c
+new file mode 100644
+index 0000000000..9aa18a84fb
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_otp.c
+@@ -0,0 +1,46 @@
++/*
++ * Copyright (C) 2023-2024, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <platform_def.h>
++
++uint32_t stm32_otp_probe(void)
++{
++	return BSEC_OK;
++}
++
++uint32_t stm32_otp_read(uint32_t *val, uint32_t otp)
++{
++	return BSEC_OK;
++}
++
++uint32_t stm32_otp_shadow_read(uint32_t *val, uint32_t otp)
++{
++	return BSEC_OK;
++}
++
++uint32_t stm32_otp_write(uint32_t val, uint32_t otp)
++{
++	return BSEC_OK;
++}
++
++uint32_t stm32_otp_set_sr_lock(uint32_t otp)
++{
++	return BSEC_OK;
++}
++
++uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value)
++{
++	return BSEC_OK;
++}
++
++bool stm32_is_bsec_closed(void)
++{
++	/*
++	 * As we cannot check BSEC status, return true here and only rely on lifecycle OTP
++	 * to check the device is closed in stm32mp_check_closed_device().
++	 */
++	return true;
++}
+-- 
+2.53.0
+

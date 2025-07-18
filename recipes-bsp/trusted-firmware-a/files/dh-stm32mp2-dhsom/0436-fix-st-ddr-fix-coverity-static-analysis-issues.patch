@@ -1,0 +1,112 @@
+From 8fb52d4402d11ce5d33ec4f035a473fdbe5c1f80 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Fri, 6 Mar 2026 09:48:47 +0100
+Subject: [PATCH 436/572] fix(st-ddr): fix coverity static analysis issues
+
+Fix following issues in the DDR driver:
+- declaring variable `ck_anib_inst` without initializer in
+  txslewrate_program(),
+- else branch identical to the then branch in atxslewrate_program(),
+- a less-than-zero comparison of an unsigned value is never true in
+  ddrphy_phyinit_calcmb().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7277e1ef9282d8bc8d88704d92be0786faba43e1 fix(st-ddr): fix coverity static analysis issues
+0503f355ad0c5b601610d41016a6ab5dbc928a94 fix(st-ddr): fix coverity static analysis issues]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I52965e4e88faa7cc82013db944b703d918238887
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/544095
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ .../phyinit/src/ddrphy_phyinit_c_initphyconfig.c   | 14 ++++++--------
+ .../st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c | 10 +++++-----
+ 2 files changed, 11 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
+index e5c82580ff..2d6bcc8cae 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
+@@ -71,11 +71,12 @@ static void atxslewrate_program(struct stm32mp_ddr_config *config)
+ 	uint32_t anib;
+ 	uint32_t atxpren; /* Default to 0xf (max). Optimal setting is technology specific */
+ 	uint32_t atxprep; /* Default to 0xf (max). Optimal setting is technology specific */
+-	uint32_t ck_anib_inst[2] = {0};
++	uint32_t ck_anib_inst[2] __maybe_unused = {0U};
+ 
+ 	atxprep = config->uia.txslewriseac;
+ 	atxpren = config->uia.txslewfallac;
+ 
++#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+ 	/*
+ 	 * # of ANIBs      CK ANIB Instance
+ 	 * ACX8            ANIB 1
+@@ -84,6 +85,7 @@ static void atxslewrate_program(struct stm32mp_ddr_config *config)
+ 		ck_anib_inst[0] = 1U;
+ 		ck_anib_inst[1] = 1U;
+ 	}
++#endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
+ 
+ 	for (anib = 0U; anib < config->uib.numanib; anib++) {
+ 		uint32_t atxpredrvmode;
+@@ -92,21 +94,17 @@ static void atxslewrate_program(struct stm32mp_ddr_config *config)
+ 
+ 		c_addr = anib << 12;
+ 
++#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+ 		if ((anib == ck_anib_inst[0]) || (anib == ck_anib_inst[1])) {
+ 			/* CK ANIB instance */
+-#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+ 			atxpredrvmode = 0x0U;
+-#else /* STM32MP_LPDDR4_TYPE */
+-			atxpredrvmode = 0x1U;
+-#endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
+ 		} else {
+ 			/* non-CK ANIB instance */
+-#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+ 			atxpredrvmode = 0x3U;
++		}
+ #else /* STM32MP_LPDDR4_TYPE */
+-			atxpredrvmode = 0x1U;
++		atxpredrvmode = 0x1U;
+ #endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
+-		}
+ 
+ 		atxslewrate = (uint16_t)((atxpredrvmode << CSR_ATXPREDRVMODE_LSB) |
+ 					 (atxpren << CSR_ATXPREN_LSB) |
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
+index c5fa5f1baf..2ab119edc0 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
+@@ -53,21 +53,21 @@ int ddrphy_phyinit_calcmb(struct stm32mp_ddr_config *config, struct pmu_smb_ddr_
+ 	/* A few checks to make sure valid programming */
+ 	if ((nad0 == 0U) || (config->uib.numdbyte == 0U)) {
+ 		ERROR("%s %d\n", __func__, __LINE__);
+-		VERBOSE("%s numactivedbytedfi0, numactivedbytedfi0, NumByte out of range.\n",
+-			__func__);
++		VERBOSE("%s numactivedbytedfi0 or numdbyte out of range.\n",
++		      __func__);
+ 		return -1;
+ 	}
+ 
+ 	if ((nad0 + nad1) > config->uib.numdbyte) {
+ 		ERROR("%s %d\n", __func__, __LINE__);
+-		VERBOSE("%s numactivedbytedfi0+numactivedbytedfi1 is larger than numdbyteDfi0\n",
+-			__func__);
++		VERBOSE("%s numactivedbytedfi0+numactivedbytedfi1 is larger than numdbyte\n",
++		      __func__);
+ 		return -1;
+ 	}
+ 
+ 	if ((config->uib.dfi1exists == 0U) && (nad1 != 0U)) {
+ 		ERROR("%s %d\n", __func__, __LINE__);
+-		VERBOSE("%s dfi1exists==0 but numdbyteDfi0 != 0\n", __func__);
++		VERBOSE("%s dfi1exists==0 but numdbytedfi1 != 0\n", __func__);
+ 		return -1;
+ 	}
+ 
+-- 
+2.53.0
+

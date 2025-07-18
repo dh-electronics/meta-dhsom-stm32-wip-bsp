@@ -1,0 +1,69 @@
+From 6256a37ff0af6f510cf653a137ae334752526526 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 20 Jun 2025 11:11:13 +0200
+Subject: [PATCH 354/572] feat(stm32mp2): call stm32mp_board_ddr_power_off in
+ power off function
+
+Replace call of ddr_sub_system_clk_off, which only stopped the DDR
+sub-system, by stm32mp_board_ddr_power_off() to also deactivate the
+associated power supplies.
+
+After this patch the file "plat_ddr.c" is required for BL2 and for BL31.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d429a999a5520cdbed1a7f53b2223e36c685d5a0 feat(stm32mp2): call stm32mp_board_ddr_power_off in power off function]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ib08737cf286b81c39bad64f9b73ac66f5ba24b49
+---
+ plat/st/stm32mp2/platform.mk   | 7 ++++---
+ plat/st/stm32mp2/stm32mp2_pm.c | 3 ++-
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 198d613302..f3786f0628 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -304,7 +304,9 @@ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_private.c
+ 
+ PLAT_BL_COMMON_SOURCES		+=	drivers/st/bsec/bsec3.c
+ 
+-ifneq ($(STM32MP_M33_TDCID),0)
++ifeq ($(STM32MP_M33_TDCID),0)
++PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/plat_ddr.c
++else
+ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_otp.c
+ endif
+ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_otp_mirror.c
+@@ -326,8 +328,7 @@ endif
+ 
+ BL2_SOURCES			+=	plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+ 
+-BL2_SOURCES			+=	plat/st/stm32mp2/bl2_plat_setup.c			\
+-					plat/st/stm32mp2/plat_ddr.c
++BL2_SOURCES			+=	plat/st/stm32mp2/bl2_plat_setup.c
+ 
+ BL2_SOURCES			+=	drivers/st/crypto/stm32_hash.c
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 2ff6725cbc..f2f0a7e93e 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -18,6 +18,7 @@
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/st/bsec3_reg.h>
+ #include <drivers/st/stm32mp_clkfunc.h>
++#include <drivers/st/stm32mp_ddr.h>
+ #include <drivers/st/stm32mp_reset.h>
+ #include <drivers/st/stm32mp2_ddr_helpers.h>
+ #include <lib/mmio.h>
+@@ -955,7 +956,7 @@ static void stm32_system_off(void)
+ #if !STM32MP_M33_TDCID
+ 	/* Force DDR off */
+ 	mmio_clrbits_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRSHR);
+-	ddr_sub_system_clk_off();
++	stm32mp_board_ddr_power_off();
+ #endif
+ 
+ 	/* Prevent interrupts from spuriously waking up this cpu */
+-- 
+2.53.0
+

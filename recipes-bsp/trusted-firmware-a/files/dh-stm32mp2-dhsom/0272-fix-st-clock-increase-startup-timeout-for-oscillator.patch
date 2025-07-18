@@ -1,0 +1,41 @@
+From 404932221e51b872e3fec9dacdda781fd131bbbe Mon Sep 17 00:00:00 2001
+From: Gabriel FERNANDEZ <gabriel.fernandez@st.com>
+Date: Thu, 20 Nov 2025 17:50:17 +0100
+Subject: [PATCH 272/572] fix(st-clock): increase startup timeout for
+ oscillators for STM32MP2
+
+The startup timeout for oscillators has been increased to accommodate
+the maximum startup time of 2 seconds, as specified in the datasheet.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a2a9f275eae0dea37e13b7cd3d067fdac2577a71 fix(st-clock): increase startup timeout for oscillators for STM32MP2]
+Signed-off-by: Gabriel FERNANDEZ <gabriel.fernandez@st.com>
+Change-Id: I138a24403f7563534a3fd89667084890f19d8b00
+---
+ drivers/st/clk/clk-stm32-core.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32-core.c b/drivers/st/clk/clk-stm32-core.c
+index 6b6b293dc7..43760fa2ff 100644
+--- a/drivers/st/clk/clk-stm32-core.c
++++ b/drivers/st/clk/clk-stm32-core.c
+@@ -17,7 +17,7 @@
+ #include <lib/spinlock.h>
+ 
+ #define TIMEOUT_US_200MS	U(200000)
+-#define TIMEOUT_US_1S		U(1000000)
++#define TIMEOUT_US_2S		U(2000000)
+ #define CLKSRC_TIMEOUT		TIMEOUT_US_200MS
+ 
+ static struct spinlock reg_lock;
+@@ -726,7 +726,7 @@ int _clk_stm32_gate_wait_ready(struct stm32_clk_priv *priv, uint16_t gate_id,
+ 		mask_test = 0U;
+ 	}
+ 
+-	timeout = timeout_init_us(TIMEOUT_US_1S);
++	timeout = timeout_init_us(TIMEOUT_US_2S);
+ 
+ 	while ((mmio_read_32(address) & mask_rdy) != mask_test) {
+ 		if (timeout_elapsed(timeout)) {
+-- 
+2.53.0
+

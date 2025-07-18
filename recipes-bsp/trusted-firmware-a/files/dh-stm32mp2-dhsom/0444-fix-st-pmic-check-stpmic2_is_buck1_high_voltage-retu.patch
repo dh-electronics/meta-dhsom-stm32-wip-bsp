@@ -1,0 +1,48 @@
+From c6b9c6f35e406e491415ca28f00d15e708506926 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 26 Feb 2026 10:04:26 +0100
+Subject: [PATCH 444/572] fix(st-pmic): check stpmic2_is_buck1_high_voltage
+ return
+
+There was no check on stpmic2_is_buck1_high_voltage() for buck1 in
+register_pmic2 function. Add a check on ret, and return with an error
+message in case of error.
+This was found with Coverity analysis (unused_value).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 617d2bc8abdeaf7a95d1362e4016f52031c96321 fix(st-pmic): check stpmic2_is_buck1_high_voltage return]
+Change-Id: I0a269aadb5344a29f94302c8d4ff6cd41773961f
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/541287
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic2.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic2.c b/drivers/st/pmic/stm32mp_pmic2.c
+index c8b59f5a06..94a45045ee 100644
+--- a/drivers/st/pmic/stm32mp_pmic2.c
++++ b/drivers/st/pmic/stm32mp_pmic2.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2024-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2024-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -486,6 +486,10 @@ static int register_pmic2(void)
+ 			bool high;
+ 
+ 			ret = stpmic2_is_buck1_high_voltage(pmic2, &high);
++			if (ret != 0) {
++				ERROR("Failed to get buck1 info\n");
++				return ret;
++			}
+ 			if (high) {
+ 				reg_name = "buck1h";
+ 			}
+-- 
+2.53.0
+

@@ -1,0 +1,49 @@
+From 9c780642b67ca012894df5aa9a6baa79f3e6ef6f Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 27 Apr 2026 18:05:40 +0200
+Subject: [PATCH 525/572] fix(st-usb): avoid unreachable statement in
+ dwc3_execute_dep_cmd()
+
+The return at the end of dwc3_execute_dep_cmd() cannot be reached as
+there is a while(true) loop before. Change the previous return USBD_OK
+to a goto end that will reach this end return.
+This corrects MISRA_C_2012_Rule_2.1 warning:
+A project shall not contain unreachable code
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5e5ca4785f3d37e6cc06155db2bfa611f0df7d7b fix(st-usb): avoid unreachable statement in dwc3_execute_dep_cmd()]
+Change-Id: I5fcf2e854daf5a5dd9901b7a3d02627a253a9827
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/561738
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/579555
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/usb_dwc3/usb_dwc3.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/usb_dwc3/usb_dwc3.c b/drivers/st/usb_dwc3/usb_dwc3.c
+index 929666a8ee..63d7c00e73 100644
+--- a/drivers/st/usb_dwc3/usb_dwc3.c
++++ b/drivers/st/usb_dwc3/usb_dwc3.c
+@@ -691,7 +691,7 @@ static enum usb_status dwc3_execute_dep_cmd(const dwc3_handle_t *dwc3_handle, ui
+ 			if (DWC3_DEPCMD_STATUS(reg) != 0U) {
+ 				return USBD_FAIL;
+ 			}
+-			return USBD_OK;
++			goto end;
+ 		}
+ 
+ 		/* Can be called from interrupt context hence cannot wait for Tick */
+@@ -703,6 +703,7 @@ static enum usb_status dwc3_execute_dep_cmd(const dwc3_handle_t *dwc3_handle, ui
+ 		}
+ 	} while (true);
+ 
++end:
+ 	return USBD_OK;
+ }
+ 
+-- 
+2.53.0
+

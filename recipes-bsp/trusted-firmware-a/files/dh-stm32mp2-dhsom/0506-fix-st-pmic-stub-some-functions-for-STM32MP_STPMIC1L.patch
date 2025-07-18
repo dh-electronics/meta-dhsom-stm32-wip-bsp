@@ -1,0 +1,85 @@
+From d636c2a24c41c3c87f7222b9eb1971c94979f247 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 21 Apr 2026 18:53:11 +0200
+Subject: [PATCH 506/572] fix(st-pmic): stub some functions for
+ STM32MP_STPMIC1L
+
+If STM32MP_STPMIC1L is enable, we use the STPMIC2 driver, with STPMIC1
+include file. And the functions print_pmic_info_and_debug() and
+pmic_voltages_init() do nothing in that case. Instead of defining them
+in STPMIC2 driver, stub them in STPMIC1 include file under the flag
+STM32MP_STPMIC1L.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 789677eeb0e6e2c00c4bf3eec5a4c48a83f44e85 fix(st-pmic): stub some functions for STM32MP_STPMIC1L]
+Change-Id: I503327daa5098c99c48bbd78fb2253cebfbf390b
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572146
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic2.c   | 11 -----------
+ include/drivers/st/stm32mp_pmic.h | 11 +++++++++--
+ 2 files changed, 9 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic2.c b/drivers/st/pmic/stm32mp_pmic2.c
+index ffe24f99f0..e9e30bb53a 100644
+--- a/drivers/st/pmic/stm32mp_pmic2.c
++++ b/drivers/st/pmic/stm32mp_pmic2.c
+@@ -198,17 +198,6 @@ void pmic_switch_off(void)
+ 	panic();
+ }
+ 
+-#if DEBUG
+-void print_pmic_info_and_debug(void)
+-{
+-}
+-#endif
+-
+-int pmic_voltages_init(void)
+-{
+-	return 0;
+-}
+-
+ static int pmic2_set_state(const struct regul_description *desc, bool enable)
+ {
+ 	struct regul_handle_s *regul = (struct regul_handle_s *)desc->driver_data;
+diff --git a/include/drivers/st/stm32mp_pmic.h b/include/drivers/st/stm32mp_pmic.h
+index c361c5f26a..cd185497d1 100644
+--- a/include/drivers/st/stm32mp_pmic.h
++++ b/include/drivers/st/stm32mp_pmic.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2017-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -33,7 +33,7 @@ bool initialize_pmic_i2c(void);
+  */
+ void initialize_pmic(void);
+ 
+-#if DEBUG
++#if DEBUG && !STM32MP_STPMIC1L
+ void print_pmic_info_and_debug(void);
+ #else
+ static inline void print_pmic_info_and_debug(void)
+@@ -46,7 +46,14 @@ static inline void print_pmic_info_and_debug(void)
+  *
+  * Returns 0 on success, and negative values on errors
+  */
++#if STM32MP_STPMIC1L
++static inline int pmic_voltages_init(void)
++{
++	return 0;
++}
++#else
+ int pmic_voltages_init(void);
++#endif
+ 
+ /*
+  * pmic_switch_off - switch off the platform with PMIC
+-- 
+2.53.0
+

@@ -1,0 +1,86 @@
+From 58ce39dbbf2d260b713501a79be8c29590ccec9b Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 8 Nov 2024 17:18:31 +0100
+Subject: [PATCH 295/572] feat(st): add stm32mp_uart_console_is_running
+
+This function will check if uart clock is gated and then if UE bit and TE
+are sets. If this is true, UART is ready to print system trace. If not,
+system will probably crash.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git aea418de481d43aa1d0e1aa0d3d4e6a916bd1d33 feat(st): add stm32mp_uart_console_is_running]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: Ib65c23a0d965e9188cb3c4dbf4e3248393530e0b
+---
+ plat/st/common/include/stm32mp_common.h |  3 +++
+ plat/st/common/stm32mp_common.c         | 16 ++++++++++++++--
+ 2 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 4399d2e127..7886b15996 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -89,6 +89,9 @@ uintptr_t get_uart_address(uint32_t instance_nb);
+ /* Setup the UART console */
+ int stm32mp_uart_console_setup(void);
+ 
++/* Check if uart used as console is suspended */
++bool stm32mp_uart_console_is_running(void);
++
+ void stm32_save_header(void);
+ uintptr_t stm32_get_header_address(void);
+ 
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 36ff9f70b8..5d22d9a9cb 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -13,6 +13,7 @@
+ #include <drivers/delay_timer.h>
+ #include <drivers/st/nvmem.h>
+ #include <drivers/st/stm32_console.h>
++#include <drivers/st/stm32_uart_regs.h>
+ #include <drivers/st/stm32mp_clkfunc.h>
+ #include <drivers/st/stm32mp_reset.h>
+ #include <lib/mmio.h>
+@@ -64,6 +65,7 @@
+ #define FWU_INFO_CNT_OFF		U(4)
+ 
+ static console_t console;
++static unsigned long console_clk;
+ static struct spinlock lock;
+ 
+ uintptr_t plat_get_ns_image_entrypoint(void)
+@@ -334,6 +336,16 @@ static void set_console(uintptr_t base, uint32_t clk_rate)
+ 	console_set_scope(&console, console_flags);
+ }
+ 
++bool stm32mp_uart_console_is_running(void) {
++
++	uint32_t en_bits = USART_CR1_UE | USART_CR1_TE;
++
++	if(!clk_is_enabled(console_clk))
++		return false;
++
++	return (mmio_read_32(console.base + USART_CR1) & en_bits) == en_bits;
++}
++
+ int stm32mp_uart_console_setup(void)
+ {
+ 	struct dt_node_info dt_uart_info;
+@@ -350,12 +362,12 @@ int stm32mp_uart_console_setup(void)
+ 		return -ENODEV;
+ 	}
+ 
+-#if defined(IMAGE_BL2)
+ 	if ((dt_uart_info.clock < 0) ||
+ 	    (dt_uart_info.reset < 0)) {
+ 		return -ENODEV;
+ 	}
+-#endif
++
++	console_clk = dt_uart_info.clock;
+ 
+ #if STM32MP_UART_PROGRAMMER || !defined(IMAGE_BL2)
+ 	if ((stm32_get_boot_interface(&boot_itf, &boot_instance) != 0) ||
+-- 
+2.53.0
+

@@ -1,0 +1,76 @@
+From 98f787ad27ed6a1b3eecfb347fa6e62f01194aba Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 6 May 2026 17:29:12 +0200
+Subject: [PATCH 476/572] fix(io): create a NULL_UUID macro
+
+When enabling -Wmissing-field-initializers macro (with W=1), there is
+a warning:
+drivers/io/io_fip.c:312:40: warning: missing field 'time_mid'
+ initializer [-Wmissing-field-initializers]
+  312 |         static const uuid_t uuid_null = { {0} }; /* Double
+ braces for clang */
+      |                                               ^
+
+To avoid that, create a macro that initialize all fields of the UUID
+to zero.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git eda3ecc43cc75708bedae3f607f7367609f8b027 fix(io): create a NULL_UUID macro]
+Change-Id: Ib46fe057c308b796bff6ef4dbfcf9854b9703fc1
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/571865
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/io/io_fip.c        |  2 +-
+ include/tools_share/uuid.h | 12 +++++++++++-
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/io/io_fip.c b/drivers/io/io_fip.c
+index dd78005073..faabc490dd 100644
+--- a/drivers/io/io_fip.c
++++ b/drivers/io/io_fip.c
+@@ -309,7 +309,7 @@ static int fip_file_open(io_dev_info_t *dev_info, const uintptr_t spec,
+ 	int result;
+ 	uintptr_t backend_handle;
+ 	const io_uuid_spec_t *uuid_spec = (io_uuid_spec_t *)spec;
+-	static const uuid_t uuid_null = { {0} }; /* Double braces for clang */
++	static const uuid_t uuid_null = NULL_UUID;
+ 	size_t bytes_read;
+ 	size_t toc_offset;
+ 	size_t fip_size;
+diff --git a/include/tools_share/uuid.h b/include/tools_share/uuid.h
+index 3445f20265..70d1e78b4a 100644
+--- a/include/tools_share/uuid.h
++++ b/include/tools_share/uuid.h
+@@ -27,7 +27,7 @@
+  */
+ 
+ /*
+- * Portions copyright (c) 2014-2023, Arm Limited and Contributors.
++ * Portions copyright (c) 2014-2026, Arm Limited and Contributors.
+  * All rights reserved.
+  */
+ 
+@@ -58,6 +58,16 @@ struct uuid {
+ 	uint8_t		node[_UUID_NODE_LEN];
+ };
+ 
++#define NULL_UUID					\
++	{						\
++		.time_low = { 0U },			\
++		.time_mid = { 0U },			\
++		.time_hi_and_version = { 0U },		\
++		.clock_seq_hi_and_reserved = 0U,	\
++		.clock_seq_low = 0U,			\
++		.node = { 0U }				\
++	}
++
+ struct efi_guid {
+ 	uint32_t time_low;
+ 	uint16_t time_mid;
+-- 
+2.53.0
+

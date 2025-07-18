@@ -1,0 +1,96 @@
+From 0181446134aa9ce84c6a25c2705671e1aa6b53e9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 21 Jul 2026 16:12:32 +0200
+Subject: [PATCH 556/572] feat(fwu): relax metadata validation for image count
+ and size
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Relax fwu metadata validation to accept smaller valid metadata while
+preserving safety.
+
+Permit num_images values up to the compiled platform limit instead of
+requiring an exact match with NR_OF_IMAGES_IN_FW_BANK. Use
+metadata.metadata_size for the CRC check so smaller valid metadata is
+accepted, while rejecting values larger than sizeof(struct fwu_metadata)
+to avoid out-of-bounds reads.
+
+Enforce a lower bound of FWU_FW_STORE_DESC_OFFSET bytes (0x20) on
+metadata_size for version 2 metadata. Keep num_banks as an exact match
+against NR_OF_FW_BANKS, since it affects img_entry[] parsing and would
+otherwise break metadata layout decoding.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git bda1eab33e6fdfdc41e0e9902cbc167aa7eb47aa feat(fwu): relax metadata validation for image count and size]
+Change-Id: I799bfb0eb13d35fe1a2fc94a83f014615ec08d3b
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+(cherry picked from commit a3d810f6a6b79243d27066881903b94fb26836c0)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/590761
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/fwu/fwu.c | 28 +++++++++++++++++++++++++---
+ 1 file changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/fwu/fwu.c b/drivers/fwu/fwu.c
+index b5e17cb9c1..f59c3fe25a 100644
+--- a/drivers/fwu/fwu.c
++++ b/drivers/fwu/fwu.c
+@@ -49,7 +49,7 @@ static int fwu_metadata_crc_check(void)
+ 	unsigned char *data = (unsigned char *)&metadata;
+ 
+ 	uint32_t calc_crc = tf_crc32(0U, data + sizeof(metadata.crc_32),
+-				     (sizeof(metadata) -
++				     (metadata.metadata_size -
+ 				      sizeof(metadata.crc_32)));
+ 
+ 	if (metadata.crc_32 != calc_crc) {
+@@ -84,19 +84,41 @@ static int fwu_metadata_sanity_check(void)
+ 		return -EINVAL;
+ 	}
+ 
++	if ((metadata.metadata_size > sizeof(metadata)) ||
++	    (metadata.metadata_size < FWU_FW_STORE_DESC_OFFSET)) {
++		WARN("Metadata size(%u) out of valid range [%u, %zu]\n",
++		     metadata.metadata_size, FWU_FW_STORE_DESC_OFFSET,
++		     sizeof(metadata));
++		return -EINVAL;
++	}
++
+ #if PSA_FWU_METADATA_FW_STORE_DESC
+ 	if (metadata.fw_desc.num_banks != NR_OF_FW_BANKS) {
+-		WARN("Number of Banks(%u) in FWU Metadata different from the configured value(%d)\n",
++		WARN("Number of Banks(%u) in FWU Metadata greater than the configured value(%d)\n",
+ 		     metadata.fw_desc.num_banks, NR_OF_FW_BANKS);
+ 		return -EINVAL;
+ 	}
+ 
+-	if (metadata.fw_desc.num_images != NR_OF_IMAGES_IN_FW_BANK) {
++	if (metadata.fw_desc.num_images > NR_OF_IMAGES_IN_FW_BANK) {
+ 		WARN("Number of Images(%u) in FWU Metadata different from the configured value(%d)\n",
+ 		     metadata.fw_desc.num_images, NR_OF_IMAGES_IN_FW_BANK);
+ 		return -EINVAL;
+ 	}
+ 
++	if (metadata.fw_desc.bank_info_entry_size != sizeof(struct fwu_image_bank_info)) {
++		WARN("Bank Info Entry size(%u) in FWU Metadata different from the expected value(%zu)\n",
++		     metadata.fw_desc.bank_info_entry_size,
++		     sizeof(struct fwu_image_bank_info));
++		return -EINVAL;
++	}
++
++	if (metadata.fw_desc.img_entry_size != sizeof(struct fwu_image_entry)) {
++		WARN("Image Entry size(%u) in FWU Metadata different from the expected value(%zu)\n",
++		     metadata.fw_desc.img_entry_size,
++		     sizeof(struct fwu_image_entry));
++		return -EINVAL;
++	}
++
+ 	if (metadata.desc_offset != FWU_FW_STORE_DESC_OFFSET) {
+ 		WARN("Descriptor Offset(0x%x) in the FWU Metadata not equal to 0x20\n",
+ 		     metadata.desc_offset);
+-- 
+2.53.0
+

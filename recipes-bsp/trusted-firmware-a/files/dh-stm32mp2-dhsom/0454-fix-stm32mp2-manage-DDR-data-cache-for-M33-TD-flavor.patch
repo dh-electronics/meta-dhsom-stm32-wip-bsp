@@ -1,0 +1,48 @@
+From 873ae50bf1ecccde38e4d0ae44c75ab9b3a38446 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 13 Feb 2026 15:22:26 +0100
+Subject: [PATCH 454/572] fix(stm32mp2): manage DDR data cache for M33-TD
+ flavor
+
+When Cortex-M33 is TDCID, DDR is managed by Cortex-A35
+and Cortex A35 must flush and invalidate data cache before low power
+sequence and DDR deactivation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b46411e5e9c4892ee61c9e4c45b1930100e8a5ee fix(stm32mp2): manage DDR data cache for M33-TD flavor]
+Fixes: ("feat(stm32mp2): support cortex M33 as TDCID in STM32MP25 low power")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Idf90301eb423642799297b7f387eda5352ab4465
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/536292
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 359d4f5f61..923f1bd8c2 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -575,6 +575,9 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 	/* Request STOP for both cores */
+ 	mmio_write_32(rcc_base + RCC_C1SREQSETR, RCC_C1SREQSETR_STPREQ_MASK);
+ 
++	/* Flush and invalidate data cache before DDR deactivation */
++	dcsw_op_all(DCCISW);
++
+ #if !STM32MP_M33_TDCID
+ 	/*
+ 	 * No PWR_LP delay by default, because VTT_DRR is not stopped (for Stop1)
+@@ -587,8 +590,6 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 	if (stateid == PWRSTATE_STANDBY) {
+ 		standby = true;
+ 	}
+-
+-	dcsw_op_all(DCCISW);
+ 	ddr_save_sr_mode();
+ 	ddr_set_sr_mode(DDR_SSR_MODE);
+ 	if (ddr_sr_entry(standby) != 0) {
+-- 
+2.53.0
+

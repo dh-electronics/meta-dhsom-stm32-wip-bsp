@@ -1,0 +1,87 @@
+From dd92f7cb3deb622facf8ab80f9667a1a89926371 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 31 Aug 2022 11:45:23 +0200
+Subject: [PATCH 092/572] feat(st): add a function to skip storage init after
+ standby
+
+This function checks if it is possible to skip storage init after a
+standby mode. This is possible when returning from standby, and if
+OP-TEE is used as BL32. This is not possible with SP_min, as we need to
+reload it in SYSRAM after standby.
+On STM32MP2, this is not supported, and the function returns false.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4934f96e73ef042715ee6102c8e73201b9a0f56b feat(st): add a function to skip storage init after standby]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I033cdc025be2622d43408b42b406e8e6003ea786
+---
+ plat/st/common/include/stm32mp_common.h |  1 +
+ plat/st/stm32mp1/stm32mp1_private.c     | 24 ++++++++++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_private.c     |  5 +++++
+ 3 files changed, 30 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 7ce7f2ed44..da4c52db9b 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -88,6 +88,7 @@ uintptr_t get_uart_address(uint32_t instance_nb);
+ /* Setup the UART console */
+ int stm32mp_uart_console_setup(void);
+ 
++bool stm32mp_skip_boot_device_after_standby(void);
+ bool stm32mp_is_wakeup_from_standby(void);
+ 
+ /*
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index b36fcd1451..dafc42ead2 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -703,6 +703,30 @@ bool stm32mp_is_wakeup_from_standby(void)
+ #endif /* STM32MP_SUPPORT_PM */
+ }
+ 
++bool stm32mp_skip_boot_device_after_standby(void)
++{
++#if STM32MP_SUPPORT_PM
++	static int skip = -1;
++
++	if (skip == -1) {
++		if (stm32mp_is_wakeup_from_standby()) {
++			skip = 1;
++#if STM32MP15
++			if (stm32_pm_get_optee_ep() == 0U) {
++				skip = 0;
++			}
++#endif
++		} else {
++			skip = 0;
++		}
++	}
++
++	return skip == 1;
++#else /* STM32MP_SUPPORT_PM */
++	return false;
++#endif /* STM32MP_SUPPORT_PM */
++}
++
+ uintptr_t stm32_get_bkpr_boot_mode_addr(void)
+ {
+ 	return tamp_bkpr(TAMP_BOOT_MODE_BACKUP_REG_ID);
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 057f6742cf..8d0aec00df 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -520,6 +520,11 @@ bool stm32mp_is_wakeup_from_standby(void)
+ 	return false;
+ }
+ 
++bool stm32mp_skip_boot_device_after_standby(void)
++{
++	return false;
++}
++
+ int stm32_risaf_get_instance(uintptr_t base)
+ {
+ 	switch (base) {
+-- 
+2.53.0
+

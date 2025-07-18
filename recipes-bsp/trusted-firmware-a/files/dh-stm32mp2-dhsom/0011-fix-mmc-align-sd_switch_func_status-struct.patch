@@ -1,0 +1,42 @@
+From 97b4cc1edf641a28dbc5f420ed4a741f515782ac Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 3 Feb 2026 08:56:54 +0100
+Subject: [PATCH 011/572] fix(mmc): align sd_switch_func_status struct
+
+When enabling LTO on STM32MP2 platform with DEBUG flag, there is an
+assert in stm32_sdmmc2_read() during SD switch procedure, as the buffer
+used to read the data is not 4 bytes aligned. To correct that, add an
+alignment of the struct sd_switch_func_status. Use a 16 bytes alignment
+to be in line with the other constraints with DMA (see patches that add
+the __aligned(16) on scr and mmc_ext_csd).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 69a1da56dc7d07969803ed2862af9d2de3f4b0fe fix(mmc): align sd_switch_func_status struct]
+Change-Id: I5d715753f6b7a2fa35648d05be9f1c9737609007
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ drivers/mmc/mmc.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/mmc/mmc.c b/drivers/mmc/mmc.c
+index 93a958c92d..4864be82bb 100644
+--- a/drivers/mmc/mmc.c
++++ b/drivers/mmc/mmc.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2022, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2026, ARM Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -26,7 +26,7 @@
+ static const struct mmc_ops *ops;
+ static unsigned int mmc_ocr_value;
+ static struct mmc_csd_emmc mmc_csd;
+-static struct sd_switch_status sd_switch_func_status;
++static struct sd_switch_status sd_switch_func_status __aligned(16);
+ static unsigned char mmc_ext_csd[512] __aligned(16);
+ static unsigned int mmc_flags;
+ static struct mmc_device_info *mmc_dev_info;
+-- 
+2.53.0
+

@@ -1,0 +1,83 @@
+From 6be13cf789c65ac437d04fa5fef5168b345c613b Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Thu, 25 Jan 2024 17:10:03 +0100
+Subject: [PATCH 016/572] feat(stm32mp1): update STPMIC1 driver to handle more
+ properties
+
+Update STPMIC1 driver to handle more properties.
+The goal if to simplify plat ddr initialization.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 369da011f8884fe8fc751d70a9f0098d02992936 feat(stm32mp1): update STPMIC1 driver to handle more properties]
+Change-Id: Ibc08d86e301fa8bdbf82876f7ccb6cee85f38a96
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic.c | 41 +++++++++++++++++++++++++++++++++-
+ 1 file changed, 40 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic.c b/drivers/st/pmic/stm32mp_pmic.c
+index 58f97b3e43..dbe24b499d 100644
+--- a/drivers/st/pmic/stm32mp_pmic.c
++++ b/drivers/st/pmic/stm32mp_pmic.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2017-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -364,6 +364,24 @@ static const struct regul_description pmic_regs[NB_REG] = {
+ 	[STPMIC1_SW_OUT] = DEFINE_REGU("pwr_sw2"),
+ };
+ 
++static int handle_pmic_property(void *fdt, int subnode,
++				const struct regul_description *desc,
++				const char *property, uint16_t flag)
++{
++	if (fdt_getprop(fdt, subnode, property, NULL)  != NULL) {
++		int ret;
++
++		VERBOSE("%s: %s\n", desc->node_name, property);
++		ret = pmic_set_flag(desc, flag);
++		if (ret != 0) {
++			ERROR("set %s failed\n", property);
++			return ret;
++		}
++	}
++
++	return 0;
++}
++
+ static int register_pmic(void)
+ {
+ 	void *fdt;
+@@ -405,6 +423,27 @@ static int register_pmic(void)
+ 			     __LINE__, reg_name);
+ 			return ret;
+ 		}
++
++		ret = handle_pmic_property(fdt, subnode, desc,
++					   "st,mask-reset",
++					   REGUL_MASK_RESET);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = handle_pmic_property(fdt, subnode, desc,
++					   "st,regulator-sink-source",
++					   REGUL_SINK_SOURCE);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = handle_pmic_property(fdt, subnode, desc,
++					   "st,regulator-bypass",
++					   REGUL_ENABLE_BYPASS);
++		if (ret != 0) {
++			return ret;
++		}
+ 	}
+ 
+ 	return 0;
+-- 
+2.53.0
+

@@ -1,0 +1,74 @@
+From 984e31339ad6d8b2f533e8619ce3381c2ff71a5c Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 27 Apr 2026 17:34:56 +0200
+Subject: [PATCH 524/572] fix(st-usb): move usb_dwc3driver inside
+ usb_dwc3_init_driver()
+
+This usb_dwc3driver static const struct is used only in function
+usb_dwc3_init_driver(). It can then be defined there. As it is static
+const it will remain in rodata, and not in stack.
+This corrects MISRA_C_2012_Rule_8.9 warning:
+An object should be defined at block scope if its identifier only
+appears in a single function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b87bca24fa4c8da78bca64e08c02224cd2346aaf fix(st-usb): move usb_dwc3driver inside usb_dwc3_init_driver()]
+Change-Id: I70256114a8f4aa65769acbb9b6135a9670030f49
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/561736
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/579554
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/usb_dwc3/usb_dwc3.c | 27 +++++++++++++--------------
+ 1 file changed, 13 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/st/usb_dwc3/usb_dwc3.c b/drivers/st/usb_dwc3/usb_dwc3.c
+index 2eec5c33fe..929666a8ee 100644
+--- a/drivers/st/usb_dwc3/usb_dwc3.c
++++ b/drivers/st/usb_dwc3/usb_dwc3.c
+@@ -1977,20 +1977,6 @@ static enum usb_status usb_dwc3_write_empty_tx_fifo(const void *handle, uint32_t
+ 	return USBD_OK;
+ }
+ 
+-static const struct usb_driver usb_dwc3driver = {
+-	.ep0_out_start = usb_dwc3_ep0_out_start,
+-	.ep_start_xfer = usb_dwc3_ep_start_xfer,
+-	.ep0_start_xfer = usb_dwc3_ep0_start_xfer,
+-	.write_packet = usb_dwc3_write_packet,
+-	.read_packet = usb_dwc3_read_packet,
+-	.ep_set_stall = usb_dwc3_ep_set_stall,
+-	.start_device = usb_dwc3_start_device,
+-	.stop_device = usb_dwc3_stop_device,
+-	.set_address = usb_dwc3_set_address,
+-	.write_empty_tx_fifo = usb_dwc3_write_empty_tx_fifo,
+-	.it_handler = usb_dwc3_it_handler
+-};
+-
+ /* USB2 PHY Mask 0xf */
+ #define USBPHY_ULPI	1U
+ #define USBPHY_UTMI	2U
+@@ -2320,6 +2306,19 @@ void usb_dwc3_init_driver(struct usb_handle *usb_core_handle, struct pcd_handle
+ {
+ 	uint32_t i = 0;
+ 	enum usb_status ret;
++	static const struct usb_driver usb_dwc3driver = {
++		.ep0_out_start = usb_dwc3_ep0_out_start,
++		.ep_start_xfer = usb_dwc3_ep_start_xfer,
++		.ep0_start_xfer = usb_dwc3_ep0_start_xfer,
++		.write_packet = usb_dwc3_write_packet,
++		.read_packet = usb_dwc3_read_packet,
++		.ep_set_stall = usb_dwc3_ep_set_stall,
++		.start_device = usb_dwc3_start_device,
++		.stop_device = usb_dwc3_stop_device,
++		.set_address = usb_dwc3_set_address,
++		.write_empty_tx_fifo = usb_dwc3_write_empty_tx_fifo,
++		.it_handler = usb_dwc3_it_handler
++	};
+ 
+ 	dwc3_handle->usb_global = (usb_dwc3_global_t *)
+ 					(base + USB_DWC3_GLOBAL_BASE);
+-- 
+2.53.0
+

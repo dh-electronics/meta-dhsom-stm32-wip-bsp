@@ -1,0 +1,58 @@
+From fa4f92d51cf390948a8870b35d0a6fe1b933dcf4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 6 Aug 2026 11:51:35 +0200
+Subject: [PATCH 564/572] fix(stm32mp2): return an SMC status on PLL1 set rate
+ failure
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ca35ss_clk_svc_pll1_set assigned the int32_t return value of
+stm32mp2_pll1_set_rate to an uint32_t status returned as the SMC status
+code. On error the negative errno was converted to a large unsigned
+value (-EINVAL becomes 0xFFFFFFEA), which is not part of the STM32_SMC_*
+error codes and is reported to the caller as an unknown status.
+
+Translate the failure into STM32_SMC_FAILED.
+
+Coverity issue: CID 1202239: Overflowed return value in ca35ss_clk_svc_pll1_set
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 99ecdc990f00d16c7efc110d9501f119de70e51d fix(stm32mp2): return an SMC status on PLL1 set rate failure]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Change-Id: Ie729b46a8c476c849bd8286e3fac3b398fbdc307
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/597395
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/services/ca35ss_clk_svc.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/services/ca35ss_clk_svc.c b/plat/st/stm32mp2/services/ca35ss_clk_svc.c
+index b5a7121070..91c3955c2b 100644
+--- a/plat/st/stm32mp2/services/ca35ss_clk_svc.c
++++ b/plat/st/stm32mp2/services/ca35ss_clk_svc.c
+@@ -524,7 +524,7 @@ static uint32_t ca35ss_clk_svc_handler_set_rate(uint64_t target_rate)
+ 
+ static uint32_t ca35ss_clk_svc_pll1_set(uint64_t target_rate)
+ {
+-	uint32_t status;
++	uint32_t status = STM32_SMC_FAILED;
+ 
+ 	/* Change OPP/RM(overdrive) when moving OPP Nominal to Overdrive */
+ 	if (target_rate > NOMINAL_RATE) {
+@@ -532,7 +532,9 @@ static uint32_t ca35ss_clk_svc_pll1_set(uint64_t target_rate)
+ 	}
+ 
+ 	/* Change PLL1 rate  */
+-	status = stm32mp2_pll1_set_rate(target_rate);
++	if (stm32mp2_pll1_set_rate(target_rate) == 0) {
++		status = STM32_SMC_OK;
++	}
+ 
+ 	/* Back to base state */
+ 	ca35ss_set_state_base();
+-- 
+2.53.0
+

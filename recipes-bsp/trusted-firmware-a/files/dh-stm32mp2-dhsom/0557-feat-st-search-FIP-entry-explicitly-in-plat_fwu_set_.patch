@@ -1,0 +1,203 @@
+From a27b2dd6513d9d949d9c35ac631d1a2c7774a5e7 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 21 Jul 2026 14:20:01 +0200
+Subject: [PATCH 557/572] feat(st): search FIP entry explicitly in
+ plat_fwu_set_images_source
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+plat_fwu_set_images_source() iterated every image entry of the FWU
+metadata and tried to resolve an offset for each of them. On raw
+storage devices (NOR/NAND/HYPERFLASH), only two hardcoded bank GUIDs
+were known, so any metadata entry other than the FIP (e.g. bootfs/
+rootfs added by STM32MP_PSA_FWU_AB_SUPPORT) caused a panic, even
+though only the FIP is actually needed to boot.
+
+Add stm32_get_fip_img_entry() to explicitly look up the FIP entry by
+its image type GUID, and use it directly instead of looping over and
+processing every entry. The function is now agnostic of the number of
+image entries described in the metadata.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f87e3b59465ad555065b698ff5795deec2ef47dd feat(st): search FIP entry explicitly in plat_fwu_set_images_source]
+Change-Id: Ib73ed483de81d18a0e9d35bec30643243b0bdc18
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+(cherry picked from commit 6045d67b3cec7cd0adc7e590224f6aa67e8debb2)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/590760
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/bl2_io_storage.c | 131 ++++++++++++++++++--------------
+ 1 file changed, 75 insertions(+), 56 deletions(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index afa55eb7ab..cb5ccf5a5c 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -871,12 +871,28 @@ static void *stm32_get_image_spec(const struct efi_guid *img_type_guid)
+ 	return NULL;
+ }
+ 
+-void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
++/* Find and return the metadata entry for the FIP, or NULL if not found. */
++static const struct fwu_image_entry *stm32_get_fip_img_entry(const struct fwu_metadata *metadata)
+ {
+ 	unsigned int i;
++	const struct efi_guid fip_type_guid = STM32MP_FIP_GUID;
++	const struct fwu_image_entry *img_entry = metadata->fw_desc.img_entry;
++	unsigned int num_entries = metadata->fw_desc.num_images;
++
++	for (i = 0U; i < num_entries; i++) {
++		if (guidcmp(&img_entry[i].img_type_guid, &fip_type_guid) == 0) {
++			return &img_entry[i];
++		}
++	}
++
++	return NULL;
++}
++
++void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
++{
+ 	uint32_t boot_idx;
+ 	const partition_entry_t *entry __maybe_unused;
+-	const struct fwu_image_entry *img_entry;
++	const struct fwu_image_entry *fip_entry;
+ 	const void *img_type_guid;
+ 	const void *img_guid;
+ 	io_block_spec_t *image_spec;
+@@ -886,73 +902,76 @@ void plat_fwu_set_images_source(const struct fwu_metadata *metadata)
+ 	assert(boot_idx < NR_OF_FW_BANKS);
+ 	VERBOSE("Selecting to boot from bank %u\n", boot_idx);
+ 
+-	img_entry = (void *)&metadata->fw_desc.img_entry;
+-	for (i = 0U; i < NR_OF_IMAGES_IN_FW_BANK; i++) {
+-		img_type_guid = &img_entry[i].img_type_guid;
++	fip_entry = stm32_get_fip_img_entry(metadata);
++	if (fip_entry == NULL) {
++		ERROR("No FIP image type found in the FWU metadata\n");
++		panic();
++	}
+ 
+-		img_guid = &img_entry[i].img_bank_info[boot_idx].img_guid;
++	img_type_guid = &fip_entry->img_type_guid;
++	img_guid = &fip_entry->img_bank_info[boot_idx].img_guid;
+ 
+-		image_spec = stm32_get_image_spec(img_type_guid);
+-		if (image_spec == NULL) {
+-			ERROR("Unable to get image spec for the image in the metadata\n");
+-			panic();
+-		}
++	image_spec = stm32_get_image_spec(img_type_guid);
++	if (image_spec == NULL) {
++		ERROR("Unable to get image spec for the image in the metadata\n");
++		panic();
++	}
+ 
+-		switch (boot_itf) {
++	switch (boot_itf) {
+ #if (STM32MP_SDMMC || STM32MP_EMMC)
+-		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_SD:
+-		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_EMMC:
+-			entry = get_partition_entry_by_guid(img_guid);
+-			if (entry == NULL) {
+-				ERROR("No partition with the uuid mentioned in metadata\n");
+-				panic();
+-			}
++	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_SD:
++	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_EMMC:
++		entry = get_partition_entry_by_guid(img_guid);
++		if (entry == NULL) {
++			ERROR("No partition with the uuid mentioned in metadata\n");
++			panic();
++		}
+ 
+-			image_spec->offset = entry->start;
+-			image_spec->length = entry->length;
+-			break;
++		image_spec->offset = entry->start;
++		image_spec->length = entry->length;
++		break;
+ #endif
+ #if STM32MP_SPI_NOR
+-		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NOR_SPI:
+-			if (guidcmp(img_guid, &STM32MP_NOR_FIP_A_GUID) == 0) {
+-				image_spec->offset = STM32MP_NOR_FIP_A_OFFSET;
+-			} else if (guidcmp(img_guid, &STM32MP_NOR_FIP_B_GUID) == 0) {
+-				image_spec->offset = STM32MP_NOR_FIP_B_OFFSET;
+-			} else {
+-				ERROR("Invalid uuid mentioned in metadata\n");
+-				panic();
+-			}
+-			break;
++	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NOR_SPI:
++		if (guidcmp(img_guid, &STM32MP_NOR_FIP_A_GUID) == 0) {
++			image_spec->offset = STM32MP_NOR_FIP_A_OFFSET;
++		} else if (guidcmp(img_guid, &STM32MP_NOR_FIP_B_GUID) == 0) {
++			image_spec->offset = STM32MP_NOR_FIP_B_OFFSET;
++		} else {
++			ERROR("Invalid uuid mentioned in metadata\n");
++			panic();
++		}
++		break;
+ #endif
+ #if (STM32MP_RAW_NAND || STM32MP_SPI_NAND)
+-		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NAND_FMC:
+-		case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NAND_SPI:
+-			if (guidcmp(img_guid, &STM32MP_NAND_FIP_A_GUID) == 0) {
+-				image_spec->offset = STM32MP_NAND_FIP_A_OFFSET;
+-			} else if (guidcmp(img_guid, &STM32MP_NAND_FIP_B_GUID) == 0) {
+-				image_spec->offset = STM32MP_NAND_FIP_B_OFFSET;
+-			} else {
+-				ERROR("Invalid uuid mentioned in metadata\n");
+-				panic();
+-			}
+-			break;
++	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NAND_FMC:
++	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_NAND_SPI:
++		if (guidcmp(img_guid, &STM32MP_NAND_FIP_A_GUID) == 0) {
++			image_spec->offset = STM32MP_NAND_FIP_A_OFFSET;
++		} else if (guidcmp(img_guid, &STM32MP_NAND_FIP_B_GUID) == 0) {
++			image_spec->offset = STM32MP_NAND_FIP_B_OFFSET;
++		} else {
++			ERROR("Invalid uuid mentioned in metadata\n");
++			panic();
++		}
++		break;
+ #endif
+ #if STM32MP_HYPERFLASH
+-		case BOOT_API_CTX_BOOT_INTERFACE_SEL_HYPERFLASH_OSPI:
+-			if (guidcmp(img_guid, &STM32MP_HYPERFLASH_FIP_A_GUID) == 0) {
+-				image_spec->offset = STM32MP_HYPERFLASH_FIP_A_OFFSET;
+-			} else if (guidcmp(img_guid, &STM32MP_HYPERFLASH_FIP_B_GUID) == 0) {
+-				image_spec->offset = STM32MP_HYPERFLASH_FIP_B_OFFSET;
+-			} else {
+-				ERROR("Invalid uuid mentioned in metadata\n");
+-				panic();
+-			}
+-			break;
+-#endif
+-		default:
++	case BOOT_API_CTX_BOOT_INTERFACE_SEL_HYPERFLASH_OSPI:
++		if (guidcmp(img_guid, &STM32MP_HYPERFLASH_FIP_A_GUID) == 0) {
++			image_spec->offset = STM32MP_HYPERFLASH_FIP_A_OFFSET;
++		} else if (guidcmp(img_guid, &STM32MP_HYPERFLASH_FIP_B_GUID) == 0) {
++			image_spec->offset = STM32MP_HYPERFLASH_FIP_B_OFFSET;
++		} else {
++			ERROR("Invalid uuid mentioned in metadata\n");
+ 			panic();
+-			break;
+ 		}
++		break;
++#endif
++	default:
++		ERROR("Unsupported boot interface selected\n");
++		panic();
++		break;
+ 	}
+ }
+ 
+-- 
+2.53.0
+

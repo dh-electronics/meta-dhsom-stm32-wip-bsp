@@ -1,0 +1,132 @@
+From 5238c0eff2bbfb6fa283daa78f042a3e8a13980c Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 18 Dec 2023 14:22:56 +0100
+Subject: [PATCH 006/572] feat(stm32mp2): stub PM code in serial boot
+
+When booting from USB or UART, with programmer, the low-power sequences
+won't be used, some code can then be stubbed under UART and USB flags.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 67754b6de14c90c8c154add3f8b74217505f191f feat(stm32mp2): stub PM code in serial boot for OSI support
+9040840b7c417cedd93647d9fe4936dec8990b30 feat(stm32mp2): stub PM code in serial boot]
+Change-Id: I10bda7930bd809640f2b40fe46a6fa568946c09d
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl31_plat_setup.c | 30 +++++++++++++++++++++++++++++-
+ plat/st/stm32mp2/platform.mk       | 10 ++++++++--
+ plat/st/stm32mp2/stm32mp2_def.h    |  7 ++++++-
+ 3 files changed, 43 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index a7a3721bbd..57f3980bac 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -10,6 +10,7 @@
+ #include <common/bl_common.h>
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/st/stm32_console.h>
++#include <drivers/st/stm32mp_reset.h>
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+ #include <plat/common/platform.h>
+ 
+@@ -157,3 +158,30 @@ entry_point_info_t *bl31_plat_get_next_image_ep_info(unsigned int type)
+ 
+ 	return next_image_info;
+ }
++
++/* Only support system reset for serial boot and no low power feature to reduce BL31 size */
++#if !STM32MP_SUPPORT_PM
++static void __dead2 stm32_system_reset(void)
++{
++	stm32mp_system_reset();
++}
++
++static const plat_psci_ops_t stm32_psci_ops = {
++	.system_reset = stm32_system_reset,
++};
++
++/* Stub PSCI platform functions */
++plat_local_state_t plat_get_target_pwr_state(unsigned int lvl,
++					     const plat_local_state_t *states,
++					     unsigned int ncpu)
++{
++	return 0U;
++}
++
++int plat_setup_psci_ops(uintptr_t sec_entrypoint,
++			const plat_psci_ops_t **psci_ops)
++{
++	*psci_ops = &stm32_psci_ops;
++	return 0;
++}
++#endif /* STM32MP_SUPPORT_PM */
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 678e2df12f..0a71a0fa3b 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -1,5 +1,5 @@
+ #
+-# Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
++# Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+ #
+ # SPDX-License-Identifier: BSD-3-Clause
+ #
+@@ -259,8 +259,12 @@ BL2_SOURCES			+=	drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_d_loadimem.c				\
+ BL31_SOURCES			+=	${FDT_WRAPPERS_SOURCES}
+ 
+ BL31_SOURCES			+=	plat/st/stm32mp2/bl31_plat_setup.c			\
+-					plat/st/stm32mp2/stm32mp2_pm.c				\
+ 					plat/st/stm32mp2/stm32mp2_topology.c
++
++ifeq ($(STM32MP_SUPPORT_PM),1)
++BL31_SOURCES			+=	plat/st/stm32mp2/stm32mp2_pm.c
++endif
++
+ # Generic GIC v2
+ include drivers/arm/gic/v2/gicv2.mk
+ 
+@@ -268,8 +272,10 @@ BL31_SOURCES			+=	${GICV2_SOURCES}					\
+ 					plat/common/plat_gicv2.c				\
+ 					plat/st/common/stm32mp_gic.c
+ 
++ifeq ($(STM32MP_SUPPORT_PM),1)
+ # Generic PSCI
+ BL31_SOURCES			+=	plat/common/plat_psci_common.c
++endif
+ 
+ BL31_SOURCES			+=	plat/st/common/stm32mp_svc_setup.c			\
+ 					plat/st/stm32mp2/services/stgen_svc.c			\
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 87ec0c98ab..a740e28e42 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -140,8 +140,13 @@ enum ddr_type {
+ 						 (STM32MP_PARAM_LOAD_SIZE +	\
+ 						  STM32MP_HEADER_SIZE))
+ 
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++#define STM32MP_BL2_RO_SIZE			U(0x0001F000) /* 124 KB */
++#define STM32MP_BL2_SIZE			U(0x00028000) /* 160 KB for BL2 */
++#else /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ #define STM32MP_BL2_RO_SIZE			U(0x00020000) /* 128 KB */
+ #define STM32MP_BL2_SIZE			U(0x00029000) /* 164 KB for BL2 */
++#endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 
+ /* Allocate remaining sysram to BL31 Binary only */
+ #define STM32MP_BL31_SIZE			(STM32MP_SYSRAM_SIZE - \
+-- 
+2.53.0
+

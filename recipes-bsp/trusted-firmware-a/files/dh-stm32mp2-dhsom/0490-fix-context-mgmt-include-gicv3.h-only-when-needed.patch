@@ -1,0 +1,49 @@
+From 1c28cd76238476fe25233381f9edfb5e405d6d82 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 27 May 2026 16:24:03 +0200
+Subject: [PATCH 490/572] fix(context-mgmt): include gicv3.h only when needed
+
+The inclusion of gicv3.h file was done for code under the flag:
+CTX_INCLUDE_EL2_REGS. Put the #include under the same flag.
+This avoid warning when building with -Wundef flag, for platforms not
+using GICv3:
+include/drivers/arm/gicv3.h: In function 'gicv3_redist_size':
+include/drivers/arm/gicv3.h:366:5: warning: 'GIC_ENABLE_V4_EXTN' is not
+ defined, evaluates to '0' [-Wundef]
+  366 | #if GIC_ENABLE_V4_EXTN
+      |     ^~~~~~~~~~~~~~~~~~
+include/drivers/arm/gicv3.h: At top level:
+include/drivers/arm/gicv3.h:598:5: warning: 'GIC600_ERRATA_WA_2384374'
+ is not defined, evaluates to '0' [-Wundef]
+  598 | #if GIC600_ERRATA_WA_2384374
+      |     ^~~~~~~~~~~~~~~~~~~~~~~~
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3e7c9bf4271e7181dbda29b96ce8ac59f3771298 fix(context-mgmt): include gicv3.h only when needed]
+Change-Id: I69a106a583e4e2846eed883799ef876f7218bcd2
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572130
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ lib/el3_runtime/aarch64/context_mgmt.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/lib/el3_runtime/aarch64/context_mgmt.c b/lib/el3_runtime/aarch64/context_mgmt.c
+index 347a9409f3..9f291f9624 100644
+--- a/lib/el3_runtime/aarch64/context_mgmt.c
++++ b/lib/el3_runtime/aarch64/context_mgmt.c
+@@ -18,7 +18,9 @@
+ #include <common/bl_common.h>
+ #include <common/debug.h>
+ #include <context.h>
++#if CTX_INCLUDE_EL2_REGS
+ #include <drivers/arm/gicv3.h>
++#endif
+ #include <lib/cpus/cpu_ops.h>
+ #include <lib/cpus/errata.h>
+ #include <lib/el3_runtime/context_mgmt.h>
+-- 
+2.53.0
+

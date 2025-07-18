@@ -1,0 +1,81 @@
+From 1feaf22ac346ab3220a05756faa6b160648e8540 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 3 Jul 2024 19:12:30 +0200
+Subject: [PATCH 030/572] feat(stm32mp2): display package type for STM32MP23
+
+The package type is read from OTP fuse. Display it with other SoC
+information at boot.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 99d446fad24745cee56f196324eefd305edc9d42 feat(stm32mp2): display package type for STM32MP23]
+Change-Id: I855bd1ac8d96ca88a7e4ee5ac8b6f65697214cc9
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/391283
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h     |  8 ++++++++
+ plat/st/stm32mp2/stm32mp2_private.c | 16 ++++++++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 50616bf626..53efc90868 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -98,11 +98,19 @@
+ /*******************************************************************************
+  * PACKAGE ID
+  ******************************************************************************/
++#if STM32MP23
++#define STM32MP23_PKG_CUSTOM			U(0)
++#define STM32MP23_PKG_AL_VFBGA361		U(1)
++#define STM32MP23_PKG_AK_VFBGA424		U(3)
++#define STM32MP23_PKG_AJ_TFBGA361		U(7)
++#endif /* STM32MP23 */
++#if STM32MP25
+ #define STM32MP25_PKG_CUSTOM			U(0)
+ #define STM32MP25_PKG_AL_VFBGA361		U(1)
+ #define STM32MP25_PKG_AK_VFBGA424		U(3)
+ #define STM32MP25_PKG_AI_TFBGA436		U(5)
+ #define STM32MP25_PKG_UNKNOWN			U(7)
++#endif /* STM32MP25 */
+ 
+ /*******************************************************************************
+  * STM32MP2 memory map related constants
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 0b09304ffd..945120e9a8 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -316,6 +316,21 @@ void stm32mp_get_soc_name(char name[STM32_SOC_NAME_SIZE])
+ 
+ 	/* Package */
+ 	switch (get_cpu_package()) {
++#if STM32MP23
++	case STM32MP23_PKG_CUSTOM:
++		pkg = "XX";
++		break;
++	case STM32MP23_PKG_AL_VFBGA361:
++		pkg = "AL";
++		break;
++	case STM32MP23_PKG_AK_VFBGA424:
++		pkg = "AK";
++		break;
++	case STM32MP23_PKG_AJ_TFBGA361:
++		pkg = "AJ";
++		break;
++#endif /* STM32MP23 */
++#if STM32MP25
+ 	case STM32MP25_PKG_CUSTOM:
+ 		pkg = "XX";
+ 		break;
+@@ -328,6 +343,7 @@ void stm32mp_get_soc_name(char name[STM32_SOC_NAME_SIZE])
+ 	case STM32MP25_PKG_AI_TFBGA436:
+ 		pkg = "AI";
+ 		break;
++#endif /* STM32MP25 */
+ 	default:
+ 		pkg = "??";
+ 		break;
+-- 
+2.53.0
+

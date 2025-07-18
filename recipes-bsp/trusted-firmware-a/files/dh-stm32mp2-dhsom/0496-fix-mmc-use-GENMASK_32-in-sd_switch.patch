@@ -1,0 +1,39 @@
+From e6db2fa8e8e80735c58e81bc65ae0a5e0342936f Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 6 May 2026 16:31:01 +0200
+Subject: [PATCH 496/572] fix(mmc): use GENMASK_32 in sd_switch()
+
+The group_mask variable awaits an unsigned int value, use the GENMASK_32
+macro for this. The only currently supported group is 1 in TF-A, and
+there are only 6 possible. The GENMASK parameter will then never be
+above 31, so GENMASK_32 is safe.
+The issue was found with clang -Wshorten-64-to-32 warning.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5a0a5fe66e3d2f38135ecba038b063d777c31556 fix(mmc): use GENMASK_32 in sd_switch()]
+Change-Id: I5e205a7f79f384dc088c6b876d88589e7743d341
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572136
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/mmc/mmc.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/mmc.c b/drivers/mmc/mmc.c
+index 4864be82bb..6645ac4bb6 100644
+--- a/drivers/mmc/mmc.c
++++ b/drivers/mmc/mmc.c
+@@ -367,7 +367,7 @@ static int sd_switch(unsigned int mode, unsigned char group,
+ 		     unsigned char func)
+ {
+ 	unsigned int group_shift = (group - 1U) * 4U;
+-	unsigned int group_mask = GENMASK(group_shift + 3U,  group_shift);
++	unsigned int group_mask = GENMASK_32(group_shift + 3U,  group_shift);
+ 	unsigned int arg;
+ 	int ret;
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,61 @@
+From 50d42c0c4983bef06d50e0c2fea1ce5f8ff54336 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Tue, 10 Sep 2024 18:19:43 +0200
+Subject: [PATCH 277/572] feat(stm32mp21): check HWKEY validity before writing
+ RISAF encryption key
+
+RISAF encryption key is generated through the HWBUS feature which
+is based on the HWKEY on STM32MP21.
+Check HWKEY validity from BSEC before generating it, by using a
+new inline service at platform level.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 17e6c540691e7434b06a6a59f96c74e205e738a5 feat(stm32mp21): check HWKEY validity before writing RISAF encryption key]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I37d35672dfa711199337402113ec3d39034cda43
+---
+ plat/st/stm32mp2/bl2_plat_setup.c           | 8 ++++++++
+ plat/st/stm32mp2/include/stm32mp2_private.h | 9 +++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 3e84ea99e1..3377e7a967 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -575,6 +575,14 @@ static void prepare_encryption(void)
+ 	}
+ #endif /* STM32MP_SUPPORT_PM */
+ 
++#if STM32MP21
++	/* Check HWKEY validity before writing RISAF encryption key*/
++	if (!stm32_otp_is_hwkey_valid()) {
++		ERROR("Invalid HWKEY\n");
++		panic();
++	}
++#endif /* STM32MP21 */
++
+ 	if (stm32mp2_risaf_write_encryption_key(RISAF4_INST, mkey) != 0) {
+ 		panic();
+ 	}
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index cc7d1e81b1..ae02565d5f 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -93,6 +93,15 @@ static inline bool stm32_is_bsec_closed(void)
+ {
+ 	return (bsec_get_state() & BSEC_STATE_MASK) == BSEC_STATE_CLOSED;
+ }
++
++static inline bool stm32_otp_is_hwkey_valid(void)
++{
++	if ((bsec_get_state() & BSEC_HARDWARE_KEY) != 0U) {
++		return true;
++	}
++
++	return false;
++}
+ #else /* STM32MP_M33_TDCID */
+ uint32_t stm32_otp_probe(void);
+ uint32_t stm32_otp_read(uint32_t *val, uint32_t otp);
+-- 
+2.53.0
+

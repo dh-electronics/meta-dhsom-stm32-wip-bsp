@@ -1,0 +1,77 @@
+From b04f42c1951e0528bfb78dded0cbc777c370df56 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 2 Apr 2026 10:35:15 +0200
+Subject: [PATCH 464/572] fix(st-ddr): disabled DDR bus clock
+
+Disable the DDR sub system bus clock (AXI clock DDR Port, APB clock
+for DDR controller and PHY) when the DDR is in self refresh or off.
+
+No need to managed LPEN bit (for clock management in CSleep mode)
+when the clocks are disabled with EN bit.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9263922a08008950caac144f57ac0c6b557eb161 fix(st-ddr): disabled DDR bus clock]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I9d92681ba356dc5f1a20ad3cad0b4e7d44c7bf81
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/553297
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr_helpers.c | 26 +++++++++++++++++++++-----
+ 1 file changed, 21 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index fa78b56434..2e936e587c 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -320,8 +320,13 @@ static int sr_ssr_entry(bool standby)
+ 		udelay(DDR_DELAY_1US);
+ 	}
+ 
+-	mmio_clrsetbits_32(rcc_base + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPLPEN,
+-			   RCC_DDRCPCFGR_DDRCPEN);
++	/* Disable DDRSS bus clocks */
++	mmio_clrbits_32(rcc_base + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPEN);
++	mmio_clrbits_32(rcc_base + RCC_DDRCFGR,  RCC_DDRCFGR_DDRCFGEN);
++	mmio_clrbits_32(rcc_base + RCC_DDRCAPBCFGR, RCC_DDRCAPBCFGR_DDRCAPBEN);
++	mmio_clrbits_32(rcc_base + RCC_DDRPHYCAPBCFGR, RCC_DDRPHYCAPBCFGR_DDRPHYCAPBEN);
++
++	/* Configure DDRSS kernel clocks for low power */
+ 	mmio_setbits_32(rcc_base + RCC_DDRPHYCCFGR, RCC_DDRPHYCCFGR_DDRPHYCEN);
+ 	mmio_setbits_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRPHYDLP);
+ 
+@@ -333,8 +338,13 @@ static int sr_ssr_exit(void)
+ 	uintptr_t ddrctrl_base = stm32mp_ddrctrl_base();
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+ 
+-	mmio_setbits_32(rcc_base + RCC_DDRCPCFGR,
+-			RCC_DDRCPCFGR_DDRCPLPEN | RCC_DDRCPCFGR_DDRCPEN);
++	/* Enable DDRSS bus clocks */
++	mmio_setbits_32(rcc_base + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPEN);
++	mmio_setbits_32(rcc_base + RCC_DDRCFGR,  RCC_DDRCFGR_DDRCFGEN);
++	mmio_setbits_32(rcc_base + RCC_DDRCAPBCFGR, RCC_DDRCAPBCFGR_DDRCAPBEN);
++	mmio_setbits_32(rcc_base + RCC_DDRPHYCAPBCFGR, RCC_DDRPHYCAPBCFGR_DDRPHYCAPBEN);
++
++	/* Restore DDRSS kernel clocks */
+ 	mmio_clrbits_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRPHYDLP);
+ 	mmio_setbits_32(rcc_base + RCC_DDRPHYCCFGR, RCC_DDRPHYCCFGR_DDRPHYCEN);
+ 
+@@ -556,7 +566,13 @@ void ddr_sub_system_clk_off(void)
+ 	mmio_write_32(rcc_base + RCC_DDRPHYCAPBCFGR, RCC_DDRPHYCAPBCFGR_DDRPHYCAPBRST);
+ 	mmio_write_32(rcc_base + RCC_DDRCAPBCFGR, RCC_DDRCAPBCFGR_DDRCAPBRST);
+ 
+-	/* Deactivate clocks and PLL2 */
++	/* Deactivate kernel clocks and PLL2 */
+ 	mmio_clrbits_32(rcc_base + RCC_DDRPHYCCFGR, RCC_DDRPHYCCFGR_DDRPHYCEN);
+ 	mmio_clrbits_32(rcc_base + RCC_PLL2CFGR1, RCC_PLL2CFGR1_PLLEN);
++
++	/* Disable DDRSS bus clocks */
++	mmio_clrbits_32(rcc_base + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPEN);
++	mmio_clrbits_32(rcc_base + RCC_DDRCFGR,  RCC_DDRCFGR_DDRCFGEN);
++	mmio_clrbits_32(rcc_base + RCC_DDRCAPBCFGR, RCC_DDRCAPBCFGR_DDRCAPBEN);
++	mmio_clrbits_32(rcc_base + RCC_DDRPHYCAPBCFGR, RCC_DDRPHYCAPBCFGR_DDRPHYCAPBEN);
+ }
+-- 
+2.53.0
+

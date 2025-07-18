@@ -1,0 +1,88 @@
+From 2dd8b58b24a337759ed0f5ae19535f1cdc9360f5 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 16 May 2023 17:29:24 +0200
+Subject: [PATCH 096/572] feat(st): lock the encryption key at the end of BL2
+
+At the end of BL2, the FIP encryption key should not be accessible, if
+DECRYPTION_SUPPORT flag is set.
+The shadow registers are then set to 0, and a sticky read lock is set
+to prevent the OTP fuse to be reloaded.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 44bc641066117f93ae835fb0d853eef1424f6619 feat(st): lock the encryption key at the end of BL2]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I8b7dd68dc9562f54bfc2a0a7ac236baab2b552a5
+---
+ plat/st/common/include/stm32mp_common.h |  1 +
+ plat/st/common/stm32mp_common.c         | 26 +++++++++++++++++++++++++
+ plat/st/stm32mp1/bl2_plat_setup.c       |  6 ++++++
+ 3 files changed, 33 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index da4c52db9b..fc1f467408 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -66,6 +66,7 @@ int stm32_get_otp_index(const char *otp_name, uint32_t *otp_idx,
+ 			uint32_t *otp_len);
+ int stm32_get_otp_value(const char *otp_name, uint32_t *otp_val);
+ int stm32_get_otp_value_from_idx(const uint32_t otp_idx, uint32_t *otp_val);
++int stm32_lock_enc_key_otp(void);
+ /* update UID_WORD_NB array */
+ int stm32_get_uid_otp(uint32_t uid[]);
+ 
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 92d369dbf5..c511e89cf4 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -217,6 +217,32 @@ int stm32_get_otp_value_from_idx(const uint32_t otp_idx, uint32_t *otp_val)
+ 	return 0;
+ }
+ 
++int stm32_lock_enc_key_otp(void)
++{
++	uint32_t otp_idx;
++	uint32_t otp_len;
++	uint32_t i;
++
++	if (stm32_get_otp_index(ENCKEY_OTP, &otp_idx, &otp_len) != 0) {
++		return -1;
++	}
++
++	for (i = 0U; i < otp_len / CHAR_BIT / sizeof(uint32_t); i++) {
++		uint32_t ret = stm32_otp_write(0U, otp_idx + i);
++
++		if (ret != BSEC_OK) {
++			return -1;
++		}
++
++		ret = stm32_otp_set_sr_lock(otp_idx + i);
++		if (ret != BSEC_OK) {
++			return -1;
++		}
++	}
++
++	return 0;
++}
++
+ int stm32_get_uid_otp(uint32_t uid[])
+ {
+ 	uint8_t i;
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 661700d3e8..4d0ce0ca33 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -691,6 +691,12 @@ void bl2_el3_plat_prepare_exit(void)
+ 	flush_dcache_range(DATA_START, DATA_END - DATA_START);
+ #endif
+ 
++#if !defined(DECRYPTION_SUPPORT_none)
++	if (stm32_lock_enc_key_otp() != 0) {
++		panic();
++	}
++#endif
++
+ 	stm32mp1_security_setup();
+ 
+ 	/* end of boot mode */
+-- 
+2.53.0
+

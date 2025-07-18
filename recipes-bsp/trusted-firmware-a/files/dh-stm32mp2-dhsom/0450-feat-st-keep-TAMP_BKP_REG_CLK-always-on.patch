@@ -1,0 +1,54 @@
+From 585338af4d6258c91dd68a465d60ae9df9483691 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Mon, 16 Mar 2026 15:19:42 +0100
+Subject: [PATCH 450/572] feat(st): keep TAMP_BKP_REG_CLK always on
+
+Toggling TAMP_BKP_REG_CLK on each TAMPER backup register access
+leads to some instabilities in UART and USB programmer mode.
+Set TAMP_BKP_REG_CLK to always on to avoid unwanted tampers.
+It is applied to both STM32MP1 and STM32MP2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 991223c98207cb655d8a25c4e51e2590d01fe1cd feat(st): keep TAMP_BKP_REG_CLK always on]
+Change-Id: Id5f5bb4f871ab1a2b2350eca0c595b666e8271b9
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/543164
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/clk/clk-stm32mp2.c | 2 +-
+ drivers/st/clk/stm32mp1_clk.c | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index 776fb8b76c..86c6f60e2e 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -1633,7 +1633,7 @@ static const struct clk_stm32 stm32mp2_clk[CK_LAST] = {
+ 	STM32_GATE(_CK_GPIOK, CK_BUS_GPIOK, _CK_ICN_LS_MCU, 0, GATE_GPIOK),
+ #endif /* !STM32MP21 */
+ 	STM32_GATE(_CK_GPIOZ, CK_BUS_GPIOZ, _CK_ICN_LS_MCU, 0, GATE_GPIOZ),
+-	STM32_GATE(_CK_RTC, CK_BUS_RTC, _CK_ICN_LS_MCU, 0, GATE_RTC),
++	STM32_GATE(_CK_RTC, CK_BUS_RTC, _CK_ICN_LS_MCU, CLK_IS_CRITICAL, GATE_RTC),
+ 
+ 	STM32_GATE(_CK_BUS_RISAF4, CK_BUS_RISAF4, _CK_ICN_LS_MCU, CLK_IS_CRITICAL, GATE_DDRCP),
+ 	STM32_GATE(_CK_DDRCP, CK_BUS_DDR, _CK_ICN_DDR, CLK_IS_CRITICAL, GATE_DDRCP),
+diff --git a/drivers/st/clk/stm32mp1_clk.c b/drivers/st/clk/stm32mp1_clk.c
+index 522dabf30d..2a571d6996 100644
+--- a/drivers/st/clk/stm32mp1_clk.c
++++ b/drivers/st/clk/stm32mp1_clk.c
+@@ -1361,6 +1361,7 @@ static bool clock_is_always_on(unsigned long id)
+ 	case CK_MPU:
+ 	case CK_MCU:
+ 	case RTC:
++	case RTCAPB:
+ 		return true;
+ 	default:
+ 		return false;
+-- 
+2.53.0
+

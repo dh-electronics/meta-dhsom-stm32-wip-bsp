@@ -1,0 +1,70 @@
+From 5909993700b2ab41e12854c1bc7124953332dd36 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Thu, 17 Mar 2022 17:21:05 +0100
+Subject: [PATCH 085/572] feat(stm32mp1): enable GPIO regulator on STM32MP1
+
+Enable GPIO regulator on STM32MP1. Call init only if number of
+regulators is greater than zero.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4dbb9740b8a4281fe4720d9bc8610ef14f3de780 feat(stm32mp1): enable GPIO regulator on STM32MP1]
+Change-Id: Ia85d18b5799f6f9aacd4b270ee457c4758aa5d6b
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+---
+ plat/st/common/common.mk          | 1 +
+ plat/st/stm32mp1/bl2_plat_setup.c | 7 +++++++
+ plat/st/stm32mp1/stm32mp1_def.h   | 2 ++
+ 3 files changed, 10 insertions(+)
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index a5248ddf33..c29346ed4f 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -177,6 +177,7 @@ PLAT_BL_COMMON_SOURCES		+=	drivers/clk/clk.c				\
+ 					drivers/st/gpio/stm32_gpio.c			\
+ 					drivers/st/regulator/regulator_core.c		\
+ 					drivers/st/regulator/regulator_fixed.c		\
++					drivers/st/regulator/regulator_gpio.c			\
+ 					plat/st/common/stm32mp_dt.c
+ 
+ BL2_SOURCES			+=	${FCONF_SOURCES} ${FCONF_DYN_SOURCES}
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index ee8ae78e2b..fcc64a7985 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -17,6 +17,7 @@
+ #include <drivers/mmc.h>
+ #include <drivers/st/bsec.h>
+ #include <drivers/st/regulator_fixed.h>
++#include <drivers/st/regulator_gpio.h>
+ #include <drivers/st/stm32_iwdg.h>
+ #if STM32MP13
+ #include <drivers/st/stm32_mce.h>
+@@ -351,6 +352,12 @@ skip_console_init:
+ 		panic();
+ 	}
+ 
++#if (PLAT_NB_GPIO_REGUS > 0)
++	if (gpio_regulator_register() != 0) {
++		panic();
++	}
++#endif
++
+ 	if (dt_pmic_status() > 0) {
+ 		initialize_pmic();
+ 		if (!stm32mp_is_wakeup_from_standby() &&
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index 97b2bde505..c529d15d4f 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -644,6 +644,8 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ #define PLAT_NB_RDEVS			U(19)
+ /* 2 FIXED */
+ #define PLAT_NB_FIXED_REGUS		U(2)
++/* No GPIO regu */
++#define PLAT_NB_GPIO_REGUS		U(0)
+ 
+ /*******************************************************************************
+  * STM32MP1 CLOCKS
+-- 
+2.53.0
+

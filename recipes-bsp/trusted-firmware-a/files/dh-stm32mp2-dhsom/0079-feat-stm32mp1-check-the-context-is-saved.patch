@@ -1,0 +1,88 @@
+From 59544144ef5ca8dbe5b4aebbb0d04f85d08f56fa Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 6 Nov 2020 09:39:35 +0100
+Subject: [PATCH 079/572] feat(stm32mp1): check the context is saved
+
+This function will be used in BL2, after a return from Standby, to check
+the context is correctly saved in Backup RAM.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f1fbd39643b72eb5c02364300fe9f17539fd59cd feat(stm32mp1): check the context is saved]
+Change-Id: I16790cbc86d074968d9f0041ef871945dd9d0e67
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ plat/st/stm32mp1/include/stm32mp1_context.h |  2 ++
+ plat/st/stm32mp1/stm32mp1_context.c         | 25 +++++++++++++++++++++
+ plat/st/stm32mp1/stm32mp1_private.c         |  2 +-
+ 3 files changed, 28 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp1/include/stm32mp1_context.h b/plat/st/stm32mp1/include/stm32mp1_context.h
+index 5e41bbd91b..2fe1e81f6a 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_context.h
++++ b/plat/st/stm32mp1/include/stm32mp1_context.h
+@@ -7,12 +7,14 @@
+ #ifndef STM32MP1_CONTEXT_H
+ #define STM32MP1_CONTEXT_H
+ 
++#include <stdbool.h>
+ #include <stdint.h>
+ 
+ #if STM32MP_SUPPORT_PM
+ void stm32_clean_context(void);
+ void stm32_context_save_bl2_param(void);
+ uint32_t stm32_get_zdata_from_context(void);
++bool stm32_pm_context_is_valid(void);
+ void stm32_restore_ddr_training_area(void);
+ uint32_t stm32_pm_get_optee_ep(void);
+ #else /* STM32MP_SUPPORT_PM */
+diff --git a/plat/st/stm32mp1/stm32mp1_context.c b/plat/st/stm32mp1/stm32mp1_context.c
+index 6127e4b718..0cced916d1 100644
+--- a/plat/st/stm32mp1/stm32mp1_context.c
++++ b/plat/st/stm32mp1/stm32mp1_context.c
+@@ -145,6 +145,31 @@ uint32_t stm32_get_zdata_from_context(void)
+ 	return zdata;
+ }
+ 
++bool stm32_pm_context_is_valid(void)
++{
++	struct backup_data_s *backup_data;
++	bool ret;
++
++	clk_enable(BKPSRAM);
++
++	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
++
++	switch (MAGIC_ID(backup_data->magic)) {
++	case MAILBOX_MAGIC_V1:
++	case MAILBOX_MAGIC_V2:
++	case MAILBOX_MAGIC_V3:
++		ret = true;
++		break;
++	default:
++		ret = false;
++		break;
++	}
++
++	clk_disable(BKPSRAM);
++
++	return ret;
++}
++
+ void stm32_restore_ddr_training_area(void)
+ {
+ 	struct backup_data_s *backup_data;
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index 65051f1d39..b36fcd1451 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -697,7 +697,7 @@ bool stm32mp_is_wakeup_from_standby(void)
+ 	}
+ #endif
+ 
+-	return true;
++	return stm32_pm_context_is_valid();
+ #else /* STM32MP_SUPPORT_PM */
+ 	return false;
+ #endif /* STM32MP_SUPPORT_PM */
+-- 
+2.53.0
+

@@ -1,0 +1,124 @@
+From 988581da4d1aa7fe801cb354526ff7071f5c9609 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 25 Jul 2023 19:56:41 +0200
+Subject: [PATCH 190/572] fix(stm32mp2): correctly handle STANDBY
+
+Load correct binary based on STANDBY mode with
+- stm32mp_skip_boot_device_after_standby
+- stm32mp_is_wakeup_from_standby
+
+Only BL31 is required on standby exit,
+add skip flag on DDR_FW_ID and clear the skip flag for all the image
+loaded in DDR for standby exit.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b664d8a4337b083b9f80bb66e59f3e5453ddbcc0 fix(stm32mp2): correctly handle STANDBY]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: If27a4c0a6291b1a88d9584ae2a975bfa7d04ffff
+---
+ plat/st/stm32mp2/bl2_plat_setup.c   | 23 ++++++++++++++++++++++-
+ plat/st/stm32mp2/stm32mp2_private.c | 23 ++++++++++++++++++++++-
+ 2 files changed, 44 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 76701ae02f..76bbcfca1e 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -313,6 +313,17 @@ skip_console_init:
+ 		panic();
+ 	}
+ 
++#if STM32MP_DDR_FIP_IO_STORAGE && STM32MP_SUPPORT_PM
++	/* Skip DDR FW ID = the first image to load for standby exit */
++	if (stm32mp_is_wakeup_from_standby()) {
++		bl_mem_params_node_t *bl_mem_params;
++
++		bl_mem_params = get_bl_mem_params_node(DDR_FW_ID);
++		assert(bl_mem_params != NULL);
++		bl_mem_params->image_info.h.attr |= IMAGE_ATTRIB_SKIP_LOADING;
++	}
++#endif
++
+ 	stm32mp_io_setup();
+ }
+ 
+@@ -368,6 +379,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 	};
+ 	uint32_t otp_idx __maybe_unused;
+ 	uint32_t otp_len __maybe_unused;
++	bool wakeup_standby;
+ 
+ 	assert(bl_mem_params != NULL);
+ 
+@@ -396,6 +408,8 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 				FW_CONFIG_ID);
+ 		fconf_populate("FW_CONFIG", STM32MP_FW_CONFIG_BASE);
+ 
++		wakeup_standby = stm32mp_is_wakeup_from_standby();
++
+ 		/* Iterate through all the fw config IDs */
+ 		for (i = 0U; i < ARRAY_SIZE(image_ids); i++) {
+ 			bl_mem_params = get_bl_mem_params_node(image_ids[i]);
+@@ -409,7 +423,14 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			bl_mem_params->image_info.image_base = config_info->config_addr;
+ 			bl_mem_params->image_info.image_max_size = config_info->config_max_size;
+ 
+-			bl_mem_params->image_info.h.attr &= ~IMAGE_ATTRIB_SKIP_LOADING;
++			/*
++			 * If not going back from STANDBY (preserve the DDR in Self-Refresh)
++			 * or partition not located in DDR
++			 * the partitions must be loaded = remove the SKIP flag
++			 */
++			if (!wakeup_standby || (config_info->config_addr < STM32MP_DDR_BASE)) {
++				bl_mem_params->image_info.h.attr &= ~IMAGE_ATTRIB_SKIP_LOADING;
++			}
+ 
+ 			switch (image_ids[i]) {
+ 			case BL31_IMAGE_ID:
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 35cfec4a70..40369e683e 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -8,9 +8,11 @@
+ #include <errno.h>
+ 
+ #include <drivers/st/stm32_iwdg.h>
++#include <lib/mmio.h>
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+ 
+ #include <platform_def.h>
++#include <stm32mp2_context.h>
+ 
+ #define BKPR_STOP2_EP	11U
+ #define BKPR_FWU_INFO	48U
+@@ -613,8 +615,27 @@ uint32_t stm32_iwdg_shadow_update(uint32_t iwdg_inst, uint32_t flags)
+ 
+ bool stm32mp_is_wakeup_from_standby(void)
+ {
+-	/* TODO add source code to determine if platform is waking up from standby mode */
++#if STM32MP_SUPPORT_PM
++	static int standby = -1;
++	uint32_t rstsr;
++
++	if (standby == -1) {
++		rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_C1BOOTRSTSCLRR);
++
++		if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) != 0U) {
++			return false;
++		}
++		if (stm32_pm_context_is_valid()) {
++			standby = 1;
++		} else {
++			standby = 0;
++		}
++	}
++
++	return standby == 1;
++#else /* STM32MP_SUPPORT_PM */
+ 	return false;
++#endif /* STM32MP_SUPPORT_PM */
+ }
+ 
+ bool stm32mp_skip_boot_device_after_standby(void)
+-- 
+2.53.0
+

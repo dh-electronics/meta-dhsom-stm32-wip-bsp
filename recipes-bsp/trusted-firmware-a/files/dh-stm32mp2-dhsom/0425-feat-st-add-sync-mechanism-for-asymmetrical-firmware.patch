@@ -1,0 +1,149 @@
+From c0f403b68b7067fdc044e85c5c198d129d51c347 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 22 Jan 2026 16:05:48 +0100
+Subject: [PATCH 425/572] feat(st): add sync mechanism for asymmetrical
+ firmware update
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On STM32MP2 M33TDCID, the asymmetric nature of the system requires
+synchronizing firmware update operations between Cortex-A and Cortex-M.
+
+If the update fails on the Cortex-M side, TF-A must not boot the new
+image in trial mode but revert to the previous one, so that both cores
+run the same (old) firmware.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7c38a00426bd244963c9278411b6995ec0ddc696 feat(st): add sync mechanism for asymmetrical firmware update]
+Change-Id: I6aa367212fe01ba4e8fa0ac838467ffc4fb9fc00
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/528023
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/bl2_io_storage.c         | 12 +++++++++
+ plat/st/common/include/stm32mp_common.h |  4 +++
+ plat/st/stm32mp1/stm32mp1_private.c     |  9 +++++++
+ plat/st/stm32mp2/stm32mp2_private.c     | 33 +++++++++++++++++++++++++
+ 4 files changed, 58 insertions(+)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 0662e9c42c..8b625714f1 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -804,6 +804,7 @@ uint32_t plat_fwu_get_boot_idx(void)
+ 		const struct fwu_metadata *data = fwu_get_metadata();
+ 		uint32_t bootcount = 0;
+ 		int err = 0;
++		bool status;
+ 
+ 		boot_idx = data->active_index;
+ 
+@@ -812,6 +813,17 @@ uint32_t plat_fwu_get_boot_idx(void)
+ 			err = stm32_set_max_fwu_trial_boot_cnt();
+ 			break;
+ 		case FWU_BANK_STATE_VALID:
++			err = stm32_fwu_copro_status_is_failed(&status);
++			if (err != 0) {
++				ERROR("%s: Copro status bkp register access failed.\n", __func__);
++				panic();
++			}
++
++			if (status) {
++				boot_idx = fwu_get_alternate_boot_bank();
++				break;
++			}
++
+ 			err = stm32_get_and_dec_fwu_trial_boot_cnt(&bootcount);
+ 			if (err == 0) {
+ 				if (bootcount == 1U) {
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index ed4b52f651..470720b8a0 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -27,6 +27,9 @@
+ /* Needed by STM32CubeProgrammer support */
+ #define DWL_BUFFER_SIZE			U(0x01000000)
+ 
++/* Layout for firmware update M33 information. */
++#define FWU_M33_INFO_STATUS		BIT_32(31)
++
+ /* Functions to save and get boot context address given by ROM code */
+ void stm32mp_save_boot_ctx_address(uintptr_t address);
+ uintptr_t stm32mp_get_boot_ctx_address(void);
+@@ -177,6 +180,7 @@ int stm32_get_stop2_entrypoint_cell(struct nvmem_cell *stop2_entrypoint);
+ 
+ #if PSA_FWU_SUPPORT
+ int stm32_fwu_set_boot_idx(void);
++int stm32_fwu_copro_status_is_failed(bool *status);
+ int stm32_get_and_dec_fwu_trial_boot_cnt(uint32_t *cnt);
+ int stm32_set_max_fwu_trial_boot_cnt(void);
+ int stm32_clear_fwu_trial_boot_cnt(void);
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index 2ac8109974..c3aede3941 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -93,6 +93,15 @@ void configure_mmu(void)
+ 	enable_mmu_svc_mon(0);
+ }
+ 
++#if PSA_FWU_SUPPORT
++int stm32_fwu_copro_status_is_failed(bool *status)
++{
++	*status = false;
++
++	return 0;
++}
++#endif
++
+ uintptr_t stm32_get_gpio_bank_base(unsigned int bank)
+ {
+ #if STM32MP13
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index e8cc6a674a..9e4d7ccc29 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -143,6 +143,39 @@ int stm32mp_unmap_retram(void)
+ 					   RETRAM_SIZE);
+ }
+ 
++#if PSA_FWU_SUPPORT
++#if STM32MP_M33_TDCID
++int stm32_fwu_copro_status_is_failed(bool *status)
++{
++	struct nvmem_cell cm_fwu_info_cell = {};
++	uint32_t m33_fwu_info = 0;
++	int ret = 0;
++
++	ret = stm32_get_cm_fwu_info_cell(&cm_fwu_info_cell);
++	if (ret != 0) {
++		return -EIO;
++	}
++
++	ret = nvmem_cell_read(&cm_fwu_info_cell, (uint8_t *)&m33_fwu_info,
++			      sizeof(m33_fwu_info), NULL);
++	if (ret != 0) {
++		return -EIO;
++	}
++
++	*status = ((m33_fwu_info & FWU_M33_INFO_STATUS) == FWU_M33_INFO_STATUS);
++
++	return 0;
++}
++#else
++int stm32_fwu_copro_status_is_failed(bool *status)
++{
++	*status = false;
++
++	return 0;
++}
++#endif
++#endif /* PSA_FWU_SUPPORT */
++
+ uintptr_t stm32_get_gpio_bank_base(unsigned int bank)
+ {
+ 	if (bank == GPIO_BANK_Z) {
+-- 
+2.53.0
+

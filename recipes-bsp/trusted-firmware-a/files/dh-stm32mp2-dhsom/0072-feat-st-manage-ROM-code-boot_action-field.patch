@@ -1,0 +1,72 @@
+From 138c7504cbe4c73cbc9120b55b7872f889798a50 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 24 Nov 2021 18:32:35 +0100
+Subject: [PATCH 072/572] feat(st): manage ROM code boot_action field
+
+Add a function to get the ROM code boot field boot_action. This allows
+determining if this is a cold boot or a return from Standby.
+This is only valid for STM32MP1x, so put this code under flag.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e5edba7500fbdd5b295d0fb69811d93d3fe237b0 feat(st): manage ROM code boot_action field]
+Change-Id: I04100a72483b44655fe90386090bae69ad06ebe3
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  3 +++
+ plat/st/common/stm32mp_common.c         | 13 +++++++++++++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 99ebd07d3b..7ce7f2ed44 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -30,6 +30,9 @@
+ void stm32mp_save_boot_ctx_address(uintptr_t address);
+ uintptr_t stm32mp_get_boot_ctx_address(void);
+ uint16_t stm32mp_get_boot_itf_selected(void);
++#ifdef STM32MP1X
++uint32_t stm32mp_get_boot_action(void);
++#endif
+ 
+ bool stm32mp_is_single_core(void);
+ bool stm32mp_is_auth_supported(void);
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 20c865bef6..92d369dbf5 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -77,6 +77,9 @@ unsigned int plat_get_syscnt_freq2(void)
+ 
+ static uintptr_t boot_ctx_address;
+ static uint16_t boot_itf_selected;
++#ifdef STM32MP1X
++static uint32_t boot_action_saved;
++#endif
+ 
+ void stm32mp_save_boot_ctx_address(uintptr_t address)
+ {
+@@ -84,6 +87,9 @@ void stm32mp_save_boot_ctx_address(uintptr_t address)
+ 
+ 	boot_ctx_address = address;
+ 	boot_itf_selected = boot_context->boot_interface_selected;
++#ifdef STM32MP1X
++	boot_action_saved = boot_context->boot_action;
++#endif
+ }
+ 
+ uintptr_t stm32mp_get_boot_ctx_address(void)
+@@ -96,6 +102,13 @@ uint16_t stm32mp_get_boot_itf_selected(void)
+ 	return boot_itf_selected;
+ }
+ 
++#ifdef STM32MP1X
++uint32_t stm32mp_get_boot_action(void)
++{
++	return boot_action_saved;
++}
++#endif
++
+ uintptr_t stm32mp_ddrctrl_base(void)
+ {
+ 	return DDRCTRL_BASE;
+-- 
+2.53.0
+

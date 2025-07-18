@@ -1,0 +1,41 @@
+From d56073d51538a2179980e7b6d72c7580c0bb4fc7 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 27 Feb 2026 09:23:27 +0100
+Subject: [PATCH 441/572] fix(stm32mp2): cast ST_CTX_VER_MAJOR for
+ ST_CTX_VERSION
+
+ST_CTX_VER_MAJOR (= 1U) is seen as an uint8_t. As it is shifted by 8, it
+should then first be cast as an uint16_t when building ST_CTX_VERSION.
+
+This corrects the MISRA_C_2012_Rule_12.2: The right hand operand of a
+shift operator shall lie in the range zero to one less than the width
+in bits of the essential type of the left hand operand
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6b12540ce49b81d7b9ef19941b71e9e083f2238d fix(stm32mp2): cast ST_CTX_VER_MAJOR for ST_CTX_VERSION]
+Change-Id: Iad4b3d9ed23909eb45e03b6c41e10625b2e3394f
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/541431
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_context.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_context.c b/plat/st/stm32mp2/stm32mp2_context.c
+index eaf19632bf..a8706a0cb7 100644
+--- a/plat/st/stm32mp2/stm32mp2_context.c
++++ b/plat/st/stm32mp2/stm32mp2_context.c
+@@ -32,7 +32,7 @@
+ /* VERSION to check compatibility of pm backup data between bl2 and bl31 */
+ #define ST_CTX_VER_MAJOR		1U
+ #define ST_CTX_VER_MINOR		0U
+-#define ST_CTX_VERSION			((ST_CTX_VER_MAJOR << 8U) | ST_CTX_VER_MINOR)
++#define ST_CTX_VERSION			(((uint16_t)ST_CTX_VER_MAJOR << 8U) | ST_CTX_VER_MINOR)
+ #define ST_CTX_VER_GET_MAJOR(version)	(((version) & GENMASK_32(15, 8)) >> 8U)
+ #define ST_CTX_VER_GET_MINOR(version)	((version) & GENMASK_32(7, 0))
+ 
+-- 
+2.53.0
+

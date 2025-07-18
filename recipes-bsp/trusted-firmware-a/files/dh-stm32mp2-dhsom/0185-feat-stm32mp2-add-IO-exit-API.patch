@@ -1,0 +1,80 @@
+From c9d1f0af3b7d6361bc4aa0885eb845119680bb96 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 4 Oct 2023 09:50:39 +0200
+Subject: [PATCH 185/572] feat(stm32mp2): add IO exit API
+
+Add IO exit API that will be called before leaving BL2 to reset
+SPI NOR devices.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 98d23cf190359f86a7338bfc29d932eac821f378 feat(stm32mp2): add IO exit API]
+Change-Id: Ie96e1b58eead2fb675605f013919621ec14a112b
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/331692
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/bl2_io_storage.c         | 10 ++++++++++
+ plat/st/common/include/stm32mp_common.h |  3 +++
+ plat/st/stm32mp2/bl2_plat_setup.c       |  2 ++
+ 3 files changed, 15 insertions(+)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 831faf2ced..5ec48f8ec0 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -88,6 +88,7 @@ static io_mtd_dev_spec_t spi_nor_dev_spec = {
+ 	.ops = {
+ 		.init = spi_nor_init,
+ 		.read = spi_nor_read,
++		.reset = spi_nor_reset,
+ 	},
+ };
+ #endif
+@@ -581,6 +582,15 @@ void stm32mp_io_setup(void)
+ 	}
+ }
+ 
++void stm32mp_io_exit(void)
++{
++	int io_result __maybe_unused;
++
++	/* Close connection to device */
++	io_result = io_dev_close(storage_dev_handle);
++	assert(io_result == 0);
++}
++
+ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+ {
+ 	static bool gpt_init_done __maybe_unused;
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 5904173f2d..bcf3817672 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -135,6 +135,9 @@ void stm32mp_print_boardinfo(void);
+ /* Initialise the IO layer and register platform IO devices */
+ void stm32mp_io_setup(void);
+ 
++/* Deinitialise the IO layer */
++void stm32mp_io_exit(void);
++
+ /* Functions to map DDR in MMU with non-cacheable attribute, and unmap it */
+ int stm32mp_map_ddr_non_cacheable(void);
+ int stm32mp_unmap_ddr(void);
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index c09cf05f7c..76701ae02f 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -498,4 +498,6 @@ void bl2_el3_plat_prepare_exit(void)
+ {
+ 	flush_dcache_range(BSS_START, BSS_END - BSS_START);
+ 	flush_dcache_range(DATA_START, DATA_END - DATA_START);
++
++	stm32mp_io_exit();
+ }
+-- 
+2.53.0
+

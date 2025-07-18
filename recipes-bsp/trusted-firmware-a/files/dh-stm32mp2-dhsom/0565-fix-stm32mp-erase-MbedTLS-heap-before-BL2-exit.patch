@@ -1,0 +1,163 @@
+From 6e0570a4f8c122e622d4dd18650f6efe12f88a11 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Wed, 16 Sep 2026 14:35:19 +0200
+Subject: [PATCH 565/572] fix(stm32mp): erase MbedTLS heap before BL2 exit
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On platforms using an external MbedTLS heap (STM32MP_USE_EXTERNAL_HEAP),
+BL2 authenticates images using an SRAM area whose firewall rights are
+later switched from secure to non-secure by OP-TEE, so it can be reused
+in the normal world.
+
+Dirty secure cache lines written by BL2 while using this heap could
+still be evicted after Secure OS reconfigures the RIF/RISAB rights,
+hitting the now non-secure region and triggering an IAC exception
+during reboot.
+
+Add stm32mp_erase_mbedtls_heap(), called from bl2_el3_plat_prepare_exit()
+on stm32mp1 and stm32mp2 right after the existing BSS/DATA cache flush.
+It zeroes the heap content and flushes (clean+invalidate) it, so no
+leftover MbedTLS secret nor dirty secure cache line remains once the
+area is handed over to the non-secure world. It is a no-op when
+TRUSTED_BOARD_BOOT or STM32MP_USE_EXTERNAL_HEAP is disabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c048592ef52419409e6f64f7cd63fbcbf8297615 fix(stm32mp): erase MbedTLS heap before BL2 exit]
+Change-Id: If1ec3cc75066e19abcef4f0c92bd765f6a6bfbb5
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/612851
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  6 ++++
+ plat/st/common/stm32mp_trusted_boot.c   | 47 +++++++++++++++++++++----
+ plat/st/stm32mp1/bl2_plat_setup.c       |  2 ++
+ plat/st/stm32mp2/bl2_plat_setup.c       |  2 ++
+ 4 files changed, 51 insertions(+), 6 deletions(-)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 8698d16e9d..551bf89329 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -42,6 +42,12 @@ bool stm32mp_is_single_core(void);
+ bool stm32mp_is_auth_supported(void);
+ uint32_t stm32mp_check_closed_device(void);
+ 
++#if TRUSTED_BOARD_BOOT
++void stm32mp_erase_mbedtls_heap(void);
++#else
++static inline void stm32mp_erase_mbedtls_heap(void) {}
++#endif
++
+ /* Return the base address of the DDR controller */
+ uintptr_t stm32mp_ddrctrl_base(void);
+ 
+diff --git a/plat/st/common/stm32mp_trusted_boot.c b/plat/st/common/stm32mp_trusted_boot.c
+index 8c6769ed77..81f663da58 100644
+--- a/plat/st/common/stm32mp_trusted_boot.c
++++ b/plat/st/common/stm32mp_trusted_boot.c
+@@ -9,6 +9,7 @@
+ #include <limits.h>
+ 
+ #include <mbedtls/sha256.h>
++#include <arch_helpers.h>
+ #include <common/debug.h>
+ #include <common/tbbr/cot_def.h>
+ #include <drivers/clk.h>
+@@ -18,6 +19,7 @@
+ #include <lib/fconf/fconf_dyn_cfg_getter.h>
+ #include <lib/fconf/fconf_tbbr_getter.h>
+ #include <lib/mmio.h>
++#include <lib/utils.h>
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+ #include <plat/common/platform.h>
+ 
+@@ -196,18 +198,51 @@ int plat_set_nv_ctr(void *cookie, unsigned int nv_ctr)
+ 
+ int plat_get_mbedtls_heap(void **heap_addr, size_t *heap_size)
+ {
++	static void *heap_addr_static;
++	static size_t heap_size_static;
++	int err __maybe_unused;
++
+ 	assert(heap_addr != NULL);
+ 	assert(heap_size != NULL);
+ 
++	if (heap_addr_static == NULL) {
+ #if STM32MP_USE_EXTERNAL_HEAP
+-	/* Retrieve the already allocated heap's info from DTB */
+-	*heap_addr = FCONF_GET_PROPERTY(tbbr, dyn_config, mbedtls_heap_addr);
+-	*heap_size = FCONF_GET_PROPERTY(tbbr, dyn_config, mbedtls_heap_size);
++		/* Retrieve the already allocated heap's info from DTB, once */
++		heap_addr_static = FCONF_GET_PROPERTY(tbbr, dyn_config, mbedtls_heap_addr);
++		heap_size_static = FCONF_GET_PROPERTY(tbbr, dyn_config, mbedtls_heap_size);
+ 
+-	/* We expect heap already statically mapped */
++		if (heap_addr_static == NULL) {
++			ERROR("Bad mbedtls heap address\n");
++			panic();
++		}
+ 
+-	return 0;
++		/* We expect heap already statically mapped */
+ #else
+-	return get_mbedtls_heap_helper(heap_addr, heap_size);
++		err = get_mbedtls_heap_helper(&heap_addr_static, &heap_size_static);
++
++		if (err != 0) {
++			return err;
++		}
++#endif
++	}
++
++	*heap_addr = heap_addr_static;
++	*heap_size = heap_size_static;
++
++	return 0;
++}
++
++void stm32mp_erase_mbedtls_heap(void)
++{
++	void *heap_addr;
++	size_t heap_size;
++
++	if ((plat_get_mbedtls_heap(&heap_addr, &heap_size) != 0) || (heap_size == 0U)) {
++		return;
++	}
++
++	zeromem(heap_addr, heap_size);
++#if STM32MP_USE_EXTERNAL_HEAP
++	flush_dcache_range((uintptr_t)heap_addr, heap_size);
+ #endif
+ }
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 5582a015df..75e8e543ed 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -790,6 +790,8 @@ void bl2_el3_plat_prepare_exit(void)
+ 	flush_dcache_range(DATA_START, DATA_END - DATA_START);
+ #endif
+ 
++	stm32mp_erase_mbedtls_heap();
++
+ #if !defined(DECRYPTION_SUPPORT_none)
+ 	if (stm32_lock_enc_key_otp() != 0) {
+ 		panic();
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 6bd656dd5d..55f2eee396 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -885,6 +885,8 @@ void bl2_el3_plat_prepare_exit(void)
+ 	flush_dcache_range(BSS_START, BSS_END - BSS_START);
+ 	flush_dcache_range(DATA_START, DATA_END - DATA_START);
+ 
++	stm32mp_erase_mbedtls_heap();
++
+ #if STM32MP_M33_TDCID
+ #if TRUSTED_BOARD_BOOT
+ 	if (rse_platform_stm32_share_key_stop(0) != PSA_SUCCESS) {
+-- 
+2.53.0
+

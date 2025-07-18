@@ -1,0 +1,44 @@
+From 1166721e9d2671a8c74800c3eec74db78d006c27 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 4 Jun 2026 16:22:11 +0200
+Subject: [PATCH 516/572] fix(stm32mp2): check size of context in backup SRAM
+
+The size of backup_data_s struct must fit the budget of low-power
+context in the first 4KB in PWR backup RAM (BPKSRAM).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3c00b5b9880b1ff75de0d905fe0f3c0c38a77735 fix(stm32mp2): check size of context in backup SRAM]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I31cf263700eb27b7ac1e4a7d39efb6a106279830
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/574928
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_context.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_context.c b/plat/st/stm32mp2/stm32mp2_context.c
+index 60fcf9d4da..f8ec88620d 100644
+--- a/plat/st/stm32mp2/stm32mp2_context.c
++++ b/plat/st/stm32mp2/stm32mp2_context.c
+@@ -21,6 +21,7 @@
+ #include <stm32mp2_context.h>
+ 
+ #define BACKUP_CTX_ADDR		STM32MP_BACKUP_RAM_BASE
++#define BACKUP_CTX_MAX_SIZE	SZ_4K
+ #define BACKUP_CTX_CLK		CK_BUS_BKPSRAM
+ #define ENC_KEY_SIZE_IN_BYTES	RISAF_KEY_SIZE_IN_BYTES
+ 
+@@ -57,6 +58,9 @@ struct backup_data_s {
+ 	uint8_t data[DATA_SIZE];
+ };
+ 
++CASSERT(sizeof(struct backup_data_s) < BACKUP_CTX_MAX_SIZE,
++	backup_data_s_size_too_large);
++
+ #if STM32MP_CONTEXT_VERSION
+ static uint32_t stm32mp_pm_crc_check(struct backup_data_s *data)
+ {
+-- 
+2.53.0
+

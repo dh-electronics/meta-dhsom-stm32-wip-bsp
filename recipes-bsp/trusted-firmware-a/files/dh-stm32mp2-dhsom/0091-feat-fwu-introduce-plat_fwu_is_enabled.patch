@@ -1,0 +1,103 @@
+From 2058f2904a055bd06e2e4d6942fd535473aadd6d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 16 Sep 2022 14:24:08 +0200
+Subject: [PATCH 091/572] feat(fwu): introduce plat_fwu_is_enabled()
+
+Before initializing FWU, it could be handy to check at platform level
+that all conditions are met. This can be useful after coming back from
+low power state, and we do not want to reload binaries from storage
+devices. The plat_fwu_is_enabled() function now returns true for all
+platforms using FWU.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 49893648cbcaa6eff5e05664defb860582086982 feat(fwu): introduce plat_fwu_is_enabled()]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I80226b2add16b423b529b6bca18607d539dbfa15
+---
+ bl2/bl2_main.c                   |  4 +++-
+ docs/porting-guide.rst           | 12 ++++++++++++
+ include/plat/common/platform.h   |  1 +
+ plat/arm/common/arm_io_storage.c |  5 +++++
+ plat/st/common/bl2_io_storage.c  |  5 +++++
+ 5 files changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/bl2/bl2_main.c b/bl2/bl2_main.c
+index 9e90c0b4a6..41fb01dc20 100644
+--- a/bl2/bl2_main.c
++++ b/bl2/bl2_main.c
+@@ -80,7 +80,9 @@ void __no_pauth bl2_main(u_register_t arg0, u_register_t arg1, u_register_t arg2
+ 	bl2_arch_setup();
+ 
+ #if PSA_FWU_SUPPORT
+-	fwu_init();
++	if (plat_fwu_is_enabled()) {
++		fwu_init();
++	}
+ #endif /* PSA_FWU_SUPPORT */
+ 
+ 	crypto_mod_init();
+diff --git a/docs/porting-guide.rst b/docs/porting-guide.rst
+index 242c3aab3d..f975623840 100644
+--- a/docs/porting-guide.rst
++++ b/docs/porting-guide.rst
+@@ -1252,6 +1252,18 @@ resets while booting from the active bank, the platform can then switch to boot
+ from a different bank. This function then returns the bank that the platform
+ should boot its images from.
+ 
++Function : plat_fwu_is_enabled() [when PSA_FWU_SUPPORT == 1]
++~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
++
++::
++
++    Argument : void
++    Return   : bool
++
++This function is mandatory when PSA_FWU_SUPPORT is enabled. It checks at
++platform level that all conditions are met to initialize FWU process.
++
++
+ Common optional modifications
+ -----------------------------
+ 
+diff --git a/include/plat/common/platform.h b/include/plat/common/platform.h
+index 010068a867..6ff2bf4688 100644
+--- a/include/plat/common/platform.h
++++ b/include/plat/common/platform.h
+@@ -534,6 +534,7 @@ int plat_fwu_set_metadata_image_source(unsigned int image_id,
+ 				       uintptr_t *image_spec);
+ void plat_fwu_set_images_source(const struct fwu_metadata *metadata);
+ uint32_t plat_fwu_get_boot_idx(void);
++bool plat_fwu_is_enabled(void);
+ 
+ /*
+  * Optional function to indicate if cache management operations can be
+diff --git a/plat/arm/common/arm_io_storage.c b/plat/arm/common/arm_io_storage.c
+index 5a3d27abb1..bf22d5fce7 100644
+--- a/plat/arm/common/arm_io_storage.c
++++ b/plat/arm/common/arm_io_storage.c
+@@ -248,4 +248,9 @@ int plat_fwu_set_metadata_image_source(unsigned int image_id,
+ 
+ 	return result;
+ }
++
++bool plat_fwu_is_enabled(void)
++{
++	return true;
++}
+ #endif /* PSA_FWU_SUPPORT */
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index c478b497cc..0ec25f5524 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -887,4 +887,9 @@ int plat_fwu_set_metadata_image_source(unsigned int image_id,
+ 
+ 	return set_metadata_image_source(image_id, handle, image_spec);
+ }
++
++bool plat_fwu_is_enabled(void)
++{
++	return true;
++}
+ #endif /* PSA_FWU_SUPPORT */
+-- 
+2.53.0
+

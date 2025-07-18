@@ -1,0 +1,75 @@
+From 6651157a94ae16250b6f865f3722d2e616a6186c Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 27 May 2026 15:13:39 +0200
+Subject: [PATCH 493/572] fix(stm32mp1): disable STM32MP2 flags
+
+Explicitly disable flags on STM32MP1 that are only used on STM32MP2.
+This concerns STM32MP_M33_TDCID, STM32MP_DDR_FIP_IO_STORAGE and
+STM32_SAES_CRYP2 that are only usable on STM32MP2. This avoids warnings
+when enabling -Wundef flag.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0556ea77255bbec9b0f67faffb7ad19edea45f09 fix(stm32mp1): disable STM32MP2 flags]
+Change-Id: I2445ac9108e7ff677b04c8e7b78e9d85f0fee86e
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572133
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp1/platform.mk | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index 0534b2be46..4c73bc457e 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -30,6 +30,8 @@ STM32MP21		:=	0
+ STM32MP23		:=	0
+ STM32MP25		:=	0
+ STM32MP2X		:=	0
++STM32MP_M33_TDCID	:=	0
++STM32MP_DDR_FIP_IO_STORAGE :=	0
+ 
+ ifeq ($(STM32MP13),1)
+ ifeq ($(STM32MP15),1)
+@@ -114,6 +116,7 @@ STM32_RNG_VER		:=	2
+ STM32_RNG_VER_MINOR	:=	1
+ STM32_SAES_VER		:=	0 # Unavailable in this platform
+ endif
++STM32_SAES_CRYP2	:=	0 # Unavailable in STM32MP1 platforms
+ 
+ # Download load address for serial boot devices
+ DWL_BUFFER_BASE 	?=	0xC7000000
+@@ -185,10 +188,13 @@ $(eval $(call assert_booleans,\
+ 	$(sort \
+ 		PKA_USE_BRAINPOOL_P256T1 \
+ 		PKA_USE_NIST_P256 \
++		STM32_SAES_CRYP2 \
+ 		STM32MP_CRYPTO_ROM_LIB \
+ 		STM32MP_CRYPTO_USE_SW \
+ 		STM32MP_DDR_32BIT_INTERFACE \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
++		STM32MP_DDR_FIP_IO_STORAGE \
++		STM32MP_M33_TDCID \
+ 		STM32MP_SSP \
+ 		STM32MP_STPMIC1L \
+ 		STM32MP_USE_EXTERNAL_HEAP \
+@@ -225,11 +231,14 @@ $(eval $(call add_defines,\
+ 		STM32_RNG_VER \
+ 		STM32_RNG_VER_MINOR \
+ 		STM32_SAES_VER \
++		STM32_SAES_CRYP2 \
+ 		STM32_TF_A_COPIES \
+ 		STM32MP_CRYPTO_ROM_LIB \
+ 		STM32MP_CRYPTO_USE_SW \
+ 		STM32MP_DDR_32BIT_INTERFACE \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
++		STM32MP_DDR_FIP_IO_STORAGE \
++		STM32MP_M33_TDCID \
+ 		STM32MP_SSP \
+ 		STM32MP_STPMIC1L \
+ 		STM32MP_USE_EXTERNAL_HEAP \
+-- 
+2.53.0
+

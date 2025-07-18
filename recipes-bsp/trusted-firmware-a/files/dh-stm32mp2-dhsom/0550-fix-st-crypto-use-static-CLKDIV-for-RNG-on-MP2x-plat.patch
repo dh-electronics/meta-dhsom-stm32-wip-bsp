@@ -1,0 +1,91 @@
+From 555d13fdc912ea7aa096634662fef9c46d7c71ab Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 29 May 2026 14:54:11 +0200
+Subject: [PATCH 550/572] fix(st-crypto): use static CLKDIV for RNG on MP2x
+ platforms
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On MP2x (MP25, MP23, MP21), the RNG kernel clock (rng_clk) is a fixed
+64MHz oscillator (clk_rcbsec) that is not exposed in the device tree.
+The DT only provides the bus clock (hclk). The runtime call to
+clk_get_rate() was computing CLKDIV against the bus clock frequency
+instead of the actual noise source clock, resulting in an incorrect
+divider value programmed in RNG_CR[CLKDIV].
+
+Replace the runtime computation with a static divider value derived
+from the known 64MHz source for MP2x:
+- MP25/MP23: 64MHz >> 1 = 32MHz (target <= 48MHz)
+- MP21: 64MHz >> 4 = 4MHz (target <= 4MHz)
+
+Keep runtime computation for MP13 where stm32_rng.clock corresponds
+to the actual RNG kernel clock (RNG1_K), for which clk_get_rate()
+returns the correct frequency.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 87b734fa1b9454ca30e357316fd3ad9f6483fa23 fix(st-crypto): use static CLKDIV for RNG on MP2x platforms]
+Change-Id: I1884f0cb3bc5ddd846cd38f052a3631aeeb61cd0
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/588788
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/crypto/stm32_rng.c | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/crypto/stm32_rng.c b/drivers/st/crypto/stm32_rng.c
+index e8a1f4e219..25c150b194 100644
+--- a/drivers/st/crypto/stm32_rng.c
++++ b/drivers/st/crypto/stm32_rng.c
+@@ -76,7 +76,7 @@
+ #define RNG_NIST_CONFIG3		0xEU
+ #define RNG_HTCFG_CONFIG		0x00006688U
+ #define RNG_NSCFG_CONFIG		0x0002E649U
+-#define RNG_MAX_NOISE_CLK_FREQ		48000000U
++#define RNG_CLKDIV_STATIC		1U /* 64MHz >> 1 = 32MHz (≤ 48MHz target) */
+ #elif STM32_RNG_VER_MINOR == 4
+ /* MP21 default values */
+ #define RNG_NIST_CONFIG1		0xFU
+@@ -84,12 +84,16 @@
+ #define RNG_NIST_CONFIG3		0xFU
+ #define RNG_HTCFG_CONFIG		0x0000AAC7U
+ #define RNG_NSCFG_CONFIG		0x000001FFU
+-#define RNG_MAX_NOISE_CLK_FREQ		4000000U
++#define RNG_CLKDIV_STATIC		4U /* 64MHz >> 4 = 4MHz <= (<=4MHz target) */
+ #else
+ #error "Please define STM32_RNG_VER_MINOR"
+ #endif
+ #endif
+ 
++/* For MP1x, clock correspond to rng_clk as this one isn't fixed and can
++ * be used to activate peripheral bus clock hclk. In MP2X, rng_clk is fixed
++ * and clock correspond to hclk directly.
++ */
+ struct stm32_rng_instance {
+ 	uintptr_t base;
+ 	unsigned long clock;
+@@ -124,6 +128,8 @@ static void seed_error_recovery(void)
+ 	}
+ }
+ 
++#if STM32_RNG_VER == 4
++#if STM32_RNG_VER_MINOR == 2
+ static uint32_t stm32_rng_clock_freq_restrain(void)
+ {
+ 	unsigned long clock_rate;
+@@ -144,6 +150,13 @@ static uint32_t stm32_rng_clock_freq_restrain(void)
+ 
+ 	return clock_div;
+ }
++#else
++static uint32_t stm32_rng_clock_freq_restrain(void)
++{
++	return RNG_CLKDIV_STATIC;
++}
++#endif
++#endif /* STM32_RNG_VER == 4 */
+ 
+ static int stm32_rng_enable(void)
+ {
+-- 
+2.53.0
+

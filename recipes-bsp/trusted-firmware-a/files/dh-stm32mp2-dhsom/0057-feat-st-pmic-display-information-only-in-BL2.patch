@@ -1,0 +1,104 @@
+From a049e29d05c45477fb440e37c38baff60325dc48 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 24 Mar 2025 11:49:12 +0100
+Subject: [PATCH 057/572] feat(st-pmic): display information only in BL2
+
+Display the STPMIC version and product ID only in BL2.
+
+No need to be displayed in BL31, when STPMIC drvier is used to switch off
+the DDR power supplies.
+
+This patch also move the 'pmic2->ref_id' initialization in
+initialize_pmic_i2c().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 28c0b4b3e63c494db666baf494370fd414bfc3e4 feat(st-pmic): display information only in BL2]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ic414c735d16e2937d1435918843d3fad20e8bde5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/446189
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic2.c | 17 +++++++++++++----
+ include/drivers/st/stpmic2.h    |  5 +++--
+ 2 files changed, 16 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic2.c b/drivers/st/pmic/stm32mp_pmic2.c
+index 3b4976ec27..c8b59f5a06 100644
+--- a/drivers/st/pmic/stm32mp_pmic2.c
++++ b/drivers/st/pmic/stm32mp_pmic2.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2024, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2024-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -131,6 +131,7 @@ static int dt_pmic2_i2c_config(struct dt_node_info *i2c_info,
+ bool initialize_pmic_i2c(void)
+ {
+ 	int ret;
++	uint8_t val;
+ 	struct dt_node_info i2c_info;
+ 	struct i2c_handle_s *i2c = &i2c_handle;
+ 	uint32_t i2c_addr = 0U;
+@@ -178,6 +179,12 @@ bool initialize_pmic_i2c(void)
+ 	pmic2->i2c_handle = &i2c_handle;
+ 	pmic2->i2c_addr = i2c_addr;
+ 
++	if (stpmic2_get_product_id(pmic2, &val) != 0) {
++		ERROR("Failed to access PMIC\n");
++		panic();
++	}
++	pmic2->ref_id = ((val & PMIC_REF_ID_MASK) >> PMIC_REF_ID_SHIFT);
++
+ 	return true;
+ }
+ 
+@@ -533,7 +540,7 @@ static int register_pmic2(void)
+ void initialize_pmic(void)
+ {
+ 	int ret;
+-	uint8_t val;
++	uint8_t val __maybe_unused;
+ 
+ 	ret = initialize_pmic_i2c();
+ 	if (!ret) {
+@@ -541,6 +548,8 @@ void initialize_pmic(void)
+ 		return;
+ 	}
+ 
++#if IMAGE_BL2
++#if LOG_LEVEL >= LOG_LEVEL_INFO
+ 	if (stpmic2_get_version(pmic2, &val) != 0) {
+ 		ERROR("Failed to access PMIC\n");
+ 		panic();
+@@ -552,8 +561,8 @@ void initialize_pmic(void)
+ 		panic();
+ 	}
+ 	INFO("PMIC2 product ID = 0x%02x\n", val);
+-
+-	pmic2->ref_id = ((val & PMIC_REF_ID_MASK) >> PMIC_REF_ID_SHIFT);
++#endif
++#endif
+ 
+ 	ret = register_pmic2();
+ 	if (ret < 0) {
+diff --git a/include/drivers/st/stpmic2.h b/include/drivers/st/stpmic2.h
+index 5b0168c6ef..8c403f1284 100644
+--- a/include/drivers/st/stpmic2.h
++++ b/include/drivers/st/stpmic2.h
+@@ -216,8 +216,9 @@ enum {
+ #define NVM_USER_SHR2		0xB7
+ 
+ /* PRODUCT_ID bits definition */
+-#define PMIC_NVM_ID_MASK	GENMASK_32(3, 0)
+-#define PMIC_REF_ID_MASK	GENMASK_32(7, 4)
++#define PMIC_NVM_ID_MASK	((uint8_t)GENMASK_32(3, 0))
++#define PMIC_NVM_ID_SHIFT	0
++#define PMIC_REF_ID_MASK	((uint8_t)GENMASK_32(7, 4))
+ #define PMIC_REF_ID_SHIFT	4
+ #define PMIC_REF_ID_STPMIC1L	U(1)
+ #define PMIC_REF_ID_STPMIC25	U(2)
+-- 
+2.53.0
+

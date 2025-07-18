@@ -1,0 +1,74 @@
+From 3ad976b609d8c7f00d5725b825dbd09ee13a18bb Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 11 Jul 2025 18:16:45 +0200
+Subject: [PATCH 007/572] feat(stm32mp2): add a ca35ss driver
+
+Move the access on the ca35ss registers in a separate file.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c80c4c6703192470ef916696287c9316c8f8af8d feat(stm32mp2): add a ca35ss driver]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I6b1a4aca9832dfc2549f26dc8579b0728db3feb5
+---
+ plat/st/stm32mp2/include/stm32mp2_private.h |  4 +++-
+ plat/st/stm32mp2/platform.mk                |  3 ++-
+ plat/st/stm32mp2/stm32mp2_ca35ss.c          | 16 ++++++++++++++++
+ 3 files changed, 21 insertions(+), 2 deletions(-)
+ create mode 100644 plat/st/stm32mp2/stm32mp2_ca35ss.c
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index fda2276dee..01264e804f 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2024-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2024-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -65,4 +65,6 @@ static inline bool stm32_otp_is_closed_device(void)
+ 	return bsec_mode_is_closed_device();
+ }
+ 
++void stm32mp_ca35_set_vbar(uintptr_t vbar);
++
+ #endif /* STM32MP2_PRIVATE_H */
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 0a71a0fa3b..e27776d3f3 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -262,7 +262,8 @@ BL31_SOURCES			+=	plat/st/stm32mp2/bl31_plat_setup.c			\
+ 					plat/st/stm32mp2/stm32mp2_topology.c
+ 
+ ifeq ($(STM32MP_SUPPORT_PM),1)
+-BL31_SOURCES			+=	plat/st/stm32mp2/stm32mp2_pm.c
++BL31_SOURCES			+=	plat/st/stm32mp2/stm32mp2_pm.c				\
++					plat/st/stm32mp2/stm32mp2_ca35ss.c
+ endif
+ 
+ # Generic GIC v2
+diff --git a/plat/st/stm32mp2/stm32mp2_ca35ss.c b/plat/st/stm32mp2/stm32mp2_ca35ss.c
+new file mode 100644
+index 0000000000..b0b2ab8334
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_ca35ss.c
+@@ -0,0 +1,16 @@
++/*
++ * Copyright (c) 2026, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <lib/mmio.h>
++
++#include <platform_def.h>
++
++#define CA35SS_SYSCFG_VBAR_CR		0x2084U
++
++void stm32mp_ca35_set_vbar(uintptr_t vbar)
++{
++	mmio_write_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR, (uint32_t)vbar);
++}
+-- 
+2.53.0
+

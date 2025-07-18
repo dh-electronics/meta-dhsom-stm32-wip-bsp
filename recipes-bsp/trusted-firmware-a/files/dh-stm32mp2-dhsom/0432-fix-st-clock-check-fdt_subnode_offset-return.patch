@@ -1,0 +1,59 @@
+From 800952e94a7f041f4fb57c6bd73432f484e39615 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 11 Mar 2026 16:02:57 +0100
+Subject: [PATCH 432/572] fix(st-clock): check fdt_subnode_offset return
+
+In stm32_clk_parse_fdt_all_pll() for both MP13 and MP15 drivers, the
+return value of fdt_subnode_offset(). If the node is not found, just
+continue the loop to the next index.
+This was found by Coverity: Defect (unchecked_return_value inferred)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f2b6b8375e8b7b561fcada0406bbf7d1c2eeb5bf fix(st-clock): check fdt_subnode_offset return]
+Change-Id: Idd603c8aefc6dabbf139759cd5332ee367c69c73
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/545848
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/clk/clk-stm32mp13.c | 2 +-
+ drivers/st/clk/stm32mp1_clk.c  | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32mp13.c b/drivers/st/clk/clk-stm32mp13.c
+index 083ba3d69b..f15649abef 100644
+--- a/drivers/st/clk/clk-stm32mp13.c
++++ b/drivers/st/clk/clk-stm32mp13.c
+@@ -2538,7 +2538,7 @@ static int stm32_clk_parse_fdt_all_pll(void *fdt, int node, struct stm32_clk_pla
+ 		snprintf(name, sizeof(name), "st,pll@%u", i);
+ 
+ 		subnode = fdt_subnode_offset(fdt, node, name);
+-		if (!fdt_check_node(subnode)) {
++		if ((subnode < 0) || !fdt_check_node(subnode)) {
+ 			continue;
+ 		}
+ 
+diff --git a/drivers/st/clk/stm32mp1_clk.c b/drivers/st/clk/stm32mp1_clk.c
+index 787c3479ea..522dabf30d 100644
+--- a/drivers/st/clk/stm32mp1_clk.c
++++ b/drivers/st/clk/stm32mp1_clk.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2018-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2018-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+  */
+@@ -2768,7 +2768,7 @@ static int stm32_clk_parse_fdt_all_pll(void *fdt, int node, struct stm32_clk_pla
+ 		snprintf(name, sizeof(name), "st,pll@%u", i);
+ 
+ 		subnode = fdt_subnode_offset(fdt, node, name);
+-		if (!fdt_check_node(subnode)) {
++		if ((subnode < 0) || !fdt_check_node(subnode)) {
+ 			continue;
+ 		}
+ 
+-- 
+2.53.0
+

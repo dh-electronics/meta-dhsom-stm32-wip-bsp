@@ -1,0 +1,66 @@
+From 064d7fff8f969a37cbc15e73b1799ae71afeed82 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 26 Jan 2026 18:48:58 +0100
+Subject: [PATCH 452/572] fix(stm32mp2): remove unused code in 
+ stm32_pwr_domain_suspend_finish
+
+As the secondary core is not running in Stop2 modes, the secondary core is
+parked in the entry point (stm32mp2_helper.S:stm32_stop2_entrypoint),
+or in Standby mode, the code to "Start the secondary core if it was
+running before STOP" is useless and can be removed to simplify the
+function stm32_pwr_domain_suspend_finish().
+
+The STM32 low power hooks assumes that Stop2 and Standby mode is
+always request as it is done by Linux, with only the main core (core0)
+running.
+
+This part was a try to support Stop2 modes for PSCI OSI or S2IDLE with
+CPU suspend request. But after tests, the TF-A PSCI stack doesn't support
+the CPU warm boot with PSCI powerdown states so this part is useless.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 543fb4199f0f2598d3f0930ae9cfdca09435bb5e fix(stm32mp2): remove unused code in  stm32_pwr_domain_suspend_finish]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Iaa4dc7dce3b42efe6ccf3049b8d260b5130b297a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/529075
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 14 --------------
+ 1 file changed, 14 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 9c19411cd9..359d4f5f61 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -860,13 +860,6 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 
+ #if !STM32MP21
+ 			stm32mp_ca35_set_vbar(stm32_sec_entrypoint);
+-			/* Start the secondary core if it was running before Standby */
+-			if ((core_id == STM32MP_PRIMARY_CPU) &&
+-			    stm32mp_state_check(STM32MP_SECONDARY_CPU, STATE_START)) {
+-				/* Reset the secondary core to execute warm boot */
+-				mmio_write_32(RCC_BASE + RCC_C1P1RSTCSETR,
+-					      RCC_C1P1RSTCSETR_C1P1PORRST);
+-			}
+ #endif /* !STM32MP21 */
+ 		}
+ #else
+@@ -904,13 +897,6 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ #if !STM32MP21
+ 		/* Restore register in CA35SS */
+ 		stm32mp_ca35_set_vbar(stm32_sec_entrypoint);
+-
+-		/* Start the secondary core if it was running before STOP */
+-		if ((core_id == STM32MP_PRIMARY_CPU) &&
+-		    stm32mp_state_check(STM32MP_SECONDARY_CPU, STATE_START)) {
+-			/* Reset the secondary core to execute warm boot */
+-			mmio_write_32(RCC_BASE + RCC_C1P1RSTCSETR, RCC_C1P1RSTCSETR_C1P1PORRST);
+-		}
+ #endif /* !STM32MP21 */
+ 		break;
+ 	case PWRSTATE_STOP1:
+-- 
+2.53.0
+

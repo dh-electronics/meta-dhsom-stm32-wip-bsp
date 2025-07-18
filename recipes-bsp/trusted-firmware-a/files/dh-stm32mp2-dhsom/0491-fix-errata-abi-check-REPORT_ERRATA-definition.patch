@@ -1,0 +1,110 @@
+From 019b729285f3ed05920758ca9c7980e9286dff2a Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 27 May 2026 17:38:39 +0200
+Subject: [PATCH 491/572] fix(errata-abi): check REPORT_ERRATA definition
+
+For BL2, or when compiling libc, REPORT_ERRATA will not be defined.
+To avoid warnings when enabling -Wundef warning, first check the flag
+is defined before checking its value.
+The macro is also used to define INCLUDE_ERRATA_LIST. If it is not
+defined, force it to 0.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 93da27985834dbad3fdabf2e185e04e12f170a00 fix(errata-abi): check REPORT_ERRATA definition]
+Change-Id: Ie4b708cfbb7f8eee9db3254069f179b148c5db6d
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572131
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ include/lib/cpus/aarch64/cpu_macros.S | 4 ++--
+ include/lib/cpus/cpu_ops.h            | 8 ++++----
+ include/lib/cpus/errata.h             | 6 +++++-
+ 3 files changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/include/lib/cpus/aarch64/cpu_macros.S b/include/lib/cpus/aarch64/cpu_macros.S
+index 050e7222c0..b5035ffa3a 100644
+--- a/include/lib/cpus/aarch64/cpu_macros.S
++++ b/include/lib/cpus/aarch64/cpu_macros.S
+@@ -97,7 +97,7 @@
+ 	.quad \_name\()_errata_list_start
+ 	.quad \_name\()_errata_list_end
+ 
+-#if REPORT_ERRATA
++#if defined(REPORT_ERRATA) && REPORT_ERRATA
+ 	.ifndef \_name\()_cpu_str
+ 	  /*
+ 	   * Place errata reported flag, and the spinlock to arbitrate access to
+@@ -123,7 +123,7 @@
+ 	.quad \_name\()_errata_lock
+ 	.quad \_name\()_errata_reported
+ #endif /* IMAGE_BL31 */
+-#endif /* REPORT_ERRATA */
++#endif /* defined(REPORT_ERRATA) && REPORT_ERRATA */
+ 
+ #if defined(IMAGE_BL31) && CRASH_REPORTING
+ 	.quad \_name\()_cpu_reg_dump
+diff --git a/include/lib/cpus/cpu_ops.h b/include/lib/cpus/cpu_ops.h
+index 3cac073668..eb48902d5f 100644
+--- a/include/lib/cpus/cpu_ops.h
++++ b/include/lib/cpus/cpu_ops.h
+@@ -50,7 +50,7 @@
+ #define CPU_ERRATA_LIST_START_SIZE	CPU_WORD_SIZE
+ #define CPU_ERRATA_LIST_END_SIZE	CPU_WORD_SIZE
+ /* Fields required to print errata status  */
+-#if REPORT_ERRATA
++#if defined(REPORT_ERRATA) && REPORT_ERRATA
+ #define CPU_CPU_STR_SIZE	CPU_WORD_SIZE
+ /* BL1 doesn't require mutual exclusion and printed flag. */
+ #if defined(IMAGE_BL31) || defined(IMAGE_BL32)
+@@ -64,7 +64,7 @@
+ #define CPU_CPU_STR_SIZE	0
+ #define CPU_ERRATA_LOCK_SIZE	0
+ #define CPU_ERRATA_PRINTED_SIZE	0
+-#endif /* REPORT_ERRATA */
++#endif /* defined(REPORT_ERRATA) && REPORT_ERRATA */
+ 
+ #if defined(IMAGE_BL31) && CRASH_REPORTING
+ #define CPU_REG_DUMP_SIZE	CPU_WORD_SIZE
+@@ -117,13 +117,13 @@ struct cpu_ops {
+ #endif /* (defined(IMAGE_BL31) || defined(IMAGE_BL32)) && CPU_MAX_PWR_DWN_OPS */
+ 	void *errata_list_start;
+ 	void *errata_list_end;
+-#if REPORT_ERRATA
++#if defined(REPORT_ERRATA) && REPORT_ERRATA
+ 	char *cpu_str;
+ #if defined(IMAGE_BL31) || defined(IMAGE_BL32)
+ 	spinlock_t *errata_lock;
+ 	unsigned int *errata_reported;
+ #endif /* defined(IMAGE_BL31) || defined(IMAGE_BL32) */
+-#endif /* REPORT_ERRATA */
++#endif /* defined(REPORT_ERRATA) && REPORT_ERRATA */
+ #if defined(IMAGE_BL31) && CRASH_REPORTING
+ 	void (*reg_dump)(void);
+ #endif /* defined(IMAGE_BL31) && CRASH_REPORTING */
+diff --git a/include/lib/cpus/errata.h b/include/lib/cpus/errata.h
+index 74b0cb2905..708ad9f119 100644
+--- a/include/lib/cpus/errata.h
++++ b/include/lib/cpus/errata.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2017-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -31,6 +31,10 @@
+ #define ARCH_WORKAROUND_2		2
+ #define ARCH_WORKAROUND_3		3
+ 
++#ifndef REPORT_ERRATA
++#define REPORT_ERRATA			0
++#endif
++
+ #define INCLUDE_ERRATA_LIST	(		\
+ 	REPORT_ERRATA			|	\
+ 	ERRATA_ABI_SUPPORT		|	\
+-- 
+2.53.0
+

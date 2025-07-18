@@ -1,0 +1,71 @@
+From 4356a62a2679474b070b508ec431878255cfbdf2 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 29 Jan 2026 10:01:03 +0100
+Subject: [PATCH 416/572] fix(stm32mp2): correct ORR instruction in
+ plat_crash_console_init
+
+For some cases, the value (DEBUG_UART_TX_GPIO_ALTERNATE <<
+((DEBUG_UART_TX_GPIO_PORT - GPIO_ALT_LOWER_LIMIT) << 2)) cannot fit the
+pattern for immediate value for ORR instruction.
+Use a temporary register, filled with mov_imm macro.
+While at it change the other ORR or BIC instructions that could have the
+same issue.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1b6bd642a0ea01eae34c6e3695b6b1315147ff71 fix(stm32mp2): correct ORR instruction in plat_crash_console_init]
+Change-Id: If4434b910463af7d55b9e4ea6562a67e606b02bb
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/aarch64/stm32mp2_helper.S | 20 +++++++++++++-------
+ 1 file changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+index 92e7d9affa..3384155628 100644
+--- a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
++++ b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -116,8 +116,10 @@ func plat_crash_console_init
+ 	mov_imm	x1, DEBUG_UART_TX_GPIO_BANK_ADDRESS
+ 	/* Set GPIO mode alternate */
+ 	ldr	w2, [x1, #GPIO_MODE_OFFSET]
+-	bic	w2, w2, #(GPIO_MODE_MASK << GPIO_TX_SHIFT)
+-	orr	w2, w2, #(GPIO_MODE_ALTERNATE << GPIO_TX_SHIFT)
++	mov_imm w0, (GPIO_MODE_MASK << GPIO_TX_SHIFT)
++	bic	w2, w2, w0
++	mov_imm w0, (GPIO_MODE_ALTERNATE << GPIO_TX_SHIFT)
++	orr	w2, w2, w0
+ 	str	w2, [x1, #GPIO_MODE_OFFSET]
+ 	/* Set GPIO speed low */
+ 	ldr	w2, [x1, #GPIO_SPEED_OFFSET]
+@@ -130,15 +132,19 @@ func plat_crash_console_init
+ 	/* Set alternate */
+ #if DEBUG_UART_TX_GPIO_PORT >= GPIO_ALT_LOWER_LIMIT
+ 	ldr	w2, [x1, #GPIO_AFRH_OFFSET]
+-	bic	w2, w2, #(GPIO_ALTERNATE_MASK << \
++	mov_imm w0, (GPIO_ALTERNATE_MASK << \
+ 				((DEBUG_UART_TX_GPIO_PORT - GPIO_ALT_LOWER_LIMIT) << 2))
+-	orr	w2, w2, #(DEBUG_UART_TX_GPIO_ALTERNATE << \
++	bic	w2, w2, w0
++	mov_imm w0, (DEBUG_UART_TX_GPIO_ALTERNATE << \
+ 				((DEBUG_UART_TX_GPIO_PORT - GPIO_ALT_LOWER_LIMIT) << 2))
++	orr	w2, w2, w0
+ 	str	w2, [x1, #GPIO_AFRH_OFFSET]
+ #else
+ 	ldr	w2, [x1, #GPIO_AFRL_OFFSET]
+-	bic	w2, w2, #(GPIO_ALTERNATE_MASK << (DEBUG_UART_TX_GPIO_PORT << 2))
+-	orr	w2, w2, #(DEBUG_UART_TX_GPIO_ALTERNATE << (DEBUG_UART_TX_GPIO_PORT << 2))
++	mov_imm w0, (GPIO_ALTERNATE_MASK << (DEBUG_UART_TX_GPIO_PORT << 2))
++	bic	w2, w2, w0
++	mov_imm w0, (DEBUG_UART_TX_GPIO_ALTERNATE << (DEBUG_UART_TX_GPIO_PORT << 2))
++	orr	w2, w2, w0
+ 	str	w2, [x1, #GPIO_AFRL_OFFSET]
+ #endif
+ #if !STM32MP_M33_TDCID
+-- 
+2.53.0
+

@@ -1,0 +1,108 @@
+From de6ccef642a53efdd3d1dd48918e835e8681d2a4 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 29 Jul 2026 13:43:59 +0200
+Subject: [PATCH 552/572] feat(stm32mp2): abort power-down for Stop2 on pending
+ interrupt
+
+EXTI generates a pulse on wake-up events to request a system and CPU
+wake-up to PWR and RCC when the system is in low-power mode.
+
+These signals are not handled when the system is in RUN mode, so the
+pending wake-up information is only available through the corresponding
+interrupt pending in the GIC.
+
+However, in the low-power sequence, the GIC was disabled to avoid
+spurious interrupts in the CPU power-down path. As a result, this
+wake-up event is not handled for Stop2 wake-up even if the GIC
+interrupt is pending, and the system may still enter Stop2 low-power
+mode.
+
+To fix this issue, the GIC is no longer disabled in Stop2 and Standby
+modes, and the power-domain shutdown sequence for Stop2 modes is aborted
+when an interrupt is pending. In this case, when executing the WFI
+instruction, the processor does not enter sleep and instead jumps to
+the warm-boot entry point.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ec0763ec2578b9d4cd60b6c8f469a8abe9c9b13b feat(stm32mp2): abort power-down for Stop2 on pending interrupt]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Id67b76268b06ba47c3b6869c6c6b3b0d6a4d56ae
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/593061
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 24 +++++++++++++++++++++---
+ 1 file changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 6cd19f51cc..ab4fcfcd23 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -665,7 +665,6 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ #endif
+ 		(void)nvmem_cell_write(&stop2_entrypoint_cell, (uint8_t *)&stop2_entrypoint,
+ 				       sizeof(stop2_entrypoint));
+-		stm32mp_gic_cpuif_disable();
+ 		stm32mp_gic_save();
+ 		stm32mp2_pll1_disable();
+ 		stm32_set_scmi_sys_pwr(SCMI_SYS_PWR_SUSPEND);
+@@ -680,7 +679,6 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		}
+ 		(void)nvmem_cell_write(&stop2_entrypoint_cell, (uint8_t *)&stop2_entrypoint,
+ 				       sizeof(stop2_entrypoint));
+-		stm32mp_gic_cpuif_disable();
+ 		stm32mp_gic_save();
+ 		stm32mp2_pll1_disable();
+ 		break;
+@@ -695,7 +693,6 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		}
+ 		(void)nvmem_cell_write(&stop2_entrypoint_cell, (uint8_t *)&stop2_entrypoint,
+ 				       sizeof(stop2_entrypoint));
+-		stm32mp_gic_cpuif_disable();
+ 		stm32mp_gic_save();
+ 		stm32mp2_pll1_disable();
+ 		break;
+@@ -871,6 +868,7 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 		VERBOSE("STOP2 exit\n");
+ 		/* Restore STGEN and generic timer with current clock */
+ 		stm32mp_stgen_config(clk_get_rate(CK_KER_STGEN));
++		stm32mp_ca35_lpi_restore();
+ 		/* restore PLL1 configuration for CA35 */
+ 		stm32mp2_pll1_enable();
+ 
+@@ -950,6 +948,7 @@ static void stm32_pwr_domain_pwr_down(const psci_power_state_t *target_state)
+ {
+ 	u_register_t mpidr = read_mpidr();
+ 	uintptr_t pwr_base __maybe_unused = stm32mp_pwr_base();
++	uintptr_t rcc_base __maybe_unused = stm32mp_rcc_base();
+ 	unsigned int core_id = MPIDR_AFFLVL0_VAL(mpidr);
+ 
+ 	/* Core is no more running (stopped or suspended) */
+@@ -991,6 +990,25 @@ static void stm32_pwr_domain_pwr_down(const psci_power_state_t *target_state)
+         }
+ #endif /* !STM32MP_M33_TDCID */
+ 
++	if (stm32_get_stateid(target_state->pwr_domain_state) != PWRSTATE_STANDBY) {
++		/* Synchronize instruction flow */
++		isb();
++		dsb();
++		/* Try low power mode with auto-reset from WFI*/
++		wfi();
++		/* Sleep abandonned on pending interruption */
++		VERBOSE("BL31: abandon sleep on core%u\n", core_id);
++		console_flush();
++		/* Jump manually to entry point, with mmu disabled. */
++		disable_mmu_el3();
++		isb();
++		dsb();
++		stm32_stop2_entrypoint();
++
++		/* This shouldn't be reached */
++		panic();
++	}
++
+ 	/* Synchronize instruction flow before auto-reset from WFI */
+ 	isb();
+ }
+-- 
+2.53.0
+

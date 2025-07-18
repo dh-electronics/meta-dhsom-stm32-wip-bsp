@@ -1,0 +1,45 @@
+From 8822c2f54dd64b3848d8a397634c8a34782ce1b1 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 15 Oct 2026 19:14:24 +0200
+Subject: [PATCH 569/572] fix(psci): ignore pending FIQs during CPU_SUSPEND
+
+Check only the IRQ bit in ISR_EL1 when deciding whether a pending
+interrupt should abort CPU_SUSPEND. The non-secure caller must disable
+IRQ interrupts that should not wake the CPU before requesting suspend.
+
+Moreover, this check runs before the SPD suspend callback,
+so before its management of secure interrupts; a pending FIQ here does
+not necessarily indicate a wake-up interrupt.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2b8feb9eee64107070cb0143931ae659b7b55d0e fix(psci): ignore pending FIQs during CPU_SUSPEND]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ic1ba3841fdddaba1dc52c3ff2fa7b65f9c8fa4d7
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/625301
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ lib/psci/psci_suspend.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/lib/psci/psci_suspend.c b/lib/psci/psci_suspend.c
+index ca46762d9e..ee9dd2e637 100644
+--- a/lib/psci/psci_suspend.c
++++ b/lib/psci/psci_suspend.c
+@@ -138,11 +138,11 @@ int psci_cpu_suspend_start(unsigned int idx,
+ 	psci_acquire_pwr_domain_locks(end_pwrlvl, parent_nodes);
+ 
+ 	/*
+-	 * We check if there are any pending interrupts after the delay
++	 * We check if there are any pending NS interrupts (IRQ) after the delay
+ 	 * introduced by lock contention to increase the chances of early
+ 	 * detection that a wake-up interrupt has fired.
+ 	 */
+-	if (read_isr_el1() != 0U) {
++	if ((read_isr_el1() & BIT(ISR_I_SHIFT)) != 0U) {
+ 		goto suspend_exit;
+ 	}
+ 
+-- 
+2.53.0
+

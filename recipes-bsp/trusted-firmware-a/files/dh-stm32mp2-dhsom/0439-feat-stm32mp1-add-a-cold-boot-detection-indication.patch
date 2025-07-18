@@ -1,0 +1,48 @@
+From bd97dc084f636eaf7c1cdad7fb70a7a21ee51ed0 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 17 Feb 2026 15:38:17 +0100
+Subject: [PATCH 439/572] feat(stm32mp1): add a cold boot detection indication
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add cold boot detection to reset reason handling.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4f84fe3537099cbf62f8d8e63aeb66bf6b192955 feat(stm32mp1): add a cold boot detection indication]
+Change-Id: I1e93044b0955eb24e96333a8a2bdc86dcba97539
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/537520
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 96b2ead543..e9527da267 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -66,7 +66,8 @@ static const char debug_msg[] = {
+ 
+ static void print_reset_reason(void)
+ {
+-	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_MP_RSTSCLRR);
++	uintptr_t rcc_base = stm32mp_rcc_base();
++	uint32_t rstsr = mmio_read_32(rcc_base + RCC_MP_RSTSCLRR);
+ 
+ 	if (rstsr == 0U) {
+ 		WARN("Reset reason unknown\n");
+@@ -75,6 +76,10 @@ static void print_reset_reason(void)
+ 
+ 	NOTICE("Reset reason (0x%x):\n", rstsr);
+ 
++	if (((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_RTCCKEN) == 0U)) {
++		INFO("Cold boot detected\n");
++	}
++
+ 	if ((rstsr & RCC_MP_RSTSCLRR_PADRSTF) == 0U) {
+ 		if ((rstsr & RCC_MP_RSTSCLRR_STDBYRSTF) != 0U) {
+ 			INFO("System exits from STANDBY\n");
+-- 
+2.53.0
+

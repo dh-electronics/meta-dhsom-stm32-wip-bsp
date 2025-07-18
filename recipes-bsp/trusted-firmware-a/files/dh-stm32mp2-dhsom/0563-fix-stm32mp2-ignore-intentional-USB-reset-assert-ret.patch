@@ -1,0 +1,51 @@
+From 46966b4fae706a3b0bbad178366e231a144e6b2c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 6 Aug 2026 11:43:19 +0200
+Subject: [PATCH 563/572] fix(stm32mp2): ignore intentional USB reset assert
+ return value in BL2
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The USB subsystem reset performed before the UART programmer is used
+intentionally ignores the return value of stm32mp_reset_assert(). If the
+function returns a timeout, the reset has already been performed, and the
+error is not important enough to justify a panic.
+
+Cast the return value to void to make this intent explicit.
+
+Coverity issue: CID 1209910: Unchecked return value in bl2_el3_plat_arch_setup
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8dc22d210ba67429a326e01ec4f3925f1e824b8b fix(stm32mp2): ignore intentional USB reset assert return value in BL2]
+Change-Id: Id860a4835c22540d9d9d9144efee0b0a5069930d
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/597394
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 8b7e13886b..6bd656dd5d 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -503,11 +503,11 @@ void bl2_el3_plat_arch_setup(void)
+ #if STM32MP_UART_PROGRAMMER
+ 	/* Reset USB sub-system to avoid all spurious transactions */
+ #if STM32MP21
+-	stm32mp_reset_assert(OTG_R, TIMEOUT_US_1MS);
++	(void)stm32mp_reset_assert(OTG_R, TIMEOUT_US_1MS);
+ #else /* !STM32MP21 */
+-	stm32mp_reset_assert(USB3DR_R, TIMEOUT_US_1MS);
++	(void)stm32mp_reset_assert(USB3DR_R, TIMEOUT_US_1MS);
+ #endif /* STM32MP21 */
+-	stm32mp_reset_assert(USB2PHY2_R, TIMEOUT_US_1MS);
++	(void)stm32mp_reset_assert(USB2PHY2_R, TIMEOUT_US_1MS);
+ #endif /* STM32MP_UART_PROGRAMMER */
+ 
+ #if STM32MP_DDR_FIP_IO_STORAGE || TRUSTED_BOARD_BOOT
+-- 
+2.53.0
+

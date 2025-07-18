@@ -1,0 +1,175 @@
+From 1237045eb566655ab80b9835794676ccd585f62d Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 11 Jan 2024 18:14:39 +0100
+Subject: [PATCH 228/572] feat(stm32mp1): add intrusion alert upon tamper event
+ detected
+
+If, upon TF-A BL2 boot, a tamper event is detected, display an intrusion
+alert featuring the associated tamper event.
+TAMPER occurring in deep low-power modes or power off state need to be
+caught and handled in TF-A. Otherwise, the secrets can be locked and the
+platform cannot boot. Add a special case for the LSE monitoring tamper
+that requires a backup domain reset.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b151954f9727576378502c4927cc41622f795f1e feat(stm32mp1): add intrusion alert upon tamper event detected]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I2d88ca0f96eb269baa418e879da2295457860ec1
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 86 ++++++++++++++++++++++++++++++-
+ plat/st/stm32mp1/stm32mp1_def.h   |  3 ++
+ 2 files changed, 87 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index af0d7bc289..823622bb6a 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -25,6 +25,7 @@
+ #endif
+ #include <drivers/st/stm32_rng.h>
+ #include <drivers/st/stm32_uart.h>
++#include <drivers/st/stm32mp_reset.h>
+ #include <drivers/st/stm32mp1_clk.h>
+ #include <drivers/st/stm32mp1_pwr.h>
+ #include <drivers/st/stm32mp1_ram.h>
+@@ -238,6 +239,33 @@ static void update_monotonic_counter(void)
+ }
+ #endif
+ 
++static void __maybe_unused handle_potential_tamper(uint32_t bit_off)
++{
++	/* Fixme: Add implementation specific logic here */
++	ERROR("Handling Potential tamper\n");
++	mmio_setbits_32(TAMP_BASE + TAMP_SCR, BIT_32(bit_off));
++}
++
++static void __maybe_unused handle_confirmed_tamper(uint32_t bit_off __unused)
++{
++	/* Fixme: Add implementation specific logic here */
++	ERROR("Handling Confirmed tamper\n");
++	panic();
++}
++
++static bool lse_tamper_detection(void)
++{
++	if ((mmio_read_32(TAMP_BASE + TAMP_SR) & TAMP_SR_LSE_MONITORING) != 0U) {
++		mmio_clrbits_32(RCC_BASE + RCC_BDCR, RCC_BDCR_LSECSSON);
++		mmio_clrbits_32(RCC_BASE + RCC_BDCR, RCC_BDCR_LSEON);
++		mmio_setbits_32(RCC_BASE + RCC_MP_CIFR, RCC_MP_CIFR_LSECSSF);
++
++		return true;
++	}
++
++	return false;
++}
++
+ static void reset_backup_domain(void)
+ {
+ 	uintptr_t pwr_base = stm32mp_pwr_base();
+@@ -254,8 +282,8 @@ static void reset_backup_domain(void)
+ 		;
+ 	}
+ 
+-	/* Reset backup domain on cold boot cases */
+-	if ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_RTCCKEN) == 0U) {
++	/* Reset backup domain on cold boot cases or when LSE tamper occurred */
++	if (((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_RTCCKEN) == 0U)) {
+ 		mmio_setbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
+ 
+ 		while ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_VSWRST) == 0U) {
+@@ -266,11 +294,61 @@ static void reset_backup_domain(void)
+ 	}
+ }
+ 
++static void check_tamper_event(bool lse_tamper_occured)
++{
++	uint32_t sr = mmio_read_32(TAMP_BASE + TAMP_SR);
++
++	if (sr == 0U) {
++		return;
++	}
++
++	ERROR("\n");
++	if (lse_tamper_occured) {
++		ERROR("** INTRUSION ALERT: LSE MONITORING TAMPER DETECTED **\n");
++		ERROR("\n");
++
++		/*
++		 * Fixme: Add logic to handle the LSE tamper here (e.g change RTC clock source
++		 * instead). This part is implementation specific.
++		 */
++		mmio_clrbits_32(RCC_BASE + RCC_BDCR, RCC_BDCR_RTCCKEN);
++		ERROR("** Rebooting... **\n");
++		stm32mp_system_reset();
++	} else {
++		while (sr != 0U) {
++			unsigned int bit_off = __builtin_ctz(sr);
++			bool is_internal = bit_off >= TAMP_SR_INT_SHIFT;
++			uint32_t cr2 __maybe_unused;
++			uint32_t cr3 __maybe_unused;
++
++			ERROR("** INTRUSION ALERT: %s TAMPER %u DETECTED **\n",
++			      is_internal ? "INTERNAL" : "EXTERNAL",
++			      is_internal ? bit_off - TAMP_SR_INT_SHIFT + 1U : bit_off + 1U);
++
++#if STM32MP13
++			cr2 = mmio_read_32(TAMP_BASE + TAMP_CR2);
++			cr3 = mmio_read_32(TAMP_BASE + TAMP_CR3);
++
++			if ((is_internal && ((cr3 & BIT_32(bit_off - TAMP_SR_INT_SHIFT)) != 0U)) ||
++			    (!is_internal && ((cr2 & BIT_32(bit_off)) != 0U))) {
++				handle_potential_tamper(bit_off);
++			} else {
++				handle_confirmed_tamper(bit_off);
++			}
++#endif /* STM32MP13 */
++
++			sr &= ~BIT_32(bit_off);
++		}
++		ERROR("\n");
++	}
++}
++
+ void bl2_el3_plat_arch_setup(void)
+ {
+ 	const char *board_model;
+ 	boot_api_context_t *boot_context =
+ 		(boot_api_context_t *)stm32mp_get_boot_ctx_address();
++	bool lse_tamper_occured = false;
+ 
+ 	if (bsec_probe() != 0U) {
+ 		panic();
+@@ -293,6 +371,8 @@ void bl2_el3_plat_arch_setup(void)
+ 
+ 	reset_backup_domain();
+ 
++	lse_tamper_occured = lse_tamper_detection();
++
+ 	/*
+ 	 * Set minimum reset pulse duration to 31ms for discrete power
+ 	 * supplied boards.
+@@ -359,6 +439,8 @@ void bl2_el3_plat_arch_setup(void)
+ 	}
+ 
+ skip_console_init:
++	check_tamper_event(lse_tamper_occured);
++
+ #if !TRUSTED_BOARD_BOOT
+ 	if (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) {
+ 		/* Closed chip mandates authentication */
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index 60bde38eab..7babe85386 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -555,6 +555,9 @@ enum ddr_type {
+ #define TAMP_COUNTR			U(0x40)
+ #define TAMP_ERCFGR			U(0x54)
+ 
++#define TAMP_SR_LSE_MONITORING		BIT(18)
++#define TAMP_SR_INT_SHIFT		U(16)
++
+ /*******************************************************************************
+  * STM32MP1 USB
+  ******************************************************************************/
+-- 
+2.53.0
+

@@ -1,0 +1,71 @@
+From 545a9bf69945f5dcc3c176cea28d51f8aac26919 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 10 Aug 2023 17:47:17 +0200
+Subject: [PATCH 189/572] feat(stm32mp2): restore context after standby
+
+When returning from standby state, the content of SYSRAM is lost. BL31
+is then reloaded, but OP-TEE is in DDR and should not be restarted.
+The previous context should then be restored, and the warm boot path
+should be used.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 636d53f9f8688938c193ee0b5483e4f92f61f910 feat(stm32mp2): restore context after standby]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I5629ae345a5203f2b824eafbd72ff2acc3d6b1ea
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/327291
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/bl31_plat_setup.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index 57f3980bac..9e848ef65e 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -7,7 +7,9 @@
+ #include <assert.h>
+ #include <stdint.h>
+ 
++#include <bl31/bl31.h>
+ #include <common/bl_common.h>
++#include <common/runtime_svc.h>
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/st/stm32_console.h>
+ #include <drivers/st/stm32mp_reset.h>
+@@ -15,6 +17,7 @@
+ #include <plat/common/platform.h>
+ 
+ #include <platform_def.h>
++#include <stm32mp2_context.h>
+ 
+ static entry_point_info_t bl32_image_ep_info;
+ static entry_point_info_t bl33_image_ep_info;
+@@ -126,6 +129,22 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ void bl31_plat_arch_setup(void)
+ {
+ 	stm32mp_gic_init();
++
++#if STM32MP_SUPPORT_PM
++	if (stm32mp_is_wakeup_from_standby()) {
++		/* Initialize the runtime services e.g. PSCI. */
++		runtime_svc_init();
++
++		stm32_pm_context_restore();
++
++		/* Jump manually to BL31 warm entry point, with MMU disabled. */
++		dsbsy();
++		flush_dcache_range(STM32MP_SYSRAM_BASE, STM32MP_SYSRAM_SIZE / 2U);
++		disable_mmu_el3();
++		bl31_warm_entrypoint();
++		panic();
++	}
++#endif /* STM32MP_SUPPORT_PM */
+ }
+ 
+ void bl31_platform_setup(void)
+-- 
+2.53.0
+

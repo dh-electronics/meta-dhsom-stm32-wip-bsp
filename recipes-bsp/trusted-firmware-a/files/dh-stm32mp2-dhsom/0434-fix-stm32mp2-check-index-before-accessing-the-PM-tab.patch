@@ -1,0 +1,49 @@
+From aab08c677ee9e7477a72e515e309bfdc4f106198 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 11 Mar 2026 16:05:56 +0100
+Subject: [PATCH 434/572] fix(stm32mp2): check index before accessing the PM
+ tables
+
+In stm32_parse_domain_idle_state(), there are 2 loops for which we check
+the table value at an index before checking the index itself. Switch
+the index check and the table value check.
+While at it, add parentheses around the 2 checks.
+This was found by Coverity: Defect (reverse_overrun)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 59ead3c8797947cd845d1dc8d3bb9e334ee37896 fix(stm32mp2): check index before accessing the PM tables]
+Change-Id: I68b5eba48bfa9cd5c8d882eafecf7cd37509e03d
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/545849
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index f2ec3b6167..9c19411cd9 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -1540,7 +1540,7 @@ static int stm32_parse_domain_idle_state(void *fdt)
+ 
+ 	/* Add each supported power state with same order than stm32mp_pm_idle_states */
+ 	for (j = 0U; stm32mp_pm_idle_states[j] != 0U; j++) {
+-		for (i = 0U; i < PM_IDLE_STATES_SIZE && domain_idle_states[i] != 0U ; i++) {
++		for (i = 0U; (i < PM_IDLE_STATES_SIZE) && (domain_idle_states[i] != 0U); i++) {
+ 			if (domain_idle_states[i] == stm32mp_pm_idle_states[j]) {
+ 				stm32mp_supported_pwr_states[nb_states++] = domain_idle_states[i];
+ 				break;
+@@ -1549,7 +1549,7 @@ static int stm32_parse_domain_idle_state(void *fdt)
+ 	}
+ 
+ 	/* Add STANDBY at the end of the list if supported */
+-	for (i = 0U; i < PM_IDLE_STATES_SIZE && domain_idle_states[i] != 0U ; i++) {
++	for (i = 0U; (i < PM_IDLE_STATES_SIZE) && (domain_idle_states[i] != 0U); i++) {
+ 		if (domain_idle_states[i] == PWRSTATE_STANDBY) {
+ 			stm32mp_supported_pwr_states[nb_states++] = PWRSTATE_STANDBY;
+ 			break;
+-- 
+2.53.0
+

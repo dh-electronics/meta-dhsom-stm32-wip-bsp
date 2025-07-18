@@ -1,0 +1,328 @@
+From c9e40d006ed4731544a04735e5d057193989725a Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 28 Apr 2026 18:06:42 +0200
+Subject: [PATCH 482/572] fix: use #ifdef for __aarch64__ flags
+
+The __aarch64__ is only defined, without a value, it shoudl be checked
+with #ifdef.
+This corrects -Wundef GCC warning.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0d9813616bf114471f76abc93e1b7f18727c3bc3 fix: use #ifdef for __aarch64__ flags]
+Change-Id: I874ce3ac3ad60f5794d153855941b5abbe1f1470
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572122
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ include/common/bl_common.ld.h                 | 4 ++--
+ include/drivers/arm/fvp/fvp_cpu_pwr.h         | 4 ++--
+ include/lib/cpus/cpu_ops.h                    | 8 ++++----
+ include/lib/extensions/amu.h                  | 6 +++---
+ include/lib/extensions/sys_reg_trace.h        | 6 +++---
+ include/lib/extensions/trf.h                  | 6 +++---
+ plat/arm/board/fvp/fvp_bl2_setup.c            | 4 ++--
+ plat/arm/board/fvp/fvp_cpu_pwr.c              | 4 ++--
+ plat/arm/board/juno/juno_bl2_setup.c          | 4 ++--
+ services/arm_arch_svc/arm_arch_svc_setup.c    | 6 +++---
+ services/std_svc/errata_abi/cpu_errata_info.h | 4 ++--
+ services/std_svc/errata_abi/errata_abi_main.c | 4 ++--
+ 12 files changed, 30 insertions(+), 30 deletions(-)
+
+diff --git a/include/common/bl_common.ld.h b/include/common/bl_common.ld.h
+index 57e7524d02..2273bc54b2 100644
+--- a/include/common/bl_common.ld.h
++++ b/include/common/bl_common.ld.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2020-2025, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2020-2026, ARM Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -128,7 +128,7 @@
+  * .rela.dyn needs to come after .data for the read-elf utility to parse
+  * this section correctly.
+  */
+-#if __aarch64__
++#ifdef __aarch64__
+ #define RELA_DYN_NAME		.rela.dyn
+ #define RELOC_SECTIONS_PATTERN	*(.rela*)
+ #else
+diff --git a/include/drivers/arm/fvp/fvp_cpu_pwr.h b/include/drivers/arm/fvp/fvp_cpu_pwr.h
+index 488be18c51..5eda759118 100644
+--- a/include/drivers/arm/fvp/fvp_cpu_pwr.h
++++ b/include/drivers/arm/fvp/fvp_cpu_pwr.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2024, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2024-2026, ARM Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -11,7 +11,7 @@
+ #include <stdbool.h>
+ #include <stdint.h>
+ 
+-#if __aarch64__
++#ifdef __aarch64__
+ bool check_cpupwrctrl_el1_is_available(void);
+ #endif /* __aarch64__ */
+ #endif /* __ASSEMBLER__ */
+diff --git a/include/lib/cpus/cpu_ops.h b/include/lib/cpus/cpu_ops.h
+index c77c1e28d5..3cac073668 100644
+--- a/include/lib/cpus/cpu_ops.h
++++ b/include/lib/cpus/cpu_ops.h
+@@ -13,7 +13,7 @@
+ 				(MIDR_PN_MASK << MIDR_PN_SHIFT)
+ 
+ /* Hardcode to keep compatible with assembly. sizeof(uintptr_t) */
+-#if __aarch64__
++#ifdef __aarch64__
+ #define CPU_WORD_SIZE			8
+ #else
+ #define CPU_WORD_SIZE			4
+@@ -79,7 +79,7 @@
+  */
+ #define CPU_MIDR		0
+ #define CPU_RESET_FUNC		CPU_MIDR + CPU_MIDR_SIZE
+-#if __aarch64__
++#ifdef __aarch64__
+ #define CPU_E_HANDLER_FUNC	CPU_RESET_FUNC + CPU_RESET_FUNC_SIZE
+ #define CPU_PWR_DWN_OPS		CPU_E_HANDLER_FUNC + CPU_E_HANDLER_FUNC_SIZE
+ #else
+@@ -90,7 +90,7 @@
+ #define CPU_CPU_STR		CPU_ERRATA_LIST_END + CPU_ERRATA_LIST_END_SIZE
+ #define CPU_ERRATA_LOCK		CPU_CPU_STR + CPU_CPU_STR_SIZE
+ #define CPU_ERRATA_PRINTED	CPU_ERRATA_LOCK + CPU_ERRATA_LOCK_SIZE
+-#if __aarch64__
++#ifdef __aarch64__
+ #define CPU_REG_DUMP		CPU_ERRATA_PRINTED + CPU_ERRATA_PRINTED_SIZE
+ #define CPU_OPS_SIZE		CPU_REG_DUMP + CPU_REG_DUMP_SIZE
+ #else
+@@ -109,7 +109,7 @@ struct cpu_ops {
+ #ifdef IMAGE_AT_EL3
+ 	void (*reset_func)(void);
+ #endif /* IMAGE_AT_EL3 */
+-#if __aarch64__
++#ifdef __aarch64__
+ 	void (*e_handler_func)(long es);
+ #endif /* __aarch64__ */
+ #if (defined(IMAGE_BL31) || defined(IMAGE_BL32)) && CPU_MAX_PWR_DWN_OPS
+diff --git a/include/lib/extensions/amu.h b/include/lib/extensions/amu.h
+index 402033161d..2c7d700ddf 100644
+--- a/include/lib/extensions/amu.h
++++ b/include/lib/extensions/amu.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2017-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -15,7 +15,7 @@
+ #include <platform_def.h>
+ 
+ #if ENABLE_FEAT_AMU
+-#if __aarch64__
++#ifdef __aarch64__
+ void amu_enable(cpu_context_t *ctx);
+ void amu_init_el3(unsigned int core_pos);
+ void amu_init_el2_unused(void);
+@@ -25,7 +25,7 @@ void amu_enable(bool el2_unused);
+ #endif /* __aarch64__ */
+ 
+ #else
+-#if __aarch64__
++#ifdef __aarch64__
+ void amu_enable(cpu_context_t *ctx)
+ {
+ }
+diff --git a/include/lib/extensions/sys_reg_trace.h b/include/lib/extensions/sys_reg_trace.h
+index 7004267178..57dd3f4173 100644
+--- a/include/lib/extensions/sys_reg_trace.h
++++ b/include/lib/extensions/sys_reg_trace.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2021-2023, Arm Limited. All rights reserved.
++ * Copyright (c) 2021-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -11,7 +11,7 @@
+ 
+ #if ENABLE_SYS_REG_TRACE_FOR_NS
+ 
+-#if __aarch64__
++#ifdef __aarch64__
+ void sys_reg_trace_enable_per_world(per_world_context_t *per_world_ctx);
+ void sys_reg_trace_disable_per_world(per_world_context_t *per_world_ctx);
+ void sys_reg_trace_init_el2_unused(void);
+@@ -21,7 +21,7 @@ void sys_reg_trace_init_el3(void);
+ 
+ #else /* !ENABLE_SYS_REG_TRACE_FOR_NS */
+ 
+-#if __aarch64__
++#ifdef __aarch64__
+ static inline void sys_reg_trace_enable_per_world(per_world_context_t *per_world_ctx)
+ {
+ }
+diff --git a/include/lib/extensions/trf.h b/include/lib/extensions/trf.h
+index f0a946bef5..ae88b691a0 100644
+--- a/include/lib/extensions/trf.h
++++ b/include/lib/extensions/trf.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2021-2024, Arm Limited. All rights reserved.
++ * Copyright (c) 2021-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -11,7 +11,7 @@
+ 
+ #if ENABLE_TRF_FOR_NS
+ 
+-#if __aarch64__
++#ifdef __aarch64__
+ void trf_enable(cpu_context_t *ctx);
+ void trf_init_el2_unused(void);
+ #else /* !__aarch64 */
+@@ -20,7 +20,7 @@ void trf_init_el3(void);
+ 
+ #else /* ENABLE_TRF_FOR_NS=0 */
+ 
+-#if __aarch64__
++#ifdef __aarch64__
+ static inline void trf_enable(cpu_context_t *ctx)
+ {
+ }
+diff --git a/plat/arm/board/fvp/fvp_bl2_setup.c b/plat/arm/board/fvp/fvp_bl2_setup.c
+index 9479af6562..dbe36c05fa 100644
+--- a/plat/arm/board/fvp/fvp_bl2_setup.c
++++ b/plat/arm/board/fvp/fvp_bl2_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -90,7 +90,7 @@ struct bl_params *plat_get_next_bl_params(void)
+ 
+ 	arm_bl_params = arm_get_next_bl_params();
+ 
+-#if __aarch64__
++#ifdef __aarch64__
+ 	/* Get BL31 image node */
+ 	param_node = get_bl_mem_params_node(BL31_IMAGE_ID);
+ #else /* aarch32 */
+diff --git a/plat/arm/board/fvp/fvp_cpu_pwr.c b/plat/arm/board/fvp/fvp_cpu_pwr.c
+index 762c170403..08a60c9a6c 100644
+--- a/plat/arm/board/fvp/fvp_cpu_pwr.c
++++ b/plat/arm/board/fvp/fvp_cpu_pwr.c
+@@ -1,10 +1,10 @@
+ /*
+- * Copyright (c) 2024, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2024-2026, ARM Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+ 
+-#if __aarch64__
++#ifdef __aarch64__
+ 
+ #include <aem_generic.h>
+ #include <arch_helpers.h>
+diff --git a/plat/arm/board/juno/juno_bl2_setup.c b/plat/arm/board/juno/juno_bl2_setup.c
+index 935ef41aed..d16a2c88eb 100644
+--- a/plat/arm/board/juno/juno_bl2_setup.c
++++ b/plat/arm/board/juno/juno_bl2_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2016-2025, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2016-2026, ARM Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -43,7 +43,7 @@ struct bl_params *plat_get_next_bl_params(void)
+ {
+ 	struct bl_params *arm_bl_params = arm_get_next_bl_params();
+ 
+-#if __aarch64__
++#ifdef __aarch64__
+ 	const struct dyn_cfg_dtb_info_t *fw_config_info __maybe_unused;
+ 	bl_mem_params_node_t *param_node __maybe_unused;
+ 	uintptr_t fw_config_base __maybe_unused = 0U;
+diff --git a/services/arm_arch_svc/arm_arch_svc_setup.c b/services/arm_arch_svc/arm_arch_svc_setup.c
+index a2ff69aeab..906c61fb87 100644
+--- a/services/arm_arch_svc/arm_arch_svc_setup.c
++++ b/services/arm_arch_svc/arm_arch_svc_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -138,7 +138,7 @@ static uintptr_t smccc_arch_id(u_register_t arg1, void *handle, uint32_t is_smc6
+ 	if (arg1 == SMCCC_GET_SOC_VERSION) {
+ 		SMC_RET1(handle, plat_get_soc_version());
+ 	}
+-#if __aarch64__
++#ifdef __aarch64__
+ 	/* SoC Name is only present for SMC64 invocations */
+ 	if ((arg1 == SMCCC_GET_SOC_NAME) && is_smc64) {
+ 		uint64_t arg[SMCCC_SOC_NAME_LEN / 8];
+@@ -281,7 +281,7 @@ static uintptr_t arm_arch_svc_smc_handler(uint32_t smc_fid,
+ 	case SMCCC_ARCH_SOC_ID | (SMC_64 << FUNCID_CC_SHIFT):
+ 		return smccc_arch_id(x1, handle, (smc_fid
+ 				& (SMC_64 << FUNCID_CC_SHIFT)));
+-#if __aarch64__
++#ifdef __aarch64__
+ #if WORKAROUND_CVE_2017_5715
+ 	case SMCCC_ARCH_WORKAROUND_1:
+ 		/*
+diff --git a/services/std_svc/errata_abi/cpu_errata_info.h b/services/std_svc/errata_abi/cpu_errata_info.h
+index d34a5982a1..7355865f6d 100644
+--- a/services/std_svc/errata_abi/cpu_errata_info.h
++++ b/services/std_svc/errata_abi/cpu_errata_info.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2023-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -11,7 +11,7 @@
+ #include <arch.h>
+ #include <arch_helpers.h>
+ 
+-#if __aarch64__
++#ifdef __aarch64__
+ #include <cortex_a710.h>
+ #include <cortex_a78.h>
+ #include <cortex_a78ae.h>
+diff --git a/services/std_svc/errata_abi/errata_abi_main.c b/services/std_svc/errata_abi/errata_abi_main.c
+index 74a1586939..69a79e660f 100644
+--- a/services/std_svc/errata_abi/errata_abi_main.c
++++ b/services/std_svc/errata_abi/errata_abi_main.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2023-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -208,7 +208,7 @@ bool validate_spsr_mode(void)
+ {
+ 	/* In AArch64, if the caller is EL1, return true */
+ 
+-	#if __aarch64__
++	#ifdef __aarch64__
+ 		if (GET_EL(read_spsr_el3()) == MODE_EL1) {
+ 			return true;
+ 		}
+-- 
+2.53.0
+

@@ -1,0 +1,39 @@
+From 844d5d50270b467fa74e08272d91f9eff1fe49d0 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 26 Feb 2026 10:00:47 +0100
+Subject: [PATCH 443/572] fix(stm32mp2): skip minor version check if it is 0
+
+If ST_CTX_VER_MINOR is 0, there is no point checking that the saved
+minor version of context is inferior to that, as it is an unsigned
+variable. Put the check under #if ST_CTX_VER_MINOR > 0.
+This was found by Coverity (no_effect unsigned_compare_macros).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d7c8d9ace238e040df88d9596d7ed10b4fa86f00 fix(stm32mp2): skip minor version check if it is 0]
+Change-Id: Ic55e3b02d4d99653461e5a53213da3459e20b03e
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/541286
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_context.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_context.c b/plat/st/stm32mp2/stm32mp2_context.c
+index 23db225c8f..5fb7f88e97 100644
+--- a/plat/st/stm32mp2/stm32mp2_context.c
++++ b/plat/st/stm32mp2/stm32mp2_context.c
+@@ -113,7 +113,9 @@ bool stm32_pm_context_is_valid(void)
+ 	} else {
+ #if STM32MP_CONTEXT_VERSION
+ 		if ((ST_CTX_VER_GET_MAJOR(backup_data->version) != ST_CTX_VER_MAJOR) ||
++#if ST_CTX_VER_MINOR > 0
+ 		    (ST_CTX_VER_GET_MINOR(backup_data->version) < ST_CTX_VER_MINOR) ||
++#endif
+ 		    (backup_data->size < sizeof(*backup_data))) {
+ 			ret = false;
+ 		} else {
+-- 
+2.53.0
+

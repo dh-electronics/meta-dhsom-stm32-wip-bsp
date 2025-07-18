@@ -1,0 +1,47 @@
+From f1d9641299588c8f192b393c2213acd61b5a4b69 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 3 Apr 2026 10:55:28 +0200
+Subject: [PATCH 548/572] refactor(st): add an explicit error if BL33_CFG is
+ not provided
+
+When building a FIP for STM32MP platforms, it is required to provide
+a BL33_CFG parameter in the command line, if the BL33 is provided.
+This is by default used for U-Boot device tree file (hw-config). Add an
+explicit error in that case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7c07d1d5d2331e233c1b02419bbe8b1e2ac80b14 refactor(st): add an explicit error if BL33_CFG is not provided]
+Change-Id: I65f653a51c235ea84d5e9d258c6014902d8d119c
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/586435
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/common.mk | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index 6746ae21df..d4fe8be148 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -133,10 +133,17 @@ STM32IMAGE_SRC			:=	${STM32IMAGEPATH}/stm32image.c
+ STM32_DEPS			+=	${STM32IMAGE}
+ 
+ FIP_DEPS			+=	dtbs
++
++ifneq (${BL33},)
++ifneq (${BL33_CFG},)
+ STM32MP_HW_CONFIG		:=	${BL33_CFG}
+ 
+ # Add the HW_CONFIG to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_HW_CONFIG},--hw-config))
++else
++$(error BL33_CFG is not provided)
++endif
++endif
+ 
+ # Add the build options to pack Trusted OS Extra1 and Trusted OS Extra2 images
+ # in the FIP if the platform requires.
+-- 
+2.53.0
+

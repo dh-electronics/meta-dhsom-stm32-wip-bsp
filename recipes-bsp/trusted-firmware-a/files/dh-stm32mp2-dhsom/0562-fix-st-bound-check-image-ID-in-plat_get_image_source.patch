@@ -1,0 +1,60 @@
+From ef88e4d9f6e626b3cde3630652c0d426038e5b7f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 6 Aug 2026 11:32:19 +0200
+Subject: [PATCH 562/572] fix(st): bound check image ID in
+ plat_get_image_source
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The generic partition driver falls back to load_backup_gpt with
+BKUP_GPT_IMAGE_ID (29) when the primary GPT is corrupted. That ID is
+larger than MAX_NUMBER_IDS on the STM32MP platforms, so the policies
+array was indexed out of bounds. The existing FCONF getter only
+protects that access with an assert, which is compiled out in release
+builds.
+
+Reject any image ID beyond the platform policy table so unsupported
+images fail cleanly instead of reading past the array.
+
+Coverity issue: CID 1209568: Out-of-bounds access in load_partition_table
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a7e773d8d27b5b6709b71f4b49223f937f95d601 fix(st): bound check image ID in plat_get_image_source]
+Assisted-by: GitHub-Copilot:Claude-Opus-5
+Change-Id: If678bc91a634bec4dc725e12a43e3a557a7ea264
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/597393
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/bl2_io_storage.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index cb5ccf5a5c..ae13edc5e6 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <assert.h>
++#include <errno.h>
+ #include <string.h>
+ 
+ #include <arch_helpers.h>
+@@ -767,6 +768,11 @@ int plat_get_image_source(unsigned int image_id, uintptr_t *dev_handle,
+ 	int rc;
+ 	const struct plat_io_policy *policy;
+ 
++	/* Generic code may request IDs absent from the policy table, e.g. BKUP_GPT_IMAGE_ID */
++	if (image_id >= MAX_NUMBER_IDS) {
++		return -EINVAL;
++	}
++
+ 	policy = FCONF_GET_PROPERTY(stm32mp, io_policies, image_id);
+ 	rc = policy->check(policy->image_spec);
+ 	if (rc == 0) {
+-- 
+2.53.0
+

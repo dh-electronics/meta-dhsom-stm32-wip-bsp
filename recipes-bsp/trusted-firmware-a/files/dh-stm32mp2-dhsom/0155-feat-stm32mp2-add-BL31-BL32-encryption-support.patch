@@ -1,0 +1,57 @@
+From a969076ea2134ee473a0afeff6dbae42add3a853 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 20 Jan 2023 14:31:42 +0100
+Subject: [PATCH 155/572] feat(stm32mp2): add BL31 & BL32 encryption support
+
+Use the same feature as STM32MP1 for BL32 encryption and add BL31
+encryption.
+Increase the size of BL2 to add this feature.
+The secret used to derive TF-A decryption key is stored in OTP fuses,
+from OTP364 to OTP367.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f5c306c922b53ca792831cb37e47467fe03e3e47 feat(stm32mp2): add BL31 & BL32 encryption support]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Iedb7bf6fcecc07c936e0fb414b9b3dfcf892662d
+---
+ plat/st/common/stm32mp_fconf_io.c | 7 +++++++
+ plat/st/stm32mp2/platform.mk      | 6 +++++-
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/common/stm32mp_fconf_io.c b/plat/st/common/stm32mp_fconf_io.c
+index 2a85bc682f..0f6dd11ca8 100644
+--- a/plat/st/common/stm32mp_fconf_io.c
++++ b/plat/st/common/stm32mp_fconf_io.c
+@@ -189,6 +189,13 @@ int fconf_populate_stm32mp_io_policies(uintptr_t config)
+ 		uuid_ptr->uuid = uuid_helper.uuid_struct;
+ 		policies[load_info[i].image_id].image_spec = (uintptr_t)uuid_ptr;
+ 		switch (load_info[i].image_id) {
++#if ENCRYPT_BL31 && !defined(DECRYPTION_SUPPORT_none)
++		case BL31_IMAGE_ID:
++		case SOC_FW_CONFIG_ID:
++			policies[load_info[i].image_id].dev_handle = &enc_dev_handle;
++			policies[load_info[i].image_id].check = open_enc_fip;
++			break;
++#endif
+ #if ENCRYPT_BL32 && !defined(DECRYPTION_SUPPORT_none)
+ 		case BL32_IMAGE_ID:
+ 		case BL32_EXTRA1_IMAGE_ID:
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index fccec507a2..8873b0d28b 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -138,7 +138,11 @@ FDT_SOURCES			+=	$(addprefix fdts/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_N
+ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
+ 
+ # Add the SOC_FW_CONFIG to FIP and specify the same to certtool
+-$(eval $(call TOOL_ADD_IMG_PAYLOAD,STM32MP_SOC_FW_CONFIG,$(STM32MP_SOC_FW_CONFIG),--soc-fw-config,$(patsubst %.dtb,%.dts,$(STM32MP_SOC_FW_CONFIG))))
++ifeq ($(ENCRYPT_BL31),1)
++STM32MP_SOC_FW_CONFIG_ENC 	:= 	$(patsubst %.dtb,%_enc.dtb,$(STM32MP_SOC_FW_CONFIG))
++$(eval $(call ENCRYPT_FW,$(STM32MP_SOC_FW_CONFIG),$(STM32MP_SOC_FW_CONFIG_ENC)))
++endif
++$(eval $(call TOOL_ADD_IMG_PAYLOAD,STM32MP_SOC_FW_CONFIG,$(STM32MP_SOC_FW_CONFIG),--soc-fw-config,$(patsubst %.dtb,%.dts,$(STM32MP_SOC_FW_CONFIG)),,$(STM32MP_SOC_FW_CONFIG_ENC)))
+ 
+ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+ # Add the FW_DDR to FIP and specify the same to certtool
+-- 
+2.53.0
+

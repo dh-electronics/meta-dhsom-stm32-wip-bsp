@@ -1,0 +1,50 @@
+From 1a82d5142c5003dbefbc3f7adb40f696fea5c8f9 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 13 Oct 2022 18:26:34 +0200
+Subject: [PATCH 087/572] fix(stm32mp1): flush data cache at the end of BL2
+
+Explicitly flush .bss and .data areas from cache. This is because BL2
+is re-entered during low-power phases when OP-TEE is in DDR
+(if STM32MP1_OPTEE_IN_SYSRAM is not set), and we must be sure data is
+correct there.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d444871a7193294562638dfc11a92aa48822031f fix(stm32mp1): flush data cache at the end of BL2]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ieb1006649c8f50e7998b73d59a625331a846fb0e
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index fcc64a7985..d75df6f3ad 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -40,6 +40,13 @@
+ #include <stm32mp1_context.h>
+ #include <stm32mp1_dbgmcu.h>
+ 
++#if !STM32MP1_OPTEE_IN_SYSRAM
++IMPORT_SYM(uintptr_t, __BSS_START__, BSS_START);
++IMPORT_SYM(uintptr_t, __BSS_END__, BSS_END);
++IMPORT_SYM(uintptr_t, __DATA_START__, DATA_START);
++IMPORT_SYM(uintptr_t, __DATA_END__, DATA_END);
++#endif
++
+ #if DEBUG
+ static const char debug_msg[] = {
+ 	"***************************************************\n"
+@@ -672,6 +679,11 @@ void bl2_el3_plat_prepare_exit(void)
+ 	}
+ #endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 
++#if !STM32MP1_OPTEE_IN_SYSRAM
++	flush_dcache_range(BSS_START, BSS_END - BSS_START);
++	flush_dcache_range(DATA_START, DATA_END - DATA_START);
++#endif
++
+ 	stm32mp1_security_setup();
+ 
+ 	/* end of boot mode */
+-- 
+2.53.0
+

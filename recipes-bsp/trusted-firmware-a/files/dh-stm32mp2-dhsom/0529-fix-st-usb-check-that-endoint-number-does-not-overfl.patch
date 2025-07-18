@@ -1,0 +1,48 @@
+From 5aadc5b82618635a41c950aae1545c4e9242d495 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 5 May 2026 16:50:51 +0200
+Subject: [PATCH 529/572] fix(st-usb): check that endoint number does not
+ overflow
+
+When computing endpoint number (ep_num) in the two functions
+dwc3_handle_ep0_xfernotready_event() and dwc3_handle_ep_event(), we
+should ensure this is less that the total number of endpoints configured
+on the platform. This solves overflow issues detected by Coverity.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a1179d1a5c7709c9cb172a00a927b583a3d54cf7 fix(st-usb): check that endoint number does not overflow]
+Change-Id: I8cbd617a4d0d21f18262e75549a553b0cea89cdc
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/564008
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/579559
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/usb_dwc3/usb_dwc3.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/st/usb_dwc3/usb_dwc3.c b/drivers/st/usb_dwc3/usb_dwc3.c
+index 02552b3e4a..ac9b292416 100644
+--- a/drivers/st/usb_dwc3/usb_dwc3.c
++++ b/drivers/st/usb_dwc3/usb_dwc3.c
+@@ -1178,6 +1178,8 @@ static enum usb_action dwc3_handle_ep0_xfernotready_event(dwc3_handle_t *dwc3_ha
+ 	ep_addr = __HAL_PCD_PHYEPNUM_TO_EPADDR(phy_epnum);
+ 	ep_num = ep_addr & ADDRESS_MASK;
+ 
++	assert(ep_num < USBD_EP_NB);
++
+ 	if (__HAL_PCD_SETUP_REQ_LEN(dwc3_handle->setup_addr) == 0U) {
+ 		switch (status) {
+ 		case USB_DWC3_DEPEVT_XFERNOTREADY_STATUS_CTRL_STATUS:
+@@ -1265,6 +1267,8 @@ static enum usb_action dwc3_handle_ep_event(dwc3_handle_t *dwc3_handle, uint32_t
+ 	ep_addr = __HAL_PCD_PHYEPNUM_TO_EPADDR(phy_epnum);
+ 	ep_num = ep_addr & ADDRESS_MASK;
+ 
++	assert(ep_num < USBD_EP_NB);
++
+ 	if ((ep_addr & EP_DIR_MASK) == EP_DIR_IN) {
+ 		ep = &dwc3_handle->pcd_handle->in_ep[ep_num];
+ 		dwc3_ep = &dwc3_handle->IN_ep[ep_num];
+-- 
+2.53.0
+

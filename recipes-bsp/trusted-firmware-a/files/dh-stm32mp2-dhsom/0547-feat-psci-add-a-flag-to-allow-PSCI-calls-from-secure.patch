@@ -1,0 +1,268 @@
+From 80049b4e3be2785f8534cbc6e99db1cc55083368 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 22 Apr 2026 18:30:16 +0200
+Subject: [PATCH 547/572] feat(psci): add a flag to allow PSCI calls from
+ secure world
+
+If there is only a secure OS running, allow it to call PSCI functions.
+This can be used for bare-metal software or RTOS running at S-EL1, and
+without anything running in non-secure world.
+A new flag PSCI_CALLS_FROM_SECURE is created to enable the feature.
+This feature is not supported for Aarch32 platforms, and if an SPD is
+selected.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e134db1db32ce6cb8bd3e867a4c0ec11d78dd4c4 feat(psci): add a flag to allow PSCI calls from secure world]
+Change-Id: I6851c8250d3c7d25c98a60f49f920ce78104711a
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/586434
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ Makefile                               |  2 +
+ docs/getting_started/build-options.rst |  5 ++
+ lib/psci/psci_common.c                 | 72 ++++++++++++++++++++++++++
+ lib/psci/psci_main.c                   |  6 +++
+ lib/psci/psci_setup.c                  | 11 ++++
+ make_helpers/constraints.mk            |  7 +++
+ make_helpers/defaults.mk               |  3 ++
+ 7 files changed, 106 insertions(+)
+
+diff --git a/Makefile b/Makefile
+index 6db34888df..e00be74d35 100644
+--- a/Makefile
++++ b/Makefile
+@@ -655,6 +655,7 @@ $(eval $(call assert_booleans,\
+ 	LFA_SUPPORT \
+ 	SDEI_SUPPORT \
+ 	SMC_PCI_SUPPORT \
++	PSCI_CALLS_FROM_SECURE \
+ )))
+ 
+ # Numeric_Flags
+@@ -914,6 +915,7 @@ $(eval $(call add_defines,\
+ 	SDEI_SUPPORT \
+ 	USE_GIC_DRIVER \
+ 	SMC_PCI_SUPPORT \
++	PSCI_CALLS_FROM_SECURE \
+ )))
+ 
+ ifeq (${PLATFORM_REPORT_CTX_MEM_USE}, 1)
+diff --git a/docs/getting_started/build-options.rst b/docs/getting_started/build-options.rst
+index e80b244935..2d8d2c6d4a 100644
+--- a/docs/getting_started/build-options.rst
++++ b/docs/getting_started/build-options.rst
+@@ -929,6 +929,11 @@ Common build options
+    can be optimised. The ``plat_get_my_entrypoint()`` platform porting interface
+    does not need to be implemented in this case.
+ 
++-  ``PSCI_CALLS_FROM_SECURE``: Enable this flag to allow PSCI calls from
++   secure world. This is disabled by default. This can be used when there is
++   no non-secure software running, and the secure software could call PSCI
++   functions like CPU_ON.
++
+ -  ``PSCI_EXTENDED_STATE_ID``: As per PSCI1.0 Specification, there are 2 formats
+    possible for the PSCI power-state parameter: original and extended State-ID
+    formats. This flag if set to 1, configures the generic PSCI layer to use the
+diff --git a/lib/psci/psci_common.c b/lib/psci/psci_common.c
+index 10f7d9c701..a28f0d1620 100644
+--- a/lib/psci/psci_common.c
++++ b/lib/psci/psci_common.c
+@@ -912,6 +912,69 @@ void psci_release_pwr_domain_locks(unsigned int end_pwrlvl,
+  * PSCI entrypoint on power on/resume and returns it.
+  ******************************************************************************/
+ #ifdef __aarch64__
++#if PSCI_CALLS_FROM_SECURE
++static int psci_get_s_ep_info(entry_point_info_t *ep,
++			       uintptr_t entrypoint,
++			       u_register_t context_id)
++{
++	u_register_t ep_attr, sctlr;
++	unsigned int daif, ee, mode;
++	u_register_t s_scr_el3 = read_scr_el3();
++	u_register_t s_esr_el3 = read_esr_el3();
++	u_register_t s_sctlr_el1 = read_sctlr_el1();
++
++	sctlr = ((s_scr_el3 & SCR_EEL2_BIT) != 0U) ?
++		read_sctlr_el2() : s_sctlr_el1;
++	ee = 0;
++
++	ep_attr = EP_ST_DISABLE;
++	if ((sctlr & SCTLR_EE_BIT) != 0U) {
++		ep_attr |= EP_EE_BIG;
++		ee = 1;
++	}
++	SET_PARAM_HEAD(ep, PARAM_EP, VERSION_1, ep_attr);
++
++	ep->pc = entrypoint;
++	zeromem(&ep->args, sizeof(ep->args));
++	ep->args.arg0 = context_id;
++
++	/*
++	 * Figure out whether the cpu enters the secure address space
++	 * in aarch32 or aarch64 from ESR first, or SCR elsewhere.
++	 */
++	if ((EC_BITS(s_esr_el3) != EC_AARCH32_SMC) &&
++	    ((s_scr_el3 & SCR_RW_BIT) != 0U)) {
++
++		/*
++		 * Check whether a Thumb entry point has been provided for an
++		 * aarch64 EL
++		 */
++		if ((entrypoint & 0x1UL) != 0UL) {
++			return PSCI_E_INVALID_ADDRESS;
++		}
++
++		mode = ((s_scr_el3 & SCR_EEL2_BIT) != 0U) ? MODE_EL2 : MODE_EL1;
++
++		ep->spsr = SPSR_64((uint64_t)mode, MODE_SP_ELX,
++				   DISABLE_ALL_EXCEPTIONS);
++	} else {
++
++		mode = ((s_scr_el3 & SCR_EEL2_BIT) != 0U) ?
++			MODE32_hyp : MODE32_svc;
++
++		/*
++		 * TODO: Choose async. exception bits if HYP mode is not
++		 * implemented according to the values of SCR.{AW, FW} bits
++		 */
++		daif = DAIF_ABT_BIT | DAIF_IRQ_BIT | DAIF_FIQ_BIT;
++
++		ep->spsr = SPSR_MODE32((uint64_t)mode, entrypoint & 0x1, ee,
++				       daif);
++	}
++
++	return PSCI_E_SUCCESS;
++}
++#else
+ static int psci_get_ns_ep_info(entry_point_info_t *ep,
+ 			       uintptr_t entrypoint,
+ 			       u_register_t context_id)
+@@ -973,6 +1036,7 @@ static int psci_get_ns_ep_info(entry_point_info_t *ep,
+ 
+ 	return PSCI_E_SUCCESS;
+ }
++#endif
+ #else /* !__aarch64__ */
+ static int psci_get_ns_ep_info(entry_point_info_t *ep,
+ 			       uintptr_t entrypoint,
+@@ -1045,7 +1109,11 @@ int psci_validate_entry_point(entry_point_info_t *ep,
+ 	 * the non-secure world from the non-secure state from
+ 	 * where this call originated.
+ 	 */
++#if PSCI_CALLS_FROM_SECURE
++	rc = psci_get_s_ep_info(ep, entrypoint, context_id);
++#else
+ 	rc = psci_get_ns_ep_info(ep, entrypoint, context_id);
++#endif
+ 	return rc;
+ }
+ 
+@@ -1132,7 +1200,11 @@ void psci_warmboot_entrypoint(unsigned int cpu_idx)
+ 	 * information that we had stashed away during the cpu_on
+ 	 * call to set this cpu on its way.
+ 	 */
++#if PSCI_CALLS_FROM_SECURE
++	cm_prepare_el3_exit(SECURE);
++#else
+ 	cm_prepare_el3_exit_ns();
++#endif
+ 
+ 	/*
+ 	 * Set the requested and target state of this CPU and all the higher
+diff --git a/lib/psci/psci_main.c b/lib/psci/psci_main.c
+index 19011fd104..ff6005701a 100644
+--- a/lib/psci/psci_main.c
++++ b/lib/psci/psci_main.c
+@@ -454,9 +454,15 @@ u_register_t psci_smc_handler(uint32_t smc_fid,
+ 	(void)handle;
+ 	u_register_t ret;
+ 
++#if PSCI_CALLS_FROM_SECURE
++	if (!is_caller_secure(flags)) {
++		return (u_register_t)SMC_UNK;
++	}
++#else
+ 	if (!is_caller_non_secure(flags)) {
+ 		return (u_register_t)SMC_UNK;
+ 	}
++#endif
+ 
+ 	/* Check the fid against the capabilities */
+ 	if ((psci_caps & define_psci_cap(smc_fid)) == 0U) {
+diff --git a/lib/psci/psci_setup.c b/lib/psci/psci_setup.c
+index 907775ef65..da7697cff8 100644
+--- a/lib/psci/psci_setup.c
++++ b/lib/psci/psci_setup.c
+@@ -30,7 +30,11 @@ CASSERT(PLATFORM_CORE_COUNT <= (PSCI_MAX_CPUS_INDEX + 1U), assert_psci_cores_ove
+  * TODO: Use the memory allocator to set aside memory for the contexts instead
+  * of relying on platform defined constants.
+  ******************************************************************************/
++#if PSCI_CALLS_FROM_SECURE
++static PER_CPU_DEFINE(cpu_context_t, psci_s_context);
++#else
+ static PER_CPU_DEFINE(cpu_context_t, psci_ns_context);
++#endif
+ static entry_point_info_t warmboot_ep_info[PLATFORM_CORE_COUNT];
+ 
+ /******************************************************************************
+@@ -78,10 +82,17 @@ static void __init psci_init_pwr_domain_node(uint16_t node_idx,
+ 		psci_flush_dcache_range((uintptr_t)svc_cpu_data,
+ 						 sizeof(*svc_cpu_data));
+ 
++#if PSCI_CALLS_FROM_SECURE
++		cm_set_context_by_index(node_idx,
++					(void *) PER_CPU_BY_INDEX(psci_s_context,
++					node_idx),
++					SECURE);
++#else
+ 		cm_set_context_by_index(node_idx,
+ 					(void *) PER_CPU_BY_INDEX(psci_ns_context,
+ 					node_idx),
+ 					NON_SECURE);
++#endif
+ 	}
+ }
+ 
+diff --git a/make_helpers/constraints.mk b/make_helpers/constraints.mk
+index 4c110aa8af..e078c93822 100644
+--- a/make_helpers/constraints.mk
++++ b/make_helpers/constraints.mk
+@@ -92,6 +92,10 @@ ifeq ($(SPMC_AT_EL3_SEL0_SP),1)
+         endif
+ endif
+ endif #(SPD=spmd)
++
++ifneq ($(PSCI_CALLS_FROM_SECURE),0)
++        $(error "PSCI call from secure world is not supported with an SPD")
++endif
+ endif #(SPD!=none)
+ 
+ # USE_DEBUGFS experimental feature recommended only in debug builds
+@@ -289,6 +293,9 @@ ifeq (${ARCH},aarch32)
+ 	ifneq (${PLATFORM_NODE_COUNT},1)
+                 $(error "NUMA AWARE PER CPU is not supported with ARCH=aarch32")
+ 	endif
++	ifneq ($(PSCI_CALLS_FROM_SECURE),0)
++                $(error "PSCI call from secure world is not supported with ARCH=aarch32")
++	endif
+ endif #(ARCH=aarch32)
+ 
+ ifneq (${ENABLE_FEAT_FPMR},0)
+diff --git a/make_helpers/defaults.mk b/make_helpers/defaults.mk
+index 8d1f5b1f4f..a6c7a74312 100644
+--- a/make_helpers/defaults.mk
++++ b/make_helpers/defaults.mk
+@@ -217,6 +217,9 @@ PL011_GENERIC_UART		:= 0
+ # The platform Makefile is free to override this value.
+ PROGRAMMABLE_RESET_ADDRESS	:= 0
+ 
++# Allow PSCI stack to receive calls from Secure World
++PSCI_CALLS_FROM_SECURE		:= 0
++
+ # Flag used to choose the power state format: Extended State-ID or Original
+ PSCI_EXTENDED_STATE_ID		:= 0
+ 
+-- 
+2.53.0
+

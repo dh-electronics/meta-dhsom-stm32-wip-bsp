@@ -1,0 +1,77 @@
+From 0c41d51ffea6949dbbf17bbe643a2b244797e4f9 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 6 May 2026 19:09:10 +0200
+Subject: [PATCH 477/572] fix(psci): initialize last_at_pwrlvl
+
+When compiling with PSCI_OS_INIT_MODE and enabling the GCC warning
+-Wmissing-field-initializers, there are errors:
+lib/psci/psci_common.c: In function 'psci_warmboot_entrypoint':
+lib/psci/psci_common.c:1017:9: warning: missing initializer for field
+ 'last_at_pwrlvl' of 'psci_power_state_t'
+  {aka 'struct psci_power_state'} [-Wmissing-field-initializers]
+ 1017 |     psci_power_state_t state_info = { {PSCI_LOCAL_STATE_RUN} };
+      |     ^~~~~~~~~~~~~~~~~~
+
+lib/psci/psci_main.c: In function 'psci_cpu_suspend':
+lib/psci/psci_main.c:64:9: warning: missing initializer for field
+ 'last_at_pwrlvl' of 'psci_power_state_t'
+ {aka 'struct psci_power_state'} [-Wmissing-field-initializers]
+   64 |     psci_power_state_t state_info = { {PSCI_LOCAL_STATE_RUN} };
+      |     ^~~~~~~~~~~~~~~~~~
+
+include/lib/psci/psci.h:299:22: note: 'last_at_pwrlvl' declared here
+  299 |         unsigned int last_at_pwrlvl;
+      |                      ^~~~~~~~~~~~~~
+
+Correct this by initializing last_at_pwrlvl when PSCI_OS_INIT_MODE flag
+is enabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git fbd476f078f9b5df95bb6c80bb60633422ac8732 fix(psci): initialize last_at_pwrlvl]
+Change-Id: If25a042f1ea67e2983d087989aa5665243480553
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/571866
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ lib/psci/psci_common.c | 4 ++++
+ lib/psci/psci_main.c   | 4 ++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/lib/psci/psci_common.c b/lib/psci/psci_common.c
+index 87a5b898ea..10f7d9c701 100644
+--- a/lib/psci/psci_common.c
++++ b/lib/psci/psci_common.c
+@@ -1062,7 +1062,11 @@ void psci_warmboot_entrypoint(unsigned int cpu_idx)
+ {
+ 	unsigned int end_pwrlvl;
+ 	unsigned int parent_nodes[PLAT_MAX_PWR_LVL] = {0};
++#if PSCI_OS_INIT_MODE
++	psci_power_state_t state_info = { {PSCI_LOCAL_STATE_RUN}, 0U };
++#else
+ 	psci_power_state_t state_info = { {PSCI_LOCAL_STATE_RUN} };
++#endif
+ 
+ 	/*
+ 	 * Verify that we have been explicitly turned ON or resumed from
+diff --git a/lib/psci/psci_main.c b/lib/psci/psci_main.c
+index 1ad19a16c3..19011fd104 100644
+--- a/lib/psci/psci_main.c
++++ b/lib/psci/psci_main.c
+@@ -61,7 +61,11 @@ int psci_cpu_suspend(unsigned int power_state,
+ {
+ 	int rc;
+ 	unsigned int target_pwrlvl, is_power_down_state;
++#if PSCI_OS_INIT_MODE
++	psci_power_state_t state_info = { {PSCI_LOCAL_STATE_RUN}, 0U };
++#else
+ 	psci_power_state_t state_info = { {PSCI_LOCAL_STATE_RUN} };
++#endif
+ 	plat_local_state_t cpu_pd_state;
+ 	unsigned int cpu_idx = plat_my_core_pos();
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,47 @@
+From ca9012e829e088f9640abc16bce5f8370731bf3f Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 22 May 2026 13:35:38 +0200
+Subject: [PATCH 504/572] fix(st): cast clk_get_rate return when setting
+ console
+
+The return of clk_get_rate() is an unsigned long. But for console, it
+will never be above 4GHz, so it is safe to cast it to uint32_t, before
+passing the parameter to set_console().
+
+This corrects the warning:
+plat/st/common/stm32mp_common.c:303:13: warning: implicit conversion
+ loses integer precision: 'unsigned long' to 'uint32_t' (aka 'unsigned
+ int')
+      [-Wshorten-64-to-32]
+  303 |         clk_rate =
+		 	clk_get_rate((unsigned long)dt_uart_info.clock);
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f407e209f0c19c7860b22137a9df763629c10aa8 fix(st): cast clk_get_rate return when setting console]
+Change-Id: I4c66f31ce5c002f39ffd8811fdf50496aa46f39d
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572144
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/stm32mp_common.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 2b58b6cfb0..c56ef7ff6b 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -393,7 +393,7 @@ int stm32mp_uart_console_setup(void)
+ 
+ 	reset_uart((uint32_t)dt_uart_info.reset);
+ 
+-	clk_rate = clk_get_rate((unsigned long)dt_uart_info.clock);
++	clk_rate = (uint32_t)clk_get_rate((unsigned long)dt_uart_info.clock);
+ #endif
+ 
+ 	set_console(dt_uart_info.base, clk_rate);
+-- 
+2.53.0
+

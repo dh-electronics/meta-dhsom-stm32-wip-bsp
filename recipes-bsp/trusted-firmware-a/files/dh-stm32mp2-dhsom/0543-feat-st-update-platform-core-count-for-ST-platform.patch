@@ -1,0 +1,106 @@
+From cd7e3117ac281cb2b773e4d43995bfa528423df9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 2 Jun 2026 11:31:49 +0200
+Subject: [PATCH 543/572] feat(st): update platform core count for ST platform
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Update platform definitions to reflect the single-core architecture
+on STM32MP21 and STM32MP13, while keeping the existing values for
+other ST platforms.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9487ce9c8dcbfa9c0004c59b611b0be798b2d635 feat(st): update platform core count for ST platform]
+Change-Id: I86722673e4912a8fc039ea4a78a66be91aa08b6e
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/573796
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/stm32mp_gic.c            | 6 ++++++
+ plat/st/stm32mp1/include/platform_def.h | 9 +++++++++
+ plat/st/stm32mp2/include/platform_def.h | 6 ++++++
+ plat/st/stm32mp2/stm32mp2_pm.c          | 2 ++
+ 4 files changed, 23 insertions(+)
+
+diff --git a/plat/st/common/stm32mp_gic.c b/plat/st/common/stm32mp_gic.c
+index 62e57e3bf6..2ba7470845 100644
+--- a/plat/st/common/stm32mp_gic.c
++++ b/plat/st/common/stm32mp_gic.c
+@@ -30,7 +30,13 @@ static const interrupt_prop_t stm32mp_interrupt_props[] = {
+ };
+ 
+ /* Fix target_mask_array as secondary core is not able to initialize it */
++#if PLATFORM_CORE_COUNT == 2
+ static unsigned int target_mask_array[PLATFORM_CORE_COUNT] = {1, 2};
++#elif PLATFORM_CORE_COUNT == 1
++static unsigned int target_mask_array[PLATFORM_CORE_COUNT] = {1};
++#else
++#error "Unsupported PLATFORM_CORE_COUNT"
++#endif
+ 
+ static gicv2_driver_data_t platform_gic_data = {
+ 	.interrupt_props = stm32mp_interrupt_props,
+diff --git a/plat/st/stm32mp1/include/platform_def.h b/plat/st/stm32mp1/include/platform_def.h
+index da830b8495..7428b90525 100644
+--- a/plat/st/stm32mp1/include/platform_def.h
++++ b/plat/st/stm32mp1/include/platform_def.h
+@@ -28,12 +28,21 @@
+ #define STM32MP_PRIMARY_CPU		U(0x0)
+ #define STM32MP_SECONDARY_CPU		U(0x1)
+ 
++#if STM32MP13
++#define PLATFORM_CLUSTER_COUNT		U(1)
++#define PLATFORM_CLUSTER0_CORE_COUNT	U(1)
++#define PLATFORM_CLUSTER1_CORE_COUNT	U(0)
++#define PLATFORM_CORE_COUNT		(PLATFORM_CLUSTER1_CORE_COUNT + \
++					 PLATFORM_CLUSTER0_CORE_COUNT)
++#define PLATFORM_MAX_CPUS_PER_CLUSTER	1
++#else
+ #define PLATFORM_CLUSTER_COUNT		U(1)
+ #define PLATFORM_CLUSTER0_CORE_COUNT	U(2)
+ #define PLATFORM_CLUSTER1_CORE_COUNT	U(0)
+ #define PLATFORM_CORE_COUNT		(PLATFORM_CLUSTER1_CORE_COUNT + \
+ 					 PLATFORM_CLUSTER0_CORE_COUNT)
+ #define PLATFORM_MAX_CPUS_PER_CLUSTER	2
++#endif
+ 
+ #define MAX_IO_DEVICES			U(4)
+ #define MAX_IO_HANDLES			U(4)
+diff --git a/plat/st/stm32mp2/include/platform_def.h b/plat/st/stm32mp2/include/platform_def.h
+index b9612816f7..08bde6e527 100644
+--- a/plat/st/stm32mp2/include/platform_def.h
++++ b/plat/st/stm32mp2/include/platform_def.h
+@@ -34,9 +34,15 @@
+ #define MAX_IO_BLOCK_DEVICES		U(1)
+ #define MAX_IO_MTD_DEVICES		U(1)
+ 
++#if STM32MP21
++#define PLATFORM_CLUSTER_COUNT		U(1)
++#define PLATFORM_CORE_COUNT		U(1)
++#define PLATFORM_MAX_CPUS_PER_CLUSTER	U(1)
++#else
+ #define PLATFORM_CLUSTER_COUNT		U(1)
+ #define PLATFORM_CORE_COUNT		U(2)
+ #define PLATFORM_MAX_CPUS_PER_CLUSTER	U(2)
++#endif
+ 
+ #define PLAT_MAX_PWR_LVL		U(4)
+ #define PLAT_MIN_SUSPEND_PWR_LVL	U(2)
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 78ea70a9fd..6cd19f51cc 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -1679,8 +1679,10 @@ int plat_setup_psci_ops(uintptr_t sec_entrypoint,
+ 	stm32_percpu_data[STM32MP_PRIMARY_CPU].state[STATE_START] = true;
+ 	stm32_percpu_data[STM32MP_PRIMARY_CPU].state[STATE_RUNNING] = true;
+ 	stm32_percpu_data[STM32MP_PRIMARY_CPU].state[STATE_DDR] = true;
++#if !STM32MP21
+ 	stm32_percpu_data[STM32MP_SECONDARY_CPU].state[STATE_START] = false;
+ 	stm32_percpu_data[STM32MP_SECONDARY_CPU].state[STATE_RUNNING] = false;
++#endif
+ 
+ 	/* Get nvmem for entry point on STOP2 exit */
+ 	ret = stm32_get_stop2_entrypoint_cell(&stop2_entrypoint_cell);
+-- 
+2.53.0
+

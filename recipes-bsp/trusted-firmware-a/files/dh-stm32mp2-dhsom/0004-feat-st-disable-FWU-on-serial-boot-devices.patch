@@ -1,0 +1,72 @@
+From da5733cc24e84dae1c347e0d00d055e8716a25f7 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 2 Jul 2024 18:49:41 +0200
+Subject: [PATCH 004/572] feat(st): disable FWU on serial boot devices
+
+When compiling for USB or UART boot devices, it makes no sense to
+enable Firmware update through PSA_FWU_SUPPORT=1.
+In this case force the flag to 0, to avoid compilation issues.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cb430939beca56929bb56b69d7823a2214a88ebb feat(st): disable FWU on serial boot devices]
+Change-Id: Id7e35754fd9cf3fb3c26b8ccb947bd39c981231e
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+---
+ plat/st/common/common.mk | 35 +++++++++++++++++++++--------------
+ 1 file changed, 21 insertions(+), 14 deletions(-)
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index 0cb1feb277..cfc87a6c25 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -32,6 +32,27 @@ ifeq ($(findstring clang,$(notdir $(CC))),)
+ TF_CFLAGS			+=	-Wformat-signedness
+ endif
+ 
++# Boot devices
++STM32MP_EMMC			?=	0
++STM32MP_SDMMC			?=	0
++STM32MP_RAW_NAND		?=	0
++STM32MP_SPI_NAND		?=	0
++STM32MP_SPI_NOR			?=	0
++
++# Put both BL2 and FIP in eMMC boot partition
++STM32MP_EMMC_BOOT		?=	0
++
++# Serial boot devices
++STM32MP_UART_PROGRAMMER		?=	0
++STM32MP_USB_PROGRAMMER		?=	0
++
++ifneq ($(filter 1,${STM32MP_UART_PROGRAMMER} ${STM32MP_USB_PROGRAMMER}),)
++ifeq (${PSA_FWU_SUPPORT},1)
++$(info Disable PSA_FWU_SUPPORT flag for serial device)
++override PSA_FWU_SUPPORT	:=	0
++endif
++endif
++
+ # Number of TF-A copies in the device
+ STM32_TF_A_COPIES		:=	2
+ 
+@@ -50,20 +71,6 @@ $(PLAT_PARTITION_MAX_ENTRIES)")
+ endif
+ endif
+ 
+-# Boot devices
+-STM32MP_EMMC			?=	0
+-STM32MP_SDMMC			?=	0
+-STM32MP_RAW_NAND		?=	0
+-STM32MP_SPI_NAND		?=	0
+-STM32MP_SPI_NOR			?=	0
+-
+-# Put both BL2 and FIP in eMMC boot partition
+-STM32MP_EMMC_BOOT		?=	0
+-
+-# Serial boot devices
+-STM32MP_UART_PROGRAMMER		?=	0
+-STM32MP_USB_PROGRAMMER		?=	0
+-
+ $(eval DTC_V = $(shell $($(ARCH)-dtc) -v | awk '{print $$NF}'))
+ $(eval DTC_VERSION = $(shell printf "%d" $(shell echo ${DTC_V} | cut -d- -f1 | sed "s/\./0/g" | grep -o "[0-9]*")))
+ DTC_CPPFLAGS			+=	${INCLUDES}
+-- 
+2.53.0
+

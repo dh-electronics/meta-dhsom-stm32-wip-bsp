@@ -1,0 +1,47 @@
+From 9f89db00cf050af79c40327f5309e0bec5a0b6b7 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 27 Apr 2026 19:03:25 +0200
+Subject: [PATCH 526/572] fix(st-usb): avoid dead code in
+ dwc3_read_dev_evt_type()
+
+Some loops in the function dwc3_read_dev_evt_type() need the number of
+endpoints to be more than one. To avoid dead code, put them under a #if
+to check the number of endpoints.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ada1843bb0373070982e52c9f416bbcd04dc2576 fix(st-usb): avoid dead code in dwc3_read_dev_evt_type()]
+Change-Id: I1a8e7388e0d8d41a3d030f599fc2af38ff484b0b
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/561740
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/579556
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/usb_dwc3/usb_dwc3.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/usb_dwc3/usb_dwc3.c b/drivers/st/usb_dwc3/usb_dwc3.c
+index 63d7c00e73..f0e144b744 100644
+--- a/drivers/st/usb_dwc3/usb_dwc3.c
++++ b/drivers/st/usb_dwc3/usb_dwc3.c
+@@ -1525,6 +1525,7 @@ static uint8_t dwc3_read_dev_evt_type(uint32_t event)
+ 	return ret;
+ }
+ 
++#if (USB_DWC3_NUM_IN_EP > 1) || (USB_DWC3_NUM_OUT_EP > 1)
+ static enum usb_status dwc3_ep_clear_stall(const dwc3_handle_t *dwc3_handle,
+ 					   const usb_dwc3_endpoint_t *dwc3_ep)
+ {
+@@ -1535,7 +1536,7 @@ static enum usb_status dwc3_ep_clear_stall(const dwc3_handle_t *dwc3_handle,
+ 	return dwc3_execute_dep_cmd(dwc3_handle, dwc3_ep->phy_epnum, USB_DWC3_DEPCMD_CLEARSTALL,
+ 				    &params);
+ }
+-#endif
++#endif /* (USB_DWC3_NUM_IN_EP > 1) || (USB_DWC3_NUM_OUT_EP > 1) */
+ 
+ static uint8_t dwc3_get_dev_speed(const dwc3_handle_t *dwc3_handle)
+ {
+-- 
+2.53.0
+

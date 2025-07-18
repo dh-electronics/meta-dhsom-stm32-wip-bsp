@@ -1,0 +1,180 @@
+From 6e524e3194ca628fc28d5a5900c727b54596fc23 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 21 Jul 2026 18:36:31 +0200
+Subject: [PATCH 558/572] refactor(st): drop unused A/B bootfs/rootfs IO
+ policies
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+"feat(st): search FIP entry explicitly in plat_fwu_set_images_source"
+made plat_fwu_set_images_source() look up only the FIP entry in the
+FWU metadata instead of iterating every entry. The per-image IO
+policies, image IDs and partition GUIDs previously added for the
+bootfs/rootfs A/B images are therefore unused: BL2 never opens or
+authenticates them, only U-Boot/Linux do.
+
+Revert the now dead code:
+ - "feat(st): enable A/B redundancy support" (FWU_BOOTFS_ID/
+   FWU_ROOTFS_ID IO policies, block specs, image auth IDs)
+ - "feat(st): add extended bootloader GUID" (XBOOTLDR_GUID)
+ - "feat(st): add Linux data partition GUID"
+   (LINUX_FILE_SYSTEM_DATA_GUID)
+
+The STM32_EXTRA_PARTS adjustment from the first revert is still
+needed on both STM32MP1 and STM32MP2 though: load_partition_table()
+parses the GPT sequentially into a fixed-size list.list[]
+(PLAT_PARTITION_MAX_ENTRIES = STM32_TF_A_COPIES + STM32_EXTRA_PARTS)
+and silently truncates entries beyond that size. Since a partition's
+position in the GPT is not guaranteed, PLAT_PARTITION_MAX_ENTRIES
+must cover the whole table -- including the bootfs-a/b, rootfs-a/b,
+vendorfs and u-boot-env partitions added by
+STM32MP_PSA_FWU_AB_SUPPORT=1 -- or the FIP/metadata partitions could
+be dropped from the parsed list if located after that cutoff. Restore
+that +6 adjustment on both platforms.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7827789b1164510027570c19378008a7af739c6b refactor(st): drop unused A/B bootfs/rootfs IO policies]
+Change-Id: Icd09af22a82ba13d35f469fc9be5818a5a9e4da9
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+(cherry picked from commit afa64b0f4d54a20508aa118e81470557071bfd10)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/590762
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/include/stm32mp_efi.h         |  7 -----
+ plat/st/common/stm32mp_fconf_io.c            | 24 ----------------
+ plat/st/stm32mp1/include/plat_tbbr_img_def.h |  6 ----
+ plat/st/stm32mp2/include/plat_tbbr_img_def.h | 29 +++-----------------
+ 4 files changed, 4 insertions(+), 62 deletions(-)
+
+diff --git a/plat/st/common/include/stm32mp_efi.h b/plat/st/common/include/stm32mp_efi.h
+index 7fbd8172d2..876fd1dc4a 100644
+--- a/plat/st/common/include/stm32mp_efi.h
++++ b/plat/st/common/include/stm32mp_efi.h
+@@ -9,17 +9,10 @@
+ 
+ #include <drivers/partition/efi.h>
+ 
+-#define LINUX_FILE_SYSTEM_DATA_GUID \
+-	EFI_GUID(0x0FC63DAFU, 0x8483U, 0x4772U, \
+-		 0x8EU, 0x79U, 0x3DU, 0x69U, 0xD8U, 0x47U, 0x7DU, 0xE4U)
+-
+ #define STM32MP_FIP_GUID \
+ 	EFI_GUID(0x19d5df83U, 0x11b0U, 0x457bU, \
+ 		 0xbeU, 0x2cU, 0x75U, 0x59U, 0xc1U, 0x31U, 0x42U, 0xa5U)
+ 
+-#define XBOOTLDR_GUID \
+-	EFI_GUID(0xBC13C2FFU, 0x59E6U, 0x4262U, \
+-		 0xA3U, 0x52U, 0xB2U, 0x75U, 0xFDU, 0x6FU, 0x71U, 0x72U)
+ 
+ #define FWU_METADATA1_PART_GUID \
+ 	EFI_GUID(0x5F91C128U, 0xE120U, 0x48D7U, \
+diff --git a/plat/st/common/stm32mp_fconf_io.c b/plat/st/common/stm32mp_fconf_io.c
+index c090d76223..0f6dd11ca8 100644
+--- a/plat/st/common/stm32mp_fconf_io.c
++++ b/plat/st/common/stm32mp_fconf_io.c
+@@ -32,16 +32,6 @@ static io_block_spec_t metadata_block_spec = {
+ 	.offset = 0,    /* To be filled at runtime */
+ 	.length = 0,    /* To be filled at runtime */
+ };
+-#if STM32MP_PSA_FWU_AB_SUPPORT
+-static io_block_spec_t bootfs_block_spec = {
+-	.offset = 0,    /* To be filled at runtime */
+-	.length = 0,    /* To be filled at runtime */
+-};
+-static io_block_spec_t rootfs_block_spec = {
+-	.offset = 0,    /* To be filled at runtime */
+-	.length = 0,    /* To be filled at runtime */
+-};
+-#endif /* STM32MP_PSA_FWU_AB_SUPPORT */
+ #endif /* PSA_FWU_SUPPORT */
+ 
+ /* By default, STM32 platforms load images from the FIP */
+@@ -81,20 +71,6 @@ struct plat_io_policy policies[MAX_NUMBER_IDS] = {
+ 		.img_type_guid = NULL_GUID,
+ 		.check = open_storage
+ 	},
+-#if STM32MP_PSA_FWU_AB_SUPPORT
+-	[FWU_BOOTFS_ID] = {
+-		.dev_handle = &storage_dev_handle,
+-		.image_spec = (uintptr_t)&bootfs_block_spec,
+-		.img_type_guid = XBOOTLDR_GUID,
+-		.check = open_storage
+-	},
+-	[FWU_ROOTFS_ID] = {
+-		.dev_handle = &storage_dev_handle,
+-		.image_spec = (uintptr_t)&rootfs_block_spec,
+-		.img_type_guid = LINUX_FILE_SYSTEM_DATA_GUID,
+-		.check = open_storage
+-	},
+-#endif /* STM32MP_PSA_FWU_AB_SUPPORT */
+ #endif /* PSA_FWU_SUPPORT */
+ };
+ 
+diff --git a/plat/st/stm32mp1/include/plat_tbbr_img_def.h b/plat/st/stm32mp1/include/plat_tbbr_img_def.h
+index 92509d2ede..984aae85b2 100644
+--- a/plat/st/stm32mp1/include/plat_tbbr_img_def.h
++++ b/plat/st/stm32mp1/include/plat_tbbr_img_def.h
+@@ -35,12 +35,6 @@
+ #define STM32MP_CONFIG_CERT_ID		U(17)
+ 
+ /* Increase the MAX_NUMBER_IDS to match the authentication pool required */
+-#if STM32MP_PSA_FWU_AB_SUPPORT
+-#define FWU_BOOTFS_ID			U(19)
+-#define FWU_ROOTFS_ID			U(20)
+-#define MAX_NUMBER_IDS			U(21)
+-#else
+ #define MAX_NUMBER_IDS			U(19)
+-#endif	/* STM32MP_PSA_FWU_AB_SUPPORT */
+ 
+ #endif	/* STM32MP1_IMG_DEF_H */
+diff --git a/plat/st/stm32mp2/include/plat_tbbr_img_def.h b/plat/st/stm32mp2/include/plat_tbbr_img_def.h
+index bab502ddc8..f2907593da 100644
+--- a/plat/st/stm32mp2/include/plat_tbbr_img_def.h
++++ b/plat/st/stm32mp2/include/plat_tbbr_img_def.h
+@@ -40,36 +40,15 @@
+ #define STM32MP_CONFIG_CERT_ID		U(24)
+ #define GPT_IMAGE_ID			U(25)
+ 
+-/* Increase the MAX_NUMBER_IDS to match the authentication pool required */
+-#define MAX_NUMBER_IDS			U(26)
+-
+-/* Image IDs reserved by optional features:
+- * - DDR firmware uses ID 26
+- * - PSA FWU AB uses the next two available IDs
+- * - MAX_NUMBER_IDS is set to match the required authentication pool size
+- */
+-
+ #if STM32MP_DDR_FIP_IO_STORAGE
+-/* DDR firmware image ID */
+ #define DDR_FW_ID			U(26)
+-#undef  MAX_NUMBER_IDS
++/* Increase the MAX_NUMBER_IDS to match the authentication pool required */
+ #define MAX_NUMBER_IDS			U(27)
+-#endif
+ 
+-#if STM32MP_PSA_FWU_AB_SUPPORT
+-/* PSA FWU AB image IDs */
+-#if STM32MP_DDR_FIP_IO_STORAGE
+-#define FWU_BOOTFS_ID			U(27)
+-#define FWU_ROOTFS_ID			U(28)
+-#undef  MAX_NUMBER_IDS
+-#define MAX_NUMBER_IDS			U(29)
+ #else
+-#define FWU_BOOTFS_ID			U(26)
+-#define FWU_ROOTFS_ID			U(27)
+-#undef  MAX_NUMBER_IDS
+-#define MAX_NUMBER_IDS			U(28)
+-#endif
++/* Increase the MAX_NUMBER_IDS to match the authentication pool required */
++#define MAX_NUMBER_IDS			U(26)
++
+ #endif
+ 
+ #endif /* PLAT_TBBR_IMG_DEF_H */
+-
+-- 
+2.53.0
+

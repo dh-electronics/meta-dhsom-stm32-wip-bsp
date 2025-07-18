@@ -1,0 +1,67 @@
+From 03b7eb881e73e13a4477fdff96dac1cf7e7f15ae Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 21 Apr 2026 19:02:32 +0200
+Subject: [PATCH 500/572] fix(cpufeat): correct AMU function prototypes
+
+When compiling with -Wmissing-prototypes for a platform that does not
+enable ENABLE_FEAT_AMU, we have these warnings:
+In file included from lib/el3_runtime/aarch64/context_mgmt.c:27:
+include/lib/extensions/amu.h:29:6: warning: no previous prototype for
+ 'amu_enable' [-Wmissing-prototypes]
+   29 | void amu_enable(cpu_context_t *ctx)
+      |      ^~~~~~~~~~
+include/lib/extensions/amu.h:32:6: warning: no previous prototype for
+ 'amu_init_el3' [-Wmissing-prototypes]
+   32 | void amu_init_el3(unsigned int core_pos)
+      |      ^~~~~~~~~~~~
+include/lib/extensions/amu.h:35:6: warning: no previous prototype for
+ 'amu_init_el2_unused' [-Wmissing-prototypes]
+   35 | void amu_init_el2_unused(void)
+      |      ^~~~~~~~~~~~~~~~~~~
+include/lib/extensions/amu.h:38:6: warning: no previous prototype for
+ 'amu_enable_per_world' [-Wmissing-prototypes]
+   38 | void amu_enable_per_world(per_world_context_t *per_world_ctx)
+      |      ^~~~~~~~~~~~~~~~~~~~
+
+As those are stubs in this case, they should be static inline.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c6b2ddf52234178f5f736a2f9b6a8ea3a2ae89d3 fix(cpufeat): correct AMU function prototypes]
+Change-Id: I7d33fa97fc8f189e4fb0a236ae0e1891505a1a49
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572140
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ include/lib/extensions/amu.h | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/include/lib/extensions/amu.h b/include/lib/extensions/amu.h
+index 2c7d700ddf..45e224c5f0 100644
+--- a/include/lib/extensions/amu.h
++++ b/include/lib/extensions/amu.h
+@@ -26,16 +26,16 @@ void amu_enable(bool el2_unused);
+ 
+ #else
+ #ifdef __aarch64__
+-void amu_enable(cpu_context_t *ctx)
++static inline void amu_enable(cpu_context_t *ctx)
+ {
+ }
+-void amu_init_el3(unsigned int core_pos)
++static inline void amu_init_el3(unsigned int core_pos)
+ {
+ }
+-void amu_init_el2_unused(void)
++static inline void amu_init_el2_unused(void)
+ {
+ }
+-void amu_enable_per_world(per_world_context_t *per_world_ctx)
++static inline void amu_enable_per_world(per_world_context_t *per_world_ctx)
+ {
+ }
+ #else
+-- 
+2.53.0
+

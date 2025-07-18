@@ -1,0 +1,38 @@
+From 64d708a5bac8788c15dcaf8b2de00d984a3ed43f Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 25 Mar 2026 11:29:02 +0100
+Subject: [PATCH 463/572] fix(stm32mp2): fix debug clock ID used for TSGEN
+ isolation
+
+The clock used to control TSGEN isolation in stm32mp_ca35_lpi_isolate
+for debug was originally CK_SYSDBG.
+This is incorrect, because the TSGEN debug device is actually tied
+to the kernel debug clock CK_KER_TSDBG.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d893a1947cf57137a398c9eb57f6c787b99ef188 fix(stm32mp2): fix debug clock ID used for TSGEN isolation]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I192a0ec6b4e6c49422eed37a7dd1791e839a67fd
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/550701
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_ca35ss.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_ca35ss.c b/plat/st/stm32mp2/stm32mp2_ca35ss.c
+index f07a6133bb..9548839972 100644
+--- a/plat/st/stm32mp2/stm32mp2_ca35ss.c
++++ b/plat/st/stm32mp2/stm32mp2_ca35ss.c
+@@ -74,7 +74,7 @@ void stm32mp_ca35_lpi_isolate(void)
+ 	uint32_t counter = UINT32_MAX;
+ 
+ 	/* Isolate TSGEN for debug only if associated clock is enabled */
+-	if (clk_is_enabled(CK_SYSDBG)) {
++	if (clk_is_enabled(CK_KER_TSDBG)) {
+ 		mmio_write_32(A35SSC_BASE + CA35SS_SSC_LPI_TSGEN_NTS(WC1),
+ 			      CA35SS_SSC_LPI_TSGEN_CSYSREQ);
+ 		timeout = timeout_init_us(TIMEOUT_US);
+-- 
+2.53.0
+

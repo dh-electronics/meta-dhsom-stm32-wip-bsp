@@ -1,0 +1,47 @@
+From 638d9c7f63abb359a3eb9dc127178ab16a440219 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 28 Nov 2024 10:57:54 +0100
+Subject: [PATCH 298/572] fix(stm32mp2): fix CID filtering for PWR_CPU2CR
+
+Always deactivate CID filtering on region 3 for PWR_CPU2CR as it is
+reserved by default for cortex M33 and TF-A BL31 must allow access even
+if the firmware is in no running.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 49f15825232854b132fae6bb093287c6ba44c613 fix(stm32mp2): fix CID filtering for PWR_CPU2CR]
+Fixes: 231f56cbb03d ("feat(stm32mp2): support running M33 for low power mode")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I9396429619126a30e0cf130b7525a4c47d6136c3
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/421334
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 4e5b573046..6e1a780a46 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -853,8 +853,6 @@ static void stm32_system_off(void)
+ 		mmio_clrbits_32(rcc_base + RCC_CPUBOOTCR, RCC_CPUBOOTCR_BOOT_CPU2);
+ 		mmio_setbits_32(rcc_base + RCC_C2RSTCSETR, RCC_C2RSTCSETR_C2RST);
+ 		dsb();
+-		/* Deactivate CID filtering on region 3 for PWR_CPU2CR */
+-		mmio_write_32(pwr_base + PWR_R3CIDCFGR, 0U);
+ 	}
+ 
+ #if !STM32MP21
+@@ -888,6 +886,9 @@ static void stm32_system_off(void)
+ 	/* Request STOP for both cores */
+ 	mmio_write_32(rcc_base + RCC_C1SREQSETR, RCC_C1SREQSETR_STPREQ_MASK);
+ 
++	/* Deactivate CID filtering on region 3 for PWR_CPU2CR */
++	mmio_write_32(pwr_base + PWR_R3CIDCFGR, 0U);
++
+ 	/* Request standby2 */
+ 	mmio_write_32(pwr_base + PWR_CPU1CR, PWR_CPU1CR_PDDS_D1 | PWR_CPU1CR_PDDS_D2);
+ 	mmio_write_32(pwr_base + PWR_CPU2CR, PWR_CPU2CR_PDDS_D2);
+-- 
+2.53.0
+

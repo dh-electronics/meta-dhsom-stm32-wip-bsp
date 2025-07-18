@@ -1,0 +1,59 @@
+From 896273d5bc93a394352253e933f6fb2cccb793f5 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 19 Dec 2024 20:03:42 +0100
+Subject: [PATCH 314/572] fix(stm32mp2): remove stm32mp2_ddr_helpers for M33
+ TDCID
+
+Remove call and compilation of stm32mp2_ddr_helpers in BL31 for
+M33 TDCID as self refresh of DDR is managed by M33 firmware.
+
+This patch allows to reduce the BL31 size.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 02c716b3ee0f74cf86c63c6fbbdf3eed93b8cda2 fix(stm32mp2): remove stm32mp2_ddr_helpers for M33 TDCID]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I008aa308be14eec64876c2649b703286bb172c8e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/426137
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/platform.mk   | 7 +++++--
+ plat/st/stm32mp2/stm32mp2_pm.c | 2 ++
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index b8826a14ee..b765b9997c 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -387,8 +387,11 @@ BL31_SOURCES			+=	plat/st/stm32mp2/bl31_plat_setup.c			\
+ 
+ ifeq ($(STM32MP_SUPPORT_PM),1)
+ BL31_SOURCES			+=	plat/st/stm32mp2/stm32mp2_pm.c				\
+-					plat/st/stm32mp2/stm32mp2_ca35ss.c			\
+-					drivers/st/ddr/stm32mp2_ddr_helpers.c
++					plat/st/stm32mp2/stm32mp2_ca35ss.c
++endif
++
++ifeq ($(STM32MP_M33_TDCID),0)
++BL31_SOURCES			+=	drivers/st/ddr/stm32mp2_ddr_helpers.c
+ endif
+ 
+ # Generic GIC v2
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 12b51485ed..88fa8aea63 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -903,8 +903,10 @@ static void stm32_system_off(void)
+ 
+ 	dcsw_op_all(DCCISW);
+ 
++#if !STM32MP_M33_TDCID
+ 	/* Force DDR off */
+ 	ddr_sub_system_clk_off();
++#endif
+ 
+ 	/* Prevent interrupts from spuriously waking up this cpu */
+ 	stm32mp_gic_cpuif_disable();
+-- 
+2.53.0
+

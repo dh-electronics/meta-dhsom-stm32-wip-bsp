@@ -1,0 +1,78 @@
+From 0b687080054bed36de2cbf1bf53b0b2984d56202 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 22 Feb 2024 10:03:57 +0100
+Subject: [PATCH 251/572] feat(stm32mp2): add UART Programmer support
+
+Add UART support for STM32MProgrammer on STM32MP25 SoC family.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b08f14f661a771fd866011648f7d152f5eedaa8f feat(stm32mp2): add UART Programmer support]
+Change-Id: I0d928af0620e4a049e099aa3ec631bc0f342f734
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c   | 14 ++++++++++++++
+ plat/st/stm32mp2/stm32mp2_private.c |  4 ++--
+ 2 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 239e20861f..3e84ea99e1 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -18,6 +18,7 @@
+ #include <drivers/st/stm32_iwdg.h>
+ #include <drivers/st/stm32_rifsc.h>
+ #include <drivers/st/stm32_rng.h>
++#include <drivers/st/stm32_uart.h>
+ #include <drivers/st/stm32mp2_ddr_helpers.h>
+ #include <drivers/st/stm32mp2_ram.h>
+ #include <drivers/st/stm32mp2_risaf.h>
+@@ -385,6 +386,10 @@ void bl2_el3_plat_arch_setup(void)
+ 	const char *board_model;
+ 	boot_api_context_t *boot_context =
+ 		(boot_api_context_t *)stm32mp_get_boot_ctx_address();
++	bool serial_uart_interface __unused =
++				(boot_context->boot_interface_selected ==
++				 BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART);
++	uintptr_t uart_prog_addr __unused;
+ 	bool lse_tamper_occured = false;
+ 
+ 	if (stm32_otp_probe() != 0U) {
+@@ -435,6 +440,15 @@ void bl2_el3_plat_arch_setup(void)
+ 		panic();
+ 	}
+ 
++#if STM32MP_UART_PROGRAMMER
++	uart_prog_addr = get_uart_address(boot_context->boot_interface_instance);
++
++	/* Disable programmer UART before changing clock tree */
++	if (serial_uart_interface) {
++		stm32_uart_stop(uart_prog_addr);
++	}
++#endif
++
+ 	if (stm32_iwdg_init() < 0) {
+ 		panic();
+ 	}
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index d1cfd60335..0729396984 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -173,14 +173,14 @@ uintptr_t get_uart_address(uint32_t instance_nb)
+ 
+ void stm32_save_header(void)
+ {
+-#if STM32MP_USB_PROGRAMMER && TRUSTED_BOARD_BOOT
++#if (STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER) && TRUSTED_BOARD_BOOT
+ 	memcpy(&saved_header, (uint8_t *)STM32MP_HEADER_BASE, STM32MP_HEADER_SIZE);
+ #endif /* STM32MP_USB_PROGRAMMER && TRUSTED_BOARD_BOOT */
+ }
+ 
+ uintptr_t stm32_get_header_address(void)
+ {
+-#if STM32MP_USB_PROGRAMMER && TRUSTED_BOARD_BOOT
++#if (STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER) && TRUSTED_BOARD_BOOT
+ 	return (uintptr_t)&saved_header;
+ #else
+ 	return STM32MP_HEADER_BASE;
+-- 
+2.53.0
+

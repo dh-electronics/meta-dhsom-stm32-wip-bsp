@@ -1,0 +1,282 @@
+From c01f7532916fa098a87e3009661363839e30080e Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 26 Feb 2026 15:45:06 +0100
+Subject: [PATCH 446/572] refactor(st): remove unused GPIO regulator driver
+
+The GPIO regulator driver is not used on ST platforms, remove it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git be458b31aebdf03098a894e7a58547a97d537bb0 refactor(st): remove unused GPIO regulator driver]
+Change-Id: I3f8688294d4a3af33c4af2dbe9dfcb35d2eec02d
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/541290
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/regulator/regulator_gpio.c | 166 --------------------------
+ include/drivers/st/regulator_gpio.h   |  12 --
+ plat/st/common/common.mk              |   1 -
+ plat/st/stm32mp1/bl2_plat_setup.c     |   7 --
+ plat/st/stm32mp1/stm32mp1_def.h       |   2 -
+ plat/st/stm32mp2/stm32mp2_def.h       |   2 -
+ 6 files changed, 190 deletions(-)
+ delete mode 100644 drivers/st/regulator/regulator_gpio.c
+ delete mode 100644 include/drivers/st/regulator_gpio.h
+
+diff --git a/drivers/st/regulator/regulator_gpio.c b/drivers/st/regulator/regulator_gpio.c
+deleted file mode 100644
+index ebddb0f6eb..0000000000
+--- a/drivers/st/regulator/regulator_gpio.c
++++ /dev/null
+@@ -1,166 +0,0 @@
+-/*
+- * Copyright (c) 2022, STMicroelectronics
+- *
+- * SPDX-License-Identifier: BSD-3-Clause
+- */
+-
+-#include <assert.h>
+-#include <errno.h>
+-
+-#include <common/debug.h>
+-#include <common/fdt_wrappers.h>
+-#include <drivers/st/regulator.h>
+-#include <drivers/st/regulator_gpio.h>
+-#include <drivers/st/stm32_gpio.h>
+-#include <libfdt.h>
+-
+-#ifndef PLAT_NB_GPIO_REGUS
+-#error "Missing PLAT_NB_GPIO_REGUS"
+-#endif
+-
+-#define MAX_NAME_LEN 32
+-
+-#define REGU_DISABLED 0
+-#define REGU_ENABLED 1
+-
+-#define GPIO_DESC_SIZE 3U
+-
+-struct gpio_config {
+-	uint32_t bank;
+-	uint32_t pin;
+-	uint32_t config;
+-	uint8_t status;
+-};
+-
+-struct gpio_regu_data {
+-	char name[MAX_NAME_LEN];
+-	struct regul_description desc;
+-	struct gpio_config en_gpio;
+-	bool active_high;
+-};
+-
+-static struct gpio_regu_data data[PLAT_NB_GPIO_REGUS];
+-
+-static int gpio_set_state(const struct regul_description *desc, bool state)
+-{
+-	struct gpio_regu_data *d = (struct gpio_regu_data *)desc->driver_data;
+-	enum gpio_level level = GPIO_LEVEL_LOW;
+-
+-	VERBOSE("regul %s set state=%d\n", d->name, state);
+-
+-	if ((d->active_high && state) || (!d->active_high && !state)) {
+-		level = GPIO_LEVEL_HIGH;
+-	}
+-
+-	set_gpio_level(d->en_gpio.bank, d->en_gpio.pin, level);
+-
+-	return 0;
+-}
+-
+-static int gpio_get_state(const struct regul_description *desc)
+-{
+-	struct gpio_regu_data *d = (struct gpio_regu_data *)desc->driver_data;
+-	enum gpio_level level = get_gpio_level(d->en_gpio.bank, d->en_gpio.pin);
+-
+-	if ((d->active_high && level == GPIO_LEVEL_HIGH) ||
+-	    (!d->active_high && level == GPIO_LEVEL_LOW)) {
+-		return REGU_ENABLED;
+-	}
+-
+-	return REGU_DISABLED;
+-}
+-
+-static struct regul_ops gpio_regu_ops = {
+-	.set_state = gpio_set_state,
+-	.get_state = gpio_get_state,
+-};
+-
+-static int read_gpio_config_from_dt(const void *fdt, int node, char *name,
+-				    struct gpio_config *gpio)
+-{
+-	uint32_t utable[GPIO_DESC_SIZE];
+-	int ret;
+-
+-	gpio->status = fdt_get_status(node);
+-	if (gpio->status == DT_DISABLED) {
+-		return -FDT_ERR_NOTFOUND;
+-	}
+-
+-	ret = fdt_read_uint32_array(fdt, node, name, GPIO_DESC_SIZE, utable);
+-	if (ret != 0) {
+-		ERROR("Missing gpio description\n");
+-		return ret;
+-	}
+-
+-	gpio->bank = utable[0];
+-	gpio->pin = utable[1];
+-	gpio->config = utable[2];
+-
+-	return 0;
+-}
+-
+-int gpio_regulator_register(void)
+-{
+-	uint32_t count = 0U;
+-	void *fdt;
+-	int node = 0;
+-
+-	VERBOSE("gpio_regu reg init\n");
+-
+-	if (fdt_get_address(&fdt) == 0) {
+-		return -FDT_ERR_NOTFOUND;
+-	}
+-
+-	do {
+-		int len __unused;
+-		int ret;
+-		struct gpio_regu_data *d = &data[count];
+-		const char *reg_name;
+-
+-		node = fdt_node_offset_by_compatible(fdt, node, "st,stm32-regulator-gpio");
+-		if (node < 0) {
+-			break;
+-		}
+-
+-		reg_name = fdt_get_name(fdt, node, NULL);
+-
+-		VERBOSE("register gpio_regu reg %s\n", reg_name);
+-
+-		if (count == PLAT_NB_GPIO_REGUS) {
+-			WARN("Not enough place for regulators, PLAT_NB_GPIO_REGUS should be increased.\n");
+-			return -ENOMEM;
+-		}
+-
+-		len = snprintf(d->name, MAX_NAME_LEN - 1, "%s", reg_name);
+-		assert((len > 0) && (len < (MAX_NAME_LEN - 1)));
+-
+-		d->desc.node_name = d->name;
+-		d->desc.driver_data = d;
+-		d->desc.ops = &gpio_regu_ops;
+-
+-		ret = read_gpio_config_from_dt(fdt, node, "st,enable-gpios", &d->en_gpio);
+-		if (ret != 0) {
+-			ERROR("Incorrect gpio regul description\n");
+-			return ret;
+-		}
+-
+-		VERBOSE("%s: en_gpio bank=%u pin=%u cfg=%x\n", d->name,
+-			d->en_gpio.bank, d->en_gpio.pin, d->en_gpio.config);
+-
+-		set_gpio_config(d->en_gpio.bank, d->en_gpio.pin, d->en_gpio.config,
+-				d->en_gpio.status);
+-
+-		if (fdt_getprop(fdt, node, "enable-active-high", NULL))
+-			d->active_high = true;
+-
+-		ret = regulator_register(&d->desc, node);
+-		if (ret != 0) {
+-			WARN("Failed to register %s\n", reg_name);
+-			return ret;
+-		}
+-
+-		count++;
+-	} while (node > 0);
+-
+-	return 0;
+-}
+diff --git a/include/drivers/st/regulator_gpio.h b/include/drivers/st/regulator_gpio.h
+deleted file mode 100644
+index 3362f7e248..0000000000
+--- a/include/drivers/st/regulator_gpio.h
++++ /dev/null
+@@ -1,12 +0,0 @@
+-/*
+- * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
+- *
+- * SPDX-License-Identifier: BSD-3-Clause
+- */
+-
+-#ifndef REGULATOR_GPIO_H
+-#define REGULATOR_GPIO_H
+-
+-int gpio_regulator_register(void);
+-
+-#endif /* REGULATOR_GPIO_H */
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index 6c4a73b39a..e33f9368da 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -204,7 +204,6 @@ PLAT_BL_COMMON_SOURCES		+=	drivers/clk/clk.c				\
+ 					drivers/st/nvmem/stm32mp_tamp_nvram_core.c	\
+ 					drivers/st/regulator/regulator_core.c		\
+ 					drivers/st/regulator/regulator_fixed.c		\
+-					drivers/st/regulator/regulator_gpio.c			\
+ 					plat/st/common/stm32mp_dt.c				\
+ 					plat/st/common/stm32mp_fconf_fuse.c
+ 
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index e9527da267..5582a015df 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -18,7 +18,6 @@
+ #include <drivers/st/bsec.h>
+ #include <drivers/st/nvmem.h>
+ #include <drivers/st/regulator_fixed.h>
+-#include <drivers/st/regulator_gpio.h>
+ #include <drivers/st/stm32_iwdg.h>
+ #if STM32MP13
+ #include <drivers/st/stm32_mce.h>
+@@ -458,12 +457,6 @@ skip_console_init:
+ 		panic();
+ 	}
+ 
+-#if (PLAT_NB_GPIO_REGUS > 0)
+-	if (gpio_regulator_register() != 0) {
+-		panic();
+-	}
+-#endif
+-
+ 	if (dt_pmic_status() > 0) {
+ 		initialize_pmic();
+ 		if (!stm32mp_is_wakeup_from_standby() &&
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index 76e1bd81e7..aa7e4e5de3 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -692,8 +692,6 @@ enum ddr_type {
+ #define PLAT_NB_RDEVS			U(19)
+ /* 2 FIXED */
+ #define PLAT_NB_FIXED_REGUS		U(2)
+-/* No GPIO regu */
+-#define PLAT_NB_GPIO_REGUS		U(0)
+ /* TAMP BACKUP REGISTER */
+ #define PLAT_NB_NVMEM_DEVS		U(1)
+ #define MAX_TAMP_BACKUP_REGS_ZONES	U(3)
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index ecdd995478..f2c9a5b815 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -777,8 +777,6 @@ enum ddr_type {
+ #define PLAT_NB_RDEVS				U(19)
+ /* 2 FIXED */
+ #define PLAT_NB_FIXED_REGUS			U(2)
+-/* No GPIO regu */
+-#define PLAT_NB_GPIO_REGUS			U(0)
+ /* TAMP BACKUP REGISTER */
+ #define PLAT_NB_NVMEM_DEVS			U(1)
+ #define MAX_TAMP_BACKUP_REGS_ZONES		U(7)
+-- 
+2.53.0
+

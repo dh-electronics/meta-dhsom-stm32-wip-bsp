@@ -1,0 +1,95 @@
+From a24ebb6b8c0b4bbea4c198a54d18b584870f6da9 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 6 May 2026 15:34:53 +0200
+Subject: [PATCH 497/572] fix(opteed): use correct return type for
+ opteed_synchronous_sp_entry()
+
+The function opteed_synchronous_sp_entry() returns an uint64_t, align
+the rc variables in opteed_cpu_on_finish_handler() and
+opteed_cpu_suspend_finish_handler() with it.
+This was found with clang warning -Wshorten-64-to-32, and should also
+correct MISRA issues. This was already partially done in a previous
+patch [1].
+
+[1]: 827fb911539b ("fix(optee): match variable type")
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c6327dd70f74762a28e6f2c914471dbcfdd1eca5 fix(opteed): use correct return type for opteed_synchronous_sp_entry()]
+Change-Id: I5fe95988028ced01a8fb3da5c3c689c1dae25500
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572137
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ services/spd/opteed/opteed_pm.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/services/spd/opteed/opteed_pm.c b/services/spd/opteed/opteed_pm.c
+index 9479766458..fa98a9d814 100644
+--- a/services/spd/opteed/opteed_pm.c
++++ b/services/spd/opteed/opteed_pm.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -28,7 +28,7 @@ static void opteed_cpu_on_handler(u_register_t target_cpu)
+  ******************************************************************************/
+ static int32_t opteed_cpu_off_handler(u_register_t unused)
+ {
+-	int32_t rc = 0;
++	uint64_t rc = 0U;
+ 	uint32_t linear_id = plat_my_core_pos();
+ 	optee_context_t *optee_ctx = &opteed_sp_context[linear_id];
+ 
+@@ -47,7 +47,7 @@ static int32_t opteed_cpu_off_handler(u_register_t unused)
+ 	 * Read the response from OPTEE. A non-zero return means that
+ 	 * something went wrong while communicating with OPTEE.
+ 	 */
+-	if (rc != 0)
++	if (rc != 0U)
+ 		panic();
+ 
+ 	/*
+@@ -102,7 +102,7 @@ static void opteed_cpu_suspend_handler(u_register_t max_off_pwrlvl)
+  ******************************************************************************/
+ void opteed_cpu_on_finish_handler(u_register_t unused)
+ {
+-	int32_t rc = 0;
++	uint64_t rc = 0U;
+ 	uint32_t linear_id = plat_my_core_pos();
+ 	optee_context_t *optee_ctx = &opteed_sp_context[linear_id];
+ 	entry_point_info_t optee_on_entrypoint;
+@@ -125,7 +125,7 @@ void opteed_cpu_on_finish_handler(u_register_t unused)
+ 	 * Read the response from OPTEE. A non-zero return means that
+ 	 * something went wrong while communicating with OPTEE.
+ 	 */
+-	if (rc != 0)
++	if (rc != 0U)
+ 		panic();
+ 
+ 	/* Update its context to reflect the state OPTEE is in */
+@@ -139,7 +139,7 @@ void opteed_cpu_on_finish_handler(u_register_t unused)
+  ******************************************************************************/
+ static void opteed_cpu_suspend_finish_handler(u_register_t max_off_pwrlvl, bool abandon)
+ {
+-	int32_t rc = 0;
++	uint64_t rc = 0U;
+ 	uint32_t linear_id = plat_my_core_pos();
+ 	optee_context_t *optee_ctx = &opteed_sp_context[linear_id];
+ 
+@@ -164,7 +164,7 @@ static void opteed_cpu_suspend_finish_handler(u_register_t max_off_pwrlvl, bool
+ 	 * Read the response from OPTEE. A non-zero return means that
+ 	 * something went wrong while communicating with OPTEE.
+ 	 */
+-	if (rc != 0)
++	if (rc != 0U)
+ 		panic();
+ 
+ 	/* Update its context to reflect the state OPTEE is in */
+-- 
+2.53.0
+

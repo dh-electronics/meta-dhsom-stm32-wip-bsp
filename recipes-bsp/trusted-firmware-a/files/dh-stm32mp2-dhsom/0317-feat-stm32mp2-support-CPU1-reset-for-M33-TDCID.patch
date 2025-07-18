@@ -1,0 +1,38 @@
+From 1a549504c19dc5afcd50432794e363abd776e51c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 20 Jan 2025 17:39:29 +0100
+Subject: [PATCH 317/572] feat(stm32mp2): support CPU1 reset for M33 TDCID
+
+Add test on the reboot reason "CPU1 system Standby" to support cortex-A35
+independent reset (CPU1) after cortex-A35 low power mode request
+(when context is valid) and when cortex-M33 is TDCID.
+
+The flags C1RSTF is not enough to detect a CPU1 reset requested by CPU2
+because the ROM code request a CPU1 reset to switch to 64 bits execution
+mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d2f39f88a1939eceac65a8532ef1c1df73130ed4 feat(stm32mp2): support CPU1 reset for M33 TDCID]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I403b6c8f2478d4237f097fbf078fd0f07c05b494
+---
+ plat/st/stm32mp2/stm32mp2_private.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 7c3f2b7f53..b8d4d7b19a 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -637,6 +637,10 @@ bool stm32mp_is_wakeup_from_standby(void)
+ 		if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) != 0U) {
+ 			return false;
+ 		}
++		/* CPU1=CA35 reset performed by CPU2=M33 */
++		if ((rstsr & RCC_C1BOOTRSTSCLRR_STBYC1RSTF) == 0U) {
++			return false;
++		}
+ 		if (stm32_pm_context_is_valid()) {
+ 			standby = 1;
+ 		} else {
+-- 
+2.53.0
+

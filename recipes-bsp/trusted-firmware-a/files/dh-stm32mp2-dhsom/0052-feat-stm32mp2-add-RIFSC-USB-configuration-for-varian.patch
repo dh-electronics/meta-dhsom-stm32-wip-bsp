@@ -1,0 +1,77 @@
+From 0ce53aae0a57f47683014d3da96e0c7a5c428fe9 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 5 Mar 2024 18:31:44 +0100
+Subject: [PATCH 052/572] feat(stm32mp2): add RIFSC USB configuration for
+ variants
+
+Add RIFSC related service call for STM32MP21 and STM32MP23 variants
+with dedicated parameters. Add definitions for STM32MP21 because USB OTG
+Add USB OTG_HS definitions for STM32MP21.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 073bc7bfd9b89b013ba735633107eaffd14dd43a feat(stm32mp2): add RIFSC USB configuration for variants]
+Change-Id: I5276192ed257c3461bf7d84f0900c30fc4ad60ae
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/364741
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 10 ++++++++++
+ plat/st/stm32mp2/stm32mp2_def.h   | 11 +++++++++++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 0de06dc87c..8eeaa8d005 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -223,8 +223,18 @@ skip_console_init:
+ 	fconf_populate("TB_FW", STM32MP_DTB_BASE);
+ 
+ #if STM32MP_USB_PROGRAMMER
++#if STM32MP21
++	stm32_rifsc_ip_configure(STM32MP21_RIMU_OTG_HS, STM32MP21_RIFSC_OTG_HS_ID,
++				 RIFSC_USB_BOOT_OTG_HS_RIMC_CONF);
++#endif /* STM32MP21 */
++#if STM32MP23
++	stm32_rifsc_ip_configure(STM32MP2_RIMU_USB3DR, STM32MP23_RIFSC_USB3DR_ID,
++				 RIFSC_USB_BOOT_USB3DR_RIMC_CONF);
++#endif /* STM32MP23 */
++#if STM32MP25
+ 	stm32_rifsc_ip_configure(STM32MP2_RIMU_USB3DR, STM32MP25_RIFSC_USB3DR_ID,
+ 				 RIFSC_USB_BOOT_USB3DR_RIMC_CONF);
++#endif /* STM32MP25 */
+ #endif /* STM32MP_USB_PROGRAMMER */
+ 
+ 	/*
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index d80185a17c..5405f73efe 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -571,6 +571,16 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ /*******************************************************************************
+  * RIFSC
+  ******************************************************************************/
++#if STM32MP21
++#define STM32MP21_RIMU_OTG_HS			U(4)
++
++/*
++ * OTG_HS Secure/Priv Master (DMA) access
++ */
++#define RIFSC_USB_BOOT_OTG_HS_RIMC_CONF		(RIFSC_RIMC_ATTRx_MPRIV | RIFSC_RIMC_ATTRx_MSEC | \
++						 RIF_CID1 << RIFSC_RIMC_ATTRx_MCID_SHIFT | \
++						 RIFSC_RIMC_ATTRx_CIDSEL)
++#else /* !STM32MP21 */
+ #define STM32MP2_RIMU_USB3DR			U(4)
+ 
+ /*
+@@ -579,6 +589,7 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ #define RIFSC_USB_BOOT_USB3DR_RIMC_CONF		(RIFSC_RIMC_ATTRx_MPRIV | RIFSC_RIMC_ATTRx_MSEC | \
+ 						 RIF_CID1 << RIFSC_RIMC_ATTRx_MCID_SHIFT | \
+ 						 RIFSC_RIMC_ATTRx_CIDSEL)
++#endif /* STM32MP21 */
+ 
+ /*******************************************************************************
+  * STM32MP CA35SSC
+-- 
+2.53.0
+

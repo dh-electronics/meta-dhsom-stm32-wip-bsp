@@ -1,0 +1,59 @@
+From ac1d42e2b576b61f4630e5b8be51314178428399 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 1 Jul 2026 19:44:29 +0200
+Subject: [PATCH 541/572] fix(stm32mp1): keep PLL1 settings in context only for
+ backward compatibility
+
+Remove the defines PLAT_MAX_OPP_NB and PLAT_MAX_PLLCFG_NB in
+configuration file as a fixed value is required for context backward
+compatibility.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c256c2504376d3b69891186b09c4447a0937def1 fix(stm32mp1): keep PLL1 settings in context only for backward compatibility]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I346983052ea8d848b61bab869424f6a34fa2a601
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/583934
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp1/stm32mp1_context.c | 6 +++++-
+ plat/st/stm32mp1/stm32mp1_def.h     | 6 ------
+ 2 files changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/plat/st/stm32mp1/stm32mp1_context.c b/plat/st/stm32mp1/stm32mp1_context.c
+index 12f3aaf657..0848f722c8 100644
+--- a/plat/st/stm32mp1/stm32mp1_context.c
++++ b/plat/st/stm32mp1/stm32mp1_context.c
+@@ -47,8 +47,12 @@
+ #define MAGIC_ID(magic)			((magic) & GENMASK_32(31, 16))
+ #define MAGIC_AREA_SIZE(magic)		((magic) & GENMASK_32(15, 0))
+ 
++/* Fixed Value used by previous version of context, no more used */
++#define PLAT_MAX_OPP_NB			U(2)
++#define PLAT_MAX_PLLCFG_NB		U(6)
++
+ #if (PLAT_MAX_OPP_NB != 2U) || (PLAT_MAX_PLLCFG_NB != 6U)
+-#error MAILBOX_MAGIC_V2/_V3 does not support expected PLL1 settings
++#error MAILBOX does not support expected PLL1 settings
+ #endif
+ 
+ /* pll_settings structure size definitions (reference to clock driver) */
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index aa7e4e5de3..513a8ce905 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -679,12 +679,6 @@ enum ddr_type {
+  ******************************************************************************/
+ #define PKA_BASE			U(0x54006000)
+ 
+-/*******************************************************************************
+- * STM32MP1 OPP
+- ******************************************************************************/
+-#define PLAT_MAX_OPP_NB			U(2)
+-#define PLAT_MAX_PLLCFG_NB		U(6)
+-
+ /*******************************************************************************
+  * REGULATORS
+  ******************************************************************************/
+-- 
+2.53.0
+

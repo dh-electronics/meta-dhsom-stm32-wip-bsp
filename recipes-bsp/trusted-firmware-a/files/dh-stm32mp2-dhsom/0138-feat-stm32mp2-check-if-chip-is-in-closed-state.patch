@@ -1,0 +1,59 @@
+From 4a6b0b5da6f6fd4859889a248682d81367918f99 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 13 Jan 2023 14:26:37 +0100
+Subject: [PATCH 138/572] feat(stm32mp2): check if chip is in closed state
+
+To check the chip is in secured closed state, the BSEC mode should be
+closed, and the secure_boot bit in lifecycle OTP fuse (OTP18) set to 1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a73b4bd51cc7c3d996d9a192e8cbab52961aec18 feat(stm32mp2): check if chip is in closed state]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Icc7f07727c209a429265c0d3e062fd80b47c5728
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/285738
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_private.c | 26 +++++++++++++++++++++++++-
+ 1 file changed, 25 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 8d0aec00df..fff1642f31 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -470,7 +470,31 @@ bool stm32mp_is_single_core(void)
+ /* Return true when device is in closed state */
+ uint32_t stm32mp_check_closed_device(void)
+ {
+-	return STM32MP_CHIP_SEC_OPEN;
++	static uint32_t otp_idx;
++	static uint32_t otp_len;
++	uint32_t otp_val;
++	uint32_t status = STM32MP_CHIP_SEC_CLOSED;
++
++	if (otp_len == 0U) {
++		if (stm32_get_otp_index(LIFECYCLE2_OTP, &otp_idx, &otp_len) != 0) {
++			panic();
++		}
++
++		if (otp_len != __WORD_BIT) {
++			panic();
++		}
++	}
++
++	if (stm32_get_otp_value_from_idx(otp_idx, &otp_val) != 0) {
++		panic();
++	}
++
++	if (!stm32_is_bsec_closed() ||
++	    ((otp_val & SECURE_BOOT_CLOSED_SECURE) == 0U)) {
++		status = STM32MP_CHIP_SEC_OPEN;
++	}
++
++	return status;
+ }
+ 
+ /* Return true when device supports secure boot */
+-- 
+2.53.0
+

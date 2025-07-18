@@ -1,0 +1,70 @@
+From 7f0462b32a6cc82c1727888da87d7a6207a7659f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 4 Jun 2026 19:19:46 +0200
+Subject: [PATCH 530/572] fix(stm32mp2): set FWU boot index before BL2 DT is
+ overwritten
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+stm32_fwu_set_boot_idx() may fail when called late from the BL33 image
+handling path, as the FWU information lookup still relies on device tree
+data that is no longer accessible once the BL2 DT area has been
+overwritten by BL31.
+
+Move the FWU boot index update to the FW_CONFIG handling path so it is
+performed while the BL2 DT is still available, and avoid the resulting
+panic.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 01b8d16ab85cf2ba2f1c4979e3b4db1ce780f4ca fix(stm32mp2): set FWU boot index before BL2 DT is overwritten]
+Change-Id: Ieec942f0d55cbe2f5bd4a64275af6798f52a0502
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/574939
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/579560
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 19 +++++++++----------
+ 1 file changed, 9 insertions(+), 10 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index f3d776a602..27db8f01ea 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -805,6 +805,15 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		}
+ #endif
+ 
++#if PSA_FWU_SUPPORT
++		/* This must be done before the device tree unmapped */
++		err = stm32_fwu_set_boot_idx();
++		if (err != 0) {
++			ERROR("FWU: Failed to set boot index\n");
++			panic();
++		}
++#endif /* PSA_FWU_SUPPORT */
++
+ 		/*
+ 		 * After this step, the BL2 device tree area will be overwritten
+ 		 * with BL31 binary, no other data should be read from BL2 DT.
+@@ -849,16 +858,6 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		}
+ 		break;
+ #endif
+-
+-	case BL33_IMAGE_ID:
+-#if PSA_FWU_SUPPORT
+-		err = stm32_fwu_set_boot_idx();
+-		if (err != 0) {
+-			panic();
+-		}
+-#endif /* PSA_FWU_SUPPORT */
+-		break;
+-
+ 	default:
+ 		/* Do nothing in default case */
+ 		break;
+-- 
+2.53.0
+

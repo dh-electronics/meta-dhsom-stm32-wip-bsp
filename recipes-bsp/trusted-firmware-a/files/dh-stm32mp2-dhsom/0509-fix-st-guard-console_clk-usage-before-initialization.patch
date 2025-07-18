@@ -1,0 +1,62 @@
+From 62fcbf080cd48be873c847ab028cd039cb1e58e5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 26 May 2026 15:20:12 +0200
+Subject: [PATCH 509/572] fix(st): guard console_clk usage before
+ initialization
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Calling clk_is_enabled() with an uninitialized clock ID may cause a panic.
+Check that console_clk is set before using it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b011ba7c19419f7f697a102c7bb981f171d9eed1 fix(st): guard console_clk usage before initialization]
+Change-Id: I04324217aa242e2dc828f65cbca344540bdcd8b3
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572055
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/stm32mp_common.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index c56ef7ff6b..64b29376b1 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -65,7 +65,7 @@
+ #define FWU_INFO_CNT_OFF		U(4)
+ 
+ static console_t console;
+-static unsigned long console_clk;
++static unsigned long console_clk = ULONG_MAX;
+ static struct spinlock lock;
+ 
+ uintptr_t plat_get_ns_image_entrypoint(void)
+@@ -347,8 +347,13 @@ bool stm32mp_uart_console_is_running(void) {
+ 
+ 	uint32_t en_bits = USART_CR1_UE | USART_CR1_TE;
+ 
+-	if(!clk_is_enabled(console_clk))
++	if (console_clk == ULONG_MAX) {
+ 		return false;
++	}
++
++	if (!clk_is_enabled(console_clk)) {
++		return false;
++	}
+ 
+ 	return (mmio_read_32(console.base + USART_CR1) & en_bits) == en_bits;
+ }
+@@ -374,7 +379,7 @@ int stm32mp_uart_console_setup(void)
+ 		return -ENODEV;
+ 	}
+ 
+-	console_clk = dt_uart_info.clock;
++	console_clk = (unsigned long)dt_uart_info.clock;
+ 
+ #if (STM32MP_UART_PROGRAMMER || !defined(IMAGE_BL2)) && !STM32MP_SSP
+ 	if ((stm32_get_boot_interface(&boot_itf, &boot_instance) != 0) ||
+-- 
+2.53.0
+

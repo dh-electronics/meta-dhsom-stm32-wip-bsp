@@ -1,0 +1,55 @@
+From e788c21ac06a8c7db2e14157b8e88e5238d92812 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 14 Apr 2026 15:24:45 +0200
+Subject: [PATCH 462/572] fix(st-spi): cast the number of banks from DT to
+ uint8_t
+
+In the DT, we will never have a number of OSPI banks that overflow an
+uint8_t (255). This is then OK to cast the return of fdt32_to_cpu() to
+uint8_t.
+
+This was found with -Wconversion warning:
+drivers/st/spi/stm32_ospi.c:1345:24: warning: conversion from 'uint32_t'
+ {aka 'unsigned int'} to 'uint8_t' {aka 'unsigned char'} may change
+ value [-Wconversion]
+ 1345 |                 bank = fdt32_to_cpu(*cuint);
+      |                        ^~~~~~~~~~~~
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 384aac260ab9e3f21f97c7518f815351d57f3f0a fix(st-spi): cast the number of banks from DT to uint8_t]
+Change-Id: I68da38260b9357b145a1c655e2d97d557f0a1463
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/557401
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/st/spi/stm32_ospi.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index bc779277af..13add8af47 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -1302,7 +1302,7 @@ int stm32_ospi_init(void)
+ 		}
+ 
+ 		for (i = 0U; i < _OMM_MAX_OSPI; i++) {
+-			bank = fdt32_to_cpu(*cuint);
++			bank = (uint8_t)fdt32_to_cpu(*cuint);
+ 			if ((bank >= _OMM_MAX_OSPI) ||
+ 			    ((bank_assigned & BIT(bank)) != 0U)) {
+ 				return -FDT_ERR_BADVALUE;
+@@ -1342,7 +1342,7 @@ int stm32_ospi_init(void)
+ 			return -FDT_ERR_BADVALUE;
+ 		}
+ 
+-		bank = fdt32_to_cpu(*cuint);
++		bank = (uint8_t)fdt32_to_cpu(*cuint);
+ 		if (bank >= _OMM_MAX_OSPI) {
+ 			return -FDT_ERR_BADVALUE;
+ 		}
+-- 
+2.53.0
+

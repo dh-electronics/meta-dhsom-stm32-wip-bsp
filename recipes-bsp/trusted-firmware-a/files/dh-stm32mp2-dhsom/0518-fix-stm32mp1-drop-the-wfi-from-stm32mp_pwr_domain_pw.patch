@@ -1,0 +1,49 @@
+From 1dccd19a1d99fbe9de3903be0ed72ba3cbd64c4c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 3 Jun 2026 14:44:22 +0200
+Subject: [PATCH 518/572] fix(stm32mp1): drop the "wfi" from
+ `stm32mp_pwr_domain_pwr_down_wfi`
+
+To allow for generic handling of a wakeup, the hook
+pwr_domain_pwr_down_wfi is no longer expected to call wfi itself.
+Update the function name stm32_pwr_domain_pwr_down to reflect this.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a4eb77e3f8f8f4ff34e245e069462df48fcbe16e fix(stm32mp1): drop the "wfi" from `stm32mp_pwr_domain_pwr_down_wfi`]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ia7d31319b5898a1092181f4fe3b09170ad390fb3
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/574229
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp1/stm32mp1_pm.c | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/stm32mp1/stm32mp1_pm.c b/plat/st/stm32mp1/stm32mp1_pm.c
+index bb19eee1bc..f2ca27ff69 100644
+--- a/plat/st/stm32mp1/stm32mp1_pm.c
++++ b/plat/st/stm32mp1/stm32mp1_pm.c
+@@ -147,10 +147,9 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 	/* Nothing to do, power domain is not disabled */
+ }
+ 
+-static void __dead2 stm32_pwr_domain_pwr_down_wfi(const psci_power_state_t
+-						  *target_state)
++static void __dead2 stm32_pwr_domain_pwr_down(const psci_power_state_t *target_state)
+ {
+-	ERROR("stm32mpu1 Power Down WFI: operation not handled.\n");
++	ERROR("stm32mpu1 Power Down: operation not handled.\n");
+ 	panic();
+ }
+ 
+@@ -227,7 +226,7 @@ static const plat_psci_ops_t stm32_psci_ops = {
+ 	.pwr_domain_suspend = stm32_pwr_domain_suspend,
+ 	.pwr_domain_on_finish = stm32_pwr_domain_on_finish,
+ 	.pwr_domain_suspend_finish = stm32_pwr_domain_suspend_finish,
+-	.pwr_domain_pwr_down = stm32_pwr_domain_pwr_down_wfi,
++	.pwr_domain_pwr_down = stm32_pwr_domain_pwr_down,
+ 	.system_off = stm32_system_off,
+ 	.system_reset = stm32_system_reset,
+ 	.validate_power_state = stm32_validate_power_state,
+-- 
+2.53.0
+

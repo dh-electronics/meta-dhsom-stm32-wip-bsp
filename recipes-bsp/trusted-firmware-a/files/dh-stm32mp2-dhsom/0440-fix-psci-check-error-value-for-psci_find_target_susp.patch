@@ -1,0 +1,39 @@
+From 6cd179ae4248b6b76d82a4f9036c4618dced662a Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 26 Feb 2026 10:15:42 +0100
+Subject: [PATCH 440/572] fix(psci): check error value for
+ psci_find_target_suspend_lvl
+
+If psci_find_target_suspend_lvl() returns PSCI_INVALID_PWR_LVL which is
+an error in psci_system_suspend, the function should exit with
+PSCI_E_DENIED. Update the return check conditions.
+This was found with Coverity analysis (overrun logic_error).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f952674cde358737cfc917bb7d936cbe2a20c62d fix(psci): check error value for psci_find_target_suspend_lvl]
+Change-Id: Ic3abc8844038523a9a0d1daad8d2676d2058d377
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/541289
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ lib/psci/psci_main.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/psci/psci_main.c b/lib/psci/psci_main.c
+index a4dd240358..1ad19a16c3 100644
+--- a/lib/psci/psci_main.c
++++ b/lib/psci/psci_main.c
+@@ -191,7 +191,7 @@ int psci_system_suspend(uintptr_t entrypoint, u_register_t context_id)
+ 	 * (System level)
+ 	 */
+ 	pwrlvl = psci_find_target_suspend_lvl(&state_info);
+-	if (pwrlvl < min_pwrlvl) {
++	if ((pwrlvl == PSCI_INVALID_PWR_LVL) || (pwrlvl < min_pwrlvl)) {
+ 		return PSCI_E_DENIED;
+ 	}
+ 	/* Ensure that the psci_power_state makes sense */
+-- 
+2.53.0
+

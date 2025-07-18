@@ -1,0 +1,223 @@
+From 24c0240427c6b55ce00527bce934029a95dadf82 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 22 May 2026 16:53:45 +0200
+Subject: [PATCH 483/572] fix: use #ifdef PLAT_RO_XLAT_TABLES
+
+PLAT_RO_XLAT_TABLES is only defined without a value, it should be
+checked with `#ifdef`.
+This corrects -Wundef GCC warnings.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5e07093676550eef08c02d7efb56f81716dd4962 fix: use #ifdef PLAT_RO_XLAT_TABLES]
+Change-Id: I239389fad4d41208f4a46cc446b18173794bd193
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572123
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ include/common/bl_common.ld.h                    | 4 ++--
+ include/lib/xlat_tables/xlat_tables_v2.h         | 4 ++--
+ include/lib/xlat_tables/xlat_tables_v2_helpers.h | 6 +++---
+ lib/xlat_tables_v2/xlat_tables_context.c         | 4 ++--
+ plat/arm/common/arm_bl31_setup.c                 | 4 ++--
+ plat/arm/common/arm_common.c                     | 4 ++--
+ plat/arm/common/sp_min/arm_sp_min_setup.c        | 4 ++--
+ plat/arm/common/tsp/arm_tsp_setup.c              | 4 ++--
+ plat/socionext/uniphier/uniphier_xlat_setup.c    | 4 ++--
+ 9 files changed, 19 insertions(+), 19 deletions(-)
+
+diff --git a/include/common/bl_common.ld.h b/include/common/bl_common.ld.h
+index 2273bc54b2..282751b5cd 100644
+--- a/include/common/bl_common.ld.h
++++ b/include/common/bl_common.ld.h
+@@ -84,7 +84,7 @@
+ /*
+  * The base xlat table
+  *
+- * It is put into the rodata section if PLAT_RO_XLAT_TABLES=1,
++ * It is put into the rodata section if PLAT_RO_XLAT_TABLES is defined,
+  * or into the bss section otherwise.
+  */
+ #define BASE_XLAT_TABLE					\
+@@ -93,7 +93,7 @@
+ 	*(.base_xlat_table)				\
+ 	__BASE_XLAT_TABLE_END__ = .;
+ 
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ #define BASE_XLAT_TABLE_RO		BASE_XLAT_TABLE
+ #define BASE_XLAT_TABLE_BSS
+ #else
+diff --git a/include/lib/xlat_tables/xlat_tables_v2.h b/include/lib/xlat_tables/xlat_tables_v2.h
+index 6a0d89075b..f7c46b60a2 100644
+--- a/include/lib/xlat_tables/xlat_tables_v2.h
++++ b/include/lib/xlat_tables/xlat_tables_v2.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2017-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -383,7 +383,7 @@ int xlat_change_mem_attributes_ctx(const xlat_ctx_t *ctx, uintptr_t base_va,
+ 				   size_t size, uint32_t attr);
+ int xlat_change_mem_attributes(uintptr_t base_va, size_t size, uint32_t attr);
+ 
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ /*
+  * Change the memory attributes of the memory region encompassing the higher
+  * level translation tables to secure read-only data.
+diff --git a/include/lib/xlat_tables/xlat_tables_v2_helpers.h b/include/lib/xlat_tables/xlat_tables_v2_helpers.h
+index 992c94e589..77277615f2 100644
+--- a/include/lib/xlat_tables/xlat_tables_v2_helpers.h
++++ b/include/lib/xlat_tables/xlat_tables_v2_helpers.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2020, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2017-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -71,7 +71,7 @@ struct xlat_ctx {
+ 	 */
+ 	uint64_t (*tables)[XLAT_TABLE_ENTRIES];
+ 	int tables_num;
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ 	bool readonly_tables;
+ #endif
+ 	/*
+@@ -126,7 +126,7 @@ struct xlat_ctx {
+ 	/* do nothing */
+ #endif /* PLAT_XLAT_TABLES_DYNAMIC */
+ 
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ #define XLAT_CTX_INIT_TABLE_ATTR()					\
+ 	.readonly_tables = false,
+ #else
+diff --git a/lib/xlat_tables_v2/xlat_tables_context.c b/lib/xlat_tables_v2/xlat_tables_context.c
+index 81e53eeaec..d6f809006b 100644
+--- a/lib/xlat_tables_v2/xlat_tables_context.c
++++ b/lib/xlat_tables_v2/xlat_tables_context.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2017-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -120,7 +120,7 @@ int xlat_change_mem_attributes(uintptr_t base_va, size_t size, uint32_t attr)
+ 	return xlat_change_mem_attributes_ctx(&tf_xlat_ctx, base_va, size, attr);
+ }
+ 
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ /* Change the memory attributes of the descriptors which resolve the address
+  * range that belongs to the translation tables themselves, which are by default
+  * mapped as part of read-write data in the BL image's memory.
+diff --git a/plat/arm/common/arm_bl31_setup.c b/plat/arm/common/arm_bl31_setup.c
+index ad32c2092a..bb8c93ace6 100644
+--- a/plat/arm/common/arm_bl31_setup.c
++++ b/plat/arm/common/arm_bl31_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -484,7 +484,7 @@ void arm_bl31_plat_runtime_setup(void)
+ 	arm_free_init_memory();
+ #endif
+ 
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ 	arm_xlat_make_tables_readonly();
+ #endif
+ }
+diff --git a/plat/arm/common/arm_common.c b/plat/arm/common/arm_common.c
+index 3278a313d4..548e8307da 100644
+--- a/plat/arm/common/arm_common.c
++++ b/plat/arm/common/arm_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2025, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -37,7 +37,7 @@
+  * image's translation tables are located such that the tables will have
+  * read-only permissions.
+  ******************************************************************************/
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ void arm_xlat_make_tables_readonly(void)
+ {
+ 	int rc = xlat_make_tables_readonly();
+diff --git a/plat/arm/common/sp_min/arm_sp_min_setup.c b/plat/arm/common/sp_min/arm_sp_min_setup.c
+index e28f006e2c..9e6a073d80 100644
+--- a/plat/arm/common/sp_min/arm_sp_min_setup.c
++++ b/plat/arm/common/sp_min/arm_sp_min_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2016-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2016-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -200,7 +200,7 @@ void arm_sp_min_plat_runtime_setup(void)
+ 	/* Initialize the runtime console */
+ 	arm_console_runtime_init();
+ 
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ 	arm_xlat_make_tables_readonly();
+ #endif
+ }
+diff --git a/plat/arm/common/tsp/arm_tsp_setup.c b/plat/arm/common/tsp/arm_tsp_setup.c
+index f804edbc4c..82c944c917 100644
+--- a/plat/arm/common/tsp/arm_tsp_setup.c
++++ b/plat/arm/common/tsp/arm_tsp_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -128,7 +128,7 @@ void tsp_plat_arch_setup(void)
+ 	setup_page_tables(bl_regions, plat_arm_get_mmap());
+ 	enable_mmu_el1(0);
+ 
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ 	arm_xlat_make_tables_readonly();
+ #endif
+ }
+diff --git a/plat/socionext/uniphier/uniphier_xlat_setup.c b/plat/socionext/uniphier/uniphier_xlat_setup.c
+index 5043f4b593..978086b851 100644
+--- a/plat/socionext/uniphier/uniphier_xlat_setup.c
++++ b/plat/socionext/uniphier/uniphier_xlat_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2020, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2017-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -67,7 +67,7 @@ void uniphier_mmap_setup(unsigned int soc)
+ 
+ 	enable_mmu(0);
+ 
+-#if PLAT_RO_XLAT_TABLES
++#ifdef PLAT_RO_XLAT_TABLES
+ 	{
+ 		int ret;
+ 
+-- 
+2.53.0
+

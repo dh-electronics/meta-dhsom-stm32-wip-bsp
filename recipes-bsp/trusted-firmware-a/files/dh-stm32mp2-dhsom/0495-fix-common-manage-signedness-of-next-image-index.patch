@@ -1,0 +1,61 @@
+From d72cdc9c1763fd0a6de7b781f7139cbffd05bc21 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 6 May 2026 16:48:02 +0200
+Subject: [PATCH 495/572] fix(common): manage signedness of next image index
+
+In get_next_bl_params_from_mem_params_desc(), the return of the function
+get_bl_params_node_index() which is an int is assigned a variable that
+is unsigned int. The assert on a positive return may then always be
+true. Use a temporary signed variable (next_index) to check the return
+of get_bl_params_node_index() is not negative, before assigning it to
+link_index.
+This was found with -Wsign-conversion warning.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1c399900e51dc49cca549cca257ed1f4d301e567 fix(common): manage signedness of next image index]
+Change-Id: Ib9a443a38e2a930aaba5d8f1fbd74f4c9cc34639
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572135
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ common/desc_image_load.c | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/common/desc_image_load.c b/common/desc_image_load.c
+index 0626de9d0d..c7c6670874 100644
+--- a/common/desc_image_load.c
++++ b/common/desc_image_load.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2016-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2016-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -166,6 +166,7 @@ bl_params_t *get_next_bl_params_from_mem_params_desc(void)
+ 	 * This bounded loop is to make sure that we are not looping forever.
+ 	 */
+ 	for (count = 0U; count < bl_mem_params_desc_num; count++) {
++		int next_index;
+ 
+ 		desc_ptr = &bl_mem_params_desc_ptr[link_index];
+ 
+@@ -197,9 +198,10 @@ bl_params_t *get_next_bl_params_from_mem_params_desc(void)
+ 			break;
+ 
+ 		/* Get the index for the next hand-off image */
+-		link_index = get_bl_params_node_index(img_id);
+-		assert((link_index > 0U) &&
+-			(link_index < bl_mem_params_desc_num));
++		next_index = get_bl_params_node_index(img_id);
++		assert(next_index > 0);
++		link_index = (unsigned int)next_index;
++		assert(link_index < bl_mem_params_desc_num);
+ 	}
+ 
+ 	/* Invalid image is expected to terminate the loop */
+-- 
+2.53.0
+

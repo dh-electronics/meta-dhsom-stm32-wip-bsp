@@ -1,0 +1,223 @@
+From 5b06017cd9187059f04084c452bc2688b94616ab Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 11 Jan 2024 18:08:02 +0100
+Subject: [PATCH 229/572] feat(stm32mp2): add intrusion alert upon tamper event
+ detected
+
+If, upon TF-A BL2 boot, a tamper event is detected, display an intrusion
+alert featuring the associated tamper event.
+TAMPER occurring in deep low-power modes or power off state need to be
+caught and handled in TF-A. Otherwise, the secrets can be locked and the
+platform cannot boot. Add a special case for the LSE monitoring tamper
+that requires a backup domain reset.
+TAMP RIF configuration is maintained by the backup domain.
+Hence when switching from M33TD to A35TD without losing the backup
+domain, TAMP registers might not be accessible.
+To prevent an IAC, set configuration of TAMP_R0CIDCFGR if necessary
+before reading TAMP_SR.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 20ab276bbebae5c97c4c8229fa7b5289d0d92771 feat(stm32mp2): add intrusion alert upon tamper event detected]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Id9ca9c6c538b79fd9322457b8a5dd103bdeeeaf0
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 111 +++++++++++++++++++++++++++++-
+ plat/st/stm32mp2/stm32mp2_def.h   |  16 ++++-
+ 2 files changed, 125 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 6bb9c29fc4..e2668fc41c 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -22,6 +22,7 @@
+ #include <drivers/st/stm32mp2_ram.h>
+ #include <drivers/st/stm32mp2_risaf.h>
+ #include <drivers/st/stm32mp_pmic2.h>
++#include <drivers/st/stm32mp_reset.h>
+ #include <drivers/st/stm32mp_risab_regs.h>
+ #include <lib/fconf/fconf.h>
+ #include <lib/fconf/fconf_dyn_cfg_getter.h>
+@@ -203,6 +204,53 @@ void bl2_platform_setup(void)
+ #endif
+ }
+ 
++static void handle_potential_tamper(uint32_t bit_off)
++{
++	/* Fixme: Add implementation specific logic here */
++	ERROR("Handling Potential tamper\n");
++	mmio_setbits_32(TAMP_BASE + TAMP_SCR, BIT_32(bit_off));
++}
++
++static void handle_confirmed_tamper(uint32_t bit_off __unused)
++{
++	/* Fixme: Add implementation specific logic here */
++	ERROR("Handling Confirmed tamper\n");
++	panic();
++}
++
++static bool tamper_is_accesssible(void)
++{
++	uint32_t r0cidcfgr = mmio_read_32(TAMP_BASE + TAMP_R0CIDCFGR);
++
++	return !(((r0cidcfgr & TAMP_R0CIDCFGR_CFEN) == TAMP_R0CIDCFGR_CFEN) &&
++		 ((r0cidcfgr & TAMP_R0CIDCFGR_CID) != TAMP_R0CIDCFGR_CID1));
++}
++
++static bool lse_tamper_detection(void)
++{
++	/*
++	 * In case the backup domain hasn't been reset on warm boot cases, the
++	 * TAMP RIF configuration is maintained.
++	 * Therefore, TAMP_SR may not be accessible. In this case skip tamper
++	 * detection.
++	 */
++	if (!tamper_is_accesssible()) {
++		return false;
++	}
++
++	if ((mmio_read_32(TAMP_BASE + TAMP_SR) & TAMP_SR_LSE_MONITORING) != 0U) {
++		mmio_clrbits_32(RCC_BASE + RCC_BDCR, RCC_BDCR_LSECSSON);
++		mmio_clrbits_32(RCC_BASE + RCC_BDCR, RCC_BDCR_LSEON);
++		if (mmio_read_32(RCC_BASE + RCC_C1CIFCLRR) & RCC_C1CIFCLRR_LSECSSF) {
++			mmio_clrbits_32(RCC_BASE + RCC_C1CIFCLRR, RCC_C1CIFCLRR_LSECSSF);
++		}
++
++		return true;
++	}
++
++	return false;
++}
++
+ static void reset_backup_domain(void)
+ {
+ #if !STM32MP_M33_TDCID
+@@ -228,7 +276,7 @@ static void reset_backup_domain(void)
+ 	}
+ #endif /* STM32MP21 */
+ 
+-	/* Reset backup domain on cold boot cases */
++	/* Reset backup domain on cold boot cases or when LSE tamper occurred */
+ 	if ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_RTCCKEN) == 0U) {
+ 		mmio_setbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
+ 
+@@ -241,6 +289,62 @@ static void reset_backup_domain(void)
+ #endif /* !STM32MP_M33_TDCID */
+ }
+ 
++static void check_tamper_event(bool lse_tamper_occured)
++{
++	uint32_t sr;
++
++	/*
++	 * In case the backup domain hasn't been reset on warm boot cases, the
++	 * TAMP RIF configuration is maintained.
++	 * Therefore, TAMP_SR may not be accessible. In this case skip tamper
++	 * detection.
++	 */
++	if (!tamper_is_accesssible()) {
++		INFO("TAMP IP not accessible, skip tamper verification\n");
++		return;
++	}
++
++	sr = mmio_read_32(TAMP_BASE + TAMP_SR);
++	if (sr == 0U) {
++		return;
++	}
++
++	ERROR("\n");
++	if (lse_tamper_occured) {
++		ERROR("** INTRUSION ALERT: LSE MONITORING TAMPER DETECTED **\n");
++		ERROR("\n");
++
++		/*
++		 * Fixme: Add logic to handle the LSE tamper here (e.g change RTC clock source
++		 * instead). This part is implementation specific.
++		 */
++		mmio_clrbits_32(RCC_BASE + RCC_BDCR, RCC_BDCR_RTCCKEN);
++		ERROR("** Rebooting... **\n");
++		stm32mp_system_reset();
++	} else {
++		while (sr != 0U) {
++			unsigned int bit_off = __builtin_ctz(sr);
++			bool is_internal = bit_off >= TAMP_SR_INT_SHIFT;
++			uint32_t cr2 = mmio_read_32(TAMP_BASE + TAMP_CR2);
++			uint32_t cr3 = mmio_read_32(TAMP_BASE + TAMP_CR3);
++
++			ERROR("** INTRUSION ALERT: %s TAMPER %u DETECTED **\n",
++			      is_internal ? "INTERNAL" : "EXTERNAL",
++			      is_internal ? (bit_off - TAMP_SR_INT_SHIFT + 1U) : (bit_off + 1U));
++
++			if ((is_internal && ((cr3 & BIT_32(bit_off - TAMP_SR_INT_SHIFT)) != 0U)) ||
++			    (!is_internal && ((cr2 & BIT_32(bit_off)) != 0U))) {
++				handle_potential_tamper(bit_off);
++			} else {
++				handle_confirmed_tamper(bit_off);
++			}
++
++			sr &= ~BIT_32(bit_off);
++		}
++		ERROR("\n");
++	}
++}
++
+ static void authentication_check(boot_api_context_t *boot_context)
+ {
+ #if TRUSTED_BOARD_BOOT && DYN_DISABLE_AUTH && !STM32MP21
+@@ -279,6 +383,7 @@ void bl2_el3_plat_arch_setup(void)
+ 	const char *board_model;
+ 	boot_api_context_t *boot_context =
+ 		(boot_api_context_t *)stm32mp_get_boot_ctx_address();
++	bool lse_tamper_occured = false;
+ 
+ 	if (stm32_otp_probe() != 0U) {
+ 		EARLY_ERROR("OTP probe failed\n");
+@@ -295,6 +400,8 @@ void bl2_el3_plat_arch_setup(void)
+ 		panic();
+ 	}
+ 
++	lse_tamper_occured = lse_tamper_detection();
++
+ 	reset_backup_domain();
+ 
+ #if !STM32MP_M33_TDCID
+@@ -361,6 +468,8 @@ void bl2_el3_plat_arch_setup(void)
+ 	}
+ 
+ skip_console_init:
++	check_tamper_event(lse_tamper_occured);
++
+ #if !TRUSTED_BOARD_BOOT
+ 	if (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) {
+ 		/* Closed chip mandates authentication */
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 0cbed22456..043a0cd221 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -518,10 +518,24 @@ enum ddr_type {
+ #define PLAT_MAX_TAMP_INT			U(5)
+ #define PLAT_MAX_TAMP_EXT			U(3)
+ #define TAMP_BASE				U(0x46010000)
+-#define TAMP_SMCR				(TAMP_BASE + U(0x20))
++#define TAMP_CR2				U(0x4)
++#define TAMP_CR2_MASK_POM			GENMASK_32(7, 0)
++#define TAMP_CR3				U(0x8)
++#define TAMP_CR3_MASK_POM			GENMASK_32(14, 0)
++#define TAMP_SMCR				U(0x20)
++#define TAMP_SR					U(0x30)
++#define TAMP_SR_INT_SHIFT			U(16)
+ #define TAMP_BKP_REG_CLK			CK_BUS_RTC
+ #define TAMP_BKP_SEC_NUMBER			U(10)
++#define TAMP_SCR				U(0x3C)
+ #define TAMP_COUNTR				U(0x40)
++#define TAMP_R0CIDCFGR				U(0x80)
++#define TAMP_R0CIDCFGR_CFEN			BIT_32(0)
++#define TAMP_R0CIDCFGR_CID			GENMASK_32(6, 4)
++#define TAMP_R0CIDCFGR_CID_SHIFT		U(4)
++#define TAMP_R0CIDCFGR_CID1			(RIF_CID1 << TAMP_R0CIDCFGR_CID_SHIFT)
++
++#define TAMP_SR_LSE_MONITORING			BIT_32(18)
+ 
+ /*******************************************************************************
+  * STM32MP2 USB
+-- 
+2.53.0
+

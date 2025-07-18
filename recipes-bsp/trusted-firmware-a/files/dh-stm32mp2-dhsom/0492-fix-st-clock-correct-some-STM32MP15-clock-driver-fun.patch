@@ -1,0 +1,72 @@
+From 6dbc78b984889c843c25430ddd87db4c7bc632c9 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 27 May 2026 15:25:23 +0200
+Subject: [PATCH 492/572] fix(st-clock): correct some STM32MP15 clock driver
+ function
+
+The function clk_mux_get_parent() is not used in this driver, remove it.
+Set clk_stm32_set_div() static as it is only used in this file for
+STM32MP15.
+This corrects the following warnings, when compiling with W=2:
+drivers/st/clk/stm32mp1_clk.c:214:5: warning: no previous prototype
+for 'clk_mux_get_parent' [-Wmissing-prototypes]
+  214 | int clk_mux_get_parent(struct stm32_clk_priv *priv, uint32_t
+			       mux_id)
+      |     ^~~~~~~~~~~~~~~~~~
+drivers/st/clk/stm32mp1_clk.c:267:5: warning: no previous prototype for
+ 'clk_stm32_set_div' [-Wmissing-prototypes]
+  267 | int clk_stm32_set_div(struct stm32_clk_priv *priv,
+			      uint32_t div_id, uint32_t value)
+      |     ^~~~~~~~~~~~~~~~~
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 792d67bdd683cdf51ce3c83e39309de85aaae391 fix(st-clock): correct some STM32MP15 clock driver function]
+Change-Id: I60f76ff0c7c591c5907caa08260987139bb57b7e
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572132
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/clk/stm32mp1_clk.c | 18 +-----------------
+ 1 file changed, 1 insertion(+), 17 deletions(-)
+
+diff --git a/drivers/st/clk/stm32mp1_clk.c b/drivers/st/clk/stm32mp1_clk.c
+index 45bdc88ba6..1c50d75da9 100644
+--- a/drivers/st/clk/stm32mp1_clk.c
++++ b/drivers/st/clk/stm32mp1_clk.c
+@@ -211,22 +211,6 @@ static const struct mux_cfg parent_mp15[MUX_NB] = {
+ #define MASK_WIDTH_SHIFT(_width, _shift) \
+ 	GENMASK(((_width) + (_shift) - 1U), (_shift))
+ 
+-int clk_mux_get_parent(struct stm32_clk_priv *priv, uint32_t mux_id)
+-{
+-	const struct mux_cfg *mux;
+-	uint32_t mask;
+-
+-	if (mux_id >= priv->nb_parents) {
+-		panic();
+-	}
+-
+-	mux = &priv->parents[mux_id];
+-
+-	mask = MASK_WIDTH_SHIFT(mux->width, mux->shift);
+-
+-	return (mmio_read_32(priv->base + mux->offset) & mask) >> mux->shift;
+-}
+-
+ static int clk_mux_set_parent(struct stm32_clk_priv *priv, uint16_t pid, uint8_t sel)
+ {
+ 	const struct mux_cfg *mux = &priv->parents[pid];
+@@ -264,7 +248,7 @@ static int stm32_clk_configure_mux(struct stm32_clk_priv *priv, uint32_t val)
+ 	return clk_mux_set_parent(priv, mux, sel);
+ }
+ 
+-int clk_stm32_set_div(struct stm32_clk_priv *priv, uint32_t div_id, uint32_t value)
++static int clk_stm32_set_div(struct stm32_clk_priv *priv, uint32_t div_id, uint32_t value)
+ {
+ 	const struct div_cfg *divider;
+ 	uintptr_t address;
+-- 
+2.53.0
+

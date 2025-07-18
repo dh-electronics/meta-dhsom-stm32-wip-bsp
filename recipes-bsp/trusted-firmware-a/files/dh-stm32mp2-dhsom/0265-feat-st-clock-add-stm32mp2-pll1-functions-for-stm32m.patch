@@ -1,0 +1,110 @@
+From a577b83aaf30c04ed31431ede2c817479bcd1df8 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 10 Jul 2024 19:15:40 +0200
+Subject: [PATCH 265/572] feat(st-clock): add stm32mp2 pll1 functions for
+ stm32mp2 low power
+
+Add the functions stm32mp2_pll1_enable() and stm32mp2_pll1_disable(),
+required by BL31 low power function to manage STOP2 modes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d7deee27c5bc7b692ab91a68918112047d651657 feat(st-clock): add stm32mp2 pll1 functions for stm32mp2 low power]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/316622
+Change-Id: I05ac50c6f7b6012d9a5ee3ca406266a45b421a62
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/392690
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/clk/clk-stm32mp2.c     | 37 +++++++++++++++++++++++++++++--
+ include/drivers/st/stm32mp2_clk.h |  1 +
+ 2 files changed, 36 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index 0814caa18b..b6c3ab07d8 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -23,6 +23,12 @@
+ 
+ #include <platform_def.h>
+ 
++#ifdef IMAGE_BL31
++static uint32_t saved_pll_freq1_reg;
++static uint32_t saved_pll_freq2_reg;
++uint32_t saved_xbar63cfgr;
++#endif
++
+ struct stm32_osci_dt_cfg {
+ 	unsigned long freq;
+ 	uint32_t drive;
+@@ -1569,6 +1575,7 @@ static void stm32mp2_clk_xbar_on_hsi(struct stm32_clk_priv *priv)
+ 	}
+ }
+ #endif
++#endif /* IMAGE_BL2 */
+ 
+ static int stm32mp2_a35_pll1_start(void)
+ {
+@@ -1607,6 +1614,7 @@ static int stm32mp2_a35_pll1_start(void)
+ 	return 0;
+ }
+ 
++#ifdef IMAGE_BL2
+ static void stm32mp2_a35_pll1_config(uint32_t fbdiv, uint32_t refdiv, uint32_t postdiv1,
+ 				     uint32_t postdiv2)
+ {
+@@ -2576,8 +2584,12 @@ int stm32mp2_pll1_disable(void)
+ #ifdef IMAGE_BL2
+ 	return -EPERM;
+ #else
+-	uintptr_t a35_ss_address = A35SSC_BASE;
+-	uintptr_t pll_enable_reg = a35_ss_address + A35_SS_PLL_ENABLE;
++	const uintptr_t pll_freq1_reg = A35SSC_BASE + A35_SS_PLL_FREQ1;
++	const uintptr_t pll_freq2_reg = A35SSC_BASE + A35_SS_PLL_FREQ2;
++	const uintptr_t pll_enable_reg = A35SSC_BASE + A35_SS_PLL_ENABLE;
++
++	saved_pll_freq1_reg = mmio_read_32(pll_freq1_reg);
++	saved_pll_freq2_reg = mmio_read_32(pll_freq2_reg);
+ 
+ 	stm32mp2_a35_ss_on_hsi();
+ 
+@@ -2586,3 +2598,24 @@ int stm32mp2_pll1_disable(void)
+ 	return 0;
+ #endif
+ }
++
++int stm32mp2_pll1_enable(void)
++{
++#ifdef IMAGE_BL2
++	return -EPERM;
++#else
++	int ret;
++	const uintptr_t pll_freq1_reg = A35SSC_BASE + A35_SS_PLL_FREQ1;
++	const uintptr_t pll_freq2_reg = A35SSC_BASE + A35_SS_PLL_FREQ2;
++
++	mmio_write_32(pll_freq1_reg, saved_pll_freq1_reg);
++	mmio_write_32(pll_freq2_reg, saved_pll_freq2_reg);
++
++	ret = stm32mp2_a35_pll1_start();
++	if (ret != 0) {
++		panic();
++	}
++
++	return 0;
++#endif
++}
+diff --git a/include/drivers/st/stm32mp2_clk.h b/include/drivers/st/stm32mp2_clk.h
+index b9226cdcc9..424a10a600 100644
+--- a/include/drivers/st/stm32mp2_clk.h
++++ b/include/drivers/st/stm32mp2_clk.h
+@@ -40,5 +40,6 @@ enum pll_csg {
+ 
+ int stm32mp2_clk_init(void);
+ int stm32mp2_pll1_disable(void);
++int stm32mp2_pll1_enable(void);
+ 
+ #endif /* STM32MP2_CLK_H */
+-- 
+2.53.0
+

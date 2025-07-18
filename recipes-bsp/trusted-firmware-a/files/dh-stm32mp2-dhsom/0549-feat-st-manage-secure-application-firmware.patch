@@ -1,0 +1,263 @@
+From 74c3ee5d74e6b236a34040606968e10c8d8a70d7 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 3 Apr 2026 15:12:15 +0200
+Subject: [PATCH 549/572] feat(st): manage secure application firmware
+
+Instead of loading the usual OpenSTLinux software images, use TF-A to
+load a secure application firmware (as BL32). In this configuration,
+there is no non-secure world (BL33) and then no BL33_CFG.
+The PSCI calls will come from secure world, so enable the flag:
+PSCI_CALLS_FROM_SECURE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5644aaa1bf1d1c3103666a1a09ffd82f09601bb9 feat(st): manage secure application firmware]
+Change-Id: Iff0dee19169167ddd7268a9e23f49147a2191c3b
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/586436
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ docs/plat/st/stm32mp2.rst                   |  4 +++-
+ fdts/stm32mp25-fw-config.dtsi               |  4 +++-
+ plat/st/stm32mp2/bl2_plat_setup.c           | 10 +++++++++-
+ plat/st/stm32mp2/bl31_plat_setup.c          | 12 +++++++++++-
+ plat/st/stm32mp2/plat_bl2_mem_params_desc.c |  8 +++++++-
+ plat/st/stm32mp2/platform.mk                | 10 ++++++++++
+ 6 files changed, 43 insertions(+), 5 deletions(-)
+
+diff --git a/docs/plat/st/stm32mp2.rst b/docs/plat/st/stm32mp2.rst
+index 79185d780a..805289d4db 100644
+--- a/docs/plat/st/stm32mp2.rst
++++ b/docs/plat/st/stm32mp2.rst
+@@ -109,6 +109,8 @@ Dedicated STM32MP2 build flags:
+   | Default: 1
+ - | ``STM32MP_M33_TDCID``: Enable this flag if Cortex-A35 does not have the Trusted Domain Compartment ID (owned by Cortex-M33)
+   | Default: 0
++- | ``STM32MP_SEC_APP_FW``: Load only a secure application firmware (at BL32), and no non-secure OS.
++  | Default: 0
+ - | ``STM32MP21``: to select STM32MP21 variant configuration.
+   | Default: 0
+ - | ``STM32MP23``: to select STM32MP23 variant configuration.
+@@ -242,4 +244,4 @@ __________________
+ .. _STM32MP2 part number codification: https://wiki.st.com/stm32mpu/wiki/STM32MP25_microprocessor#Part_number_codification
+ .. _STMicroelectronics DDR PHY github: https://github.com/STMicroelectronics/stm32-ddr-phy-binary
+ 
+-*Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved*
++*Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved*
+diff --git a/fdts/stm32mp25-fw-config.dtsi b/fdts/stm32mp25-fw-config.dtsi
+index a3f1ac9a26..1c44165306 100644
+--- a/fdts/stm32mp25-fw-config.dtsi
++++ b/fdts/stm32mp25-fw-config.dtsi
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
+ /*
+- * Copyright (c) 2024-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2024-2026, STMicroelectronics - All Rights Reserved
+  */
+ 
+ #include <common/tbbr/tbbr_img_def.h>
+@@ -13,6 +13,7 @@
+ 	dtb-registry {
+ 		compatible = "fconf,dyn_cfg-dtb_registry";
+ 
++#if !STM32MP_SEC_APP_FW
+ 		hw-config {
+ 			load-address = <0x0 STM32MP_HW_CONFIG_BASE>;
+ 			max-size = <STM32MP_HW_CONFIG_MAX_SIZE>;
+@@ -24,6 +25,7 @@
+ 			max-size = <STM32MP_BL33_MAX_SIZE>;
+ 			id = <BL33_IMAGE_ID>;
+ 		};
++#endif
+ 
+ 		soc_fw {
+ 			load-address = <0x0 STM32MP_SYSRAM_BASE>;
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 27db8f01ea..8b7e13886b 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -701,15 +701,17 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ {
+ 	int err = 0;
+ 	bl_mem_params_node_t *bl_mem_params = get_bl_mem_params_node(image_id);
+-	bl_mem_params_node_t *pager_mem_params;
++	bl_mem_params_node_t *pager_mem_params __maybe_unused;
+ 	const struct dyn_cfg_dtb_info_t *config_info;
+ 	unsigned int i;
+ 	const unsigned int image_ids[] = {
+ 		BL31_IMAGE_ID,
+ 		SOC_FW_CONFIG_ID,
+ 		BL32_IMAGE_ID,
++#if !STM32MP_SEC_APP_FW
+ 		BL33_IMAGE_ID,
+ 		HW_CONFIG_ID,
++#endif
+ 	};
+ 	uint32_t otp_idx __maybe_unused;
+ 	uint32_t otp_len __maybe_unused;
+@@ -774,6 +776,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			case BL32_IMAGE_ID:
+ 				bl_mem_params->ep_info.pc = config_info->config_addr;
+ 
++#if !STM32MP_SEC_APP_FW
+ 				/* In case of OPTEE, initialize address space with tos_fw addr */
+ 				pager_mem_params = get_bl_mem_params_node(BL32_EXTRA1_IMAGE_ID);
+ 				if (pager_mem_params != NULL) {
+@@ -782,13 +785,16 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 					pager_mem_params->image_info.image_max_size =
+ 						config_info->config_max_size;
+ 				}
++#endif
+ 				break;
+ 
++#if !STM32MP_SEC_APP_FW
+ 			case BL33_IMAGE_ID:
+ 				bl_mem_params->ep_info.pc = config_info->config_addr;
+ 				break;
+ 
+ 			case HW_CONFIG_ID:
++#endif
+ 			case SOC_FW_CONFIG_ID:
+ 				break;
+ 
+@@ -821,6 +827,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 
+ 		break;
+ 
++#if !STM32MP_SEC_APP_FW
+ 	case BL32_IMAGE_ID:
+ 		if ((bl_mem_params->image_info.image_base != 0UL) &&
+ 		    (optee_header_is_valid(bl_mem_params->image_info.image_base))) {
+@@ -857,6 +864,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			panic();
+ 		}
+ 		break;
++#endif
+ #endif
+ 	default:
+ 		/* Do nothing in default case */
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index d518946ef5..010ad74ec5 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -21,7 +21,7 @@
+ #include <stm32mp2_context.h>
+ 
+ static entry_point_info_t bl32_image_ep_info;
+-static entry_point_info_t bl33_image_ep_info;
++static entry_point_info_t bl33_image_ep_info __maybe_unused;
+ 
+ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 				u_register_t arg2, u_register_t arg3)
+@@ -100,6 +100,7 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 	bl_params_node_t *bl_params = params_from_bl2->head;
+ 
+ 	while (bl_params != NULL) {
++#if !STM32MP_SEC_APP_FW
+ 		/*
+ 		 * Copy BL33 entry point information.
+ 		 * They are stored in Secure RAM, in BL2's address space.
+@@ -116,6 +117,7 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 				bl33_image_ep_info.args.arg2 = 0U;
+ 			}
+ 		}
++#endif
+ 
+ 		if (bl_params->image_id == BL32_IMAGE_ID) {
+ 			bl32_image_ep_info = *bl_params->ep_info;
+@@ -123,6 +125,12 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 			if (arg2 != 0U) {
+ 				bl32_image_ep_info.args.arg3 = arg2;
+ 			}
++
++#if STM32MP_SEC_APP_FW
++			bl31_set_next_image_type(SECURE);
++			bl32_image_ep_info.spsr = SPSR_64(MODE_EL1, MODE_SP_ELX,
++							  DISABLE_ALL_EXCEPTIONS);
++#endif
+ 		}
+ 
+ 		bl_params = bl_params->next_params_info;
+@@ -181,9 +189,11 @@ entry_point_info_t *bl31_plat_get_next_image_ep_info(unsigned int type)
+ 	assert(sec_state_is_valid(type));
+ 
+ 	switch (type) {
++#if !STM32MP_SEC_APP_FW
+ 	case NON_SECURE:
+ 		next_image_info = &bl33_image_ep_info;
+ 		break;
++#endif
+ 
+ 	case SECURE:
+ 		next_image_info = &bl32_image_ep_info;
+diff --git a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+index 8ca582ecb9..466a274a20 100644
+--- a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
++++ b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -103,9 +103,14 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
+ 				      VERSION_2, image_info_t,
+ 				      IMAGE_ATTRIB_SKIP_LOADING),
+ 
++#if STM32MP_SEC_APP_FW
++		.next_handoff_image_id = INVALID_IMAGE_ID,
++#else
+ 		.next_handoff_image_id = BL33_IMAGE_ID,
++#endif
+ 	},
+ 
++#if !STM32MP_SEC_APP_FW
+ 	/* Fill BL32 external 1 image related information */
+ 	{
+ 		.image_id = BL32_EXTRA1_IMAGE_ID,
+@@ -152,6 +157,7 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
+ 
+ 		.next_handoff_image_id = INVALID_IMAGE_ID,
+ 	}
++#endif
+ };
+ 
+ REGISTER_BL_IMAGE_DESCS(bl2_mem_params_descs)
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index ec486318ca..73adad474b 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -43,6 +43,14 @@ ifeq ($(STM32MP_BL33_EL1),1)
+ INIT_UNUSED_NS_EL2		:=	1
+ endif
+ 
++# Application firmware running at S-EL1
++STM32MP_SEC_APP_FW		?=	0
++ifeq ($(STM32MP_SEC_APP_FW),1)
++PSCI_CALLS_FROM_SECURE		:=	1
++NEED_BL32			:=	yes
++NEED_BL33			:=	no
++endif
++
+ # Disable features unsupported in ARMv8.0
+ ENABLE_SPE_FOR_NS		:=	0
+ ENABLE_SVE_FOR_NS		:=	0
+@@ -273,6 +281,7 @@ $(eval $(call assert_booleans,\
+ 		STM32MP2X \
+ 		STM32MP_SIP_CA33SS_CLK \
+ 		STM32MP_BL33_EL1 \
++		STM32MP_SEC_APP_FW \
+ )))
+ 
+ $(eval $(call assert_numerics,\
+@@ -322,6 +331,7 @@ $(eval $(call add_defines,\
+ 		STM32MP25 \
+ 		STM32MP2X \
+ 		STM32MP_BL33_EL1 \
++		STM32MP_SEC_APP_FW \
+ )))
+ 
+ # STM32MP2x is based on Cortex-A35, which is Armv8.0, and does not support BTI
+-- 
+2.53.0
+

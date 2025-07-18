@@ -1,0 +1,72 @@
+From 53df17cd96ecf1523188401fe0704024dac1f48e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 22 Jan 2026 15:59:25 +0100
+Subject: [PATCH 424/572] feat(st): add helper to access Cortex-M firmware
+ update backup register
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add a helper to read the status bit updated by the Cortex-M bootloader
+during a firmware update. This bit is set to 1 when the firmware update
+on the Cortex‑M side has failed.
+
+Currently this feature is only supported by STM32MP2x system on chip.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cfb640ba58588d5ad5d03b21d063377ff33db556 feat(st): add helper to access Cortex-M firmware update backup register]
+Change-Id: I9fd24b6b542b4e968516c1e9aa7df2f72dda364d
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/528022
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  1 +
+ plat/st/common/stm32mp_common.c         | 19 +++++++++++++++++++
+ 2 files changed, 20 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 48f07a9dca..ed4b52f651 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -163,6 +163,7 @@ int stm32_tamp_nvram_init(void);
+ int stm32_tamp_nvram_update_rights(void);
+ 
+ int stm32_get_fwu_info_cell(struct nvmem_cell *fwu_info);
++int stm32_get_cm_fwu_info_cell(struct nvmem_cell *fwu_info);
+ int stm32_get_boot_mode_cell(struct nvmem_cell *boot_mode);
+ 
+ #if STM32MP15
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index bc9a8ec7e9..132a8fa029 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -600,6 +600,25 @@ int stm32_get_fwu_info_cell(struct nvmem_cell *fwu_info)
+ 	return 0;
+ }
+ 
++int stm32_get_cm_fwu_info_cell(struct nvmem_cell *fwu_info)
++{
++	static bool initialized;
++	static struct nvmem_cell cm_fwu_info = { 0 };
++
++	if (!initialized) {
++		int ret = stm32_get_bootinfo_cell("cm-fwu-info", &cm_fwu_info);
++
++		if (ret != 0) {
++			return ret;
++		}
++		initialized = true;
++	}
++
++	(void)memcpy(fwu_info, &cm_fwu_info, sizeof(*fwu_info));
++
++	return 0;
++}
++
+ int stm32_get_boot_mode_cell(struct nvmem_cell *boot_mode)
+ {
+ 	static bool initialized = false;
+-- 
+2.53.0
+

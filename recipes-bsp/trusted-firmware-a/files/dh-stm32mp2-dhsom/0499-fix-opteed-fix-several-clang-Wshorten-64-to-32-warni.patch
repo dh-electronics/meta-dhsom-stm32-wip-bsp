@@ -1,0 +1,99 @@
+From f44d2ae22aa7a393811ed25e4955c7a0a2057fc7 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 22 May 2026 11:31:28 +0200
+Subject: [PATCH 499/572] fix(opteed): fix several clang -Wshorten-64-to-32
+ warnings
+
+The function register_interrupt_type_handler() awaits an uint32_t for
+its last parameter. Change flags from u_register_t to uint32_t.
+services/spd/opteed/opteed_main.c:139:4: warning: implicit conversion
+ loses integer precision: 'u_register_t' (aka 'unsigned long') to
+      'uint32_t' (aka 'unsigned int') [-Wshorten-64-to-32]
+  137 |         rc = register_interrupt_type_handler(INTR_TYPE_S_EL1,
+      |              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  138 |                         opteed_sel1_interrupt_handler,
+  139 |                         flags);
+      |                         ^~~~~
+
+While at it, initialize the variable at its definition.
+
+Change the return type of opteed_init_with_entry_point() to uint64_t.
+And use explicit signed int for the return of opteed_init() which is
+called through bl32_init(), which awaits an int value different from 0
+for success.
+This also corrects this warning:
+services/spd/opteed/opteed_main.c:276:9: warning: implicit conversion
+ loses integer precision: 'uint64_t' (aka 'unsigned long') to
+      'int32_t' (aka 'int') [-Wshorten-64-to-32]
+  276 |         return rc;
+      |         ~~~~~~ ^~
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 918f360152133e902f842cd8a6369442a811ad1d fix(opteed): fix several clang -Wshorten-64-to-32 warnings]
+Change-Id: I30c8df1c726e88b4d0d88f05df31c64952cd9609
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572139
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ services/spd/opteed/opteed_main.c | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/services/spd/opteed/opteed_main.c b/services/spd/opteed/opteed_main.c
+index 6d1e74e7aa..bf7d5cb693 100644
+--- a/services/spd/opteed/opteed_main.c
++++ b/services/spd/opteed/opteed_main.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -130,10 +130,9 @@ static uint64_t opteed_sel1_interrupt_handler(uint32_t id,
+  */
+ static void register_opteed_interrupt_handler(void)
+ {
+-	u_register_t flags;
++	uint32_t flags = 0U;
+ 	uint64_t rc;
+ 
+-	flags = 0;
+ 	set_interrupt_rm_flag(flags, NON_SECURE);
+ 	rc = register_interrupt_type_handler(INTR_TYPE_S_EL1,
+ 			opteed_sel1_interrupt_handler,
+@@ -256,7 +255,7 @@ static int32_t opteed_setup(void)
+  * OPTEE. OPTEE passes control back to this routine through a SMC. This returns
+  * a non-zero value on success and zero on failure.
+  ******************************************************************************/
+-static int32_t
++static uint64_t
+ opteed_init_with_entry_point(entry_point_info_t *optee_entry_point)
+ {
+ 	uint32_t linear_id = plat_my_core_pos();
+@@ -285,7 +284,11 @@ static int32_t opteed_init(void)
+ 	 * absence is a critical failure.
+ 	 */
+ 	optee_entry_point = bl31_plat_get_next_image_ep_info(SECURE);
+-	return opteed_init_with_entry_point(optee_entry_point);
++	if (opteed_init_with_entry_point(optee_entry_point) == 0U) {
++		return 0;
++	}
++
++	return 1;
+ }
+ #endif  /* !OPTEE_ALLOW_SMC_LOAD */
+ 
+@@ -585,7 +588,7 @@ static int32_t opteed_handle_smc_load(uint64_t data_size, uint64_t data_pa)
+ 				   arg2,
+ 				   arg3,
+ 				   &opteed_sp_context[linear_id]);
+-	if (opteed_init_with_entry_point(&optee_ep_info) == 0) {
++	if (opteed_init_with_entry_point(&optee_ep_info) == 0U) {
+ 		rc = -EFAULT;
+ 	}
+ 
+-- 
+2.53.0
+

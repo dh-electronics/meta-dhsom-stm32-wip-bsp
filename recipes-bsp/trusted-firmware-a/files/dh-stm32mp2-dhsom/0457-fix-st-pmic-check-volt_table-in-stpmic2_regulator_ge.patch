@@ -1,0 +1,65 @@
+From ba2192bdc78f8e67bb6eda7f201bc9560aafc32b Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 7 Apr 2026 15:10:53 +0200
+Subject: [PATCH 457/572] fix(st-pmic): check volt_table in
+ stpmic2_regulator_get_voltage
+
+Even though this could not happen as the table is built with macros,
+add a check that regul->volt_table is not NULL, even if volt_table_size
+is 0. Check that with an assert as the issue would come from bad coding
+and shouldn't happen at runtime.
+This was found with Coverity: Defect (null_pointer_dereference_crash
+null_field)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 517af07cc79eee157d2d1efe1898395bacf94729 fix(st-pmic): check volt_table in stpmic2_regulator_get_voltage]
+Change-Id: I4475ba388f2b73fdeb54ed8207607d10d60967ba
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/554738
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/pmic/stpmic2.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/st/pmic/stpmic2.c b/drivers/st/pmic/stpmic2.c
+index 0d3339d9cc..6575113760 100644
+--- a/drivers/st/pmic/stpmic2.c
++++ b/drivers/st/pmic/stpmic2.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2024-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2023-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -284,6 +284,8 @@ int stpmic2_regulator_get_voltage(struct pmic_handle_s *pmic,
+ 		return RET_ERROR_GENERIC;
+ 	}
+ 
++	assert(regul->volt_table != NULL);
++
+ 	mask = regul->volt_table_size - 1U;
+ 	if (mask != 0U) {
+ 		if (stpmic2_register_read(pmic, regul->volt_cr, &value) != 0) {
+@@ -307,7 +309,7 @@ static size_t voltage_to_index(const struct regul_struct *regul,
+ {
+ 	unsigned int i;
+ 
+-	assert(regul->volt_table);
++	assert(regul->volt_table != NULL);
+ 	for (i = 0U; i < regul->volt_table_size; i++) {
+ 		if (regul->volt_table[i] == millivolts) {
+ 			return i;
+@@ -324,7 +326,7 @@ int stpmic2_regulator_set_voltage(struct pmic_handle_s *pmic,
+ 	size_t index;
+ 	uint8_t mask;
+ 
+-	if (!regul->volt_table_size) {
++	if (regul->volt_table_size == 0U) {
+ 		return RET_SUCCESS;
+ 	}
+ 
+-- 
+2.53.0
+

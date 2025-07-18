@@ -1,0 +1,63 @@
+From afdfa497b66a0867304a5e74282da8122420a470 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 12 Mar 2026 18:10:57 +0100
+Subject: [PATCH 435/572] fix(st): check return values of NVMEM functions
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fix a few issues reported by Coverity in the STM32 NVMEM helpers.
+
+In stm32_get_otp_value_from_idx(), drop the useless initialization of
+"ret" to BSEC_NOT_SUPPORTED, which was reported as a dead assignment.
+
+In stm32_save_boot_info(), properly check and propagate the return
+values of nvmem_cell_read() and nvmem_cell_write() instead of ignoring
+them. This avoids unchecked-return-value reports from Coverity.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1d65b5f6a2aaab777ba92b6ee3a86d2a24d05ee7 fix(st): check return values of NVMEM functions]
+Change-Id: Ia156f99714f5465ff3415aef333c354a2bafe8bd
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/546321
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/stm32mp_common.c | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 132a8fa029..640bfd7755 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -201,7 +201,7 @@ int stm32_get_otp_value(const char *otp_name, uint32_t *otp_val)
+ 
+ int stm32_get_otp_value_from_idx(const uint32_t otp_idx, uint32_t *otp_val)
+ {
+-	uint32_t ret = BSEC_NOT_SUPPORTED;
++	uint32_t ret;
+ 
+ 	assert(otp_val != NULL);
+ 
+@@ -487,10 +487,16 @@ int stm32_save_boot_info(boot_api_context_t *boot_context)
+ 	if (ret != 0) {
+ 		return ret;
+ 	}
+-	nvmem_cell_read(&boot_mode, (uint8_t *)&reg_val, sizeof(reg_val), NULL);
++	ret = nvmem_cell_read(&boot_mode, (uint8_t *)&reg_val, sizeof(reg_val), NULL);
++	if (ret != 0) {
++		return ret;
++	}
+ 	reg_val &= ~clear;
+ 	reg_val |= set;
+-	nvmem_cell_write(&boot_mode, (uint8_t *)&reg_val, sizeof(reg_val));
++	ret = nvmem_cell_write(&boot_mode, (uint8_t *)&reg_val, sizeof(reg_val));
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	return 0;
+ }
+-- 
+2.53.0
+

@@ -1,0 +1,2253 @@
+From 1a3b519330297a35c9e532b56baedc19622ab25b Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 21 Apr 2026 20:11:44 +0200
+Subject: [PATCH 481/572] fix: use #ifdef for IMAGE_BL flags
+
+The different flags IMAGE_BL{1,2,31,32...} are only defined and not
+assigned a value. The correct way to handle it is with `#if defined`.
+This corrects warnings found with -Wundef GCC flag.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8c46c13d94181193959956b0f226d1b47ad09246 fix: use #ifdef for IMAGE_BL flags]
+Change-Id: I9747a60efaabc4d091eca922a70fab6985218c1e
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572121
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ .../components/context-management-library.rst |  6 +--
+ drivers/auth/auth_mod.c                       |  8 ++--
+ drivers/marvell/ccu.c                         |  5 +-
+ drivers/renesas/common/auth/auth_mod.c        |  3 +-
+ drivers/renesas/common/common.c               |  5 +-
+ drivers/renesas/common/delay/micro_delay.c    |  3 +-
+ drivers/renesas/common/iic_dvfs/iic_dvfs.c    |  3 +-
+ drivers/st/gpio/stm32_gpio.c                  |  4 +-
+ drivers/st/pmic/stm32mp_pmic2.c               |  2 +-
+ include/arch/aarch64/arch_features.h          |  8 ++--
+ include/arch/aarch64/arch_helpers.h           |  6 +--
+ include/arch/aarch64/el3_common_macros.S      |  4 +-
+ include/drivers/auth/auth_mod.h               |  6 +--
+ include/lib/el3_runtime/aarch64/context.h     | 22 ++++-----
+ include/lib/el3_runtime/context_mgmt.h        |  6 +--
+ include/plat/arm/common/plat_arm.h            |  4 +-
+ include/plat/brcm/common/brcm_def.h           |  3 +-
+ .../armada/a3k/common/board_marvell_def.h     | 27 +++++------
+ .../armada/a8k/common/board_marvell_def.h     | 27 +++++------
+ lib/el3_runtime/aarch32/context_mgmt.c        |  4 +-
+ lib/el3_runtime/aarch64/context.S             | 12 ++---
+ lib/el3_runtime/aarch64/context_mgmt.c        | 46 +++++++++----------
+ lib/extensions/pauth/pauth.c                  |  6 +--
+ lib/extensions/pmuv3/aarch64/pmuv3.c          |  6 +--
+ plat/amd/versal2/gicv3.c                      |  4 +-
+ plat/amlogic/axg/axg_common.c                 |  4 +-
+ plat/amlogic/g12a/g12a_common.c               |  4 +-
+ plat/amlogic/gxbb/gxbb_common.c               |  4 +-
+ plat/amlogic/gxl/gxl_common.c                 |  4 +-
+ .../automotive_rd/platform/rd1ae/rd1ae_plat.c |  4 +-
+ .../platform/rdaspen/include/platform_def.h   |  6 +--
+ .../platform/rdaspen/rdaspen_plat.c           |  4 +-
+ plat/arm/board/fvp/fvp_topology.c             |  6 +--
+ plat/arm/board/fvp/include/platform_def.h     |  4 +-
+ plat/arm/board/morello/include/platform_def.h |  4 +-
+ plat/arm/board/morello/morello_plat.c         |  8 ++--
+ plat/arm/board/n1sdp/n1sdp_plat.c             |  8 ++--
+ plat/arm/board/neoverse_rd/common/nrd_plat2.c |  8 ++--
+ plat/arm/board/neoverse_rd/common/nrd_plat3.c |  8 ++--
+ .../neoverse_rd/common/ras/nrd_ras_cpu.c      |  6 +--
+ plat/arm/board/tc/tc_plat.c                   |  8 ++--
+ plat/arm/common/arm_dyn_cfg.c                 |  4 +-
+ plat/arm/common/fconf/arm_fconf_io.c          |  2 +-
+ plat/brcm/board/common/board_common.c         |  5 +-
+ .../board/stingray/aarch64/plat_helpers.S     |  3 +-
+ .../board/stingray/include/platform_def.h     |  7 +--
+ plat/imx/common/plat_imx8_gic.c               |  4 +-
+ .../armada/a3k/common/aarch64/a3700_common.c  | 11 +++--
+ .../armada/a8k/common/aarch64/a8k_common.c    | 11 +++--
+ plat/marvell/armada/common/marvell_gicv3.c    |  3 +-
+ plat/mediatek/mt8183/include/platform_def.h   | 10 ++--
+ plat/qemu/qemu_sbsa/include/platform_def.h    |  5 +-
+ plat/qti/common/src/aarch64/qti_kryo4_gold.S  |  4 +-
+ plat/qti/common/src/aarch64/qti_kryo6_gold.S  |  4 +-
+ plat/renesas/common/aarch64/plat_helpers.S    | 10 ++--
+ plat/renesas/common/aarch64/platform_common.c | 12 ++---
+ plat/renesas/common/include/platform_def.h    | 19 ++++----
+ plat/renesas/common/include/rcar_def.h        |  7 +--
+ plat/renesas/common/plat_image_load.c         |  4 +-
+ plat/rockchip/px30/include/platform_def.h     | 10 ++--
+ plat/rockchip/rk3568/include/platform_def.h   | 10 ++--
+ plat/rockchip/rk3576/include/platform_def.h   |  9 ++--
+ plat/rockchip/rk3588/include/platform_def.h   |  9 ++--
+ plat/ti/common/include/ti_platform_defs.h     |  4 +-
+ plat/xilinx/versal/versal_gicv3.c             |  4 +-
+ 65 files changed, 255 insertions(+), 236 deletions(-)
+
+diff --git a/docs/components/context-management-library.rst b/docs/components/context-management-library.rst
+index a02bcaeb99..441552043a 100644
+--- a/docs/components/context-management-library.rst
++++ b/docs/components/context-management-library.rst
+@@ -270,7 +270,7 @@ state of CPU across exception levels for a given security state are listed below
+ 	pauth_t pauth_ctx;
+ 	#endif
+ 
+-	#if (CTX_INCLUDE_EL2_REGS && IMAGE_BL31)
++	#if (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31))
+ 	el2_sysregs_t el2_sysregs_ctx;
+ 	#else
+ 	el1_sysregs_t el1_sysregs_ctx;
+@@ -514,7 +514,7 @@ structure and is intended to manage specific EL3 registers.
+ 	typedef struct per_world_context {
+ 		uint64_t ctx_cptr_el3;
+ 		uint64_t ctx_mpam3_el3;
+-	#if (ENABLE_FEAT_IDTE3 && IMAGE_BL31)
++	#if (ENABLE_FEAT_IDTE3 && defined(IMAGE_BL31))
+ 		perworld_idregs_t idregs;
+ 	#endif
+ 	} per_world_context_t;
+@@ -581,7 +581,7 @@ EL3.
+ EL3 execution context needs to setup at both boot time (cold and warm boot)
+ entrypaths and at all the possible exception handlers routing to EL3 at runtime.
+ 
+-*Copyright (c) 2024-2025, Arm Limited and Contributors. All rights reserved.*
++*Copyright (c) 2024-2026, Arm Limited and Contributors. All rights reserved.*
+ 
+ .. |Context Memory Allocation| image:: ../resources/diagrams/context_memory_allocation.png
+ .. |CPU Context Memory Configuration| image:: ../resources/diagrams/cpu_data_config_context_memory.png
+diff --git a/drivers/auth/auth_mod.c b/drivers/auth/auth_mod.c
+index 9aaa56768f..7eb4d59694 100644
+--- a/drivers/auth/auth_mod.c
++++ b/drivers/auth/auth_mod.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -389,13 +389,13 @@ static int auth_nvctr(const auth_method_param_nv_ctr_t *param,
+ 		/* Invalid NV-counter */
+ 		return 1;
+ 	} else if (*cert_nv_ctr > plat_nv_ctr) {
+-#if PSA_FWU_SUPPORT && IMAGE_BL2
++#if PSA_FWU_SUPPORT && defined(IMAGE_BL2)
+ 		if (fwu_get_active_bank_state() == FWU_BANK_STATE_ACCEPTED) {
+ 			*need_nv_ctr_upgrade = true;
+ 		} else {
+ 			*need_nv_ctr_upgrade = false;
+ 		}
+-#elif PSA_FWU_SUPPORT && IMAGE_BL1
++#elif PSA_FWU_SUPPORT && defined(IMAGE_BL1)
+ 		/* The check is for bl1 only */
+ 		if (bl1_plat_is_shared_nv_ctr() == false) {
+ 			/* If NV ctr is not shared, it can be upgraded */
+@@ -406,7 +406,7 @@ static int auth_nvctr(const auth_method_param_nv_ctr_t *param,
+ 		}
+ #else
+ 		*need_nv_ctr_upgrade = true;
+-#endif /* PSA_FWU_SUPPORT && IMAGE_BL2 */
++#endif /* PSA_FWU_SUPPORT && defined(IMAGE_BL2) */
+ 	}
+ 
+ 	return 0;
+diff --git a/drivers/marvell/ccu.c b/drivers/marvell/ccu.c
+index c206f11684..d4d819cca9 100644
+--- a/drivers/marvell/ccu.c
++++ b/drivers/marvell/ccu.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (C) 2018 Marvell International Ltd.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier:     BSD-3-Clause
+  * https://spdx.org/licenses
+@@ -251,7 +252,7 @@ void ccu_dram_target_set(int ap_index, uint32_t target)
+ /* Setup CCU DRAM window and enable it */
+ void ccu_dram_win_config(int ap_index, struct addr_map_win *win)
+ {
+-#if IMAGE_BLE /* BLE */
++#ifdef IMAGE_BLE /* BLE */
+ 	/* On BLE stage the AP0 DRAM window is opened by the BootROM at index 2.
+ 	 * Since the BootROM is not accessing DRAM at BLE stage,
+ 	 * the DRAM window can be temporarely disabled.
+@@ -320,7 +321,7 @@ int init_ccu(int ap_index)
+ 	uint32_t win_id, win_reg;
+ 	uint32_t win_count, array_id;
+ 	uint32_t dram_target;
+-#if IMAGE_BLE
++#ifdef IMAGE_BLE
+ 	/* In BootROM context CCU Window-1
+ 	 * has SRAM_TID target and should not be disabled
+ 	 */
+diff --git a/drivers/renesas/common/auth/auth_mod.c b/drivers/renesas/common/auth/auth_mod.c
+index 4aa86e2a4a..eff0ecf56e 100644
+--- a/drivers/renesas/common/auth/auth_mod.c
++++ b/drivers/renesas/common/auth/auth_mod.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2015-2020, Renesas Electronics Corporation. All rights
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  * reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+@@ -58,7 +59,7 @@ int auth_mod_verify_img(unsigned int img_id, void *ptr, unsigned int len)
+ 		{ BL338_IMAGE_ID, BL338_CERT_ID, "BL338" },
+ 	};
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ 	switch (img_id) {
+ 	case TRUSTED_KEY_CERT_ID:
+ 	case SOC_FW_KEY_CERT_ID:
+diff --git a/drivers/renesas/common/common.c b/drivers/renesas/common/common.c
+index a0aa4808d6..a015ba3a22 100644
+--- a/drivers/renesas/common/common.c
++++ b/drivers/renesas/common/common.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2018-2021, Renesas Electronics Corporation. All rights reserved.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -9,7 +10,7 @@
+ #include "cpg_registers.h"
+ #include "rcar_private.h"
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ void __attribute__ ((section(".system_ram"))) cpg_write(uintptr_t regadr, uint32_t regval)
+ #else
+ void cpg_write(uintptr_t regadr, uint32_t regval)
+@@ -21,7 +22,7 @@ void cpg_write(uintptr_t regadr, uint32_t regval)
+ 	mmio_write_32(regadr, value);
+ }
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ void __attribute__ ((section(".system_ram"))) mstpcr_write(uint32_t mstpcr, uint32_t mstpsr,
+ 							   uint32_t target_bit)
+ #else
+diff --git a/drivers/renesas/common/delay/micro_delay.c b/drivers/renesas/common/delay/micro_delay.c
+index a5e2a69285..2484bad88a 100644
+--- a/drivers/renesas/common/delay/micro_delay.c
++++ b/drivers/renesas/common/delay/micro_delay.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2018-2020, Renesas Electronics Corporation. All rights reserved.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -12,7 +13,7 @@
+ #define RCAR_CONV_MICROSEC		1000000U
+ 
+ void
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	__attribute__ ((section(".system_ram")))
+ #endif
+ 	rcar_micro_delay(uint64_t micro_sec)
+diff --git a/drivers/renesas/common/iic_dvfs/iic_dvfs.c b/drivers/renesas/common/iic_dvfs/iic_dvfs.c
+index bf80697285..eb1eaf144c 100644
+--- a/drivers/renesas/common/iic_dvfs/iic_dvfs.c
++++ b/drivers/renesas/common/iic_dvfs/iic_dvfs.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2015-2021, Renesas Electronics Corporation. All rights reserved.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -77,7 +78,7 @@ enum dvfs_state_t {
+ #define DVFS_COMPLETE			(0)
+ #define DVFS_ERROR			(-1)
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ #define IIC_DVFS_FUNC(__name, ...)					\
+ static int32_t	__attribute__ ((section(".system_ram")))		\
+ dvfs_ ##__name(__VA_ARGS__)
+diff --git a/drivers/st/gpio/stm32_gpio.c b/drivers/st/gpio/stm32_gpio.c
+index d45a40e146..c8f7662446 100644
+--- a/drivers/st/gpio/stm32_gpio.c
++++ b/drivers/st/gpio/stm32_gpio.c
+@@ -285,13 +285,13 @@ static void set_gpio(uint32_t bank, uint32_t pin, uint32_t mode, uint32_t type,
+ #if STM32MP1X
+ 	if (status == DT_SECURE) {
+ 		stm32mp_register_secure_gpio(bank, pin);
+-#if !IMAGE_BL2
++#ifndef IMAGE_BL2
+ 		set_gpio_secure_cfg(bank, pin, true);
+ #endif
+ 
+ 	} else {
+ 		stm32mp_register_non_secure_gpio(bank, pin);
+-#if !IMAGE_BL2
++#ifndef IMAGE_BL2
+ 		set_gpio_secure_cfg(bank, pin, false);
+ #endif
+ 	}
+diff --git a/drivers/st/pmic/stm32mp_pmic2.c b/drivers/st/pmic/stm32mp_pmic2.c
+index 977f67e436..ffe24f99f0 100644
+--- a/drivers/st/pmic/stm32mp_pmic2.c
++++ b/drivers/st/pmic/stm32mp_pmic2.c
+@@ -552,7 +552,7 @@ void initialize_pmic(void)
+ 		return;
+ 	}
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ #if LOG_LEVEL >= LOG_LEVEL_INFO
+ 	if (stpmic2_get_version(pmic2, &val) != 0) {
+ 		ERROR("Failed to access PMIC\n");
+diff --git a/include/arch/aarch64/arch_features.h b/include/arch/aarch64/arch_features.h
+index f5a0f20512..23393085a5 100644
+--- a/include/arch/aarch64/arch_features.h
++++ b/include/arch/aarch64/arch_features.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2019-2025, Arm Limited. All rights reserved.
++ * Copyright (c) 2019-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -87,7 +87,7 @@ static inline bool is_ ## name ## _supported(void)				\
+  * }
+  */
+ 
+-#if (ENABLE_FEAT_IDTE3 && IMAGE_BL31)
++#if (ENABLE_FEAT_IDTE3 && defined(IMAGE_BL31))
+ #define CREATE_IDREG_UPDATE(name, idreg, idfield, mask, guard, enabled_worlds)	\
+ 	__attribute__((always_inline))						\
+ static inline void update_ ## name ## _idreg_field(size_t security_state)	\
+@@ -325,7 +325,7 @@ static inline bool is_feat_pauth_present(void)
+ CREATE_FEATURE_SUPPORTED(feat_pauth, is_feat_pauth_present, ENABLE_PAUTH)
+ CREATE_FEATURE_SUPPORTED(ctx_pauth, is_feat_pauth_present, CTX_INCLUDE_PAUTH_REGS)
+ 
+-#if (ENABLE_FEAT_IDTE3 && IMAGE_BL31)
++#if (ENABLE_FEAT_IDTE3 && defined(IMAGE_BL31))
+ __attribute__((always_inline))
+ static inline void update_feat_pauth_idreg_field(size_t security_state)
+ {
+@@ -573,7 +573,7 @@ static inline bool is_feat_mpam_present(void)
+ CREATE_FEATURE_SUPPORTED(feat_mpam, is_feat_mpam_present, ENABLE_FEAT_MPAM)
+ 
+ 
+-#if (ENABLE_FEAT_IDTE3 && IMAGE_BL31)
++#if (ENABLE_FEAT_IDTE3 && defined(IMAGE_BL31))
+ __attribute__((always_inline))
+ static inline void update_feat_mpam_idreg_field(size_t security_state)
+ {
+diff --git a/include/arch/aarch64/arch_helpers.h b/include/arch/aarch64/arch_helpers.h
+index d8b5e4990d..45147a349f 100644
+--- a/include/arch/aarch64/arch_helpers.h
++++ b/include/arch/aarch64/arch_helpers.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -272,7 +272,7 @@ void disable_mpu_icache_el2(void);
+ #define write_daifset(val) SYSREG_WRITE_CONST(daifset, val)
+ 
+ 
+-#if ENABLE_FEAT_D128 && !IMAGE_BL32
++#if ENABLE_FEAT_D128 && !defined(IMAGE_BL32)
+ /* Don't use mrrs/msrr read/write implementation with tspd,
+  * While using SPD=tspd, tspd compiles with current arch_helpers
+  * thus trying to use mrrs/msrr read/write from Secure-world.
+@@ -305,7 +305,7 @@ DEFINE_SYSREG_RW_FUNCS(vttbr_el2)
+ DEFINE_RENAME_SYSREG_RW_FUNCS(rcwmask_el1, RCWMASK_EL1)
+ DEFINE_RENAME_SYSREG_RW_FUNCS(rcwsmask_el1, RCWSMASK_EL1)
+ 
+-#endif /* ENABLE_FEAT_D128 && !IMAGE_BL32 */
++#endif /* ENABLE_FEAT_D128 && !defined(IMAGE_BL32) */
+ 
+ DEFINE_IDREG_READ_FUNC(id_pfr0_el1)
+ DEFINE_IDREG_READ_FUNC(id_pfr1_el1)
+diff --git a/include/arch/aarch64/el3_common_macros.S b/include/arch/aarch64/el3_common_macros.S
+index c12c63e80d..f8d8fab3e3 100644
+--- a/include/arch/aarch64/el3_common_macros.S
++++ b/include/arch/aarch64/el3_common_macros.S
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -83,7 +83,7 @@ feat_sctlr2_not_supported\@:
+ 	 * ---------------------------------------------------------------------
+ 	 */
+ 	mov_imm	x0, SCR_RESET_VAL
+-#if IMAGE_BL31 && defined(SPD_spmd) && SPMD_SPM_AT_SEL2
++#if defined(IMAGE_BL31) && defined(SPD_spmd) && SPMD_SPM_AT_SEL2
+ 	mrs	x1, id_aa64pfr0_el1
+ 	and	x1, x1, #(ID_AA64PFR0_SEL2_MASK << ID_AA64PFR0_SEL2_SHIFT)
+ 	cbz	x1, 1f
+diff --git a/include/drivers/auth/auth_mod.h b/include/drivers/auth/auth_mod.h
+index 28aa40784a..a58aa76de2 100644
+--- a/include/drivers/auth/auth_mod.h
++++ b/include/drivers/auth/auth_mod.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2023, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -18,7 +18,7 @@
+  */
+ #define IMG_FLAG_AUTHENTICATED		(1 << 0)
+ 
+-#if COT_DESC_IN_DTB && !IMAGE_BL1
++#if COT_DESC_IN_DTB && !defined(IMAGE_BL1)
+ /*
+  * Authentication image descriptor
+  */
+@@ -40,7 +40,7 @@ typedef struct auth_img_desc_s {
+ 	const auth_method_desc_t *const img_auth_methods;
+ 	const auth_param_desc_t *const authenticated_data;
+ } auth_img_desc_t;
+-#endif /* COT_DESC_IN_DTB && !IMAGE_BL1 */
++#endif /* COT_DESC_IN_DTB && !defined(IMAGE_BL1) */
+ 
+ /* Public functions */
+ #if TRUSTED_BOARD_BOOT
+diff --git a/include/lib/el3_runtime/aarch64/context.h b/include/lib/el3_runtime/aarch64/context.h
+index 083b8f4a63..d5df73c55d 100644
+--- a/include/lib/el3_runtime/aarch64/context.h
++++ b/include/lib/el3_runtime/aarch64/context.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -7,15 +7,15 @@
+ #ifndef CONTEXT_H
+ #define CONTEXT_H
+ 
+-#if (CTX_INCLUDE_EL2_REGS && IMAGE_BL31)
++#if (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31))
+ #include <lib/el3_runtime/context_el2.h>
+ #else
+ /**
+  * El1 context is required either when:
+- * IMAGE_BL1 || ((!CTX_INCLUDE_EL2_REGS) && IMAGE_BL31)
++ * defined(IMAGE_BL1) || ((!CTX_INCLUDE_EL2_REGS) && defined(IMAGE_BL31))
+  */
+ #include <lib/el3_runtime/context_el1.h>
+-#endif /* (CTX_INCLUDE_EL2_REGS && IMAGE_BL31) */
++#endif /* (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31)) */
+ 
+ #include <lib/el3_runtime/simd_ctx.h>
+ #include <lib/utils_def.h>
+@@ -177,12 +177,12 @@
+  ******************************************************************************/
+ #define CTX_CPTR_EL3			U(0x0)
+ #define CTX_MPAM3_EL3			U(0x8)
+-#if (ENABLE_FEAT_IDTE3 && IMAGE_BL31)
++#if (ENABLE_FEAT_IDTE3 && defined(IMAGE_BL31))
+ #define CTX_IDREGS_EL3			U(0x10)
+ #define CTX_PERWORLD_EL3STATE_END	U(0x78)
+ #else
+ #define CTX_PERWORLD_EL3STATE_END	U(0x10)
+-#endif /* ENABLE_FEAT_IDTE3 && IMAGE_BL31 */
++#endif /* ENABLE_FEAT_IDTE3 && defined(IMAGE_BL31) */
+ 
+ #ifndef __ASSEMBLER__
+ 
+@@ -291,7 +291,7 @@ typedef struct cpu_context {
+ 	pauth_t pauth_ctx;
+ #endif
+ 
+-#if (CTX_INCLUDE_EL2_REGS && IMAGE_BL31)
++#if (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31))
+ 	el2_sysregs_t el2_sysregs_ctx;
+ #else
+ 	/* El1 context should be included only either for IMAGE_BL1,
+@@ -315,7 +315,7 @@ typedef struct cpu_context {
+ typedef struct per_world_context {
+ 	uint64_t ctx_cptr_el3;
+ 	uint64_t ctx_mpam3_el3;
+-#if (ENABLE_FEAT_IDTE3 && IMAGE_BL31)
++#if (ENABLE_FEAT_IDTE3 && defined(IMAGE_BL31))
+ 	perworld_idregs_t idregs;
+ #endif
+ } per_world_context_t;
+@@ -339,7 +339,7 @@ extern per_world_context_t per_world_context[CPU_CONTEXT_NUM];
+ /* Macros to access members of the 'cpu_context_t' structure */
+ #define get_el3state_ctx(h)	(&((cpu_context_t *) h)->el3state_ctx)
+ 
+-#if (CTX_INCLUDE_EL2_REGS && IMAGE_BL31)
++#if (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31))
+ #define get_el2_sysregs_ctx(h)	(&((cpu_context_t *) h)->el2_sysregs_ctx)
+ #else
+ #define get_el1_sysregs_ctx(h)	(&((cpu_context_t *) h)->el1_sysregs_ctx)
+@@ -444,7 +444,7 @@ void fpregs_context_restore(simd_regs_t *regs);
+  * |______________________|______________________|____________________________|
+  * ============================================================================
+  ******************************************************************************/
+-#if (IMAGE_BL1 || ((ERRATA_SPECULATIVE_AT) || (!CTX_INCLUDE_EL2_REGS)))
++#if (defined(IMAGE_BL1) || ((ERRATA_SPECULATIVE_AT) || (!CTX_INCLUDE_EL2_REGS)))
+ 
+ static inline void write_ctx_sctlr_el1_reg_errata(cpu_context_t *ctx, u_register_t val)
+ {
+@@ -486,7 +486,7 @@ static inline u_register_t read_ctx_tcr_el1_reg_errata(cpu_context_t *ctx)
+ #endif /* ERRATA_SPECULATIVE_AT */
+ }
+ 
+-#endif /* (IMAGE_BL1 || ((ERRATA_SPECULATIVE_AT) || (!CTX_INCLUDE_EL2_REGS))) */
++#endif /* (defined(IMAGE_BL1) || ((ERRATA_SPECULATIVE_AT) || (!CTX_INCLUDE_EL2_REGS))) */
+ 
+ #endif /* __ASSEMBLER__ */
+ 
+diff --git a/include/lib/el3_runtime/context_mgmt.h b/include/lib/el3_runtime/context_mgmt.h
+index 9e72dc61af..45bcf70b9a 100644
+--- a/include/lib/el3_runtime/context_mgmt.h
++++ b/include/lib/el3_runtime/context_mgmt.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -39,13 +39,13 @@ void cm_manage_extensions_el3(unsigned int my_idx);
+ void cm_manage_extensions_per_world(void);
+ void cm_init_percpu_once_regs(void);
+ 
+-#if (CTX_INCLUDE_EL2_REGS && IMAGE_BL31)
++#if (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31))
+ void cm_el2_sysregs_context_save(uint32_t security_state);
+ void cm_el2_sysregs_context_restore(uint32_t security_state);
+ #else
+ void cm_el1_sysregs_context_save(uint32_t security_state);
+ void cm_el1_sysregs_context_restore(uint32_t security_state);
+-#endif /* (CTX_INCLUDE_EL2_REGS && IMAGE_BL31) */
++#endif /* (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31)) */
+ 
+ void cm_set_elr_el3(uint32_t security_state, uintptr_t entrypoint);
+ void cm_set_elr_spsr_el3(uint32_t security_state,
+diff --git a/include/plat/arm/common/plat_arm.h b/include/plat/arm/common/plat_arm.h
+index 9b46ce7630..759edf1225 100644
+--- a/include/plat/arm/common/plat_arm.h
++++ b/include/plat/arm/common/plat_arm.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -306,7 +306,7 @@ bool arm_io_is_toc_valid(void);
+ void arm_bl1_set_mbedtls_heap(void);
+ int arm_get_mbedtls_heap(void **heap_addr, size_t *heap_size);
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ void arm_bl2_dyn_cfg_init(void);
+ #endif /* IMAGE_BL2 */
+ 
+diff --git a/include/plat/brcm/common/brcm_def.h b/include/plat/brcm/common/brcm_def.h
+index c9137bca9a..792ff5682c 100644
+--- a/include/plat/brcm/common/brcm_def.h
++++ b/include/plat/brcm/common/brcm_def.h
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2016 - 2020, Broadcom
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -114,7 +115,7 @@
+ #endif
+ 
+ #if BRCM_BL31_IN_DRAM
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ #define BRCM_MAP_BL31_SEC_DRAM		MAP_REGION_FLAT(		\
+ 						BL31_BASE,		\
+ 						PLAT_BRCM_MAX_BL31_SIZE,\
+diff --git a/include/plat/marvell/armada/a3k/common/board_marvell_def.h b/include/plat/marvell/armada/a3k/common/board_marvell_def.h
+index bc3e04f001..12bf091211 100644
+--- a/include/plat/marvell/armada/a3k/common/board_marvell_def.h
++++ b/include/plat/marvell/armada/a3k/common/board_marvell_def.h
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (C) 2018 Marvell International Ltd.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier:	BSD-3-Clause
+  * https://spdx.org/licenses
+@@ -14,21 +15,21 @@
+  */
+ 
+ /* Size of cacheable stacks */
+-#if IMAGE_BL1
++#if defined(IMAGE_BL1)
+ #if TRUSTED_BOARD_BOOT
+ # define PLATFORM_STACK_SIZE 0x1000
+ #else
+ # define PLATFORM_STACK_SIZE 0x440
+ #endif
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ # if TRUSTED_BOARD_BOOT
+ #  define PLATFORM_STACK_SIZE 0x1000
+ # else
+ #  define PLATFORM_STACK_SIZE 0x400
+ # endif
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ # define PLATFORM_STACK_SIZE 0x400
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ # define PLATFORM_STACK_SIZE 0x440
+ #endif
+ 
+@@ -36,35 +37,35 @@
+  * PLAT_MARVELL_MMAP_ENTRIES depends on the number of entries in the
+  * plat_arm_mmap array defined for each BL stage.
+  */
+-#if IMAGE_BLE
++#if defined(IMAGE_BLE)
+ #  define PLAT_MARVELL_MMAP_ENTRIES	3
+ #endif
+-#if IMAGE_BL1
++#if defined(IMAGE_BL1)
+ #  if TRUSTED_BOARD_BOOT
+ #   define PLAT_MARVELL_MMAP_ENTRIES	7
+ #  else
+ #   define PLAT_MARVELL_MMAP_ENTRIES	6
+ #  endif	/* TRUSTED_BOARD_BOOT */
+ #endif
+-#if IMAGE_BL2
++#if defined(IMAGE_BL2)
+ #  define PLAT_MARVELL_MMAP_ENTRIES	8
+ #endif
+-#if IMAGE_BL31
++#if defined(IMAGE_BL31)
+ #define PLAT_MARVELL_MMAP_ENTRIES	5
+ #endif
+ 
+ /*
+  * Platform specific page table and MMU setup constants
+  */
+-#if IMAGE_BL1
++#if defined(IMAGE_BL1)
+ #define MAX_XLAT_TABLES			4
+-#elif IMAGE_BLE
++#elif defined(IMAGE_BLE)
+ #  define MAX_XLAT_TABLES		4
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ #  define MAX_XLAT_TABLES		4
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ # define MAX_XLAT_TABLES		4
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ #  define MAX_XLAT_TABLES		4
+ #endif
+ 
+diff --git a/include/plat/marvell/armada/a8k/common/board_marvell_def.h b/include/plat/marvell/armada/a8k/common/board_marvell_def.h
+index 7e90f5f19c..e48a29e237 100644
+--- a/include/plat/marvell/armada/a8k/common/board_marvell_def.h
++++ b/include/plat/marvell/armada/a8k/common/board_marvell_def.h
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (C) 2018 Marvell International Ltd.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier:     BSD-3-Clause
+  * https://spdx.org/licenses
+@@ -14,21 +15,21 @@
+  */
+ 
+ /* Size of cacheable stacks */
+-#if IMAGE_BL1
++#if defined(IMAGE_BL1)
+ #if TRUSTED_BOARD_BOOT
+ # define PLATFORM_STACK_SIZE 0x1000
+ #else
+ # define PLATFORM_STACK_SIZE 0x440
+ #endif
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ # if TRUSTED_BOARD_BOOT
+ #  define PLATFORM_STACK_SIZE 0x1000
+ # else
+ #  define PLATFORM_STACK_SIZE 0x400
+ # endif
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ # define PLATFORM_STACK_SIZE 0x400
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ # define PLATFORM_STACK_SIZE 0x440
+ #endif
+ 
+@@ -36,35 +37,35 @@
+  * PLAT_MARVELL_MMAP_ENTRIES depends on the number of entries in the
+  * plat_arm_mmap array defined for each BL stage.
+  */
+-#if IMAGE_BLE
++#if defined(IMAGE_BLE)
+ #  define PLAT_MARVELL_MMAP_ENTRIES	3
+ #endif
+-#if IMAGE_BL1
++#if defined(IMAGE_BL1)
+ #  if TRUSTED_BOARD_BOOT
+ #   define PLAT_MARVELL_MMAP_ENTRIES	7
+ #  else
+ #   define PLAT_MARVELL_MMAP_ENTRIES	6
+ #  endif	/* TRUSTED_BOARD_BOOT */
+ #endif
+-#if IMAGE_BL2
++#if defined(IMAGE_BL2)
+ #  define PLAT_MARVELL_MMAP_ENTRIES		8
+ #endif
+-#if IMAGE_BL31
++#if defined(IMAGE_BL31)
+ #define PLAT_MARVELL_MMAP_ENTRIES		5
+ #endif
+ 
+ /*
+  * Platform specific page table and MMU setup constants
+  */
+-#if IMAGE_BL1
++#if defined(IMAGE_BL1)
+ #define MAX_XLAT_TABLES			4
+-#elif IMAGE_BLE
++#elif defined(IMAGE_BLE)
+ #  define MAX_XLAT_TABLES		4
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ #  define MAX_XLAT_TABLES		4
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ # define MAX_XLAT_TABLES		4
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ #  define MAX_XLAT_TABLES               4
+ #endif
+ 
+diff --git a/lib/el3_runtime/aarch32/context_mgmt.c b/lib/el3_runtime/aarch32/context_mgmt.c
+index b150cb9600..7ca8d3e192 100644
+--- a/lib/el3_runtime/aarch32/context_mgmt.c
++++ b/lib/el3_runtime/aarch32/context_mgmt.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2016-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2016-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -136,7 +136,7 @@ void cm_setup_context(cpu_context_t *ctx, const entry_point_info_t *ep)
+  ******************************************************************************/
+ static void enable_extensions_nonsecure(bool el2_unused)
+ {
+-#if IMAGE_BL32
++#ifdef IMAGE_BL32
+ 	if (is_feat_amu_supported()) {
+ 		amu_enable(el2_unused);
+ 	}
+diff --git a/lib/el3_runtime/aarch64/context.S b/lib/el3_runtime/aarch64/context.S
+index 6338e487e5..2eef9d8248 100644
+--- a/lib/el3_runtime/aarch64/context.S
++++ b/lib/el3_runtime/aarch64/context.S
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -401,14 +401,14 @@ no_mpam:
+ 	stp	x26, x27, [x19, #CTX_PACDBKEY_LO]
+ 	stp	x28, x29, [x19, #CTX_PACGAKEY_LO]
+ #if ENABLE_PAUTH
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	/* tpidr_el3 contains the address of the cpu_data structure */
+ 	per_cpu_cur	percpu_data, x9, x10
+ 	/* Load APIAKey from cpu_data */
+ 	ldp	x10, x11, [x9, #CPU_DATA_APIAKEY]
+ #endif /* IMAGE_BL31 */
+ 
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ 	/* BL1 does not use cpu_data and has dedicated storage */
+ 	adr_l	x9, bl1_apiakey
+ 	ldp	x10, x11, [x9]
+@@ -607,12 +607,12 @@ func el3_exit
+ 	ldp	x19, x20, [x9, #CTX_CPTR_EL3]
+ 	msr	cptr_el3, x19
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	restore_mpam3_el3
+ 
+ #endif /* IMAGE_BL31 */
+ 
+-#if IMAGE_BL31 && DYNAMIC_WORKAROUND_CVE_2018_3639
++#if defined(IMAGE_BL31) && DYNAMIC_WORKAROUND_CVE_2018_3639
+ 	/* ----------------------------------------------------------
+ 	 * Restore mitigation state as it was on entry to EL3
+ 	 * ----------------------------------------------------------
+@@ -623,7 +623,7 @@ func el3_exit
+ 1:
+ #endif /* IMAGE_BL31 && DYNAMIC_WORKAROUND_CVE_2018_3639 */
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	synchronize_errors
+ #endif /* IMAGE_BL31 */
+ 
+diff --git a/lib/el3_runtime/aarch64/context_mgmt.c b/lib/el3_runtime/aarch64/context_mgmt.c
+index 21e9ed486a..347a9409f3 100644
+--- a/lib/el3_runtime/aarch64/context_mgmt.c
++++ b/lib/el3_runtime/aarch64/context_mgmt.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  * Copyright (c) 2022, NVIDIA Corporation. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+@@ -53,7 +53,7 @@ per_world_context_t per_world_context[CPU_CONTEXT_NUM];
+ static void manage_extensions_nonsecure(cpu_context_t *ctx);
+ static void manage_extensions_secure(cpu_context_t *ctx);
+ 
+-#if ((IMAGE_BL1) || (IMAGE_BL31 && (!CTX_INCLUDE_EL2_REGS)))
++#if (defined(IMAGE_BL1) || (defined(IMAGE_BL31) && (!CTX_INCLUDE_EL2_REGS)))
+ static void setup_el1_context(cpu_context_t *ctx, const struct entry_point_info *ep)
+ {
+ 	u_register_t sctlr_elx, actlr_elx;
+@@ -151,7 +151,7 @@ static void setup_secure_context(cpu_context_t *ctx, const struct entry_point_in
+ 	manage_extensions_secure(ctx);
+ }
+ 
+-#if ENABLE_RME && IMAGE_BL31
++#if ENABLE_RME && defined(IMAGE_BL31)
+ /******************************************************************************
+  * This function performs initializations that are specific to REALM state
+  * and updates the cpu context specified by 'ctx'.
+@@ -223,7 +223,7 @@ static void setup_realm_context(cpu_context_t *ctx, const struct entry_point_inf
+ 		trbe_disable_realm(ctx);
+ 	}
+ }
+-#endif /* ENABLE_RME && IMAGE_BL31 */
++#endif /* ENABLE_RME && defined(IMAGE_BL31) */
+ 
+ /******************************************************************************
+  * This function performs initializations that are specific to NON-SECURE state
+@@ -555,7 +555,7 @@ static void setup_context_common(cpu_context_t *ctx, const entry_point_info_t *e
+ 		scr_el3 |= SCR_TWEDEn_BIT;
+ 	}
+ 
+-#if IMAGE_BL31 && defined(SPD_spmd) && SPMD_SPM_AT_SEL2
++#if defined(IMAGE_BL31) && defined(SPD_spmd) && SPMD_SPM_AT_SEL2
+ 	/* Enable S-EL2 if FEAT_SEL2 is implemented for all the contexts. */
+ 	if (is_feat_sel2_supported()) {
+ 		scr_el3 |= SCR_EEL2_BIT;
+@@ -605,7 +605,7 @@ static void setup_context_common(cpu_context_t *ctx, const entry_point_info_t *e
+ 			& ~(MDCR_TDA_BIT | MDCR_TDOSA_BIT)) ;
+ 	write_ctx_reg(state, CTX_MDCR_EL3, mdcr_el3);
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	/* Enable FEAT_TRF for Non-Secure and prohibit for Secure state. */
+ 	if (is_feat_trf_supported()) {
+ 		trf_enable(ctx);
+@@ -682,7 +682,7 @@ void cm_setup_context(cpu_context_t *ctx, const entry_point_info_t *ep)
+ 	case SECURE:
+ 		setup_secure_context(ctx, ep);
+ 		break;
+-#if ENABLE_RME && IMAGE_BL31
++#if ENABLE_RME && defined(IMAGE_BL31)
+ 	case REALM:
+ 		setup_realm_context(ctx, ep);
+ 		break;
+@@ -708,7 +708,7 @@ void __no_pauth cm_manage_extensions_el3(unsigned int my_idx)
+ 		pauth_init_enable_el3();
+ 	}
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	if (is_feat_sve_supported()) {
+ 		sve_init_el3();
+ 	}
+@@ -757,7 +757,7 @@ static void manage_extensions_nonsecure_per_world(void)
+ {
+ 	cm_el3_arch_init_per_world(&per_world_context[CPU_CONTEXT_NS]);
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	if (is_feat_sme_supported()) {
+ 		sme_enable_per_world(&per_world_context[CPU_CONTEXT_NS]);
+ 	}
+@@ -793,7 +793,7 @@ static void manage_extensions_secure_per_world(void)
+ {
+ 	cm_el3_arch_init_per_world(&per_world_context[CPU_CONTEXT_SECURE]);
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	if (is_feat_sme_supported()) {
+ 
+ 		if (ENABLE_SME_FOR_SWD) {
+@@ -839,7 +839,7 @@ static void manage_extensions_secure_per_world(void)
+ 
+ static void manage_extensions_realm_per_world(void)
+ {
+-#if ENABLE_RME && IMAGE_BL31
++#if ENABLE_RME && defined(IMAGE_BL31)
+ 	cm_el3_arch_init_per_world(&per_world_context[CPU_CONTEXT_REALM]);
+ 
+ 	if (is_feat_sve_supported()) {
+@@ -878,7 +878,7 @@ static void manage_extensions_realm_per_world(void)
+ 	if (is_feat_idte3_supported()) {
+ 		idte3_init_cached_idregs_per_world(CPU_CONTEXT_REALM);
+ 	}
+-#endif /* ENABLE_RME && IMAGE_BL31 */
++#endif /* ENABLE_RME && defined(IMAGE_BL31) */
+ }
+ 
+ void cm_manage_extensions_per_world(void)
+@@ -890,7 +890,7 @@ void cm_manage_extensions_per_world(void)
+ 
+ void cm_init_percpu_once_regs(void)
+ {
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	if (is_feat_idte3_supported()) {
+ 		idte3_init_percpu_once_regs(CPU_CONTEXT_NS);
+ 		idte3_init_percpu_once_regs(CPU_CONTEXT_SECURE);
+@@ -906,7 +906,7 @@ void cm_init_percpu_once_regs(void)
+  ******************************************************************************/
+ static void manage_extensions_nonsecure(cpu_context_t *ctx)
+ {
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	/* NOTE: registers are not context switched */
+ 	if (is_feat_amu_supported()) {
+ 		amu_enable(ctx);
+@@ -949,7 +949,7 @@ static void manage_extensions_nonsecure(cpu_context_t *ctx)
+  ******************************************************************************/
+ static void manage_extensions_nonsecure_el2_unused(void)
+ {
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	if (is_feat_spe_supported()) {
+ 		spe_init_el2_unused();
+ 	}
+@@ -1000,7 +1000,7 @@ static void manage_extensions_nonsecure_el2_unused(void)
+  ******************************************************************************/
+ static void manage_extensions_secure(cpu_context_t *ctx)
+ {
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	if (is_feat_sme_supported()) {
+ 		if (ENABLE_SME_FOR_SWD) {
+ 		/*
+@@ -1227,14 +1227,14 @@ void cm_prepare_el3_exit(size_t security_state)
+ 			write_fgwte3_el3(FGWTE3_EL3_LATE_INIT_VAL);
+ 		}
+ 	}
+-#if !CTX_INCLUDE_EL2_REGS || IMAGE_BL1
++#if !CTX_INCLUDE_EL2_REGS || defined(IMAGE_BL1)
+ 	/* Restore EL1 system registers, only when CTX_INCLUDE_EL2_REGS=0 */
+ 	cm_el1_sysregs_context_restore(security_state);
+ #endif
+ 	cm_set_next_eret_context(security_state);
+ }
+ 
+-#if (CTX_INCLUDE_EL2_REGS && IMAGE_BL31)
++#if (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31))
+ 
+ static void el2_sysregs_context_save_fgt(el2_sysregs_t *ctx)
+ {
+@@ -1721,7 +1721,7 @@ void cm_el2_sysregs_context_restore(uint32_t security_state)
+  ******************************************************************************/
+ void cm_prepare_el3_exit_ns(void)
+ {
+-#if (CTX_INCLUDE_EL2_REGS && IMAGE_BL31)
++#if (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31))
+ #if ENABLE_ASSERTIONS
+ 	cpu_context_t *ctx = cm_get_context(NON_SECURE);
+ 	assert(ctx != NULL);
+@@ -1737,10 +1737,10 @@ void cm_prepare_el3_exit_ns(void)
+ 	cm_set_next_eret_context(NON_SECURE);
+ #else
+ 	cm_prepare_el3_exit(NON_SECURE);
+-#endif /* (CTX_INCLUDE_EL2_REGS && IMAGE_BL31) */
++#endif /* (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31)) */
+ }
+ 
+-#if ((IMAGE_BL1) || (IMAGE_BL31 && (!CTX_INCLUDE_EL2_REGS)))
++#if (defined(IMAGE_BL1) || (defined(IMAGE_BL31) && (!CTX_INCLUDE_EL2_REGS)))
+ /*******************************************************************************
+  * The next set of six functions are used by runtime services to save and restore
+  * EL1 context on the 'cpu_context' structure for the specified security state.
+@@ -1977,7 +1977,7 @@ void cm_el1_sysregs_context_save(uint32_t security_state)
+ 
+ 	el1_sysregs_context_save(get_el1_sysregs_ctx(ctx));
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	if (security_state == SECURE) {
+ 		PUBLISH_EVENT(cm_exited_secure_world);
+ 	} else {
+@@ -1995,7 +1995,7 @@ void cm_el1_sysregs_context_restore(uint32_t security_state)
+ 
+ 	el1_sysregs_context_restore(get_el1_sysregs_ctx(ctx));
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	if (security_state == SECURE) {
+ 		PUBLISH_EVENT(cm_entering_secure_world);
+ 	} else {
+diff --git a/lib/extensions/pauth/pauth.c b/lib/extensions/pauth/pauth.c
+index 0a99dcfac5..03d81f0d84 100644
+--- a/lib/extensions/pauth/pauth.c
++++ b/lib/extensions/pauth/pauth.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2025-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -33,7 +33,7 @@ void pauth_init(void)
+ 	write_apiakeylo_el1(key_lo);
+ 	write_apiakeyhi_el1(key_hi);
+ 
+-#if IMAGE_BL31
++#if defined(IMAGE_BL31)
+ 	/*
+ 	 * In the warmboot entrypoint, cpu_data may have been used before data
+ 	 * caching was enabled.  Flush the caches so nothing stale is
+@@ -48,7 +48,7 @@ void pauth_init(void)
+ #if !(HW_ASSISTED_COHERENCY || WARMBOOT_ENABLE_DCACHE_EARLY)
+ 	flush_cpu_data(apiakey);
+ #endif
+-#elif IMAGE_BL1
++#elif defined(IMAGE_BL1)
+ 	bl1_apiakey[0] = key_lo;
+ 	bl1_apiakey[1] = key_hi;
+ #endif
+diff --git a/lib/extensions/pmuv3/aarch64/pmuv3.c b/lib/extensions/pmuv3/aarch64/pmuv3.c
+index 4cd81e42cf..cde891f914 100644
+--- a/lib/extensions/pmuv3/aarch64/pmuv3.c
++++ b/lib/extensions/pmuv3/aarch64/pmuv3.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2024, Arm Limited. All rights reserved.
++ * Copyright (c) 2023-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -37,13 +37,13 @@ static u_register_t mtpmu_disable_el3(u_register_t mdcr_el3)
+ 
+ void pmuv3_enable(cpu_context_t *ctx)
+ {
+-#if (CTX_INCLUDE_EL2_REGS && IMAGE_BL31)
++#if (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31))
+ 	u_register_t mdcr_el2_val;
+ 
+ 	mdcr_el2_val = read_el2_ctx_common(get_el2_sysregs_ctx(ctx), mdcr_el2);
+ 	mdcr_el2_val = init_mdcr_el2_hpmn(mdcr_el2_val);
+ 	write_el2_ctx_common(get_el2_sysregs_ctx(ctx), mdcr_el2, mdcr_el2_val);
+-#endif /* (CTX_INCLUDE_EL2_REGS && IMAGE_BL31) */
++#endif /* (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31)) */
+ 
+ 	el3_state_t *state = get_el3state_ctx(ctx);
+ 	u_register_t mdcr_el3_val = read_ctx_reg(state, CTX_MDCR_EL3);
+diff --git a/plat/amd/versal2/gicv3.c b/plat/amd/versal2/gicv3.c
+index c7b44e166b..bbdffaa622 100644
+--- a/plat/amd/versal2/gicv3.c
++++ b/plat/amd/versal2/gicv3.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2019, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2026, Arm Limited and Contributors. All rights reserved.
+  * Copyright (c) 2018-2022, Xilinx, Inc. All rights reserved.
+  * Copyright (c) 2022-2024, Advanced Micro Devices, Inc. All rights reserved.
+  *
+@@ -80,7 +80,7 @@ void __init plat_gic_driver_init(void)
+ 	 * can use GIC system registers to manage interrupts and does
+ 	 * not need GIC interface base addresses to be configured.
+ 	 */
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	gicv3_driver_init(&_gic_data);
+ #endif
+ }
+diff --git a/plat/amlogic/axg/axg_common.c b/plat/amlogic/axg/axg_common.c
+index 870daf4591..eeda1bef66 100644
+--- a/plat/amlogic/axg/axg_common.c
++++ b/plat/amlogic/axg/axg_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2020, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2020-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -84,7 +84,7 @@ static const mmap_region_t axg_mmap[] = {
+  ******************************************************************************/
+ void aml_setup_page_tables(void)
+ {
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	const mmap_region_t axg_bl_mmap[] = {
+ 		MAP_BL31,
+ 		MAP_BL_CODE,
+diff --git a/plat/amlogic/g12a/g12a_common.c b/plat/amlogic/g12a/g12a_common.c
+index e74ed0466e..06f3432b92 100644
+--- a/plat/amlogic/g12a/g12a_common.c
++++ b/plat/amlogic/g12a/g12a_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2019, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2019-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -94,7 +94,7 @@ static const mmap_region_t g12a_mmap[] = {
+  ******************************************************************************/
+ void aml_setup_page_tables(void)
+ {
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	const mmap_region_t g12a_bl_mmap[] = {
+ 		MAP_BL31,
+ 		MAP_BL_CODE,
+diff --git a/plat/amlogic/gxbb/gxbb_common.c b/plat/amlogic/gxbb/gxbb_common.c
+index 260a347abf..d7681e5f5e 100644
+--- a/plat/amlogic/gxbb/gxbb_common.c
++++ b/plat/amlogic/gxbb/gxbb_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2019, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -79,7 +79,7 @@ static const mmap_region_t gxbb_mmap[] = {
+  ******************************************************************************/
+ void aml_setup_page_tables(void)
+ {
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	const mmap_region_t gxbb_bl_mmap[] = {
+ 		MAP_BL31,
+ 		MAP_BL_CODE,
+diff --git a/plat/amlogic/gxl/gxl_common.c b/plat/amlogic/gxl/gxl_common.c
+index e1d7bfb92f..a47f75fe44 100644
+--- a/plat/amlogic/gxl/gxl_common.c
++++ b/plat/amlogic/gxl/gxl_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2019, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -79,7 +79,7 @@ static const mmap_region_t gxl_mmap[] = {
+  ******************************************************************************/
+ void aml_setup_page_tables(void)
+ {
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	const mmap_region_t gxl_bl_mmap[] = {
+ 		MAP_BL31,
+ 		MAP_BL_CODE,
+diff --git a/plat/arm/board/automotive_rd/platform/rd1ae/rd1ae_plat.c b/plat/arm/board/automotive_rd/platform/rd1ae/rd1ae_plat.c
+index d4e2594552..8edac36be0 100644
+--- a/plat/arm/board/automotive_rd/platform/rd1ae/rd1ae_plat.c
++++ b/plat/arm/board/automotive_rd/platform/rd1ae/rd1ae_plat.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2024, Arm Limited. All rights reserved.
++ * Copyright (c) 2024-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -16,7 +16,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ 	RD1AE_MAP_DEVICE,
+ 	RD1AE_EXTERNAL_FLASH,
+ 	SOC_PLATFORM_PERIPH_MAP_DEVICE,
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ 	RD1AE_MAP_NS_DRAM1,
+ #endif
+ 	RD1AE_MAP_S_DRAM1,
+diff --git a/plat/arm/board/automotive_rd/platform/rdaspen/include/platform_def.h b/plat/arm/board/automotive_rd/platform/rdaspen/include/platform_def.h
+index cba75b9bf8..899829996b 100644
+--- a/plat/arm/board/automotive_rd/platform/rdaspen/include/platform_def.h
++++ b/plat/arm/board/automotive_rd/platform/rdaspen/include/platform_def.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2025, Arm Limited. All rights reserved.
++ * Copyright (c) 2025-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -144,9 +144,9 @@
+ #define MAX_IO_DEVICES				U(3)
+ #define MAX_IO_HANDLES				U(4)
+ 
+-#if IMAGE_BL2
++#if defined(IMAGE_BL2)
+ #define PLAT_ARM_MMAP_ENTRIES			U(9)
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ #define PLAT_ARM_MMAP_ENTRIES			U(8)
+ #endif
+ #define MAX_XLAT_TABLES				U(9)
+diff --git a/plat/arm/board/automotive_rd/platform/rdaspen/rdaspen_plat.c b/plat/arm/board/automotive_rd/platform/rdaspen/rdaspen_plat.c
+index 8572c6ef10..90fc28a551 100644
+--- a/plat/arm/board/automotive_rd/platform/rdaspen/rdaspen_plat.c
++++ b/plat/arm/board/automotive_rd/platform/rdaspen/rdaspen_plat.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2025, Arm Limited. All rights reserved.
++ * Copyright (c) 2025-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -19,7 +19,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ #if PLAT_ARM_MEM_PROT_ADDR
+ 	RDASPEN_MAP_MEM_PROTECT,
+ #endif
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ 	RDASPEN_MAP_NS_DRAM1,
+ 	RDASPEN_MAP_NS_DRAM2,
+ 	RDASPEN_MAP_TRUSTED_NVCTR,
+diff --git a/plat/arm/board/fvp/fvp_topology.c b/plat/arm/board/fvp/fvp_topology.c
+index 1db05023ab..e1113856fa 100644
+--- a/plat/arm/board/fvp/fvp_topology.c
++++ b/plat/arm/board/fvp/fvp_topology.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2024, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -36,7 +36,7 @@ const unsigned char *plat_get_power_domain_tree_desc(void)
+ 	 * fconf APIs are not supported for RESET_TO_SP_MIN, RESET_TO_BL31 and
+ 	 * RESET_TO_BL2 systems.
+ 	 */
+-#if RESET_TO_SP_MIN || RESET_TO_BL31 || RESET_TO_BL2 || IMAGE_BL1
++#if RESET_TO_SP_MIN || RESET_TO_BL31 || RESET_TO_BL2 || defined(IMAGE_BL1)
+ 	cluster_count = FVP_CLUSTER_COUNT;
+ 	cpus_per_cluster = FVP_MAX_CPUS_PER_CLUSTER * FVP_MAX_PE_PER_CPU;
+ #else
+@@ -106,7 +106,7 @@ int plat_core_pos_by_mpidr(u_register_t mpidr)
+ 	if (thread_id >= FVP_MAX_PE_PER_CPU)
+ 		return -1;
+ 
+-#if !IMAGE_BL1
++#ifndef IMAGE_BL1
+ 	if (fvp_pwrc_read_psysr(mpidr) == PSYSR_INVALID)
+ 		return -1;
+ #endif /* IMAGE_BL1 */
+diff --git a/plat/arm/board/fvp/include/platform_def.h b/plat/arm/board/fvp/include/platform_def.h
+index b0733f0044..be5497f644 100644
+--- a/plat/arm/board/fvp/include/platform_def.h
++++ b/plat/arm/board/fvp/include/platform_def.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2014-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2014-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -371,7 +371,7 @@ FVP_TRUSTED_SRAM_SIZE == 512
+ #define PLAT_ARM_FLASH_IMAGE_BASE	V2M_FLASH0_BASE
+ #define PLAT_ARM_FLASH_IMAGE_MAX_SIZE	(V2M_FLASH0_SIZE - V2M_FLASH_BLOCK_SIZE)
+ 
+-#if ARM_GPT_SUPPORT && IMAGE_BL1
++#if ARM_GPT_SUPPORT && defined(IMAGE_BL1)
+ /*
+  * Offset of the FIP in the GPT image. BL1 component uses this option
+  * as it does not load the partition table to get the FIP base
+diff --git a/plat/arm/board/morello/include/platform_def.h b/plat/arm/board/morello/include/platform_def.h
+index 7ec89db277..383a7adc53 100644
+--- a/plat/arm/board/morello/include/platform_def.h
++++ b/plat/arm/board/morello/include/platform_def.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2020-2024, Arm Limited. All rights reserved.
++ * Copyright (c) 2020-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -123,7 +123,7 @@
+  * PLAT_ARM_MMAP_ENTRIES depends on the number of entries in the
+  * plat_arm_mmap array defined for each BL stage.
+  */
+-#if IMAGE_BL1 || IMAGE_BL31
++#if defined(IMAGE_BL1) || defined(IMAGE_BL31)
+ # define PLAT_ARM_MMAP_ENTRIES			U(6)
+ # define MAX_XLAT_TABLES			U(7)
+ #else
+diff --git a/plat/arm/board/morello/morello_plat.c b/plat/arm/board/morello/morello_plat.c
+index 61fed642b6..22915c71ce 100644
+--- a/plat/arm/board/morello/morello_plat.c
++++ b/plat/arm/board/morello/morello_plat.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2020-2024, Arm Limited. All rights reserved.
++ * Copyright (c) 2020-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -17,7 +17,7 @@
+  * Table of regions to map using the MMU.
+  * Replace or extend the below regions as required
+  */
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ const mmap_region_t plat_arm_mmap[] = {
+ 	ARM_MAP_SHARED_RAM,
+ 	MORELLO_MAP_DEVICE,
+@@ -28,7 +28,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ const mmap_region_t plat_arm_mmap[] = {
+ 	ARM_MAP_SHARED_RAM,
+ 	MORELLO_MAP_DEVICE,
+@@ -37,7 +37,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ const mmap_region_t plat_arm_mmap[] = {
+ 	ARM_MAP_SHARED_RAM,
+ 	MORELLO_MAP_DEVICE,
+diff --git a/plat/arm/board/n1sdp/n1sdp_plat.c b/plat/arm/board/n1sdp/n1sdp_plat.c
+index 42efdeef75..f8ea80f78f 100644
+--- a/plat/arm/board/n1sdp/n1sdp_plat.c
++++ b/plat/arm/board/n1sdp/n1sdp_plat.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2024, Arm Limited. All rights reserved.
++ * Copyright (c) 2018-2026, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -18,7 +18,7 @@
+  * Replace or extend the below regions as required
+  */
+ 
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ const mmap_region_t plat_arm_mmap[] = {
+ 	ARM_MAP_SHARED_RAM,
+ 	N1SDP_MAP_DEVICE,
+@@ -28,7 +28,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ const mmap_region_t plat_arm_mmap[] = {
+ 	ARM_MAP_SHARED_RAM,
+ 	N1SDP_MAP_DEVICE,
+@@ -42,7 +42,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ const mmap_region_t plat_arm_mmap[] = {
+ 	ARM_MAP_SHARED_RAM,
+ 	N1SDP_MAP_DEVICE,
+diff --git a/plat/arm/board/neoverse_rd/common/nrd_plat2.c b/plat/arm/board/neoverse_rd/common/nrd_plat2.c
+index 4a7b02147c..e3e1c53fbd 100644
+--- a/plat/arm/board/neoverse_rd/common/nrd_plat2.c
++++ b/plat/arm/board/neoverse_rd/common/nrd_plat2.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2021-2024, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2021-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -21,7 +21,7 @@
+ /*
+  * Table of regions for different BL stages to map using the MMU.
+  */
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ const mmap_region_t plat_arm_mmap[] = {
+ 	NRD_CSS_SHARED_RAM_MMAP(0),
+ 	NRD_ROS_FLASH0_RO_MMAP,
+@@ -32,7 +32,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ const mmap_region_t plat_arm_mmap[] = {
+ 	NRD_CSS_SHARED_RAM_MMAP(0),
+ 	NRD_ROS_FLASH0_RO_MMAP,
+@@ -66,7 +66,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ const mmap_region_t plat_arm_mmap[] = {
+ 	NRD_CSS_SHARED_RAM_MMAP(0),
+ #ifdef PLAT_ARM_MEM_PROT_ADDR
+diff --git a/plat/arm/board/neoverse_rd/common/nrd_plat3.c b/plat/arm/board/neoverse_rd/common/nrd_plat3.c
+index 5811bc0714..1c4b37a589 100644
+--- a/plat/arm/board/neoverse_rd/common/nrd_plat3.c
++++ b/plat/arm/board/neoverse_rd/common/nrd_plat3.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2024-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2024-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -17,7 +17,7 @@
+ /*
+  * Table of regions for different BL stages to map using the MMU.
+  */
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ const mmap_region_t plat_arm_mmap[] = {
+ 	NRD_CSS_SHARED_RAM_MMAP(0),
+ 	NRD_ROS_FLASH0_RO_MMAP,
+@@ -28,7 +28,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ };
+ #endif /* IMAGE_BL3 */
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ const mmap_region_t plat_arm_mmap[] = {
+ 	NRD_CSS_SHARED_RAM_MMAP(0),
+ 	NRD_ROS_FLASH0_RO_MMAP,
+@@ -51,7 +51,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ };
+ #endif /* IMAGE_BL2 */
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ const mmap_region_t plat_arm_mmap[] = {
+ 	NRD_CSS_SHARED_RAM_MMAP(0),
+ #ifdef PLAT_ARM_MEM_PROT_ADDR
+diff --git a/plat/arm/board/neoverse_rd/common/ras/nrd_ras_cpu.c b/plat/arm/board/neoverse_rd/common/ras/nrd_ras_cpu.c
+index 19fb796549..f5550e0c86 100644
+--- a/plat/arm/board/neoverse_rd/common/ras/nrd_ras_cpu.c
++++ b/plat/arm/board/neoverse_rd/common/ras/nrd_ras_cpu.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2024, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2023-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -92,7 +92,7 @@ static void populate_cpu_err_data(cpu_err_info *cpu_info,
+ 	cpu_info->ErrCtxEl1Reg[16] = read_el1_ctx_common(get_el1_sysregs_ctx(ctx),
+ 						  ttbr1_el1);
+ 
+-#if (CTX_INCLUDE_EL2_REGS && IMAGE_BL31)
++#if (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31))
+ 	cpu_info->ErrCtxEl2Reg[0]   = read_el2_ctx_common(get_el2_sysregs_ctx(ctx),
+ 						elr_el2);
+ 	cpu_info->ErrCtxEl2Reg[1]   = read_el2_ctx_common(get_el2_sysregs_ctx(ctx),
+@@ -125,7 +125,7 @@ static void populate_cpu_err_data(cpu_err_info *cpu_info,
+ 						vttbr_el2);
+ 	cpu_info->ErrCtxEl2Reg[15]  = read_el2_ctx_common(get_el2_sysregs_ctx(ctx),
+ 						esr_el2);
+-#endif /* (CTX_INCLUDE_EL2_REGS && IMAGE_BL31) */
++#endif /* (CTX_INCLUDE_EL2_REGS && defined(IMAGE_BL31)) */
+ 
+ 	cpu_info->ErrCtxEl3Reg[0]   = read_ctx_reg(get_el3state_ctx(ctx),
+ 						   CTX_ELR_EL3);
+diff --git a/plat/arm/board/tc/tc_plat.c b/plat/arm/board/tc/tc_plat.c
+index fcee784d47..08ba24c6ce 100644
+--- a/plat/arm/board/tc/tc_plat.c
++++ b/plat/arm/board/tc/tc_plat.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2020-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2020-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -27,7 +27,7 @@
+  * This doesn't include Trusted RAM as the 'mem_layout' argument passed to
+  * arm_configure_mmu_elx() will give the available subset of that.
+  */
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ const mmap_region_t plat_arm_mmap[] = {
+ 	ARM_MAP_SHARED_RAM,
+ 	TC_MAP_NS_DRAM1,
+@@ -39,7 +39,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ 	{0}
+ };
+ #endif
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ const mmap_region_t plat_arm_mmap[] = {
+ 	ARM_MAP_SHARED_RAM,
+ 	TC_FLASH0_RO,
+@@ -68,7 +68,7 @@ const mmap_region_t plat_arm_mmap[] = {
+ 	{0}
+ };
+ #endif
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ const mmap_region_t plat_arm_mmap[] = {
+ 	ARM_MAP_SHARED_RAM,
+ 	V2M_MAP_IOFPGA,
+diff --git a/plat/arm/common/arm_dyn_cfg.c b/plat/arm/common/arm_dyn_cfg.c
+index a827f050cd..748580a317 100644
+--- a/plat/arm/common/arm_dyn_cfg.c
++++ b/plat/arm/common/arm_dyn_cfg.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2024, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -120,7 +120,7 @@ void arm_bl1_set_mbedtls_heap(void)
+ }
+ #endif /* CRYPTO_SUPPORT && !TRANSFER_LIST */
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ /*
+  * BL2 utility function to initialize dynamic configuration specified by
+  * FW_CONFIG. Populate the bl_mem_params_node_t of other FW_CONFIGs if
+diff --git a/plat/arm/common/fconf/arm_fconf_io.c b/plat/arm/common/fconf/arm_fconf_io.c
+index 9d20841ecb..b91348caaa 100644
+--- a/plat/arm/common/fconf/arm_fconf_io.c
++++ b/plat/arm/common/fconf/arm_fconf_io.c
+@@ -31,7 +31,7 @@ io_block_spec_t fip_block_spec = {
+  *  - Without ARM_GPT_SUPPORT: both BL1 and BL2 use the fixed FIP base address.
+  */
+ #if ARM_GPT_SUPPORT
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ 	.offset = PLAT_ARM_FLASH_IMAGE_BASE + PLAT_ARM_FIP_OFFSET_IN_GPT,
+ #endif /* IMAGE_BL1 */
+ #else
+diff --git a/plat/brcm/board/common/board_common.c b/plat/brcm/board/common/board_common.c
+index 2f764ab257..0a28efb2e5 100644
+--- a/plat/brcm/board/common/board_common.c
++++ b/plat/brcm/board/common/board_common.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2016 - 2020, Broadcom
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -7,7 +8,7 @@
+ #include <brcm_def.h>
+ #include <plat_brcm.h>
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ const mmap_region_t plat_brcm_mmap[] = {
+ 	HSLS_REGION,
+ 	BRCM_MAP_SHARED_RAM,
+@@ -36,7 +37,7 @@ const mmap_region_t plat_brcm_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ const mmap_region_t plat_brcm_mmap[] = {
+ 	HSLS_REGION,
+ #ifdef PERIPH0_REGION
+diff --git a/plat/brcm/board/stingray/aarch64/plat_helpers.S b/plat/brcm/board/stingray/aarch64/plat_helpers.S
+index 9a2039dafd..52a0eb2c32 100644
+--- a/plat/brcm/board/stingray/aarch64/plat_helpers.S
++++ b/plat/brcm/board/stingray/aarch64/plat_helpers.S
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2015-2020, Broadcom
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -42,7 +43,7 @@
+ 	 */
+ func plat_l2_init
+ 	mrs x0, CORTEX_A72_L2ACTLR_EL1
+-#if (IMAGE_BL1 || IMAGE_BL2) || defined(USE_SINGLE_CLUSTER)
++#if (defined(IMAGE_BL1) || defined(IMAGE_BL2)) || defined(USE_SINGLE_CLUSTER)
+ 	orr x0, x0, #CORTEX_A72_L2ACTLR_DISABLE_ACE_SH_OR_CHI
+ #else
+ 	bic x0, x0, #CORTEX_A72_L2ACTLR_DISABLE_ACE_SH_OR_CHI
+diff --git a/plat/brcm/board/stingray/include/platform_def.h b/plat/brcm/board/stingray/include/platform_def.h
+index 4742124291..9b7160bf99 100644
+--- a/plat/brcm/board/stingray/include/platform_def.h
++++ b/plat/brcm/board/stingray/include/platform_def.h
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2015-2020, Broadcom
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -58,17 +59,17 @@
+ #define BL2_PLATFORM_STACK_SIZE 0xc000
+ #define BL11_PLATFORM_STACK_SIZE 0x2b00
+ #define DEFAULT_PLATFORM_STACK_SIZE 0x400
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ # define PLATFORM_STACK_SIZE BL1_PLATFORM_STACK_SIZE
+ #else
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ #ifdef USE_BL1_RW
+ # define PLATFORM_STACK_SIZE BL2_PLATFORM_STACK_SIZE
+ #else
+ # define PLATFORM_STACK_SIZE BL1_PLATFORM_STACK_SIZE
+ #endif
+ #else
+-#if IMAGE_BL11
++#ifdef IMAGE_BL11
+ # define PLATFORM_STACK_SIZE BL11_PLATFORM_STACK_SIZE
+ #else
+ # define PLATFORM_STACK_SIZE DEFAULT_PLATFORM_STACK_SIZE
+diff --git a/plat/imx/common/plat_imx8_gic.c b/plat/imx/common/plat_imx8_gic.c
+index 9ef7d19b0a..c1149785a8 100644
+--- a/plat/imx/common/plat_imx8_gic.c
++++ b/plat/imx/common/plat_imx8_gic.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -56,7 +56,7 @@ void plat_gic_driver_init(void)
+ 	 * can use GIC system registers to manage interrupts and does
+ 	 * not need GIC interface base addresses to be configured.
+ 	 */
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	gicv3_driver_init(&arm_gic_data);
+ #endif
+ }
+diff --git a/plat/marvell/armada/a3k/common/aarch64/a3700_common.c b/plat/marvell/armada/a3k/common/aarch64/a3700_common.c
+index 63512853cb..d045a8e6b2 100644
+--- a/plat/marvell/armada/a3k/common/aarch64/a3700_common.c
++++ b/plat/marvell/armada/a3k/common/aarch64/a3700_common.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (C) 2018 Marvell International Ltd.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier:	BSD-3-Clause
+  * https://spdx.org/licenses
+@@ -14,14 +15,14 @@
+ /*
+  * Table of regions for various BL stages to map using the MMU.
+  */
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MARVELL_MAP_SHARED_RAM,
+ 	MAP_DEVICE0,
+ 	{0}
+ };
+ #endif
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MARVELL_MAP_SHARED_RAM,
+ 	MAP_DEVICE0,
+@@ -29,13 +30,13 @@ const mmap_region_t plat_marvell_mmap[] = {
+ 	{0}
+ };
+ #endif
+-#if IMAGE_BL2U
++#ifdef IMAGE_BL2U
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MAP_DEVICE0,
+ 	{0}
+ };
+ #endif
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MARVELL_MAP_SHARED_RAM,
+ 	MAP_DEVICE0,
+@@ -43,7 +44,7 @@ const mmap_region_t plat_marvell_mmap[] = {
+ 	{0}
+ };
+ #endif
+-#if IMAGE_BL32
++#ifdef IMAGE_BL32
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MAP_DEVICE0,
+ 	{0}
+diff --git a/plat/marvell/armada/a8k/common/aarch64/a8k_common.c b/plat/marvell/armada/a8k/common/aarch64/a8k_common.c
+index 4332a76ea2..3ae1b6a036 100644
+--- a/plat/marvell/armada/a8k/common/aarch64/a8k_common.c
++++ b/plat/marvell/armada/a8k/common/aarch64/a8k_common.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (C) 2018 Marvell International Ltd.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier:     BSD-3-Clause
+  * https://spdx.org/licenses
+@@ -16,14 +17,14 @@
+ /*
+  * Table of regions for various BL stages to map using the MMU.
+  */
+-#if IMAGE_BL1
++#ifdef IMAGE_BL1
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MARVELL_MAP_SECURE_RAM,
+ 	MAP_DEVICE0,
+ 	{0}
+ };
+ #endif
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MARVELL_MAP_SECURE_RAM,
+ 	MAP_DEVICE0,
+@@ -36,7 +37,7 @@ const mmap_region_t plat_marvell_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL2U
++#ifdef IMAGE_BL2U
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MARVELL_MAP_SECURE_RAM,
+ 	MAP_DEVICE0,
+@@ -51,7 +52,7 @@ const mmap_region_t plat_marvell_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MARVELL_MAP_SECURE_RAM,
+ 	MAP_DEVICE0,
+@@ -59,7 +60,7 @@ const mmap_region_t plat_marvell_mmap[] = {
+ 	{0}
+ };
+ #endif
+-#if IMAGE_BL32
++#ifdef IMAGE_BL32
+ const mmap_region_t plat_marvell_mmap[] = {
+ 	MARVELL_MAP_SECURE_RAM,
+ 	MAP_DEVICE0,
+diff --git a/plat/marvell/armada/common/marvell_gicv3.c b/plat/marvell/armada/common/marvell_gicv3.c
+index 5419506e77..5de59afa4b 100644
+--- a/plat/marvell/armada/common/marvell_gicv3.c
++++ b/plat/marvell/armada/common/marvell_gicv3.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (C) 2018 Marvell International Ltd.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier:     BSD-3-Clause
+  * https://spdx.org/licenses
+@@ -79,7 +80,7 @@ void plat_marvell_gic_driver_init(void)
+ 	 * can use GIC system registers to manage interrupts and does
+ 	 * not need GIC interface base addresses to be configured.
+ 	 */
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	gicv3_driver_init(&marvell_gic_data);
+ #endif
+ }
+diff --git a/plat/mediatek/mt8183/include/platform_def.h b/plat/mediatek/mt8183/include/platform_def.h
+index 25ccfbc527..8b25b8086d 100644
+--- a/plat/mediatek/mt8183/include/platform_def.h
++++ b/plat/mediatek/mt8183/include/platform_def.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2019, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2019-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -252,13 +252,13 @@ INTR_PROP_DESC(MT_IRQ_SEC_SGI_7, GIC_HIGHEST_SEC_PRIORITY, grp, \
+ /* Size of cacheable stacks */
+ #if DEBUG_XLAT_TABLE
+ #define PLATFORM_STACK_SIZE    0x800
+-#elif IMAGE_BL1
++#elif defined(IMAGE_BL1)
+ #define PLATFORM_STACK_SIZE    0x440
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ #define PLATFORM_STACK_SIZE    0x400
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ #define PLATFORM_STACK_SIZE    0x800
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ #define PLATFORM_STACK_SIZE    0x440
+ #endif
+ 
+diff --git a/plat/qemu/qemu_sbsa/include/platform_def.h b/plat/qemu/qemu_sbsa/include/platform_def.h
+index 5142bfe823..e50c6317a9 100644
+--- a/plat/qemu/qemu_sbsa/include/platform_def.h
++++ b/plat/qemu/qemu_sbsa/include/platform_def.h
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: BSD-3-Clause
+  *
+  * Copyright (c) 2019-2020, Linaro Limited and Contributors.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  * All rights reserved.
+  */
+ 
+@@ -314,14 +315,14 @@
+ #define PLAT_QEMU_SP_IMAGE_BASE		BL_RAM_BASE
+ #define PLAT_QEMU_SP_IMAGE_SIZE		ULL(0x300000)
+ 
+-#ifdef IMAGE_BL2
++#if defined(IMAGE_BL2)
+ /* In BL2 all memory allocated to the SPM Payload image is marked as RW. */
+ # define QEMU_SP_IMAGE_MMAP		MAP_REGION_FLAT( \
+ 						PLAT_QEMU_SP_IMAGE_BASE, \
+ 						PLAT_QEMU_SP_IMAGE_SIZE, \
+ 						MT_MEMORY | MT_RW | \
+ 						MT_SECURE)
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ /* All SPM Payload memory is marked as code in S-EL0 */
+ # define QEMU_SP_IMAGE_MMAP		MAP_REGION2(PLAT_QEMU_SP_IMAGE_BASE, \
+ 						PLAT_QEMU_SP_IMAGE_BASE, \
+diff --git a/plat/qti/common/src/aarch64/qti_kryo4_gold.S b/plat/qti/common/src/aarch64/qti_kryo4_gold.S
+index 61eb755f64..1ffbb0ccdd 100644
+--- a/plat/qti/common/src/aarch64/qti_kryo4_gold.S
++++ b/plat/qti/common/src/aarch64/qti_kryo4_gold.S
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+@@ -19,7 +19,7 @@
+  * -------------------------------------------------
+  */
+ func qti_kryo4_gold_reset_func
+-#if IMAGE_BL31 && WORKAROUND_CVE_2017_5715
++#if defined(IMAGE_BL31) && WORKAROUND_CVE_2017_5715
+ 	adr	x0, wa_cve_2017_5715_bpiall_vbar
+ 	msr	vbar_el3, x0
+ 	isb
+diff --git a/plat/qti/common/src/aarch64/qti_kryo6_gold.S b/plat/qti/common/src/aarch64/qti_kryo6_gold.S
+index 5f9463f6f3..40ea3ad811 100644
+--- a/plat/qti/common/src/aarch64/qti_kryo6_gold.S
++++ b/plat/qti/common/src/aarch64/qti_kryo6_gold.S
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+@@ -19,7 +19,7 @@
+  * -------------------------------------------------
+  */
+ func qti_kryo6_gold_reset_func
+-#if IMAGE_BL31 && WORKAROUND_CVE_2017_5715
++#if defined(IMAGE_BL31) && WORKAROUND_CVE_2017_5715
+ 	adr	x0, wa_cve_2017_5715_bpiall_vbar
+ 	msr	vbar_el3, x0
+ 	isb
+diff --git a/plat/renesas/common/aarch64/plat_helpers.S b/plat/renesas/common/aarch64/plat_helpers.S
+index f277c5a8ff..5184c48198 100644
+--- a/plat/renesas/common/aarch64/plat_helpers.S
++++ b/plat/renesas/common/aarch64/plat_helpers.S
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2023, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  * Copyright (c) 2015-2025, Renesas Electronics Corporation. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+@@ -32,7 +32,7 @@
+ 	.extern console_rcar_putc
+ 	.extern console_rcar_flush
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ 	#define	INT_ID_MASK	(0x3ff)
+ 	.extern bl2_interrupt_error_type
+ 	.extern bl2_interrupt_error_id
+@@ -211,7 +211,7 @@ endfunc bl2_enter_bl31
+ 	 * -----------------------------------------------------
+ 	 */
+ func platform_mem_init
+-#if !IMAGE_BL2
++#ifndef IMAGE_BL2
+ 	ldr	x0, =MBOX_BASE
+ 	mov	w1, #PLATFORM_CORE_COUNT
+ loop:
+@@ -231,7 +231,7 @@ endfunc platform_mem_init
+ func plat_report_exception
+ 	/* Switch to SP_EL0 */
+ 	msr	spsel, #0
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ 	mov	w1, #FIQ_SP_EL0
+ 	cmp	w0, w1
+ 	beq	rep_exec_fiq_elx
+@@ -262,7 +262,7 @@ endfunc plat_report_exception
+ 	 * ---------------------------------------------
+ 	 */
+ func plat_crash_console_init
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ 	mov	x0, #0
+ #else
+ 	mov	x1, sp
+diff --git a/plat/renesas/common/aarch64/platform_common.c b/plat/renesas/common/aarch64/platform_common.c
+index 9e7d526048..467f6a4472 100644
+--- a/plat/renesas/common/aarch64/platform_common.c
++++ b/plat/renesas/common/aarch64/platform_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2013-2014, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2013-2026, Arm Limited and Contributors. All rights reserved.
+  * Copyright (c) 2015-2023, Renesas Electronics Corporation. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+@@ -71,7 +71,7 @@ const uint8_t version_of_renesas[VERSION_OF_RENESAS_MAXLEN]
+ #define MAP_ATFW_LOG		MAP_REGION_FLAT(RCAR_BL31_LOG_BASE,	\
+ 					RCAR_BL31_LOG_SIZE,		\
+ 					MT_DEVICE | MT_RW | MT_SECURE)
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ #define MAP_DRAM0		MAP_REGION_FLAT(DRAM1_BASE,		\
+ 					DRAM1_SIZE,			\
+ 					RCAR_DCACHE | MT_RW | MT_SECURE)
+@@ -107,7 +107,7 @@ const uint8_t version_of_renesas[VERSION_OF_RENESAS_MAXLEN]
+ 					MT_MEMORY | MT_RW | MT_SECURE)
+ #endif
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ static const mmap_region_t rcar_mmap[] = {
+ 	MAP_FLASH0,	/*   0x08000000 -   0x0BFFFFFF  RPC area            */
+ 	MAP_DRAM0,	/*   0x40000000 -   0xBFFFFFFF  DRAM area(Legacy)   */
+@@ -121,7 +121,7 @@ static const mmap_region_t rcar_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ static const mmap_region_t rcar_mmap[] = {
+ 	MAP_SHARED_RAM,
+ 	MAP_ATFW_CRASH,
+@@ -134,7 +134,7 @@ static const mmap_region_t rcar_mmap[] = {
+ };
+ #endif
+ 
+-#if IMAGE_BL32
++#ifdef IMAGE_BL33
+ static const mmap_region_t rcar_mmap[] = {
+ 	MAP_DEVICE0,
+ 	MAP_DEVICE1,
+@@ -225,7 +225,7 @@ void plat_rcar_gic_init(void)
+ }
+ 
+ static const interrupt_prop_t interrupt_props[] = {
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ 	INTR_PROP_DESC(ARM_IRQ_SEC_WDT, GIC_HIGHEST_SEC_PRIORITY,
+ 		       GICV2_INTR_GROUP0, GIC_INTR_CFG_LEVEL),
+ #else
+diff --git a/plat/renesas/common/include/platform_def.h b/plat/renesas/common/include/platform_def.h
+index 317c67bc0e..bf465fbd96 100644
+--- a/plat/renesas/common/include/platform_def.h
++++ b/plat/renesas/common/include/platform_def.h
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2015-2023, Renesas Electronics Corporation. All rights reserved.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -27,21 +28,21 @@
+  #define FIRMWARE_WELCOME_STR	"Booting Rcar-gen3 Trusted Firmware\n"
+ 
+ /* Size of cacheable stacks */
+-#if IMAGE_BL1
++#if defined(IMAGE_BL1)
+ #if TRUSTED_BOARD_BOOT
+ #define PLATFORM_STACK_SIZE	U(0x1000)
+ #else
+ #define PLATFORM_STACK_SIZE	U(0x440)
+ #endif
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ #if TRUSTED_BOARD_BOOT
+ #define PLATFORM_STACK_SIZE	U(0x1000)
+ #else
+ #define PLATFORM_STACK_SIZE	U(0x400)
+ #endif
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ #define PLATFORM_STACK_SIZE	U(0x800)
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ #define PLATFORM_STACK_SIZE	U(0x440)
+ #endif
+ 
+@@ -159,17 +160,17 @@
+ /*******************************************************************************
+  * Platform specific page table and MMU setup constants
+  ******************************************************************************/
+-#if IMAGE_BL1
++#if defined(IMAGE_BL1)
+ #define MAX_XLAT_TABLES		U(2)
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ #define MAX_XLAT_TABLES		U(5)
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ #define MAX_XLAT_TABLES		U(4)
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ #define MAX_XLAT_TABLES		U(3)
+ #endif
+ 
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ #define PLAT_PHY_ADDR_SPACE_SIZE	(ULL(1) << 40)
+ #define PLAT_VIRT_ADDR_SPACE_SIZE	(ULL(1) << 40)
+ #else
+diff --git a/plat/renesas/common/include/rcar_def.h b/plat/renesas/common/include/rcar_def.h
+index 86764442df..186f4e21b7 100644
+--- a/plat/renesas/common/include/rcar_def.h
++++ b/plat/renesas/common/include/rcar_def.h
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2015-2023, Renesas Electronics Corporation. All rights reserved.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -60,13 +61,13 @@
+  * The RCAR_MAX_MMAP_REGIONS depends on the number of entries in rcar_mmap[]
+  * defined for each BL stage in rcar_common.c.
+  */
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ #define RCAR_MMAP_ENTRIES		(9)
+ #endif
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ #define RCAR_MMAP_ENTRIES		(9)
+ #endif
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ #define REG1_BASE			U(0xE6400000)
+ #define REG1_SIZE			U(0x04C00000)
+ #define ROM0_BASE			U(0xEB100000)
+diff --git a/plat/renesas/common/plat_image_load.c b/plat/renesas/common/plat_image_load.c
+index 9d814a6e59..98705fc26d 100644
+--- a/plat/renesas/common/plat_image_load.c
++++ b/plat/renesas/common/plat_image_load.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -16,7 +16,7 @@ extern void bl2_plat_flush_bl31_params(void);
+  ******************************************************************************/
+ void plat_flush_next_bl_params(void)
+ {
+-#if IMAGE_BL2
++#ifdef IMAGE_BL2
+ 	bl2_plat_flush_bl31_params();
+ #endif
+ }
+diff --git a/plat/rockchip/px30/include/platform_def.h b/plat/rockchip/px30/include/platform_def.h
+index a11f84f420..c3cc47d54a 100644
+--- a/plat/rockchip/px30/include/platform_def.h
++++ b/plat/rockchip/px30/include/platform_def.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2019, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2019-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -26,13 +26,13 @@
+ /* Size of cacheable stacks */
+ #if DEBUG_XLAT_TABLE
+ #define PLATFORM_STACK_SIZE 0x800
+-#elif IMAGE_BL1
++#elif defined(IMAGE_BL1)
+ #define PLATFORM_STACK_SIZE 0x440
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ #define PLATFORM_STACK_SIZE 0x400
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ #define PLATFORM_STACK_SIZE 0x800
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ #define PLATFORM_STACK_SIZE 0x440
+ #endif
+ 
+diff --git a/plat/rockchip/rk3568/include/platform_def.h b/plat/rockchip/rk3568/include/platform_def.h
+index 19363a42b4..8cc970895a 100644
+--- a/plat/rockchip/rk3568/include/platform_def.h
++++ b/plat/rockchip/rk3568/include/platform_def.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2023-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -26,13 +26,13 @@
+ /* Size of cacheable stacks */
+ #if DEBUG_XLAT_TABLE
+ #define PLATFORM_STACK_SIZE 0x800
+-#elif IMAGE_BL1
++#elif defined(IMAGE_BL1)
+ #define PLATFORM_STACK_SIZE 0x440
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ #define PLATFORM_STACK_SIZE 0x400
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ #define PLATFORM_STACK_SIZE 0x800
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ #define PLATFORM_STACK_SIZE 0x440
+ #endif
+ 
+diff --git a/plat/rockchip/rk3576/include/platform_def.h b/plat/rockchip/rk3576/include/platform_def.h
+index 03a80b0e7b..715b2ee96b 100644
+--- a/plat/rockchip/rk3576/include/platform_def.h
++++ b/plat/rockchip/rk3576/include/platform_def.h
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: BSD-3-Clause */
+ /*
+  * Copyright (c) 2025, Rockchip Electronics Co., Ltd.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  */
+ 
+ #ifndef __PLATFORM_DEF_H__
+@@ -25,13 +26,13 @@
+ /* Size of cacheable stacks */
+ #if DEBUG_XLAT_TABLE
+ #define PLATFORM_STACK_SIZE 0x800
+-#elif IMAGE_BL1
++#elif defined(IMAGE_BL1)
+ #define PLATFORM_STACK_SIZE 0x440
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ #define PLATFORM_STACK_SIZE 0x400
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ #define PLATFORM_STACK_SIZE 0x800
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ #define PLATFORM_STACK_SIZE 0x440
+ #endif
+ 
+diff --git a/plat/rockchip/rk3588/include/platform_def.h b/plat/rockchip/rk3588/include/platform_def.h
+index 5946af0b5a..56bca46c4b 100644
+--- a/plat/rockchip/rk3588/include/platform_def.h
++++ b/plat/rockchip/rk3588/include/platform_def.h
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2024, Rockchip, Inc. All rights reserved.
++ * Copyright (c) 2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -27,13 +28,13 @@
+ /* Size of cacheable stacks */
+ #if DEBUG_XLAT_TABLE
+ #define PLATFORM_STACK_SIZE 0x800
+-#elif IMAGE_BL1
++#elif defined(IMAGE_BL1)
+ #define PLATFORM_STACK_SIZE 0x440
+-#elif IMAGE_BL2
++#elif defined(IMAGE_BL2)
+ #define PLATFORM_STACK_SIZE 0x400
+-#elif IMAGE_BL31
++#elif defined(IMAGE_BL31)
+ #define PLATFORM_STACK_SIZE 0x800
+-#elif IMAGE_BL32
++#elif defined(IMAGE_BL32)
+ #define PLATFORM_STACK_SIZE 0x440
+ #endif
+ 
+diff --git a/plat/ti/common/include/ti_platform_defs.h b/plat/ti/common/include/ti_platform_defs.h
+index 44c2f94c3d..38b2492a2c 100644
+--- a/plat/ti/common/include/ti_platform_defs.h
++++ b/plat/ti/common/include/ti_platform_defs.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2018, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2017-2026, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -17,7 +17,7 @@
+  ******************************************************************************/
+ 
+ /* Size of cacheable stack */
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ #define PLATFORM_STACK_SIZE		0x800
+ #else
+ #define PLATFORM_STACK_SIZE		0x1000
+diff --git a/plat/xilinx/versal/versal_gicv3.c b/plat/xilinx/versal/versal_gicv3.c
+index 010895097b..6f735d3e04 100644
+--- a/plat/xilinx/versal/versal_gicv3.c
++++ b/plat/xilinx/versal/versal_gicv3.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2019, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2026, Arm Limited and Contributors. All rights reserved.
+  * Copyright (c) 2022-2023, Advanced Micro Devices, Inc. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+@@ -79,7 +79,7 @@ void __init plat_versal_gic_driver_init(void)
+ 	 * can use GIC system registers to manage interrupts and does
+ 	 * not need GIC interface base addresses to be configured.
+ 	 */
+-#if IMAGE_BL31
++#ifdef IMAGE_BL31
+ 	gicv3_driver_init(&versal_gic_data);
+ #endif
+ }
+-- 
+2.53.0
+

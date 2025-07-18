@@ -1,0 +1,120 @@
+From 1f3ef4d72d0eb5137c7ffd02671016fef5f643f1 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 14 Apr 2026 15:05:15 +0200
+Subject: [PATCH 461/572] fix(st-spi): avoid overflow in
+ stm32_ospi_dtr_calibrate()
+
+If bus frequency is lower than 15.25MHz in stm32_ospi_dtr_calibrate, the
+computation of period_ps will overflow an uint16_t, and will then change
+the its value. To avoid this, use uint32_t for period_ps, and change
+stm32mp_syscfg_dlyb_init() and stm32mp_syscfg_find_byp_cmd() prototypes
+to use uint32_t for the period_ps parameter.
+
+This was found when enabling -Wconversion warning:
+drivers/st/spi/stm32_ospi.c: In function 'stm32_ospi_dtr_calibrate':
+drivers/st/spi/stm32_ospi.c:129:33: warning: conversion from 'unsigned int' to 'uint16_t'
+  {aka 'short unsigned int'} may change value [-Wconversion]
+  129 | #define _OSPI_NSEC_PER_SEC      1000000000U
+      |                                 ^~~~~~~~~~~
+drivers/st/spi/stm32_ospi.c:352:29: note: in expansion of macro '_OSPI_NSEC_PER_SEC'
+  352 |                 period_ps = _OSPI_NSEC_PER_SEC / (bus_freq / 1000U);
+      |                             ^~~~~~~~~~~~~~~~~~
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d7cd3432ea00f977ec1cea36a523a644c3023435 fix(st-spi): avoid overflow in stm32_ospi_dtr_calibrate()]
+Change-Id: I669a2f148a3c2f506a82320654bb600f61dfa246
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/557400
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/spi/stm32_ospi.c                 |  2 +-
+ plat/st/stm32mp2/include/stm32mp2_private.h |  2 +-
+ plat/st/stm32mp2/stm32mp2_syscfg.c          | 15 +++++++--------
+ 3 files changed, 9 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index 74668e8d1c..bc779277af 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -336,7 +336,7 @@ static int stm32_ospi_mm(uint8_t *buf, uint32_t nbytes, size_t addr)
+ static int stm32_ospi_dtr_calibrate(uint32_t prescaler, unsigned int bus_freq,
+ 				    int (*check_transfer)(void))
+ {
+-	uint16_t period_ps = 0U;
++	uint32_t period_ps = 0U;
+ 	uint8_t window_len = 0U;
+ 	int ret;
+ 	bool bypass_mode = false;
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index ae25911e8a..5e4f2efd05 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -14,7 +14,7 @@ void stm32mp_syscfg_mask_potential_tamper_enable(void);
+ void stm32mp_syscfg_mask_potential_tamper_disable(void);
+ size_t stm32mp_syscfg_get_mm_size(uint8_t bank);
+ int stm32mp_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
+-			     uint16_t period_ps);
++			     uint32_t period_ps);
+ int stm32mp_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+ 				 bool rx_only, uint8_t *window_len);
+ int stm32mp_syscfg_dlyb_set_cr(uint8_t bank, uint32_t dlyb_cr);
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index 3d023e7637..8eaafd8ab8 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -442,33 +442,33 @@ static const uint16_t syscfg_dlybos_cmd_delay_ps[SYSCFG_DLYBOS_CMD_NB] = {
+ 28768U, 30400U, 32000U, 33600U, 35232U, 36832U, 38432U, 40032U
+ };
+ 
+-static uint32_t stm32mp_syscfg_find_byp_cmd(uint16_t period_ps)
++static uint32_t stm32mp_syscfg_find_byp_cmd(uint32_t period_ps)
+ {
+ 	uint16_t half_period_ps = period_ps / 2U;
+ 	uint8_t max = SYSCFG_DLYBOS_CMD_NB - 1U;
+ 	uint8_t i, min = 0U;
+ 
+ 	/* Find closest value in syscfg_dlybos_delay_ps[] with half_period_ps */
+-	if (half_period_ps < syscfg_dlybos_cmd_delay_ps[min]) {
++	if (half_period_ps < (uint32_t)syscfg_dlybos_cmd_delay_ps[min]) {
+ 		return (1U << SYSCFG_DLYBOS_BYP_CMD_SHIFT) &
+ 			SYSCFG_DLYBOS_BYP_CMD_MASK;
+ 	}
+ 
+-	if (half_period_ps > syscfg_dlybos_cmd_delay_ps[max]) {
++	if (half_period_ps > (uint32_t)syscfg_dlybos_cmd_delay_ps[max]) {
+ 		return SYSCFG_DLYBOS_BYP_CMD_MASK;
+ 	}
+ 
+ 	while (max > (min + 1U)) {
+ 		i = div_round_up(min + max, 2U);
+-		if (half_period_ps > syscfg_dlybos_cmd_delay_ps[i]) {
++		if (half_period_ps > (uint32_t)syscfg_dlybos_cmd_delay_ps[i]) {
+ 			min = i;
+ 		} else {
+ 			max = i;
+ 		}
+ 	}
+ 
+-	if ((syscfg_dlybos_cmd_delay_ps[max] - half_period_ps) >
+-	    (half_period_ps - syscfg_dlybos_cmd_delay_ps[min])) {
++	if (((uint32_t)syscfg_dlybos_cmd_delay_ps[max] - half_period_ps) >
++	    (half_period_ps - (uint32_t)syscfg_dlybos_cmd_delay_ps[min])) {
+ 		return ((min + 1U) << SYSCFG_DLYBOS_BYP_CMD_SHIFT) &
+ 			SYSCFG_DLYBOS_BYP_CMD_MASK;
+ 	} else {
+@@ -477,8 +477,7 @@ static uint32_t stm32mp_syscfg_find_byp_cmd(uint16_t period_ps)
+ 	}
+ }
+ 
+-int stm32mp_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
+-			      uint16_t period_ps)
++int stm32mp_syscfg_dlyb_init(uint8_t bank, bool bypass_mode, uint32_t period_ps)
+ {
+ 	uint64_t timeout;
+ 	uintptr_t cr = SYSCFG_BASE + syscfg_dlybos_cr_offset[bank];
+-- 
+2.53.0
+

@@ -1,0 +1,50 @@
+From 5b15275ff29cd2a65f4251c87126ec9a534c4f65 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 20 Jun 2025 14:13:00 +0200
+Subject: [PATCH 352/572] fix(stm32mp2): maintain only BKPSRAM content in power
+ off
+
+Only maintain BKPSRAM content in power off to preserve TF-M Internal
+Trusted Storage (ITS), no need to maintain LPSRAM1.
+
+This patch also clarifies the comments in stm32_pm_tdcid_init().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 989c2c1d0b0459b06684e6f929706deec06111ab fix(stm32mp2): maintain only BKPSRAM content in power off]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I9e4446b3d8fbb303bced3f842ab9b68fe1acaf9a
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index a42d082710..2ff6725cbc 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -977,6 +977,8 @@ static void stm32_system_off(void)
+ 	stm32mp2_pll1_disable();
+ 
+ #if !STM32MP_M33_TDCID
++	/* Maintain BKPSRAM content in power off to preserve TF-M ITS */
++	mmio_write_32(pwr_base + PWR_CR9, PWR_CR9_BKPRBSEN);
+ 	/* Do not maintain RETRAM memory content in Standby or Vbat */
+ 	mmio_write_32(pwr_base + PWR_CR10, PWR_CR10_RETRBSEN_DISABLE);
+ #endif
+@@ -1376,12 +1378,13 @@ static void stm32_pm_tdcid_init(void *fdt)
+ 	mmio_setbits_32(rcc_base + RCC_LEGBOOTCR, RCC_LEGBOOTCR_LEGACY_BEN);
+ 
+ #if STM32MP21
+-	/* Maintain BKPSRAM & RETRAM content in Standby */
++	/* Maintain BKPSRAM content in Standby */
+ 	mmio_write_32(pwr_base + PWR_CR9, PWR_CR9_BKPRBSEN);
+ #else
+-	/* Maintain BKPSRAM & LPSRAM1 & RETRAM content in Standby */
++	/* Maintain BKPSRAM & LPSRAM1 content in Standby */
+ 	mmio_write_32(pwr_base + PWR_CR9, PWR_CR9_BKPRBSEN | PWR_CR9_LPR1BSEN);
+ #endif
++	/* Maintain RETRAM content in Standby */
+ 	mmio_write_32(pwr_base + PWR_CR10, PWR_CR10_RETRBSEN_STANDBY);
+ 
+ 	/* Prevent RETRAM erase */
+-- 
+2.53.0
+

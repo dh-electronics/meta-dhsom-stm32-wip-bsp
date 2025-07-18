@@ -1,0 +1,55 @@
+From 7ae2240936bcbc6f5469703e16185699905fe10e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Wed, 20 May 2026 18:37:24 +0200
+Subject: [PATCH 470/572] fix(st-drivers): guard MCE PM context calls
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The MCE driver references saved PM context helpers when restoring
+encryption regions, but those helpers are only available when
+STM32MP_SUPPORT_PM is enabled.
+
+Guard the reload and save paths so STM32MP13 builds without PM support
+do not compile references to the context helpers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 010455aeff929a992faee4e7b707cbb5ad05b276 fix(st-drivers): guard MCE PM context calls]
+Change-Id: Iab2bd91d661a88119c22146328711365ec6d1cb7
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+---
+ drivers/st/mce/stm32_mce.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/st/mce/stm32_mce.c b/drivers/st/mce/stm32_mce.c
+index ec2fa292e9..63318bb79f 100644
+--- a/drivers/st/mce/stm32_mce.c
++++ b/drivers/st/mce/stm32_mce.c
+@@ -349,6 +349,7 @@ int stm32_mce_get_address_encryption_state(uint32_t address, uint32_t *state)
+ 
+ void stm32_mce_reload_configuration(void)
+ {
++#if STM32MP_SUPPORT_PM
+ 	uint32_t idx;
+ 
+ 	for (idx = 0U; idx < MCE_IP_MAX_REGION_NB; idx++) {
+@@ -367,6 +368,7 @@ void stm32_mce_reload_configuration(void)
+ 			panic();
+ 		}
+ 	}
++#endif
+ }
+ 
+ static int fconf_populate_mce(uintptr_t config)
+@@ -416,7 +418,9 @@ static int fconf_populate_mce(uintptr_t config)
+ 			panic();
+ 		}
+ 
++#if STM32MP_SUPPORT_PM
+ 		stm32mp1_pm_save_mce_region(i, &region);
++#endif
+ 	}
+ 
+ 	return 0;
+-- 
+2.53.0
+

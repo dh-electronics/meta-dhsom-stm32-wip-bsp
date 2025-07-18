@@ -1,0 +1,133 @@
+From b7d5a10620573c43f63fd9cf765feb501cda356b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Mon, 16 Mar 2026 17:32:16 +0100
+Subject: [PATCH 421/572] feat(stm32mp2): support of previous STM32MP23/25
+ revision with workaround [MP25-REVY]
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+NOT UPSTREAMABLE
+
+Workaround for ROM code issue on STM32MP23/25 RevY for Stop2 exit
+or Standby1 exit when standby is not performed (limited at Run2 or Stop2):
+clear the RNG semaphore when it is not done by ROM code for M33-TD flavor
+(Ticket 197885) as the access to RNG is required by TF-M.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 80ac9afecc6a6e180f5588b396e580b67388e010 feat(stm32mp2): support of previous STM32MP23/25 revision with workaround [MP25-REVY]]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I27f76bae0a0e4668725a4859ca5e7439b9a3e46b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/538824
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/platform.mk   | 14 +++++++++++++
+ plat/st/stm32mp2/stm32mp2_pm.c | 38 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 52 insertions(+)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index ee9ecce984..fb4e7eb1b2 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -82,6 +82,16 @@ PKA_USE_NIST_P256		:=	1
+ PKA_USE_BRAINPOOL_P256T1	:=	1
+ endif
+ 
++# Support of previous revision with workaround not upstreamable
++ifeq ($(STM32MP23),1)
++CONFIG_STM32MP23X_REVY		?=	1
++endif
++ifeq ($(STM32MP25),1)
++CONFIG_STM32MP25X_REVY		?=	1
++endif
++CONFIG_STM32MP23X_REVY		?=	0
++CONFIG_STM32MP25X_REVY		?=	0
++
+ # STM32 image header version v2.2 or v2.3 for STM32MP21
+ STM32_HEADER_VERSION_MAJOR	:=	2
+ ifeq ($(STM32MP21),1)
+@@ -220,6 +230,8 @@ endif
+ # Enable flags for C files
+ $(eval $(call assert_booleans,\
+ 	$(sort \
++		CONFIG_STM32MP23X_REVY \
++		CONFIG_STM32MP25X_REVY \
+ 		PKA_USE_BRAINPOOL_P256T1 \
+ 		PKA_USE_NIST_P256 \
+ 		STM32MP_CRYPTO_ROM_LIB \
+@@ -253,6 +265,8 @@ $(eval $(call assert_numerics,\
+ 
+ $(eval $(call add_defines,\
+ 	$(sort \
++		CONFIG_STM32MP23X_REVY \
++		CONFIG_STM32MP25X_REVY \
+ 		DWL_BUFFER_BASE \
+ 		PKA_USE_BRAINPOOL_P256T1 \
+ 		PKA_USE_NIST_P256 \
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 406da81005..39234c54e4 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -781,6 +781,38 @@ static void stm32_pwr_domain_on_finish(const psci_power_state_t *target_state)
+ 	mmio_write_32(rcc_base + RCC_C1SREQCLRR, RCC_C1SREQCLRR_STPREQ_MASK);
+ }
+ 
++#if STM32MP_M33_TDCID
++#if CONFIG_STM32MP23X_REVY || CONFIG_STM32MP25X_REVY
++#include <drivers/st/stm32mp_rifsc_regs.h>
++#include "stm32mp2_def.h"
++
++/* Workaround for ROM code issue in revY: clear RIF RNG semaphore when it is not done */
++static void rng_rif_semaphore_init(void)
++{
++#if CONFIG_STM32MP23X_REVY
++	unsigned long rifsc_id = STM32MP23_RIFSC_RNG_ID;
++#endif
++#if CONFIG_STM32MP25X_REVY
++	unsigned long rifsc_id = STM32MP25_RIFSC_RNG_ID;
++#endif
++	uint32_t semcfgr_addr = RIFSC_BASE + _RIFSC_RISC_PERy_SEMCR(rifsc_id);
++	uint32_t semcfgr = 0;
++
++	/* Workaround only for STM32MP23/25 REVY */
++	if (stm32mp_get_chip_version() != STM32MP2_REV_Y)
++		return;
++
++	semcfgr = mmio_read_32(semcfgr_addr);
++	if (((semcfgr & _RIFSC_SEMCR_SEM_MUTEX) == 0U) ||
++	    ((semcfgr & _RIFSC_SEMCR_SEMCID_MASK) >> _RIFSC_SEMCR_SEMCID_SHIFT) != RIF_CID1) {
++		return;
++	}
++
++	mmio_write_32(semcfgr_addr, 0U);
++}
++#endif /* CONFIG_STM32MP23X_REVY || CONFIG_STM32MP25X_REVY */
++#endif /* STM32MP_M33_TDCID */
++
+ /*******************************************************************************
+  * STM32MP2 handler called when a power domain has just been powered on after
+  * having been suspended earlier. The target_state encodes the low power state
+@@ -816,6 +848,9 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 		     RCC_C1BOOTRSTSCLRR_STBYC1RSTF) == 0U) {
+ 			stm32mp_stgen_config(clk_get_rate(CK_KER_STGEN));
+ 			stm32mp2_pll1_enable();
++#if CONFIG_STM32MP23X_REVY || CONFIG_STM32MP25X_REVY
++			rng_rif_semaphore_init();
++#endif /* CONFIG_STM32MP23X_REVY || CONFIG_STM32MP25X_REVY */
+ 			stm32mp_gic_resume();
+ 			stm32mp_gic_cpuif_enable();
+ 
+@@ -849,6 +884,9 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 		stm32mp2_pll1_enable();
+ 
+ #if STM32MP_M33_TDCID
++#if CONFIG_STM32MP23X_REVY || CONFIG_STM32MP25X_REVY
++		rng_rif_semaphore_init();
++#endif /* CONFIG_STM32MP23X_REVY || CONFIG_STM32MP25X_REVY */
+ 		stm32mp2_wait_cpu2_sev_irq();
+ #else
+ 		/* Exit DDR self refresh mode after STOP mode */
+-- 
+2.53.0
+

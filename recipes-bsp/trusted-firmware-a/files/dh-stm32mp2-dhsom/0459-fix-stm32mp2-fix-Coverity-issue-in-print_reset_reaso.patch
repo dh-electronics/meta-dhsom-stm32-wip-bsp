@@ -1,0 +1,66 @@
+From be6e0958e65d8da5e31a9c28a644d668634e1077 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Wed, 15 Apr 2026 18:21:58 +0200
+Subject: [PATCH 459/572] fix(stm32mp2): fix Coverity issue in
+ print_reset_reason
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+RCC_C1BOOTRSTSCLRR_PADRSTF is already tested earlier and therefore the
+condition is always true. As a result, `reason_str = "Unidentified";` is
+never reached and is marked as dead code by Coverity.
+
+Remove the redundant initialization of `boot_str` and adjust the
+reset-reason checks to eliminate the logical contradiction reported by
+Coverity.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7ecf2f29207656ee2931bd1c7104fed7a9e1a71d fix(stm32mp2): fix Coverity issue in print_reset_reason]
+Change-Id: I51db5f2b2a01add3fa940058c9f527b26de309c2
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/558049
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 7823d84e34..da5d14a6a7 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -124,8 +124,8 @@ static void print_reset_reason(void)
+ {
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+ 	uint32_t rstsr = mmio_read_32(rcc_base + RCC_C1BOOTRSTSCLRR);
+-	const char *boot_str = "";
+-	const char *reason_str = "Unidentified";
++	const char *boot_str;
++	const char *reason_str;
+ 
+ #if !STM32MP21
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_C1P1RSTF) != 0U) {
+@@ -139,6 +139,8 @@ static void print_reset_reason(void)
+ 	} else {
+ 		boot_str = " Warm boot.";
+ 	}
++#else
++	boot_str = "";
+ #endif
+ 
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) == 0U) {
+@@ -165,10 +167,8 @@ static void print_reset_reason(void)
+ 			reason_str = "Clock failure on HSE";
+ 		} else if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDGXSYSRSTF) != 0U) {
+ 			reason_str = "IWDG system reset (iwdgX_out_rst)";
+-		} else if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) != 0U) {
+-			reason_str = "Pin reset from NRST";
+ 		} else {
+-			reason_str = "Unidentified";
++			reason_str = "Pin reset from NRST";
+ 		}
+ 	}
+ 
+-- 
+2.53.0
+

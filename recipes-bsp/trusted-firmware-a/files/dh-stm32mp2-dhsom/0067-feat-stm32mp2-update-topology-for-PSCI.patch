@@ -1,0 +1,71 @@
+From 67057d236efe3bf8ed994477c51c581cbdb5395e Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 29 May 2024 18:07:23 +0200
+Subject: [PATCH 067/572] feat(stm32mp2): update topology for PSCI
+
+In order to prepare STM32MP2 platform for PSCI support, the topology
+is updated. The STM32MP2 will use PSCI OSI with Extended State ID.
+The power_domain_tree_desc will be explained in a later patch
+together with other developments for PSCI support.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1b181d8a77fb668cdb4e5661d6d29c537f441993 feat(stm32mp2): update topology for PSCI]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I9f16cc525fb733ee39282e2ce5f68aea8f83c6a8
+---
+ plat/st/stm32mp2/include/platform_def.h |  2 +-
+ plat/st/stm32mp2/platform.mk            |  4 ++++
+ plat/st/stm32mp2/stm32mp2_topology.c    | 10 ++++++----
+ 3 files changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/stm32mp2/include/platform_def.h b/plat/st/stm32mp2/include/platform_def.h
+index d13c8793c4..327ef450b0 100644
+--- a/plat/st/stm32mp2/include/platform_def.h
++++ b/plat/st/stm32mp2/include/platform_def.h
+@@ -33,7 +33,7 @@
+ #define PLATFORM_CORE_COUNT		U(2)
+ #define PLATFORM_MAX_CPUS_PER_CLUSTER	U(2)
+ 
+-#define PLAT_MAX_PWR_LVL		U(1)
++#define PLAT_MAX_PWR_LVL		U(4)
+ #define PLAT_MIN_SUSPEND_PWR_LVL	U(2)
+ #define PLAT_NUM_PWR_DOMAINS		U(6)
+ 
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index e445bebb8b..4d1a41dfc9 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -27,6 +27,10 @@ endif
+ ENABLE_SPE_FOR_NS		:=	0
+ ENABLE_SVE_FOR_NS		:=	0
+ 
++# Enable PSCI v1.0 extended state ID format
++PSCI_EXTENDED_STATE_ID		:= 	1
++PSCI_OS_INIT_MODE		:= 	1
++
+ # Default Device tree
+ DTB_FILE_NAME			?=	stm32mp257f-ev1.dtb
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_topology.c b/plat/st/stm32mp2/stm32mp2_topology.c
+index cc2d58c013..2c5c267c96 100644
+--- a/plat/st/stm32mp2/stm32mp2_topology.c
++++ b/plat/st/stm32mp2/stm32mp2_topology.c
+@@ -9,10 +9,12 @@
+ 
+ #include <platform_def.h>
+ 
+-/* 1 cluster, all cores into */
+-static const unsigned char stm32mp2_power_domain_tree_desc[] = {
+-	PLATFORM_CLUSTER_COUNT,
+-	PLATFORM_CORE_COUNT,
++static const unsigned char stm32mp2_power_domain_tree_desc[PLAT_MAX_PWR_LVL + 1U] = {
++	1U, /* SoC,  D2 LPLV */
++	1U, /* D2 */
++	1U, /* D1 LPLV */
++	PLATFORM_CLUSTER_COUNT, /* D1 */
++	PLATFORM_CORE_COUNT, /* Number of children for the cluster node */
+ };
+ 
+ /* This function returns the platform topology */
+-- 
+2.53.0
+

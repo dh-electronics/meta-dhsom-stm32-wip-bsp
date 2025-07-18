@@ -1,0 +1,111 @@
+From 8dc77971330d32dde73e3d973a7bbff94030e3b6 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 27 Apr 2026 17:59:52 +0200
+Subject: [PATCH 522/572] fix(st-usb): void variables instead of using __unused
+
+No functional change, it just correct a MISRA warning:
+MISRA_C_2012_Rule_1.2: Language extensions should not be used
+
+While at it remove the api_putdmaaddr() function that is not used.
+
+This kind of change won't be done in every file, as __unused will still
+be used at other places.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 262f4ca3ff75b982f7c94899f22f9b81faae7c4c fix(st-usb): void variables instead of using __unused]
+Change-Id: I7c7db055ed118a4bc7d1c166da2701cfaff05c1e
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/561737
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/579552
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/usb_dwc3/usb_dwc3.c | 50 ++++++++++++++++++++++------------
+ 1 file changed, 33 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/st/usb_dwc3/usb_dwc3.c b/drivers/st/usb_dwc3/usb_dwc3.c
+index 547823994a..6972bfbaa9 100644
+--- a/drivers/st/usb_dwc3/usb_dwc3.c
++++ b/drivers/st/usb_dwc3/usb_dwc3.c
+@@ -558,19 +558,20 @@ static uintptr_t api_mapdmaaddr(uint8_t buf[], uint32_t size, uint8_t to_device)
+ 	return (uintptr_t)buf;
+ }
+ 
+-static void api_unmapdmaaddr(uintptr_t dma_addr __unused, uint32_t size __unused,
+-			     uint8_t to_device __unused)
++static void api_unmapdmaaddr(uintptr_t dma_addr, uint32_t size,
++			     uint8_t to_device)
+ {
++	(void)dma_addr;
++	(void)size;
++	(void)to_device;
+ }
+ 
+-static uintptr_t api_getdmaaddr(uint8_t buf[], uint32_t size __unused, uint8_t to_device __unused)
++static uintptr_t api_getdmaaddr(uint8_t buf[], uint32_t size, uint8_t to_device)
+ {
+-	return (uintptr_t)buf;
+-}
++	(void)size;
++	(void)to_device;
+ 
+-__unused static void api_putdmaaddr(uintptr_t dma_addr __unused, uint32_t size __unused,
+-				    uint8_t to_device __unused)
+-{
++	return (uintptr_t)buf;
+ }
+ 
+ static void api_memcpy(void *dest, const void *src, uint32_t n)
+@@ -1940,24 +1941,39 @@ static enum usb_action usb_dwc3_it_handler(void *handle, uint32_t *param)
+ 	return action;
+ }
+ 
+-static enum usb_status usb_dwc3_write_packet(void *handle __unused, uint8_t *src __unused,
+-					     uint8_t ch_ep_num __unused, uint16_t len __unused)
++static enum usb_status usb_dwc3_write_packet(void *handle, uint8_t *src,
++					     uint8_t ch_ep_num, uint16_t len)
+ {
++	(void)handle;
++	(void)src;
++	(void)ch_ep_num;
++	(void)len;
++
+ 	return USBD_OK;
+ }
+ 
+-static void *usb_dwc3_read_packet(void *handle __unused, uint8_t *dest __unused,
+-				  uint16_t len __unused)
++static void *usb_dwc3_read_packet(void *handle, uint8_t *dest, uint16_t len)
+ {
++	(void)handle;
++	(void)dest;
++	(void)len;
++
+ 	return NULL;
+ }
+ 
+-static enum usb_status usb_dwc3_write_empty_tx_fifo(void *handle __unused, uint32_t epnum,
+-						    uint32_t xfer_len __unused,
+-						    uint32_t *xfer_count __unused,
+-						    uint32_t maxpacket __unused,
+-						    uint8_t **xfer_buff __unused)
++static enum usb_status usb_dwc3_write_empty_tx_fifo(void *handle, uint32_t epnum,
++						    uint32_t xfer_len,
++						    uint32_t *xfer_count,
++						    uint32_t maxpacket,
++						    uint8_t **xfer_buff)
+ {
++	(void)handle;
++	(void)epnum;
++	(void)xfer_len;
++	(void)xfer_count;
++	(void)maxpacket;
++	(void)xfer_buff;
++
+ 	return USBD_OK;
+ }
+ 
+-- 
+2.53.0
+

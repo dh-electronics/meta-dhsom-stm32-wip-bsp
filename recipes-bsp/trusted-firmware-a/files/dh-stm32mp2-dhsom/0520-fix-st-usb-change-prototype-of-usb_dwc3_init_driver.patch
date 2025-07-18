@@ -1,0 +1,95 @@
+From e0a0eedfb836585730258f599c7d4513a7a399b4 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 29 Apr 2026 18:24:55 +0200
+Subject: [PATCH 520/572] fix(st-usb): change prototype of
+ usb_dwc3_init_driver()
+
+The base address of the USB DWC peripheral is cast to void* when calling
+usb_dwc3_init_driver(), and inside the function we just cast it back to
+an uintptr_t. Avoid the double cast and set the 4 parameter of the
+function to uintptr_t.
+This also corrects MISRA_C_2012_Rule_11.6:
+A cast shall not be performed between pointer to void and an arithmetic
+type.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b4c35bd80e774719c41b8a1cb20547de9800a258 fix(st-usb): change prototype of usb_dwc3_init_driver()]
+Change-Id: Id2333e09379bd33b9aaf95ba7f0e857b739cbcee
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/562577
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/579550
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/usb_dwc3/usb_dwc3.c      | 5 ++---
+ include/drivers/st/usb_dwc3.h       | 4 ++--
+ plat/st/stm32mp2/stm32mp2_usb_dfu.c | 4 ++--
+ 3 files changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/st/usb_dwc3/usb_dwc3.c b/drivers/st/usb_dwc3/usb_dwc3.c
+index d6f2bbcaca..547823994a 100644
+--- a/drivers/st/usb_dwc3/usb_dwc3.c
++++ b/drivers/st/usb_dwc3/usb_dwc3.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2015-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -2299,11 +2299,10 @@ enum usb_status dwc3_dev_init(dwc3_handle_t *dwc3_handle, uint8_t speed, uint8_t
+ }
+ 
+ void usb_dwc3_init_driver(struct usb_handle *usb_core_handle, struct pcd_handle *pcd_handle,
+-			  dwc3_handle_t *dwc3_handle, void *base_addr)
++			  dwc3_handle_t *dwc3_handle, uintptr_t base)
+ {
+ 	uint32_t i = 0;
+ 	enum usb_status ret;
+-	uintptr_t base = (uintptr_t)base_addr;
+ 
+ 	dwc3_handle->usb_global = (usb_dwc3_global_t *)
+ 					(base + USB_DWC3_GLOBAL_BASE);
+diff --git a/include/drivers/st/usb_dwc3.h b/include/drivers/st/usb_dwc3.h
+index 10ad745643..18b5967796 100644
+--- a/include/drivers/st/usb_dwc3.h
++++ b/include/drivers/st/usb_dwc3.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2015-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -236,6 +236,6 @@ typedef struct {
+ 
+ void usb_dwc3_init_driver(struct usb_handle *usb_core_handle,
+ 			  struct pcd_handle *pcd_handle, dwc3_handle_t *dwc3_handle,
+-			  void *base_addr);
++			  uintptr_t base);
+ 
+ #endif /* __USB_DWC3_H */
+diff --git a/plat/st/stm32mp2/stm32mp2_usb_dfu.c b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
+index f31fd4d316..1918c503de 100644
+--- a/plat/st/stm32mp2/stm32mp2_usb_dfu.c
++++ b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2024-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -337,7 +337,7 @@ struct usb_handle *usb_dfu_plat_init(void)
+ #if STM32MP21
+ 	stm32mp1_usb_init_driver(&usb_core_handle, &pcd_handle, (uint32_t *)USB_OTG_BASE);
+ #else /* STM32MP21 */
+-	usb_dwc3_init_driver(&usb_core_handle, &pcd_handle, &dwc3_handle, (void *)USB_DWC3_BASE);
++	usb_dwc3_init_driver(&usb_core_handle, &pcd_handle, &dwc3_handle, USB_DWC3_BASE);
+ #endif /* STM32MP21 */
+ 
+ 	/* keep the configuration from ROM code */
+-- 
+2.53.0
+

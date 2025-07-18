@@ -1,0 +1,140 @@
+From b3e50dd73be38e5db49cd2a0d9829f9a9b3f5046 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 18 Mar 2025 09:28:46 +0100
+Subject: [PATCH 333/572] feat(stm32mp2): pwr/syscfg: allow to set a fixed IO
+ compensation
+
+Based on new property st,iocomp, allow to set a fixed IO compensation
+or to use the dynamic IO compensation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e14a07a59126ed030830a9b1ca7c4f0ce955372f feat(stm32mp2): pwr/syscfg: allow to set a fixed IO compensation]
+Change-Id: I177137af7c6b20f9f47f12c474b2673404e85b87
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ plat/st/stm32mp2/include/stm32mp2_private.h |  3 ++-
+ plat/st/stm32mp2/stm32mp2_pwr.c             | 20 +++++++++++++++++--
+ plat/st/stm32mp2/stm32mp2_syscfg.c          | 22 ++++++++++++++++++++-
+ 3 files changed, 41 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index 35c552f7c7..c0e4e2003e 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -33,7 +33,8 @@ enum syscfg_io_ids {
+ 	SYSFG_NB_IO_ID
+ };
+ 
+-void stm32mp_syscfg_enable_io_compensation(enum syscfg_io_ids id);
++void stm32mp_syscfg_enable_io_comp(enum syscfg_io_ids id);
++void stm32mp_syscfg_fixed_io_comp(enum syscfg_io_ids id, uint32_t pmos, uint32_t nmos);
+ 
+ void stm32mp_syscfg_set_icn_qos(void);
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_pwr.c b/plat/st/stm32mp2/stm32mp2_pwr.c
+index 4efe6ed32a..2b3045d70b 100644
+--- a/plat/st/stm32mp2/stm32mp2_pwr.c
++++ b/plat/st/stm32mp2/stm32mp2_pwr.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <common/debug.h>
++#include <common/fdt_wrappers.h>
+ #include <drivers/st/regulator.h>
+ #include <lib/mmio.h>
+ #include <lib/utils_def.h>
+@@ -14,13 +15,14 @@
+ #include <stm32mp2_private.h>
+ 
+ #define IO_VOLTAGE_THRESHOLD_MV 2700
++#define IOCOMP_CODE_MAX 2
+ 
+ struct pwr_regu {
+ 	const char *node_name;
+ 	uint32_t enable_reg;
+ 	uint32_t valid_mask;
+ 	uint32_t vrsel_mask;
+-	int comp_idx;
++	enum syscfg_io_ids comp_idx;
+ 	const char *supply_name;
+ };
+ 
+@@ -166,6 +168,7 @@ int stm32mp2_pwr_init_io_domains(void)
+ 		}
+ 
+ 		if (stm32mp2_pwr_domain_is_enabled(regu)) {
++			uint32_t iocomp_code[IOCOMP_CODE_MAX] = {0U};
+ 			int ret;
+ 
+ 			VERBOSE("Init IO domain %d\n", i);
+@@ -175,7 +178,20 @@ int stm32mp2_pwr_init_io_domains(void)
+ 				return ret;
+ 			}
+ 
+-			stm32mp_syscfg_enable_io_compensation(regu->comp_idx);
++			ret = fdt_read_uint32_array(fdt, subnode, "st,iocomp",
++						    IOCOMP_CODE_MAX,
++						    iocomp_code);
++			if ((ret != 0) && (ret != -FDT_ERR_NOTFOUND)) {
++				return ret;
++			}
++
++			if (ret == -FDT_ERR_NOTFOUND) {
++				stm32mp_syscfg_enable_io_comp(regu->comp_idx);
++			} else {
++				stm32mp_syscfg_fixed_io_comp(regu->comp_idx,
++							     iocomp_code[0],
++							     iocomp_code[1]);
++			}
+ 		}
+ 	}
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index bd1bc42e85..3d023e7637 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -45,6 +45,7 @@
+ #define SYSCFG_CCCR_CS			BIT_32(9)
+ #define SYSCFG_CCCR_EN			BIT_32(8)
+ #define SYSCFG_CCCR_RAPSRC_MASK		GENMASK_32(7, 4)
++#define SYSCFG_CCCR_RAPSRC_SHIFT	4U
+ #define SYSCFG_CCCR_RANSRC_MASK		GENMASK_32(3, 0)
+ 
+ /* IO compensation CCSR registers bit definition */
+@@ -160,7 +161,7 @@ size_t stm32mp_syscfg_get_mm_size(uint8_t bank)
+  * @param  id: IO compensation ID
+  * @retval 0.
+  */
+-void stm32mp_syscfg_enable_io_compensation(enum syscfg_io_ids id)
++void stm32mp_syscfg_enable_io_comp(enum syscfg_io_ids id)
+ {
+ 	uintptr_t cccr_addr = SYSCFG_BASE + syscfg_cccr_offset[id];
+ 	uintptr_t ccsr_addr = cccr_addr + 4U;
+@@ -186,6 +187,25 @@ void stm32mp_syscfg_enable_io_compensation(enum syscfg_io_ids id)
+ 	mmio_clrbits_32(cccr_addr, SYSCFG_CCCR_CS);
+ }
+ 
++/*
++ * @brief  Set fixed IO compensation for an IO domain.
++ * @param  id: IO compensation ID
++ * @param  pmos: pmos compensation code
++ * @param  nmos: nmos compensation code
++ * @retval 0.
++ */
++void stm32mp_syscfg_fixed_io_comp(enum syscfg_io_ids id, uint32_t pmos, uint32_t nmos)
++{
++	uintptr_t cccr_addr = SYSCFG_BASE + syscfg_cccr_offset[id];
++	uint32_t value = 0U;
++
++	VERBOSE("Set fixed IO comp for id %u\n", id);
++
++	value = ((pmos << SYSCFG_CCCR_RAPSRC_SHIFT) & SYSCFG_CCCR_RAPSRC_MASK) |
++		(nmos & SYSCFG_CCCR_RANSRC_MASK);
++	mmio_write_32(cccr_addr, value);
++}
++
+ #if STM32MP_SPI_NAND || STM32MP_SPI_NOR || STM32MP_HYPERFLASH
+ /*
+  * SYSCFG DLYBOS register offsets (base relative)
+-- 
+2.53.0
+

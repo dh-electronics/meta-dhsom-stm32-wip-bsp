@@ -1,0 +1,97 @@
+From 4c1f2fac1e1ebcd46a4d6a70f5d0a0ea7f6f0c04 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 5 Jun 2026 17:10:33 +0200
+Subject: [PATCH 474/572] fix(stm32mp2): preserve warmboot entrypoint across
+ STANDBY resume
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On STANDBY, BL31 is powered off and reloaded on resume. The platform
+restores the saved context and jumps to the generic PSCI warm path,
+where psci_warmboot_entrypoint() rebuilds the non-secure context from
+the per-CPU warmboot_ep_info via cm_init_my_context().
+
+warmboot_ep_info holds the physical resume entrypoint registered during
+CPU_SUSPEND, but it lives in static storage and is lost when BL31 is
+reloaded. The platform instead saved the full non-secure context, whose
+ELR_EL3 still pointed at the virtual CPU_SUSPEND call site. The eret in
+el3_exit then returned to that unmapped VA, causing an illegal exception
+return and an instruction abort at EL3 (esr_el3=0x86000004, EC=0x21).
+
+Save warmboot_ep_info to backup SRAM at suspend and restore it before
+bl31_warm_entrypoint() so cm_init_my_context() rebuilds the context from
+the correct physical entrypoint. The non-secure context snapshot is no
+longer needed; replacing it with entry_point_info_t also shrinks the
+backup SRAM footprint.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5bf807439797a84850d24234cfeea2c72b54ea71 fix(stm32mp2): preserve warmboot entrypoint across STANDBY resume]
+Change-Id: I91d2552f8dd94eddf855205c8235e22c542e2a4d
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/575529
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_context.c | 23 ++++++++++++-----------
+ 1 file changed, 12 insertions(+), 11 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_context.c b/plat/st/stm32mp2/stm32mp2_context.c
+index 5fb7f88e97..60fcf9d4da 100644
+--- a/plat/st/stm32mp2/stm32mp2_context.c
++++ b/plat/st/stm32mp2/stm32mp2_context.c
+@@ -4,6 +4,7 @@
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+ 
++#include <common/ep_info.h>
+ #include <common/tf_crc32.h>
+ #include <drivers/clk.h>
+ #include <lib/el3_runtime/context_mgmt.h>
+@@ -46,7 +47,7 @@ struct backup_data_s {
+ 	uint8_t enc_mkey[ENC_KEY_SIZE_IN_BYTES];
+ 	psci_power_state_t standby_pwr_state;
+ 	cpu_context_t saved_cpu_s_context[PLATFORM_CORE_COUNT];
+-	cpu_context_t saved_cpu_ns_context[PLATFORM_CORE_COUNT];
++	entry_point_info_t saved_warmboot_ep[PLATFORM_CORE_COUNT];
+ 	suspend_mode_t psci_suspend_mode;
+ #if defined(SPD_opteed)
+ 	uintptr_t optee_vector;
+@@ -161,12 +162,12 @@ void stm32_pm_context_save(const psci_power_state_t *state, const void *data, si
+ 
+ 	backup_data->magic = CONTEXT_MAGIC;
+ 
+-	/* Retrieve non-secure CPU context struct address */
+-	cpu_context = cm_get_context(NON_SECURE);
++	for (unsigned int i = 0U; i < PLATFORM_CORE_COUNT; i++) {
++		entry_point_info_t *ep = get_cpu_data_by_index(i, warmboot_ep_info);
+ 
+-	/* Save context in Backup SRAM */
+-	memcpy(&backup_data->saved_cpu_ns_context[0], cpu_context,
+-	       sizeof(cpu_context_t) * PLATFORM_CORE_COUNT);
++		memcpy(&backup_data->saved_warmboot_ep[i], ep,
++		       sizeof(entry_point_info_t));
++	}
+ 
+ 	/* Retrieve secure CPU context struct address */
+ 	cpu_context = cm_get_context(SECURE);
+@@ -215,12 +216,12 @@ void stm32_pm_context_restore(void *data, size_t size)
+ 	clk_enable(BACKUP_CTX_CLK);
+ 	backup_data = (struct backup_data_s *)BACKUP_CTX_ADDR;
+ 
+-	/* Retrieve non-secure CPU context struct address */
+-	cpu_context = cm_get_context(NON_SECURE);
++	for (unsigned int i = 0U; i < PLATFORM_CORE_COUNT; i++) {
++		entry_point_info_t *ep = get_cpu_data_by_index(i, warmboot_ep_info);
+ 
+-	/* Restore data from Backup SRAM */
+-	memcpy(cpu_context, backup_data->saved_cpu_ns_context,
+-	       sizeof(cpu_context_t) * PLATFORM_CORE_COUNT);
++		memcpy(ep, &backup_data->saved_warmboot_ep[i],
++		       sizeof(entry_point_info_t));
++	}
+ 
+ 	/* Retrieve non-secure CPU context struct address */
+ 	cpu_context = cm_get_context(SECURE);
+-- 
+2.53.0
+

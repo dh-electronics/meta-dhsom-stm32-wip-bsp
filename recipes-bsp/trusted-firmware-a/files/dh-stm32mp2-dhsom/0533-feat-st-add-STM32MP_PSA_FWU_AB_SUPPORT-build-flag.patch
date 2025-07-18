@@ -1,0 +1,90 @@
+From c9e7217aa3ba4f16de52f5a1234b895faabde2c7 Mon Sep 17 00:00:00 2001
+From: Dario Binacchi <dario.binacchi@amarulasolutions.com>
+Date: Mon, 1 Jun 2026 15:59:40 +0200
+Subject: [PATCH 533/572] feat(st): add STM32MP_PSA_FWU_AB_SUPPORT build flag
+
+Document and introduce the STM32MP_PSA_FWU_AB_SUPPORT build flag to
+conditionally support A/B redundancy systems on STM32MP platforms.
+
+A fallback mechanism is included in the platform Makefile to
+automatically override and disable the flag if the core
+PSA_FWU_SUPPORT option is missing.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 50026cea08db07d2b6a597e891034a1b47a23952 feat(st): add STM32MP_PSA_FWU_AB_SUPPORT build flag]
+Change-Id: Ic604c448cce1bd180731a0462fcbc0c81f3904d9
+Signed-off-by: Dario Binacchi <dario.binacchi@amarulasolutions.com>
+(cherry picked from commit 3f01837eb5c726acbccd75de844e2a551c9af11d)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/580442
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ docs/plat/st/stm32mpus.rst |  4 ++++
+ plat/st/common/common.mk   | 13 +++++++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/docs/plat/st/stm32mpus.rst b/docs/plat/st/stm32mpus.rst
+index 9377a2297a..5160e03a9f 100644
+--- a/docs/plat/st/stm32mpus.rst
++++ b/docs/plat/st/stm32mpus.rst
+@@ -55,6 +55,10 @@ Other configuration flags:
+   | Default: stm32mp157c-ev1.dtb
+ - | ``DWL_BUFFER_BASE``: the 'serial boot' load address of FIP,
+   | default location (end of the first 128MB) is used when absent
++- | ``STM32MP_PSA_FWU_AB_SUPPORT``: to support PSA FWU A/B system.
++  | It requires ``PSA_FWU_SUPPORT`` to be enabled and is only supported on block
++  | devices with a GPT partition table like SD or eMMC.
++  | Default: 0 (disabled)
+ - | ``STM32MP_RECONFIGURE_CONSOLE``: to re-configure crash console (especially after BL2).
+   | Default: 0 (disabled)
+ - | ``STM32MP_UART_BAUDRATE``: to select UART baud rate.
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index e33f9368da..f7c85260b2 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -58,6 +58,13 @@ STM32MP_EMMC_BOOT		?=	0
+ STM32MP_UART_PROGRAMMER		?=	0
+ STM32MP_USB_PROGRAMMER		?=	0
+ 
++STM32MP_PSA_FWU_AB_SUPPORT	?=	0
++
++ifeq ($(STM32MP_PSA_FWU_AB_SUPPORT)-$(PSA_FWU_SUPPORT),1-0)
++$(info Disable STM32MP_PSA_FWU_AB_SUPPORT flag. PSA_FWU_SUPPORT is disabled )
++override STM32MP_PSA_FWU_AB_SUPPORT	:=	0
++endif
++
+ ifneq ($(filter 1,${STM32MP_UART_PROGRAMMER} ${STM32MP_USB_PROGRAMMER}),)
+ ifeq (${PSA_FWU_SUPPORT},1)
+ $(info Disable PSA_FWU_SUPPORT flag for serial device)
+@@ -84,7 +91,11 @@ endif
+ ifeq (${PSA_FWU_SUPPORT},1)
+ # Number of banks of updatable firmware
+ NR_OF_FW_BANKS			:=	2
++ifeq (${STM32MP_PSA_FWU_AB_SUPPORT},1)
++NR_OF_IMAGES_IN_FW_BANK		:=	3
++else
+ NR_OF_IMAGES_IN_FW_BANK		:=	1
++endif
+ 
+ FWU_MAX_PART = $(shell echo $$(($(STM32_TF_A_COPIES) + 2 + $(NR_OF_FW_BANKS))))
+ ifeq ($(shell test $(FWU_MAX_PART) -gt $(PLAT_PARTITION_MAX_ENTRIES); echo $$?),0)
+@@ -141,6 +152,7 @@ $(eval $(call assert_booleans,\
+ 		STM32MP_EMMC \
+ 		STM32MP_EMMC_BOOT \
+ 		STM32MP_HYPERFLASH \
++		STM32MP_PSA_FWU_AB_SUPPORT \
+ 		STM32MP_RAW_NAND \
+ 		STM32MP_RECONFIGURE_CONSOLE \
+ 		STM32MP_SDMMC \
+@@ -165,6 +177,7 @@ $(eval $(call add_defines,\
+ 		STM32MP_EMMC \
+ 		STM32MP_EMMC_BOOT \
+ 		STM32MP_HYPERFLASH \
++		STM32MP_PSA_FWU_AB_SUPPORT \
+ 		STM32MP_RAW_NAND \
+ 		STM32MP_RECONFIGURE_CONSOLE \
+ 		STM32MP_SDMMC \
+-- 
+2.53.0
+

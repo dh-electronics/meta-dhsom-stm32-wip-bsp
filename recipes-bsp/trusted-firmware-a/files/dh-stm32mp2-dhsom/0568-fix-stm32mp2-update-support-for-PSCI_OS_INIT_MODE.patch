@@ -1,0 +1,162 @@
+From 07dc3b9e3256a7ff389cd1981de00e84a5d4e895 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 6 Oct 2026 17:53:12 +0200
+Subject: [PATCH 568/572] fix(stm32mp2): update support for PSCI_OS_INIT_MODE
+
+Since commit 9bf7047a4f8f5601 ("feat(psci): add hierarchical power
+state consistency check") the power state must be consistent for
+PSCI OSI support but it is not the case for STM32MP2 LP-Stop1 modes
+when the other core is just in standby with PWRSTATE_RUN.
+
+This patch updates the values of psci-suspend-param and PWRSTATE
+to allow this hierarchical consistency check without error.
+
+STM32MP2 use 5 levels in the topology, to handle LPLV-STOP specific
+treatment in SPD OP-TEE with cpu_suspend_entry parameter
+"max_off_pwrlvl, and with possible state value between at each
+power level: 0(RUN), 1(RET), 2(LP) and 3(OFF):
+
+    0: (2) CPU1 core#0 / CPU1 core#1
+    1: (1) CLUSTER / D1 Domain
+    2: (1) LPLV D1
+    3: (1) D2
+    4: (1) LPLV D2 : SoC
+
+The PSCI PM idle state uses the recommended encoding for State-ID
+in PSCI 1.0 Specification, with extended State-ID formats.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f3bb4f50d75c2b5b183796dea20f219d5e0e1ba5 fix(stm32mp2): update support for PSCI_OS_INIT_MODE]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ie0b5dc0ee686d0ea5a3b9fbce1a9e0e864dc82a8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/622241
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ fdts/stm32mp211.dtsi           |  6 +++---
+ fdts/stm32mp231.dtsi           |  6 +++---
+ fdts/stm32mp251.dtsi           |  6 +++---
+ plat/st/stm32mp2/stm32mp2_pm.c | 18 +++++++++---------
+ 4 files changed, 18 insertions(+), 18 deletions(-)
+
+diff --git a/fdts/stm32mp211.dtsi b/fdts/stm32mp211.dtsi
+index 566c8e5afb..5d5df7c442 100644
+--- a/fdts/stm32mp211.dtsi
++++ b/fdts/stm32mp211.dtsi
+@@ -25,17 +25,17 @@
+ 		domain-idle-states {
+ 			domain-stop1 {
+ 				compatible = "domain-idle-state";
+-				arm,psci-suspend-param = <0x00000011>;
++				arm,psci-suspend-param = <0x00000012>;
+ 			};
+ 
+ 			domain-lp-stop1 {
+ 				compatible = "domain-idle-state";
+-				arm,psci-suspend-param = <0x00000021>;
++				arm,psci-suspend-param = <0x00000022>;
+ 			};
+ 
+ 			domain-lplv-stop1 {
+ 				compatible = "domain-idle-state";
+-				arm,psci-suspend-param = <0x00000211>;
++				arm,psci-suspend-param = <0x00000222>;
+ 			};
+ 
+ 			domain-stop2 {
+diff --git a/fdts/stm32mp231.dtsi b/fdts/stm32mp231.dtsi
+index 13b5ece2c0..e48377accb 100644
+--- a/fdts/stm32mp231.dtsi
++++ b/fdts/stm32mp231.dtsi
+@@ -26,17 +26,17 @@
+ 		domain-idle-states {
+ 			domain-stop1 {
+ 				compatible = "domain-idle-state";
+-				arm,psci-suspend-param = <0x00000011>;
++				arm,psci-suspend-param = <0x00000012>;
+ 			};
+ 
+ 			domain-lp-stop1 {
+ 				compatible = "domain-idle-state";
+-				arm,psci-suspend-param = <0x00000021>;
++				arm,psci-suspend-param = <0x00000022>;
+ 			};
+ 
+ 			domain-lplv-stop1 {
+ 				compatible = "domain-idle-state";
+-				arm,psci-suspend-param = <0x00000211>;
++				arm,psci-suspend-param = <0x00000222>;
+ 			};
+ 
+ 			domain-stop2 {
+diff --git a/fdts/stm32mp251.dtsi b/fdts/stm32mp251.dtsi
+index bb1445d362..a4b89233e8 100644
+--- a/fdts/stm32mp251.dtsi
++++ b/fdts/stm32mp251.dtsi
+@@ -26,17 +26,17 @@
+ 		domain-idle-states {
+ 			domain-stop1 {
+ 				compatible = "domain-idle-state";
+-				arm,psci-suspend-param = <0x00000011>;
++				arm,psci-suspend-param = <0x00000012>;
+ 			};
+ 
+ 			domain-lp-stop1 {
+ 				compatible = "domain-idle-state";
+-				arm,psci-suspend-param = <0x00000021>;
++				arm,psci-suspend-param = <0x00000022>;
+ 			};
+ 
+ 			domain-lplv-stop1 {
+ 				compatible = "domain-idle-state";
+-				arm,psci-suspend-param = <0x00000211>;
++				arm,psci-suspend-param = <0x00000222>;
+ 			};
+ 
+ 			domain-stop2 {
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index c69c97cefa..db23cc3fba 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -124,21 +124,21 @@ static struct nvmem_cell stop2_entrypoint_cell;
+ 	 ((uint32_t)((pwr_domain_state[LVL_D1_LPLV] == STM32MP_LOCAL_STATE_OFF) ? \
+ 		     PSTATE_TYPE_POWERDOWN : 0) << PSTATE_TYPE_SHIFT))
+ 
+-/* State-id - 0x00000001 */
++/* State-id - 0x00000002 */
+ #define PWRSTATE_RUN \
+-	stm32_make_pwrstate(RUN, RUN, RUN, RUN, RET, PSTATE_TYPE_STANDBY)
++	stm32_make_pwrstate(RUN, RUN, RUN, RUN, LP, PSTATE_TYPE_STANDBY)
+ 
+-/* State-id - 0x00000011 Stop1 */
++/* State-id - 0x00000012 Stop1 */
+ #define PWRSTATE_STOP1 \
+-	stm32_make_pwrstate(RUN, RUN, RUN, RET, RET, PSTATE_TYPE_STANDBY)
++	stm32_make_pwrstate(RUN, RUN, RUN, RET, LP, PSTATE_TYPE_STANDBY)
+ 
+-/* State-id - 0x00000021 LP-Stop1*/
++/* State-id - 0x00000022 LP-Stop1*/
+ #define PWRSTATE_LP_STOP1 \
+-	stm32_make_pwrstate(RUN, RUN, RUN, LP, RET, PSTATE_TYPE_STANDBY)
++	stm32_make_pwrstate(RUN, RUN, RUN, LP, LP, PSTATE_TYPE_STANDBY)
+ 
+-/* State-id - 0x00000211 LPLV-Stop1*/
++/* State-id - 0x00000222 LPLV-Stop1*/
+ #define PWRSTATE_LPLV_STOP1 \
+-	stm32_make_pwrstate(RUN, RUN, LP, RET, RET, PSTATE_TYPE_STANDBY)
++	stm32_make_pwrstate(RUN, RUN, LP, LP, LP, PSTATE_TYPE_STANDBY)
+ 
+ /* State-id - 0x40001333 Stop2 */
+ #define PWRSTATE_STOP2 \
+@@ -279,7 +279,7 @@ static void stm32_cpu_standby(plat_local_state_t cpu_state)
+ 	u_register_t mpidr = read_mpidr();
+ 	unsigned int core_id = MPIDR_AFFLVL0_VAL(mpidr);
+ 
+-	assert(cpu_state == STM32MP_LOCAL_STATE_RET);
++	assert(cpu_state == STM32MP_LOCAL_STATE_LP);
+ 
+ 	stm32mp_state_set(core_id, STATE_RUNNING, false);
+ 
+-- 
+2.53.0
+

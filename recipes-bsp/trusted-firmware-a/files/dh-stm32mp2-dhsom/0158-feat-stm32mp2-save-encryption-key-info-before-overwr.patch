@@ -1,0 +1,50 @@
+From 68c1997b898caedddac94a2c2f646f4634a9dacc Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 27 Jan 2023 17:21:12 +0100
+Subject: [PATCH 158/572] feat(stm32mp2): save encryption key info before
+ overwriting DT
+
+To give more space when loading other binaries in SYSRAM, the BL2 DT
+is overwritten when loading BL31. All the required information from
+this DT must then be saved before. This is the case for encrytion key
+details (OTP index and length). The function
+stm32_get_enc_key_otp_idx_len() is then called before overwriting DT.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3533275c6024d38e014f98bdee973fae987fa11c feat(stm32mp2): save encryption key info before overwriting DT]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I38f0be56f10868e24dd71a1ea5bd27aff35196da
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 10a05ebb8a..5c21f82554 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -339,6 +339,8 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		BL33_IMAGE_ID,
+ 		HW_CONFIG_ID,
+ 	};
++	uint32_t otp_idx __maybe_unused;
++	uint32_t otp_len __maybe_unused;
+ 
+ 	assert(bl_mem_params != NULL);
+ 
+@@ -413,6 +415,14 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			}
+ 		}
+ 
++#ifndef DECRYPTION_SUPPORT_none
++		/* Load encryption key info before DT is unmapped */
++		err = stm32_get_enc_key_otp_idx_len(&otp_idx, &otp_len);
++		if (err != 0) {
++			panic();
++		}
++#endif
++
+ 		/*
+ 		 * After this step, the BL2 device tree area will be overwritten
+ 		 * with BL31 binary, no other data should be read from BL2 DT.
+-- 
+2.53.0
+

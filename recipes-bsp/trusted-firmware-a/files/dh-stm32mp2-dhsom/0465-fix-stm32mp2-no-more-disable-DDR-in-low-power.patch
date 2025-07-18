@@ -1,0 +1,60 @@
+From c1f705d4282d74bcae3250bd54f7f3ad8adaa6f4 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 2 Apr 2026 10:39:00 +0200
+Subject: [PATCH 465/572] fix(stm32mp2): no more disable DDR in low power
+
+As the DDRSS bus clock are now correctly stopped when the DDR is in
+self refresh mode, RCC_DDRITFCFGR.DDRSHR can be kept to 1.
+
+See Errata 2.3.19 STOP and Standby entry failed when DDR is in shared
+mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 269170f352eb23bf143c56a8a149ed01e1a304ef fix(stm32mp2): no more disable DDR in low power]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I067ba2971b3988483da38530acc8d29f0e80c361
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/553298
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 11 -----------
+ 1 file changed, 11 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 7cbaddcb6c..caa3fde3cd 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -600,9 +600,6 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		panic();
+ 	}
+ 
+-	/* Disable DDRSHR to avoid STANDBY/STOP exit issue */
+-	mmio_clrbits_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRSHR);
+-
+ 	if (!cpu2_running) {
+ 		/* Filtering for CID1 = CA35 on PWR resource 3 = PWR_CPU2CR */
+ 		pwr_r3cidcfgr = mmio_read_32(pwr_base + PWR_R3CIDCFGR);
+@@ -838,11 +835,6 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 
+ 	mmio_write_32(rcc_base + RCC_C1SREQCLRR, RCC_C1SREQCLRR_STPREQ_MASK);
+ 
+-#if !STM32MP_M33_TDCID
+-	/* Restore DDRSHR after STANDBY/STOP exit issue */
+-	mmio_setbits_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRSHR);
+-#endif
+-
+ 	/* Perform the common system specific operations */
+ 	switch (stateid) {
+ 	case PWRSTATE_STANDBY:
+@@ -1147,9 +1139,6 @@ static void stm32_system_off(void)
+ #if !STM32MP_M33_TDCID
+ 	/* Force DDR off */
+ 	stm32mp_board_ddr_power_off();
+-
+-	/* Disable DDRSHR */
+-	mmio_clrbits_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRSHR);
+ #endif
+ 
+ 	/* Prevent interrupts from spuriously waking up this cpu */
+-- 
+2.53.0
+

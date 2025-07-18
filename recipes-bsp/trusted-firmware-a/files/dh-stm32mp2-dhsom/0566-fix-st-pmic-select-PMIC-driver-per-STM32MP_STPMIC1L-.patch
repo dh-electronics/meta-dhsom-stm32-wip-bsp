@@ -1,0 +1,64 @@
+From e8ce543df0b9a4d0be90142e610c2dd26acb02f7 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 22 Sep 2026 17:08:51 +0200
+Subject: [PATCH 566/572] fix(st-pmic): select PMIC driver per STM32MP_STPMIC1L
+ in SSP build
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The SSP build (stm32mp1_ssp.mk) unconditionally added stm32mp_pmic.c
+and stpmic1.c, unlike platform.mk which selects between the STPMIC1
+and STPMIC2/STPMIC1L drivers based on STM32MP_STPMIC1L.
+
+As a result, building with STM32MP_SSP=1 STM32MP_STPMIC1L=1 DEBUG=1
+compiled stm32mp_pmic.c, which still defines print_pmic_info_and_debug()
+and pmic_voltages_init() unconditionally, while stm32mp_pmic.h now
+stubs these same functions as static inline under STM32MP_STPMIC1L,
+causing redefinition errors.
+
+Mirror platform.mk's PMIC source selection in stm32mp1_ssp.mk so SSP
+builds pick stm32mp_pmic2.c/stpmic2.c when STM32MP_STPMIC1L is set.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5a1160aadf5ec015a51e5ac02de70d2bd53949dd fix(st-pmic): select PMIC driver per STM32MP_STPMIC1L in SSP build]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I892f7a243b55b63853ff02f9c34c6ac2336bf0e5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/615942
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp1/stm32mp1_ssp.mk | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp1/stm32mp1_ssp.mk b/plat/st/stm32mp1/stm32mp1_ssp.mk
+index 488fbc5918..df5071381a 100644
+--- a/plat/st/stm32mp1/stm32mp1_ssp.mk
++++ b/plat/st/stm32mp1/stm32mp1_ssp.mk
+@@ -40,14 +40,21 @@ PLAT_BL_COMMON_SOURCES	+=	drivers/arm/tzc/tzc400.c				\
+ 				drivers/st/gpio/stm32_gpio.c				\
+ 				drivers/st/i2c/stm32_i2c.c				\
+ 				drivers/st/iwdg/stm32_iwdg.c				\
+-				drivers/st/pmic/stm32mp_pmic.c				\
+-				drivers/st/pmic/stpmic1.c				\
+ 				drivers/st/reset/stm32mp1_reset.c			\
+ 				plat/st/common/stm32mp_dt.c				\
+ 				plat/st/stm32mp1/stm32mp1_dbgmcu.c			\
+ 				plat/st/stm32mp1/stm32mp1_helper.S			\
+ 				plat/st/stm32mp1/stm32mp1_syscfg.c
+ 
++# Match platform.mk PMIC driver selection: SSP also builds with STPMIC1L PMICs.
++ifeq ($(STM32MP_STPMIC1L),1)
++PLAT_BL_COMMON_SOURCES	+=	drivers/st/pmic/stm32mp_pmic2.c				\
++				drivers/st/pmic/stpmic2.c
++else
++PLAT_BL_COMMON_SOURCES	+=	drivers/st/pmic/stm32mp_pmic.c				\
++				drivers/st/pmic/stpmic1.c
++endif
++
+ ifeq ($(STM32MP13),1)
+ PLAT_BL_COMMON_SOURCES	+=	drivers/st/clk/clk-stm32-core.c				\
+ 				drivers/st/clk/clk-stm32mp13.c
+-- 
+2.53.0
+

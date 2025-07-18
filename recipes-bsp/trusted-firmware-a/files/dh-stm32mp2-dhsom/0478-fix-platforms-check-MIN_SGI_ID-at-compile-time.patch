@@ -1,0 +1,53 @@
+From 062add1f43a75102e0ad252679f7035d0e77e23b Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 6 May 2026 19:19:50 +0200
+Subject: [PATCH 478/572] fix(platforms): check MIN_SGI_ID at compile time
+
+MIN_SGI_ID is 0 by default in GICv2. It could then be useless to check
+if an SGI interrupt ID is above this, as the ID is already an unsigned
+int.
+This avoids the following warning when enabling W=1 in the command line.
+plat/common/plat_gicv2.c:180:20: warning: comparison of unsigned
+expression in '>= 0' is always true [-Wtype-limits]
+  180 |         return (id >= MIN_SGI_ID) && (id < MIN_PPI_ID);
+      |                    ^~
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 57448c9ad9d0f64d94aa4433d1404d3211ce1558 fix(platforms): check MIN_SGI_ID at compile time]
+Change-Id: I45a51eaa1894d2723476e9c0dedb90a2540854de
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/571867
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/common/plat_gicv2.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/plat/common/plat_gicv2.c b/plat/common/plat_gicv2.c
+index 1edccd144b..d00c72c4e6 100644
+--- a/plat/common/plat_gicv2.c
++++ b/plat/common/plat_gicv2.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2023, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2026, Arm Limited and Contributors. All rights reserved.
+  * Portions copyright (c) 2021-2022, ProvenRun S.A.S. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+@@ -177,7 +177,11 @@ bool plat_ic_is_ppi(unsigned int id)
+ 
+ bool plat_ic_is_sgi(unsigned int id)
+ {
++#if (MIN_SGI_ID > 0)
+ 	return (id >= MIN_SGI_ID) && (id < MIN_PPI_ID);
++#else
++	return (id < MIN_PPI_ID);
++#endif
+ }
+ 
+ unsigned int plat_ic_get_interrupt_active(unsigned int id)
+-- 
+2.53.0
+

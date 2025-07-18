@@ -1,0 +1,52 @@
+From 5077d5e684c88e619eb38d504a4e35b941544ea3 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 19 Feb 2024 11:22:19 +0100
+Subject: [PATCH 246/572] feat(stm32mp21): disable RCC_C1P1RSTCSETR access on
+ STM32MP21
+
+RCC_C1P1RSTCSETR is not present on STM32MP21.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cf5061147a92700db77f0792fd3ccac59f252082 feat(stm32mp21): disable RCC_C1P1RSTCSETR access on STM32MP21]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I2d8d89391d2f58c33fac61796dd0885cbe2cc9d4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/360883
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 6364600b25..9820ab437b 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -550,12 +550,14 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 		/* Restore register in CA35SS */
+ 		stm32mp_ca35_set_vbar(stm32_sec_entrypoint);
+ 
++#if !STM32MP21
+ 		/* Start the secondary core if it was running before STOP */
+ 		if ((core_id == STM32MP_PRIMARY_CPU) &&
+ 		    stm32mp_state_check(STM32MP_SECONDARY_CPU, STATE_START)) {
+ 			/* Reset the secondary core to execute warm boot */
+ 			mmio_write_32(RCC_BASE + RCC_C1P1RSTCSETR, RCC_C1P1RSTCSETR_C1P1PORRST);
+ 		}
++#endif /* !STM32MP21 */
+ 		break;
+ 	case PWRSTATE_STOP1:
+ 	case PWRSTATE_LP_STOP1:
+@@ -648,8 +650,10 @@ static void stm32_system_off(void)
+ 		/* After reset, the core is stopped, waiting in WFI loop */
+ 		stm32mp_state_set(STM32MP_SECONDARY_CPU, STATE_START, false);
+ 
++#if !STM32MP21
+ 		/* Reset the secondary core */
+ 		mmio_write_32(RCC_BASE + RCC_C1P1RSTCSETR, RCC_C1P1RSTCSETR_C1P1PORRST);
++#endif /* !STM32MP21 */
+ 
+ 		/* Forbid access to DDR */
+ 		stm32mp_state_set(STM32MP_PRIMARY_CPU, STATE_DDR, false);
+-- 
+2.53.0
+

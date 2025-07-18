@@ -1,0 +1,67 @@
+From 8b9fb63d7600ee6c782d12a873900a60196f239d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 27 May 2026 15:34:40 +0200
+Subject: [PATCH 488/572] fix(build): move USE_GIC_DRIVER flag management in
+ Makefile
+
+USE_GIC_DRIVER is defined as 0 in make_helpers/defaults.mk.
+For platforms not overriding this default parameter, the flag will then
+not be defined and will trigger warning when enabling -Wundef flag.
+Move the flag in the call add_defines in Makefile. While at it, add it
+also in call assert_numerics.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c7da6db64465a726804e8cc726dfef192f4b81df fix(build): move USE_GIC_DRIVER flag management in Makefile]
+Change-Id: I2d1ea9193e32ea004ed7f78fa51fa63a0da55f35
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572128
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ Makefile               | 2 ++
+ drivers/arm/gic/gic.mk | 6 +-----
+ 2 files changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index fdbf5e045c..28234b988a 100644
+--- a/Makefile
++++ b/Makefile
+@@ -726,6 +726,7 @@ $(eval $(call assert_numerics,\
+ 	SVE_VECTOR_LEN \
+ 	IMPDEF_SYSREG_TRAP \
+ 	W \
++	USE_GIC_DRIVER \
+ )))
+ 
+ ifdef KEY_SIZE
+@@ -910,6 +911,7 @@ $(eval $(call add_defines,\
+ 	HW_CONFIG_BASE \
+ 	LFA_SUPPORT \
+ 	SDEI_SUPPORT \
++	USE_GIC_DRIVER \
+ )))
+ 
+ ifeq (${PLATFORM_REPORT_CTX_MEM_USE}, 1)
+diff --git a/drivers/arm/gic/gic.mk b/drivers/arm/gic/gic.mk
+index 8b28f219b4..a79537f5f1 100644
+--- a/drivers/arm/gic/gic.mk
++++ b/drivers/arm/gic/gic.mk
+@@ -1,5 +1,5 @@
+ #
+-# Copyright (c) 2025, Arm Limited and Contributors. All rights reserved.
++# Copyright (c) 2025-2026, Arm Limited and Contributors. All rights reserved.
+ #
+ # SPDX-License-Identifier: BSD-3-Clause
+ #
+@@ -38,7 +38,3 @@ BL31_SOURCES	+=	${GIC_SOURCES}
+ else
+ BL32_SOURCES	+=	${GIC_SOURCES}
+ endif
+-
+-$(eval $(call add_defines,\
+-	USE_GIC_DRIVER \
+-))
+-- 
+2.53.0
+

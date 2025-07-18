@@ -1,0 +1,71 @@
+From 62fc5efc63ee10ac8e9ab8e248d9d13e19a830d1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 8 Oct 2024 14:49:48 +0200
+Subject: [PATCH 297/572] feat(stm32mp2): support cortex M33 as TDCID in
+ STM32MP25 low power
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When Cortex-M33 is TDCID, Cortex-A35 and TF-A are not supposed to
+initialize or modify CPU2 related power section.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7e218340670d71e613f1e940a422966f4ce09133 feat(stm32mp2): support cortex M33 as TDCID in STM32MP25 low power
+433b74acc0f1f574b6796edcddce8e1934b3aa28 feat(stm32mp2): support cortex M33 as TDCID in STM32MP25 low power]
+Change-Id: Ie7a1117771572dbc41ed2f84c105420d0ec36222
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index dbeaadca11..4e5b573046 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -458,6 +458,7 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 	bool standby __maybe_unused = false;
+ 	uint32_t stateid = stm32_get_stateid(target_state->pwr_domain_state);
+ 	bool cpu2_running = stm32_pwr_cpu2_state_is_running(pwr_base);
++	uint32_t pwr_r3cidcfgr = 0U;
+ 
+ 	/* If retention only at D1 level return as nothing is to be done */
+ 	if (stateid == PWRSTATE_RUN) {
+@@ -505,6 +506,13 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 	mmio_clrbits_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRSHR);
+ #endif
+ 
++	if (!cpu2_running) {
++		/* Filtering for CID1 = CA35 on PWR resource 3 = PWR_CPU2CR */
++		pwr_r3cidcfgr = mmio_read_32(pwr_base + PWR_R3CIDCFGR);
++		mmio_write_32(pwr_base + PWR_R3CIDCFGR,
++			      (RIF_CID1 << PWR_R3CIDCFGR_SCID_SHIFT) | PWR_R3CIDCFGR_CFEN);
++	}
++
+ 	/* Perform the PWR configuration for the requested mode */
+ 	switch (stateid) {
+ 	case PWRSTATE_STOP1:
+@@ -1296,6 +1304,21 @@ static void stm32_pm_tdcid_init(void *fdt)
+ }
+ #endif /* !STM32MP_M33_TDCID */
+ 
++static void stm32_pm_init(void *fdt)
++{
++	uintptr_t rcc_base = stm32mp_rcc_base();
++
++	stm32mp2_setup_rcc_wakeup_irq(rcc_base);
++
++	/* Clear CSleep and Stop request for CPU1 */
++	mmio_write_32(rcc_base + RCC_C1SREQCLRR, RCC_C1SREQSETR_STPREQ_MASK);
++
++#if !STM32MP_M33_TDCID
++	stm32_pm_tdcid_init(fdt);
++#endif
++}
++#endif /* !STM32MP_M33_TDCID */
++
+ static void stm32_pm_init(void *fdt)
+ {
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+-- 
+2.53.0
+

@@ -1,0 +1,48 @@
+From 0672ffbecde37c4bee957d07b82180f1d62cc253 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 6 May 2026 16:08:12 +0200
+Subject: [PATCH 501/572] fix(st): cast the read_cntfrq_el0() return to
+ unsigned int
+
+The function plat_get_syscnt_freq2() returns an unsigned int type, but
+read_cntfrq_el0() that is used inside will return an uint64_t value
+on aarch64 platforms (STM32MP2). But this value is usually 64MHz (HSI)
+or 24MHz (HSE). It will never be above 4GHz, so it is safe to cast its
+return value.
+The issue was found with clang -Wshorten-64-to-32 warning.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 49fd8748650afc49dd3ef208d364464b8770240d fix(st): cast the read_cntfrq_el0() return to unsigned int]
+Change-Id: Iab2162701cabfde4a4416bd4cea45eb15dbeeb5d
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/572141
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/stm32mp_common.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 433d86b15b..2b58b6cfb0 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -75,7 +75,14 @@ uintptr_t plat_get_ns_image_entrypoint(void)
+ 
+ unsigned int plat_get_syscnt_freq2(void)
+ {
+-	return read_cntfrq_el0();
++	/*
++	 * The system counter clock will never be above 4GHz, it is usually set
++	 * at 64MHz (HSI) at startup, and then moved to another clock with a
++	 * lower frequency and more stable.
++	 * It is then safe to cast the return of read_cntfrq_el0 to a 32 bit
++	 * value to match the plat_get_syscnt_freq2 function prototype.
++	 */
++	return (unsigned int)read_cntfrq_el0();
+ }
+ 
+ static uintptr_t boot_ctx_address;
+-- 
+2.53.0
+

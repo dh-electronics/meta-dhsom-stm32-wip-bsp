@@ -1,0 +1,38 @@
+From 151b1db1f3e860363dd2ae3a8292e97a0aef0907 Mon Sep 17 00:00:00 2001
+From: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+Date: Fri, 21 Jun 2024 08:44:27 +0200
+Subject: [PATCH 262/572] fix(stm32mp2): maintain LPSRAM1 content in standby
+ mode
+
+This fix allow to maintain LPSRAM1 RAM content in Standy mode in
+particular when used by Cortex-CM0.
+This fix is not valid for STM3MP21 as it doesn't embed a Cortex-CM0
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2c3579771131b3ba7d5bce1f867b35762ec3fb5e fix(stm32mp2): maintain LPSRAM1 content in standby mode]
+Change-Id: If9f0a70769123b2254336bff3235b18d2f31f1b9
+Signed-off-by: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index f6a3d30a59..9eb230a540 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -1059,8 +1059,13 @@ static void stm32_pm_init(void *fdt)
+ 
+ 	mmio_write_32(rcc_base + RCC_C1SREQCLRR, RCC_C1SREQSETR_STPREQ_MASK);
+ 
++#if STM32MP21
+ 	/* Maintain BKPSRAM & RETRAM content in Standby */
+ 	mmio_write_32(pwr_base + PWR_CR9, PWR_CR9_BKPRBSEN);
++#else
++	/* Maintain BKPSRAM & LPSRAM1 & RETRAM content in Standby */
++	mmio_write_32(pwr_base + PWR_CR9, PWR_CR9_BKPRBSEN | PWR_CR9_LPR1BSEN);
++#endif
+ 	mmio_write_32(pwr_base + PWR_CR10, PWR_CR10_RETRBSEN_STANDBY);
+ 
+ 	/* Prevent RETRAM erase */
+-- 
+2.53.0
+

@@ -1,0 +1,75 @@
+From 6f684ebd1bb1ff463be2f870414dbb4a3a8f185d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 24 Apr 2019 13:38:41 +0200
+Subject: [PATCH 069/572] feat(st): protect access on PWR registers
+
+In SMP context, we need to add spinlocks to protect against concurrent
+accesses on PWR registers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0b412d00b162cdd094048a01da9a073711c8e218 feat(st): protect access on PWR registers]
+Change-Id: I27cb698ffa085eca7b61b042ce5ccaa1fd2daaf4
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  4 ++++
+ plat/st/common/stm32mp_common.c         | 16 ++++++++++++++++
+ 2 files changed, 20 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 64c7f4ffea..99ebd07d3b 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -55,6 +55,10 @@ void stm32mp_gic_init(void);
+ /* Check MMU status to allow spinlock use */
+ bool stm32mp_lock_available(void);
+ 
++/* SMP protection on PWR registers access */
++void stm32mp_pwr_regs_lock(void);
++void stm32mp_pwr_regs_unlock(void);
++
+ int stm32_get_otp_index(const char *otp_name, uint32_t *otp_idx,
+ 			uint32_t *otp_len);
+ int stm32_get_otp_value(const char *otp_name, uint32_t *otp_val);
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 22f81e98be..20c865bef6 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -16,6 +16,7 @@
+ #include <drivers/st/stm32mp_reset.h>
+ #include <lib/mmio.h>
+ #include <lib/smccc.h>
++#include <lib/spinlock.h>
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+ #include <plat/common/platform.h>
+ #include <services/arm_arch_svc.h>
+@@ -62,6 +63,7 @@
+ #define FWU_INFO_CNT_OFF		U(4)
+ 
+ static console_t console;
++static struct spinlock lock;
+ 
+ uintptr_t plat_get_ns_image_entrypoint(void)
+ {
+@@ -126,6 +128,20 @@ bool stm32mp_lock_available(void)
+ #endif
+ }
+ 
++void stm32mp_pwr_regs_lock(void)
++{
++	if (stm32mp_lock_available()) {
++		spin_lock(&lock);
++	}
++}
++
++void stm32mp_pwr_regs_unlock(void)
++{
++	if (stm32mp_lock_available()) {
++		spin_unlock(&lock);
++	}
++}
++
+ int stm32mp_map_ddr_non_cacheable(void)
+ {
+ 	return  mmap_add_dynamic_region(STM32MP_DDR_BASE, STM32MP_DDR_BASE,
+-- 
+2.53.0
+

@@ -1,0 +1,64 @@
+From c91caf05868c0df34a2556b45856c1fa7022d003 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 17 Mar 2026 14:33:26 +0100
+Subject: [PATCH 433/572] fix(stm32mp2): cast values to uint32_t before
+ shifting them
+
+Cast some values inside macros in stm32mp2_pm.c before they are shifted
+left. This avoids MISRA_C_2012_Rule_12.2: The right hand operand of a
+shift operator shall lie in the range zero to one less than the width in
+bits of the essential type of the left hand operand.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a099f89237d49a4deed668c723dd3bbb69c87fff fix(stm32mp2): cast values to uint32_t before shifting them]
+Change-Id: I3ecd84c7c6634925bd98791437ee3c18c3c6dceb
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/548127
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 39234c54e4..f2ec3b6167 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -107,15 +107,15 @@ static struct nvmem_cell stop2_entrypoint_cell;
+ #define LVL_D2_LPLV		U(4)
+ 
+ #define stm32_make_pwrstate(lvl4, lvl3, lvl2, lvl1, lvl0, type) \
+-	(((STM32MP_LOCAL_STATE_ ## lvl4) << (PLAT_LOCAL_PSTATE_WIDTH * 4)) | \
+-	 ((STM32MP_LOCAL_STATE_ ## lvl3) << (PLAT_LOCAL_PSTATE_WIDTH * 3)) | \
+-	 ((STM32MP_LOCAL_STATE_ ## lvl2) << (PLAT_LOCAL_PSTATE_WIDTH * 2)) | \
+-	 ((STM32MP_LOCAL_STATE_ ## lvl1) << (PLAT_LOCAL_PSTATE_WIDTH * 1)) | \
+-	 ((STM32MP_LOCAL_STATE_ ## lvl0) << (PLAT_LOCAL_PSTATE_WIDTH * 0)) | \
+-	 ((type) << PSTATE_TYPE_SHIFT))
++	(((uint32_t)(STM32MP_LOCAL_STATE_ ## lvl4) << (PLAT_LOCAL_PSTATE_WIDTH * 4)) | \
++	 ((uint32_t)(STM32MP_LOCAL_STATE_ ## lvl3) << (PLAT_LOCAL_PSTATE_WIDTH * 3)) | \
++	 ((uint32_t)(STM32MP_LOCAL_STATE_ ## lvl2) << (PLAT_LOCAL_PSTATE_WIDTH * 2)) | \
++	 ((uint32_t)(STM32MP_LOCAL_STATE_ ## lvl1) << (PLAT_LOCAL_PSTATE_WIDTH * 1)) | \
++	 ((uint32_t)(STM32MP_LOCAL_STATE_ ## lvl0) << (PLAT_LOCAL_PSTATE_WIDTH * 0)) | \
++	 ((uint32_t)(type) << PSTATE_TYPE_SHIFT))
+ 
+ #define stm32_get_stateid_lvl(pwr_domain_state, lvl) \
+-	(pwr_domain_state[(lvl)] << (PLAT_LOCAL_PSTATE_WIDTH * (lvl)))
++	((uint32_t)pwr_domain_state[(lvl)] << (PLAT_LOCAL_PSTATE_WIDTH * (lvl)))
+ 
+ #define stm32_get_stateid(pwr_domain_state) \
+ 	(stm32_get_stateid_lvl(pwr_domain_state, LVL_CORE) | \
+@@ -123,8 +123,8 @@ static struct nvmem_cell stop2_entrypoint_cell;
+ 	 stm32_get_stateid_lvl(pwr_domain_state, LVL_D1_LPLV) | \
+ 	 stm32_get_stateid_lvl(pwr_domain_state, LVL_D2) | \
+ 	 stm32_get_stateid_lvl(pwr_domain_state, LVL_D2_LPLV) | \
+-	 ((pwr_domain_state[LVL_D1_LPLV] == STM32MP_LOCAL_STATE_OFF ? PSTATE_TYPE_POWERDOWN : 0) \
+-		<< PSTATE_TYPE_SHIFT))
++	 ((uint32_t)((pwr_domain_state[LVL_D1_LPLV] == STM32MP_LOCAL_STATE_OFF) ? \
++		     PSTATE_TYPE_POWERDOWN : 0) << PSTATE_TYPE_SHIFT))
+ 
+ /* State-id - 0x00000001 */
+ #define PWRSTATE_RUN \
+-- 
+2.53.0
+

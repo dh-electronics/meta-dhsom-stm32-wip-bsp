@@ -1,0 +1,59 @@
+From 652106a8cfdcc9b7fa749140e67f6614efd51e59 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 5 Dec 2025 16:54:42 +0100
+Subject: [PATCH 210/572] feat(stm32mp2): clear all IAC when serial programmer
+ is used
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When TF-A is configured in programmer mode, IAC may be caused by bootrom
+due to VBAT domain that keeps previous backup domain configuration.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e64254dd447c0103057ee428ca5a9b6914d1dfa8 feat(stm32mp2): clear all IAC when serial programmer is used]
+Change-Id: I039efd14ea9fb138f8fcca32612633d9b325d83c
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index c42b10aed4..d36c7452f7 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -97,6 +97,17 @@ static void iac_display(void)
+ #endif
+ }
+ 
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++static void clean_iac(void)
++{
++	uint32_t i;
++
++	for (i = 0U; i < IAC_NB; i++) {
++		mmio_write_32((IAC_BASE + IAC_ICR(i)), (uint32_t)~0U);
++	}
++}
++#endif
++
+ static void print_reset_reason(void)
+ {
+ 	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_C1BOOTRSTSCLRR);
+@@ -149,6 +160,14 @@ void bl2_el3_early_platform_setup(u_register_t arg0 __unused,
+ {
+ 	iac_dump();
+ 
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++	/*
++	 * fixup: clean IAC that may be caused by bootrom. They are
++	 * irrelevant in programmer mode.
++	 */
++	clean_iac();
++#endif
++
+ 	stm32mp_save_boot_ctx_address(BOOT_CTX_ADDR);
+ 
+ 	stm32_save_header();
+-- 
+2.53.0
+

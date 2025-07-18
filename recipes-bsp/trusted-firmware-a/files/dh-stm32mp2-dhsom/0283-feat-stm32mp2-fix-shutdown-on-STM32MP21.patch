@@ -1,0 +1,88 @@
+From 9f7905d718609b64e1d2ea357615f00333862295 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@foss.st.com>
+Date: Tue, 15 Oct 2024 17:38:42 +0200
+Subject: [PATCH 283/572] feat(stm32mp2): fix shutdown on STM32MP21
+
+Fix shutdown on STM32MP21:
+- EXTI2 base address is different from STM32MP25
+- Add clear cache before disabling the DDR.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0e92dbd5690a8a4d82697b570cbf886d1b757e43 feat(stm32mp2): fix shutdown on STM32MP21]
+Change-Id: I939392a7686fdbaa9342f05f76f513aab0c20076
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/411628
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+Tested-by: Pascal PAILLET <p.paillet@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h | 8 ++++++++
+ plat/st/stm32mp2/stm32mp2_pm.c  | 6 ++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 402d03cafc..9b228a35f1 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -346,17 +346,25 @@ enum ddr_type {
+ /*******************************************************************************
+  * STM32MP2 EXTI2
+  ******************************************************************************/
++#if !STM32MP21
+ #define STM32MP_EXTI2_BASE			U(0x46230000)
++#else
++#define STM32MP_EXTI2_BASE			U(0x442D0000)
++#endif /* !STM32MP21 */
+ 
+ #define EXTI2_C1IMR1				U(0x80)
+ #define EXTI2_C1IMR2				U(0x90)
++#if !STM32MP21
+ #define EXTI2_C1IMR3				U(0xA0)
++#endif /* !STM32MP21 */
+ #define EXTI2_C2IMR1				U(0xC0)
+ #define EXTI2_C2IMR2				U(0xD0)
++#if !STM32MP21
+ #define EXTI2_C2IMR3				U(0xE0)
+ #define EXTI2_C3IMR1				U(0x100)
+ #define EXTI2_C3IMR2				U(0x110)
+ #define EXTI2_C3IMR3				U(0x120)
++#endif /* !STM32MP21 */
+ 
+ /*******************************************************************************
+  * STM32MP2 GPIO
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 23a8fd1543..f393d0c4dd 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -840,6 +840,8 @@ static void stm32_system_off(void)
+ 		}
+ 	}
+ 
++	dcsw_op_all(DCCISW);
++
+ 	/* Force DDR off */
+ 	ddr_sub_system_clk_off();
+ 
+@@ -866,13 +868,17 @@ static void stm32_system_off(void)
+ 	/* Deactivate all WakeUp except WKUP pins */
+ 	mmio_write_32(exti2_base + EXTI2_C1IMR1, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C1IMR2, 0U);
++#if !STM32MP21
+ 	mmio_write_32(exti2_base + EXTI2_C1IMR3, 0U);
++#endif /* !STM32MP21 */
+ 	mmio_write_32(exti2_base + EXTI2_C2IMR1, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C2IMR2, 0U);
++#if !STM32MP21
+ 	mmio_write_32(exti2_base + EXTI2_C2IMR3, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C3IMR1, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C3IMR2, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C3IMR3, 0U);
++#endif /* !STM32MP21 */
+ 
+ 	/* Disable STATE_RUNNING state for this core */
+ 	stm32mp_state_set(core_id, STATE_RUNNING, false);
+-- 
+2.53.0
+

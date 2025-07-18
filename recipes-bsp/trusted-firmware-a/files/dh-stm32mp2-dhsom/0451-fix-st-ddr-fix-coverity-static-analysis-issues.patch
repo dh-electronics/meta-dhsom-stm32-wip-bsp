@@ -1,0 +1,149 @@
+From c989b00fee94f01f21222ad6004c83134d2c5d96 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Wed, 11 Mar 2026 14:07:38 +0100
+Subject: [PATCH 451/572] fix(st-ddr): fix coverity static analysis issues
+
+Fix following issues in the DDR driver:
+- potential overflowing expression (four occurrences),
+- returned value not checked before using it,
+- potential underflow of the type of a variable,
+- unused assigned value before overwriting it (two occurrences).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7277e1ef9282d8bc8d88704d92be0786faba43e1 fix(st-ddr): fix coverity static analysis issues
+0503f355ad0c5b601610d41016a6ab5dbc928a94 fix(st-ddr): fix coverity static analysis issues]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I2d7a26083e569008cb7650c29b3a18ff7757a0f5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/545719
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ .../src/ddrphy_phyinit_isdbytedisabled.c      |  2 --
+ .../src/ddrphy_phyinit_progcsrskiptrain.c     | 21 +++++++++++--------
+ drivers/st/ddr/stm32mp2_ddr.c                 |  2 +-
+ drivers/st/ddr/stm32mp_ddr_test.c             |  4 +++-
+ 4 files changed, 16 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_isdbytedisabled.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_isdbytedisabled.c
+index 4daf2bb027..e54f347bd9 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_isdbytedisabled.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_isdbytedisabled.c
+@@ -22,8 +22,6 @@ int ddrphy_phyinit_isdbytedisabled(struct stm32mp_ddr_config *config,
+ 	uint32_t nad0 __maybe_unused;
+ 	uint32_t nad1 __maybe_unused;
+ 
+-	disabledbyte = 0; /* Default assume Dbyte is Enabled */
+-
+ #if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+ 	disabledbyte = (dbytenumber > (config->uib.numactivedbytedfi0 - 1U)) ? 1 : 0;
+ #else /* STM32MP_LPDDR4_TYPE */
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_progcsrskiptrain.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_progcsrskiptrain.c
+index c9a71f4dec..00f4cbf0d2 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_progcsrskiptrain.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_progcsrskiptrain.c
+@@ -45,6 +45,7 @@ static void dfimrl_program(struct stm32mp_ddr_config *config, struct pmu_smb_ddr
+ 	int phy_rx_fifo_dly;
+ 	int phy_rx_insertion_dly = 200;
+ 	int phy_tx_insertion_dly = 200;
++	int tmp_value;
+ 	long long dficlk_period_x1000;
+ 	long long dfimrl_in_fs;
+ 	long long uifs;
+@@ -55,9 +56,9 @@ static void dfimrl_program(struct stm32mp_ddr_config *config, struct pmu_smb_ddr
+ 
+ 	phy_rx_fifo_dly = (int)(((200 * 1000) + (4 * uifs)) / 1000);
+ 
+-	dfimrl_in_fs = (ardptrinitval * uifs) +
+-		       ((phy_tx_insertion_dly + phy_rx_insertion_dly + phy_rx_fifo_dly +
+-			 timings.tstaoff + timings.tcasl_add + timings.tpdm) * 1000);
++	tmp_value = phy_tx_insertion_dly + phy_rx_insertion_dly + phy_rx_fifo_dly +
++		    timings.tstaoff + timings.tcasl_add + timings.tpdm;
++	dfimrl_in_fs = (ardptrinitval * uifs) + ((long long)tmp_value * 1000);
+ 
+ 	dfimrl_in_dficlk = (int)(dfimrl_in_fs / dficlk_period_x1000);
+ 	if ((dfimrl_in_fs % dficlk_period_x1000) != 0) {
+@@ -109,6 +110,7 @@ static void txdqsdlytg_program(struct stm32mp_ddr_config *config, struct pmu_smb
+ 	int txdqsdlytg_9to6; /* Coarse delay - 1UI per increment */
+ 	int txdqsdlytg_fine_default = 0;
+ 	int txdqsdlytg_coarse_default = 4;
++	int timings_sum;
+ 	long long tmp_value;
+ 	long long uifs;
+ 
+@@ -118,9 +120,9 @@ static void txdqsdlytg_program(struct stm32mp_ddr_config *config, struct pmu_smb
+ 				 timings.tstaoff + timings.tcasl_add
+ 				 - timings.tpdm) / (int)(uifs / 1000));
+ 
++	timings_sum = timings.tstaoff + timings.tcasl_add - timings.tpdm;
+ 	tmp_value = fmodll(((txdqsdlytg_fine_default * uifs / 32) +
+-			    ((timings.tstaoff + timings.tcasl_add) * 1000) -
+-			    (timings.tpdm * 1000)),
++			    ((long long)timings_sum * 1000)),
+ 			   uifs);
+ 	txdqsdlytg_5to0 = (int)(tmp_value / uifs * 32);
+ 	if ((tmp_value % uifs) != 0) {
+@@ -271,6 +273,7 @@ static void rxendly_program(struct stm32mp_ddr_config *config, struct pmu_smb_dd
+ 	uint32_t byte;
+ 	int rxendly_10to6; /* Coarse delay - 1UI per increment */
+ 	int rxendly_5to0; /* Fine delay - 1/32UI per increment */
++	int tmp_value;
+ 	int totfinestep;
+ 	long long finestepfs; /* Fine steps in fs */
+ 	long long rxendly_offset_x1000000 = 0; /* 0 Offset is 1UI before the first DQS. */
+@@ -298,10 +301,10 @@ static void rxendly_program(struct stm32mp_ddr_config *config, struct pmu_smb_dd
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 
+ 	finestepfs = uifs / 32;
++	tmp_value = timings.tstaoff + timings.tcasl_add + timings.tpdm;
+ 	totfs = ((32 * rxendly_coarse_default * finestepfs) +
+-		 (rxendly_fine_default * finestepfs) +
+-		 ((timings.tstaoff + timings.tcasl_add +
+-		   timings.tpdm) * 1000) + (rxendly_offset_x1000000 / 1000));
++		 (rxendly_fine_default * finestepfs) + ((long long)tmp_value * 1000) +
++		 (rxendly_offset_x1000000 / 1000));
+ 	totfinestep = totfs / finestepfs;
+ 
+ 	rxendly_10to6 = totfinestep / 32;
+@@ -492,7 +495,7 @@ static void seq0bgpr_program(struct stm32mp_ddr_config *config)
+ 							CSR_SEQ0BGPR1_ADDR))),
+ 		      regdata);
+ 
+-	regdata = (uint16_t)((wl - 5U + extradly) << CSR_ACSMWCASLAT_LSB);
++	regdata = (uint16_t)(((wl + extradly) - 5U) << CSR_ACSMWCASLAT_LSB);
+ 	mmio_write_16((uintptr_t)(DDRPHYC_BASE + (4U * (P0 | C0 | TINITENG | R2 |
+ 							CSR_SEQ0BGPR2_ADDR))),
+ 		      regdata);
+diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
+index ec4dc7fb0d..78d0f4096c 100644
+--- a/drivers/st/ddr/stm32mp2_ddr.c
++++ b/drivers/st/ddr/stm32mp2_ddr.c
+@@ -354,7 +354,7 @@ static void restore_refresh(struct stm32mp_ddrctl *ctl, uint32_t rfshctl3, uint3
+ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 		       struct stm32mp_ddr_config *config)
+ {
+-	int ret = -EINVAL;
++	int ret;
+ 	uint32_t ddr_retdis;
+ 	enum ddr_type ddr_type;
+ 	bool cid_filtering = is_ddr_cid_filtering_enabled();
+diff --git a/drivers/st/ddr/stm32mp_ddr_test.c b/drivers/st/ddr/stm32mp_ddr_test.c
+index 707a6ff086..06b76d9c01 100644
+--- a/drivers/st/ddr/stm32mp_ddr_test.c
++++ b/drivers/st/ddr/stm32mp_ddr_test.c
+@@ -51,7 +51,9 @@ uintptr_t stm32mp_ddr_test_rw_access(void)
+ 		return STM32MP_DDR_BASE;
+ 	}
+ 
+-	mmio_write_pattern(STM32MP_DDR_BASE, saved_value);
++	if (saved_value != DDR_PATTERN) {
++		mmio_write_pattern(STM32MP_DDR_BASE, saved_value);
++	}
+ 
+ 	return 0UL;
+ }
+-- 
+2.53.0
+

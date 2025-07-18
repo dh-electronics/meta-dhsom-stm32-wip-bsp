@@ -1,0 +1,46 @@
+From 8160a639cd59341cbf6e5944852676aa7ba7ced5 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 11 Mar 2026 11:16:25 +0100
+Subject: [PATCH 428/572] fix(st-nvmem): check fdt_node_offset_by_phandle()
+ return
+
+In nvmem_get_cell_by_index(), the return value of the call to
+fdt_node_offset_by_phandle() wasn't checked. Retrurn this value if it is
+negative.
+This was found by Coverity: Defect (unchecked_return_value inferred)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d37690cbbd3448d21087c13b26b2785cce1a37e8 fix(st-nvmem): check fdt_node_offset_by_phandle() return]
+Change-Id: If2ecc93249032725abd44180e8ba39c41b9a4bbc
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/545602
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/nvmem/nvmem.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/nvmem/nvmem.c b/drivers/st/nvmem/nvmem.c
+index d9441eb8b7..c33eef1355 100644
+--- a/drivers/st/nvmem/nvmem.c
++++ b/drivers/st/nvmem/nvmem.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -78,6 +78,9 @@ int nvmem_get_cell_by_index(const void *fdt, int nodeoffset, unsigned int index,
+ 
+ 	phandle = fdt32_to_cpu(nvmem_cells_prop[index]);
+ 	nvmem_cell_node = fdt_node_offset_by_phandle(fdt, phandle);
++	if (nvmem_cell_node < 0) {
++		return nvmem_cell_node;
++	}
+ 
+ 	nvmem_cell_reg_prop = fdt_getprop(fdt, nvmem_cell_node, "reg", &len);
+ 
+-- 
+2.53.0
+

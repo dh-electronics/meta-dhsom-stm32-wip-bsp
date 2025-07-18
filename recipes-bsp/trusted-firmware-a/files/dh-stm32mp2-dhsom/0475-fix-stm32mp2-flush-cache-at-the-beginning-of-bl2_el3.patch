@@ -1,0 +1,68 @@
+From bdaec981fc0418c623cbbec218e91f94e0be43dd Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 5 Jun 2026 17:26:44 +0200
+Subject: [PATCH 475/572] fix(stm32mp2): flush cache at the beginning of
+ bl2_el3_plat_prepare_exit
+
+The data cache has been disabled in the bl2_run_next_image(), the caller
+function of bl2_el3_plat_prepare_exit(). We were already flushing the
+data cache for storage data before calling stm32mp_io_exit(). But this
+should be done at the beginning of bl2_el3_plat_prepare_exit().
+Else some data may not be correct in memory.
+Sometimes, in trusted boot and when Cortex-M33 was TDCID, the board
+failed to boot with a synchronous exception. This was because timer_ops
+structure was not correct in memory, and timer operations are used in
+PSA functions called by rse_platform_stm32_share_key_stop(). Flushing
+the cache before solves the issue.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 49c20d215b96c20687645fa59c4a7588c610fd05 fix(stm32mp2): flush cache at the beginning of bl2_el3_plat_prepare_exit]
+Change-Id: Idcb3fe1722932d131f9fc8832105a1cc3ffaf558
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/575558
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index da5d14a6a7..68b928f040 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2026, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -869,6 +869,15 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 
+ void bl2_el3_plat_prepare_exit(void)
+ {
++	/*
++	 * The cache has just been disabled by the caller function.
++	 * The flush of the data sections should then be done at the beginning
++	 * of this function before accessing data that have not been flushed.
++	 * This is the case for the storage data, or the timer ops for example.
++	 */
++	flush_dcache_range(BSS_START, BSS_END - BSS_START);
++	flush_dcache_range(DATA_START, DATA_END - DATA_START);
++
+ #if STM32MP_M33_TDCID
+ #if TRUSTED_BOARD_BOOT
+ 	if (rse_platform_stm32_share_key_stop(0) != PSA_SUCCESS) {
+@@ -881,9 +890,6 @@ void bl2_el3_plat_prepare_exit(void)
+ 	}
+ #endif
+ 
+-	flush_dcache_range(BSS_START, BSS_END - BSS_START);
+-	flush_dcache_range(DATA_START, DATA_END - DATA_START);
+-
+ 	stm32mp_io_exit();
+ 
+ 	/* Unmask potential tamper before exit */
+-- 
+2.53.0
+

@@ -1,0 +1,64 @@
+From a1c67d80bef51ab8522aaf3ca3eb195ca9e4fe1e Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 26 Nov 2024 11:11:53 +0100
+Subject: [PATCH 305/572] feat(st-clock): add trace for unknown clock
+ identifier
+
+Add a trace to identify usage of unknown clock identifier with
+clock API.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 116dc81feb125fac6d87f0585bc93503fdd58089 feat(st-clock): add trace for unknown clock identifier]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Iea1f7de3e7692c6d27c714ed377c4c69a31d1e3d
+---
+ drivers/st/clk/clk-stm32-core.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/st/clk/clk-stm32-core.c b/drivers/st/clk/clk-stm32-core.c
+index 2040b34d63..1bdd68affa 100644
+--- a/drivers/st/clk/clk-stm32-core.c
++++ b/drivers/st/clk/clk-stm32-core.c
+@@ -566,6 +566,7 @@ static int clk_stm32_enable(unsigned long binding_id)
+ 
+ 	id = clk_get_index(priv, binding_id);
+ 	if (id == -EINVAL) {
++		ERROR("%s: unsupported clock id %lu\n", __func__, binding_id);
+ 		return id;
+ 	}
+ 
+@@ -580,6 +581,8 @@ static void clk_stm32_disable(unsigned long binding_id)
+ 	id = clk_get_index(priv, binding_id);
+ 	if (id != -EINVAL) {
+ 		_clk_stm32_disable(priv, id);
++	} else {
++		ERROR("%s: unsupported clock id %lu\n", __func__, binding_id);
+ 	}
+ }
+ 
+@@ -590,6 +593,7 @@ static bool clk_stm32_is_enabled(unsigned long binding_id)
+ 
+ 	id = clk_get_index(priv, binding_id);
+ 	if (id == -EINVAL) {
++		ERROR("%s: unsupported clock id %lu\n", __func__, binding_id);
+ 		return false;
+ 	}
+ 
+@@ -603,6 +607,7 @@ static unsigned long clk_stm32_get_rate(unsigned long binding_id)
+ 
+ 	id = clk_get_index(priv, binding_id);
+ 	if (id == -EINVAL) {
++		ERROR("%s: unsupported clock id %lu\n", __func__, binding_id);
+ 		return 0UL;
+ 	}
+ 
+@@ -616,6 +621,7 @@ static int clk_stm32_get_parent(unsigned long binding_id)
+ 
+ 	id = clk_get_index(priv, binding_id);
+ 	if (id == -EINVAL) {
++		ERROR("%s: unsupported clock id %lu\n", __func__, binding_id);
+ 		return id;
+ 	}
+ 
+-- 
+2.53.0
+
