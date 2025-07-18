@@ -1,0 +1,47 @@
+From 58b8a192bf648bfdfc2189705b8aa38ac9a99187 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Fri, 13 Oct 2023 11:46:57 +0200
+Subject: [PATCH 379/841] feat(stm32mp2): put back core 1 in wfi after
+ debugger's halt
+
+The core 1 is put in wfi for pen holding. If a debugger halts the
+core, it causes the core to exit from wfi.
+
+Let the core to jump back in wfi when the debugger resumes the
+core's execution.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 97ce79a44240945c50f64fa110d2450985edcd9d feat(stm32mp2): put back core 1 in wfi after debugger's halt]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I9b5607b05cdcde905dc4047af8d6f1292d53d701
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/337556
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/aarch64/stm32mp2_helper.S | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+index 1dcab2005..f82d69df1 100644
+--- a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
++++ b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+@@ -34,9 +34,14 @@ endfunc platform_mem_init
+ 	 */
+ func plat_secondary_cold_boot_setup
+ 	dsb	sy
++1:
+ 	wfi
+-	/* This shouldn't be reached */
+-	b	.
++	/*
++	 * This shouldn't be reached, but when a debugger halts the
++	 * secondary core it causes exit from wfi.
++	 * Put back the core in wfi.
++	 */
++	b	1b
+ endfunc plat_secondary_cold_boot_setup
+ 
+ 	/* ----------------------------------------------
+-- 
+2.47.2
+

@@ -1,0 +1,47 @@
+From 299e93fc371aefa6dae3f5ba2fd6d67cac450a7b Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 13 Sep 2023 14:34:12 +0200
+Subject: [PATCH 338/841] feat(stm32mp2): check arg0 in
+ bl31_early_platform_setup2()
+
+If arg0 is 0 in bl31_early_platform_setup2(), then the image parameters
+will be wrong. Add an assert on arg0 != 0UL.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6b3c69ed63aeb5063d7beb61d74480d719ef16d2 feat(stm32mp2): check arg0 in bl31_early_platform_setup2()]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ieac4c0da704adf95222c179bc3411acf1039418b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/327284
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Tested-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ plat/st/stm32mp2/bl31_plat_setup.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index 1b99ae38f..5c63b130d 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -21,7 +21,7 @@ static entry_point_info_t bl33_image_ep_info;
+ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 				u_register_t arg2, u_register_t arg3)
+ {
+-	bl_params_t *params_from_bl2 = (bl_params_t *)arg0;
++	bl_params_t *params_from_bl2;
+ 	char name[STM32_SOC_NAME_SIZE];
+ 
+ 	stm32mp_setup_early_console();
+@@ -55,6 +55,8 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 
+ 	(void)stm32mp_uart_console_setup();
+ 
++	assert(arg0 != 0UL);
++	params_from_bl2 = (bl_params_t *)arg0;
+ 	assert(params_from_bl2 != NULL);
+ 	assert(params_from_bl2->h.type == PARAM_BL_PARAMS);
+ 	assert(params_from_bl2->h.version >= VERSION_2);
+-- 
+2.47.2
+

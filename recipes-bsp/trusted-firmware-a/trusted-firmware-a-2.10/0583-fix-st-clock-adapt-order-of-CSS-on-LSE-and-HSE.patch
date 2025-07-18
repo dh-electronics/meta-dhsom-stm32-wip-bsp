@@ -1,0 +1,87 @@
+From d7b277d15cfe2f125737493319948d4679ec7025 Mon Sep 17 00:00:00 2001
+From: Christoph Fritz <chf@fritzc.com>
+Date: Thu, 30 Nov 2023 10:17:00 +0100
+Subject: [PATCH 583/841] fix(st-clock): adapt order of CSS on LSE and HSE
+
+Fix the activation order of the CSS to prevent a faulty halt, according
+to the reference manual (RM0442 Rev 6, Chapter: 10.4.3 Clock security
+system CSS) it must be done after selecting the LSE clock via the RTCSRC
+field.
+For the HSE clock, this can be activated even when HSEON is '0'.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c4592597aadb9a1b78b76449b98beb72cd425b14 fix(st-clock): adapt order of CSS on LSE and HSE]
+Signed-off-by: Christoph Fritz <chf@fritzc.com>
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Ied01baac1ccc63dcef78bf5f9180bb8628cce2d0
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/351435
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/373831
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/clk/stm32mp1_clk.c | 13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/clk/stm32mp1_clk.c b/drivers/st/clk/stm32mp1_clk.c
+index 46b26aa39..2be17306f 100644
+--- a/drivers/st/clk/stm32mp1_clk.c
++++ b/drivers/st/clk/stm32mp1_clk.c
+@@ -64,6 +64,7 @@ struct stm32_clk_platdata {
+ 	uint32_t *clksrc;
+ 	uint32_t nclkdiv;
+ 	uint32_t *clkdiv;
++	bool lse_css;
+ };
+ 
+ struct stm32_clk_priv {
+@@ -2072,6 +2073,7 @@ static int stm32_clk_configure_clk(struct stm32_clk_priv *priv, uint32_t data)
+ 	uint32_t sel = (data & CLK_SEL_MASK) >> CLK_SEL_SHIFT;
+ 	uint32_t enable = (data & CLK_ON_MASK) >> CLK_ON_SHIFT;
+ 	unsigned long binding_id = ((unsigned long)data & CLK_ID_MASK) >> CLK_ID_SHIFT;
++	struct stm32_clk_platdata *pdata = priv->pdata;
+ 
+ 	if (binding_id == RTC) {
+ 		uintptr_t address = stm32mp_rcc_base() + RCC_BDCR;
+@@ -2081,6 +2083,10 @@ static int stm32_clk_configure_clk(struct stm32_clk_priv *priv, uint32_t data)
+ 					   (sel & RCC_SELR_SRC_MASK) << RCC_BDCR_RTCSRC_SHIFT);
+ 
+ 			mmio_setbits_32(address, RCC_BDCR_RTCCKEN);
++			/* Configure LSE CSS */
++			if (pdata->lse_css) {
++				mmio_setbits_32(priv->base + RCC_BDCR, RCC_BDCR_LSECSSON);
++			}
+ 		}
+ 	}
+ 
+@@ -2176,7 +2182,6 @@ int stm32mp1_clk_init(uint32_t pll1_freq_khz)
+ 	struct stm32_pll_dt_cfg *pll_conf = pdata->pll;
+ 	int ret;
+ 	enum stm32mp1_pll_id i;
+-	bool lse_css = false;
+ 	bool pll3_preserve = false;
+ 	bool pll4_preserve = false;
+ 	bool pll4_bootrom = false;
+@@ -2209,7 +2214,7 @@ int stm32mp1_clk_init(uint32_t pll1_freq_khz)
+ 
+ 		bypass = fdt_clk_read_bool(name, "st,bypass");
+ 		digbyp = fdt_clk_read_bool(name, "st,digbypass");
+-		lse_css = fdt_clk_read_bool(name, "st,css");
++		pdata->lse_css = fdt_clk_read_bool(name, "st,css");
+ 		lsedrv = fdt_clk_read_uint32_default(name, "st,drive",
+ 						     LSEDRV_MEDIUM_HIGH);
+ 		stm32mp1_lse_enable(bypass, digbyp, lsedrv);
+@@ -2382,10 +2387,6 @@ int stm32mp1_clk_init(uint32_t pll1_freq_khz)
+ 		}
+ 	}
+ 
+-	if (lse_css) {
+-		mmio_setbits_32(priv->base + RCC_BDCR, RCC_BDCR_LSECSSON);
+-	}
+-
+ 	/* Switch OFF HSI if not found in device-tree */
+ 	if (stm32mp1_osc[_HSI] == 0U) {
+ 		stm32mp1_hsi_set(false);
+-- 
+2.47.2
+

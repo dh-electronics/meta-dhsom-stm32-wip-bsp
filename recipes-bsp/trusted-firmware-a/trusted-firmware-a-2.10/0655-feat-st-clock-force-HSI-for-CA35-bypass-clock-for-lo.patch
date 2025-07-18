@@ -1,0 +1,88 @@
+From 9165d66213f22c36eb0bd8ce92cff7916dbdfb28 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 10 Jul 2024 19:34:39 +0200
+Subject: [PATCH 655/841] feat(st-clock): force HSI for CA35 bypass clock for
+ low power modes
+
+Force HSI for CA35 bypass clock as workaround on ROM code timeout issue
+for STOP2 modes, when PLL1 is deactivated; in this mode the SoC timers
+are not used (they can be deactivated by application before low power
+mode entry) sot Rom code timeout duration are defined with CA35 looping
+but with a execution frequency at  64MHz, the value for default FLEXGEN
+MUX = HSI.
+
+This patch avoids a LPLV STOP2 wake up issue when D3PER is not MSI
+bu HSE or HSI; ROM code respect the timeout on D3 ready polling.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1fdab92516918d593c6632b5ea0c9c702ffd0128 feat(st-clock): force HSI for CA35 bypass clock for low power modes]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I7d1534dd1cdadb4c72838823c537857dc18247f2
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/392693
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/clk/clk-stm32mp2.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index 981ed830a..086ca1d73 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -26,6 +26,7 @@
+ #ifdef IMAGE_BL31
+ uint32_t saved_pll_freq1_reg;
+ uint32_t saved_pll_freq2_reg;
++uint32_t saved_xbar63cfgr;
+ #endif
+ 
+ struct stm32_osci_dt_cfg {
+@@ -1933,6 +1934,7 @@ static int wait_findivsr(uint16_t channel)
+ 
+ 	return 0;
+ }
++#endif /* IMAGE_BL2 */
+ 
+ static int wait_xbar_sts(uint16_t channel)
+ {
+@@ -1953,6 +1955,7 @@ static int wait_xbar_sts(uint16_t channel)
+ 	return 0;
+ }
+ 
++#ifdef IMAGE_BL2
+ static void flexclkgen_config_channel(uint16_t channel, unsigned int clk_src,
+ 				      unsigned int prediv, unsigned int findiv)
+ {
+@@ -2588,6 +2591,18 @@ int stm32mp2_pll1_disable(void)
+ 	saved_pll_freq1_reg = mmio_read_32(pll_freq1_reg);
+ 	saved_pll_freq2_reg = mmio_read_32(pll_freq2_reg);
+ 
++	/* save FLEXGEN63 MUX setting */
++	saved_xbar63cfgr = mmio_read_32(stm32mp2_clock_data.base + RCC_XBAR63CFGR);
++
++	if ((saved_xbar63cfgr & RCC_XBAR63CFGR_XBAR63SEL_MASK) != XBAR_SRC_HSI) {
++		/* use HSI for CA35 bypass clock (FLEXGEN63 = ck_cpu1_ext2f) */
++		mmio_clrsetbits_32(stm32mp2_clock_data.base + RCC_XBAR63CFGR,
++				   RCC_XBAR63CFGR_XBAR63SEL_MASK, XBAR_SRC_HSI);
++		if (wait_xbar_sts(63) != 0) {
++			panic();
++		}
++	}
++
+ 	stm32mp2_a35_ss_on_bypass();
+ 
+ 	mmio_clrbits_32(pll_enable_reg, A35_SS_PLL_ENABLE_PD);
+@@ -2613,6 +2628,9 @@ int stm32mp2_pll1_enable(void)
+ 		panic();
+ 	}
+ 
++	/* restore FLEXGEN63 MUX setting */
++	mmio_write_32(stm32mp2_clock_data.base + RCC_XBAR63CFGR, saved_xbar63cfgr);
++
+ 	return 0;
+ #endif
+ }
+-- 
+2.47.2
+

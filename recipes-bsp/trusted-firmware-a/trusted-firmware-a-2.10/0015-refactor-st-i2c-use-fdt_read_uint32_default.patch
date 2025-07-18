@@ -1,0 +1,131 @@
+From 11e00507ba54dfc15eed07c4ff7f24867b005f1c Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 2 Oct 2019 11:46:20 +0200
+Subject: [PATCH 015/841] refactor(st-i2c): use fdt_read_uint32_default()
+
+The function stm32_i2c_get_setup_from_fdt() was using fdt_getprop() to
+to get some i2c node properties, and set a default value if the node
+was not found. The function fdt_read_uint32_default() already does
+this in a simpler way.
+Remove useless STM32_I2C_SPEED_DEFAULT.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6cb465f0154cf47e9868615739189d1b26a9ed60 refactor(st-i2c): use fdt_read_uint32_default()]
+Change-Id: I74c6295bb5765ee7c7e0a9ae020b741f1fe022a6
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ drivers/st/i2c/stm32_i2c.c     | 67 ++++++++++++++--------------------
+ include/drivers/st/stm32_i2c.h |  1 -
+ 2 files changed, 28 insertions(+), 40 deletions(-)
+
+diff --git a/drivers/st/i2c/stm32_i2c.c b/drivers/st/i2c/stm32_i2c.c
+index bf6c3eeeb..e1d312aba 100644
+--- a/drivers/st/i2c/stm32_i2c.c
++++ b/drivers/st/i2c/stm32_i2c.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2016-2021, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2016-2022, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -8,17 +8,17 @@
+ #include <stdbool.h>
+ #include <stdlib.h>
+ 
+-#include <libfdt.h>
+-
+-#include <platform_def.h>
+-
+ #include <common/debug.h>
++#include <common/fdt_wrappers.h>
+ #include <drivers/clk.h>
+ #include <drivers/delay_timer.h>
+ #include <drivers/st/stm32_gpio.h>
+ #include <drivers/st/stm32_i2c.h>
+ #include <lib/mmio.h>
+ #include <lib/utils.h>
++#include <libfdt.h>
++
++#include <platform_def.h>
+ 
+ /* STM32 I2C registers offsets */
+ #define I2C_CR1			0x00U
+@@ -97,40 +97,29 @@ static int i2c_config_analog_filter(struct i2c_handle_s *hi2c,
+ int stm32_i2c_get_setup_from_fdt(void *fdt, int node,
+ 				 struct stm32_i2c_init_s *init)
+ {
+-	const fdt32_t *cuint;
+-
+-	cuint = fdt_getprop(fdt, node, "i2c-scl-rising-time-ns", NULL);
+-	if (cuint == NULL) {
+-		init->rise_time = STM32_I2C_RISE_TIME_DEFAULT;
+-	} else {
+-		init->rise_time = fdt32_to_cpu(*cuint);
+-	}
+-
+-	cuint = fdt_getprop(fdt, node, "i2c-scl-falling-time-ns", NULL);
+-	if (cuint == NULL) {
+-		init->fall_time = STM32_I2C_FALL_TIME_DEFAULT;
+-	} else {
+-		init->fall_time = fdt32_to_cpu(*cuint);
+-	}
+-
+-	cuint = fdt_getprop(fdt, node, "clock-frequency", NULL);
+-	if (cuint == NULL) {
+-		init->speed_mode = STM32_I2C_SPEED_DEFAULT;
+-	} else {
+-		switch (fdt32_to_cpu(*cuint)) {
+-		case STANDARD_RATE:
+-			init->speed_mode = I2C_SPEED_STANDARD;
+-			break;
+-		case FAST_RATE:
+-			init->speed_mode = I2C_SPEED_FAST;
+-			break;
+-		case FAST_PLUS_RATE:
+-			init->speed_mode = I2C_SPEED_FAST_PLUS;
+-			break;
+-		default:
+-			init->speed_mode = STM32_I2C_SPEED_DEFAULT;
+-			break;
+-		}
++	uint32_t read_val;
++
++	init->rise_time = fdt_read_uint32_default(fdt, node,
++						  "i2c-scl-rising-time-ns",
++						  STM32_I2C_RISE_TIME_DEFAULT);
++
++	init->fall_time = fdt_read_uint32_default(fdt, node,
++						  "i2c-scl-falling-time-ns",
++						  STM32_I2C_FALL_TIME_DEFAULT);
++
++	read_val = fdt_read_uint32_default(fdt, node, "clock-frequency",
++					   STANDARD_RATE);
++	switch (read_val) {
++	case FAST_PLUS_RATE:
++		init->speed_mode = I2C_SPEED_FAST_PLUS;
++		break;
++	case FAST_RATE:
++		init->speed_mode = I2C_SPEED_FAST;
++		break;
++	case STANDARD_RATE:
++	default:
++		init->speed_mode = I2C_SPEED_STANDARD;
++		break;
+ 	}
+ 
+ 	return dt_set_pinctrl_config(node);
+diff --git a/include/drivers/st/stm32_i2c.h b/include/drivers/st/stm32_i2c.h
+index 170d4cf81..01fe90846 100644
+--- a/include/drivers/st/stm32_i2c.h
++++ b/include/drivers/st/stm32_i2c.h
+@@ -294,7 +294,6 @@ struct i2c_handle_s {
+ /* STM32 specific defines */
+ #define STM32_I2C_RISE_TIME_DEFAULT		25	/* ns */
+ #define STM32_I2C_FALL_TIME_DEFAULT		10	/* ns */
+-#define STM32_I2C_SPEED_DEFAULT			I2C_SPEED_STANDARD
+ #define STM32_I2C_ANALOG_FILTER_DELAY_MIN	50	/* ns */
+ #define STM32_I2C_ANALOG_FILTER_DELAY_MAX	260	/* ns */
+ #define STM32_I2C_DIGITAL_FILTER_MAX		16
+-- 
+2.47.2
+

@@ -1,0 +1,75 @@
+From 433b5077ab6002f6bdbf52e6667df0c76002968f Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 24 Jan 2023 16:50:49 +0100
+Subject: [PATCH 269/841] feat(st-ddr): stm32mp2: set retention register in
+ RETRAM
+
+RETRAM is used by the DDR driver to store retention registers (DDR
+training results) in order to restore them in standby exit sequence.
+Set retreglist (address/value couples) and retregsize (number of
+couples) variables in this area.
+Saving is done at the end of DDR initialization sequence (cold boot),
+while restoring is done when exiting from standby mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e65ac9248cdbf1d59215167c0a51bea9e02cb068 feat(st-ddr): stm32mp2: set retention register in RETRAM]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I5d20153b6456cba39fcbe41ba79afd3e2777ee39
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/286973
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../phyinit/src/ddrphy_phyinit_reginterface.c    | 16 +++++++++++-----
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
+index dc33b5edf..63cdcf78b 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2021-2022, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2021-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -38,10 +38,14 @@
+  * Array of Address/value pairs used to store register values for the purpose
+  * of retention restore.
+  */
+-static reg_addr_val_t retreglist[MAX_NUM_RET_REGS];
++#define RETREG_AREA	((MAX_NUM_RET_REGS + 1) * sizeof(reg_addr_val_t))
++#define RETREG_BASE	(RETRAM_BASE + RETRAM_SIZE - RETREG_AREA)
+ 
+-static int numregsaved;        /* Current Number of registers saved. */
+-static int tracken = 1;        /* Enabled tracking of registers */
++static int *retregsize = (int *)(RETREG_BASE);
++static reg_addr_val_t *retreglist = (reg_addr_val_t *)(RETREG_BASE + sizeof(int));
++
++static int numregsaved; /* Current Number of registers saved. */
++static int tracken = 1; /* Enabled tracking of registers */
+ 
+ /*
+  * Tags a register if tracking is enabled in the register
+@@ -134,6 +138,8 @@ int ddrphy_phyinit_reginterface(reginstr myreginstr, uint32_t adr, uint16_t dat)
+ 			retreglist[regindx].value = data;
+ 		}
+ 
++		*retregsize = numregsaved;
++
+ 		return 0;
+ 	} else if (myreginstr == restoreregs) {
+ 		int regindx;
+@@ -142,7 +148,7 @@ int ddrphy_phyinit_reginterface(reginstr myreginstr, uint32_t adr, uint16_t dat)
+ 		 * write PHY registers based on Address, Data value pairs stores in
+ 		 * retreglist
+ 		 */
+-		for (regindx = 0; regindx < numregsaved; regindx++) {
++		for (regindx = 0; regindx < *retregsize; regindx++) {
+ 			mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * retreglist[regindx].address),
+ 				      retreglist[regindx].value);
+ 		}
+-- 
+2.47.2
+

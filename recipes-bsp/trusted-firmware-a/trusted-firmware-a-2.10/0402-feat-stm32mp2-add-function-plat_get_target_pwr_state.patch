@@ -1,0 +1,85 @@
+From 96492492894ce6edcc2680902a0f9b8d643db8c8 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 18 Oct 2023 14:29:17 +0200
+Subject: [PATCH 402/841] feat(stm32mp2): add function
+ plat_get_target_pwr_state
+
+Add plat_get_target_pwr_state for STM32MP25 platform as the default
+implementation in plat_spci_common is not working.
+
+The power state is RUN = 0U for simple CPU STANDBY, with fast path
+in psci_cpu_suspend(), so the function will ALWAYS return 0U
+for coordination with 2 cores for STM32MP25.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 92c992739c631038510b4d82d10e05f2dbddea3c feat(stm32mp2): add function plat_get_target_pwr_state]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I35efd5d5b161ac4e406190985e83f97342dac7db
+---
+ plat/st/stm32mp2/platform.mk   |  3 ---
+ plat/st/stm32mp2/stm32mp2_pm.c | 36 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 36 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index a189f3517..a1a727a68 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -275,9 +275,6 @@ BL31_SOURCES			+=	${GICV2_SOURCES}					\
+ 					plat/common/plat_gicv2.c				\
+ 					plat/st/common/stm32mp_gic.c
+ 
+-# Generic PSCI
+-BL31_SOURCES			+=	plat/common/plat_psci_common.c
+-
+ BL31_SOURCES		+=	plat/st/common/stm32mp_svc_setup.c			\
+ 				plat/st/stm32mp2/services/stgen_svc.c			\
+ 				plat/st/stm32mp2/services/stm32mp2_svc_setup.c
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 8fc824a92..8effc7ce5 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -710,6 +710,42 @@ static int stm32_validate_ns_entrypoint(uintptr_t entrypoint)
+ 	return PSCI_E_SUCCESS;
+ }
+ 
++/*
++ * The PSCI code uses this API to let the platform participate in state
++ * coordination during a power management operation. It compares the platform
++ * specific local power states requested by each cpu for a given power domain
++ * and returns the coordinated target power state that the domain should
++ * enter.
++ * This implementation assumes that the power state is RUN for simple
++ * CPU STANDBY called by fast path in psci_cpu_suspend(), and assumes that the
++ * power state are ordered in increasing depth of the power.
++ * As a result, the  coordinated target local power state for a power domain
++ * will be the minimum of the requested local power states wich is NOT RUN.
++ * And it return a invalid state ()= OFF_STATE + 1) when state is RUN for all
++ * the cpu.
++ */
++plat_local_state_t plat_get_target_pwr_state(unsigned int lvl,
++					     const plat_local_state_t *states,
++					     unsigned int ncpu)
++{
++	plat_local_state_t target = PLAT_MAX_OFF_STATE + 1U, temp;
++	const plat_local_state_t *st = states;
++	unsigned int n = ncpu;
++
++	assert(ncpu > 0U);
++
++	do {
++		temp = *st;
++		st++;
++		if ((temp < target) && (temp != STM32MP_LOCAL_STATE_RUN)) {
++			target = temp;
++		}
++		n--;
++	} while (n > 0U);
++
++	return target;
++}
++
+ /**
+  * stm32_get_sys_suspend_power_state() -  Get power state for system suspend
+  *
+-- 
+2.47.2
+

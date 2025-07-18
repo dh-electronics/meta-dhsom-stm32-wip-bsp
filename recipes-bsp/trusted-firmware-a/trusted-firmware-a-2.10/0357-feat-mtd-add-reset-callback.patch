@@ -1,0 +1,68 @@
+From 449fae0f61bfa24eb029cec880552277f750428d Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 4 Oct 2023 09:46:53 +0200
+Subject: [PATCH 357/841] feat(mtd): add reset callback
+
+Add new callback reset. This callback will be used to reset MTD devices.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c2b510f354efc21589e0c3a6d98053ed961ae651 feat(mtd): add reset callback]
+Change-Id: Ifc0ed2bbd021f3fae7af0a2b7760e6f39c2a844f
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/331575
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/io/io_mtd.c         | 14 ++++++++++++++
+ include/drivers/io/io_mtd.h |  7 +++++++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/drivers/io/io_mtd.c b/drivers/io/io_mtd.c
+index 5d86592db..6621d4969 100644
+--- a/drivers/io/io_mtd.c
++++ b/drivers/io/io_mtd.c
+@@ -271,6 +271,20 @@ static int mtd_dev_open(const uintptr_t dev_spec, io_dev_info_t **dev_info)
+ 
+ static int mtd_dev_close(io_dev_info_t *dev_info)
+ {
++	mtd_dev_state_t *cur;
++	io_mtd_ops_t *ops;
++	int result;
++
++	cur = (mtd_dev_state_t *)dev_info->info;
++	ops = &(cur->dev_spec->ops);
++
++	if (ops->reset != NULL) {
++		result = ops->reset();
++		if (result != 0) {
++			return result;
++		}
++	}
++
+ 	return free_dev_info(dev_info);
+ }
+ 
+diff --git a/include/drivers/io/io_mtd.h b/include/drivers/io/io_mtd.h
+index 2b5d9b101..18a1dc316 100644
+--- a/include/drivers/io/io_mtd.h
++++ b/include/drivers/io/io_mtd.h
+@@ -54,6 +54,13 @@ typedef struct io_mtd_ops {
+ 	 * Return 0 on success, a negative error code otherwise.
+ 	 */
+ 	int (*seek)(uintptr_t base, unsigned int offset, size_t *extra_offset);
++
++	/*
++	 * Reset the device.
++	 *
++	 * Return 0 on success, a negative error code otherwise.
++	 */
++	int (*reset)(void);
+ } io_mtd_ops_t;
+ 
+ typedef struct io_mtd_dev_spec {
+-- 
+2.47.2
+

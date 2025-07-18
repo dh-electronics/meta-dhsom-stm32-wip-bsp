@@ -1,0 +1,40 @@
+From d3bd1c1f677657b0f76c9291b1ab18ffbd3a184a Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Mon, 4 Jul 2022 12:09:19 +0200
+Subject: [PATCH 182/841] feat(st-fmc): reset FMC2 if CFGR access is allowed
+
+FMC reset should be done only if CFGR resource access is allowed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0a53dfa754f4459bee8e21528fbac4ddd53f693a feat(st-fmc): reset FMC2 if CFGR access is allowed]
+Change-Id: I9a175836713aea998eba649468f4c4c7f1f8fea5
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/259009
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/fmc/stm32_fmc2_nand.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/st/fmc/stm32_fmc2_nand.c b/drivers/st/fmc/stm32_fmc2_nand.c
+index 1d5495de4..7030e1a0e 100644
+--- a/drivers/st/fmc/stm32_fmc2_nand.c
++++ b/drivers/st/fmc/stm32_fmc2_nand.c
+@@ -1007,7 +1007,12 @@ int stm32_fmc2_init(void)
+ 	clk_enable(stm32_fmc2.clock_id);
+ 
+ 	/* Reset IP */
++#if STM32MP25
++	if ((info.reset >= 0) &&
++	    (stm32_fmc2_check_rif(FMC2_RESOURCE_CFGR) != -EACCES)) {
++#else
+ 	if (info.reset >= 0) {
++#endif
+ 		unsigned int reset_id = (unsigned int)info.reset;
+ 
+ 		ret = stm32mp_reset_assert(reset_id, TIMEOUT_US_1_MS);
+-- 
+2.47.2
+

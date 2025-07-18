@@ -1,0 +1,50 @@
+From 8d08d50c13f79512912bcbbec738eddceb40dc7c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 8 Oct 2024 15:00:44 +0200
+Subject: [PATCH 722/841] feat(st-clock): test if clock is already enabled
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Avoid enabling a clock that is already running. This is useful on
+M33TDCID to avoid IAC, as A35 is not supposed to enable any clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git fba841ffc6d2213d5e578c8826a26da32802d485 feat(st-clock): test if clock is already enabled]
+Change-Id: I2d7fdda62bbb344eba084eaf429e60f5c2ad9efb
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/409877
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/clk/clk-stm32-core.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/st/clk/clk-stm32-core.c b/drivers/st/clk/clk-stm32-core.c
+index 86a4b71f4..f5882da8f 100644
+--- a/drivers/st/clk/clk-stm32-core.c
++++ b/drivers/st/clk/clk-stm32-core.c
+@@ -444,10 +444,19 @@ int clk_stm32_enable_call_ops(struct stm32_clk_priv *priv, uint16_t id)
+ {
+ 	const struct stm32_clk_ops *ops = _clk_get_ops(priv, id);
+ 
++	if ((ops->is_enabled != NULL) && ops->is_enabled(priv, id)) {
++		return 0;
++	}
++
+ 	if (ops->enable != NULL) {
+ 		ops->enable(priv, id);
+ 	}
+ 
++	if ((ops->is_enabled != NULL) && !ops->is_enabled(priv, id)) {
++		ERROR("failed to enable clock id: %u\n", id);
++		panic();
++	}
++
+ 	return 0;
+ }
+ 
+-- 
+2.47.2
+

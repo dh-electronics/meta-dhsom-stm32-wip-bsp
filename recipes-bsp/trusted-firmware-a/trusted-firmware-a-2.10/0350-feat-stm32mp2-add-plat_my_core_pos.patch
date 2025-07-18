@@ -1,0 +1,60 @@
+From 57c43a2d3512aa80d3ca346fbd6f48074a05cd7c Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 22 Sep 2023 13:58:11 +0200
+Subject: [PATCH 350/841] feat(stm32mp2): add plat_my_core_pos
+
+This function is required, at least for bakery locks.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1cb6171869a7d3bad0e8e17cb668c5d90994a73b feat(stm32mp2): add plat_my_core_pos]
+Change-Id: I28906c50e0a0ebff5d387a424247513ec1a599fc
+---
+ plat/st/stm32mp2/aarch64/stm32mp2_helper.S | 26 ++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+index c8f05faf3..1dcab2005 100644
+--- a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
++++ b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+@@ -14,6 +14,7 @@
+ 	.globl	platform_mem_init
+ 	.globl	plat_secondary_cold_boot_setup
+ 	.globl	plat_is_my_cpu_primary
++	.globl	plat_my_core_pos
+ 	.globl	plat_crash_console_init
+ 	.globl	plat_crash_console_flush
+ 	.globl	plat_crash_console_putc
+@@ -51,6 +52,31 @@ func plat_is_my_cpu_primary
+ 	ret
+ endfunc plat_is_my_cpu_primary
+ 
++	/* -----------------------------------------------------------
++	 *  unsigned int plat_stm32mp_get_core_pos(u_register_t mpidr)
++	 *  Helper function to calculate the core position.
++	 *  With this function: CorePos = (ClusterId * 4) +
++	 *  				  CoreId
++	 * -----------------------------------------------------------
++	 */
++func plat_stm32mp_get_core_pos
++	and	x1, x0, #MPIDR_CPU_MASK
++	and	x0, x0, #MPIDR_CLUSTER_MASK
++	add	x0, x1, x0, LSR #6
++	ret
++endfunc plat_stm32mp_get_core_pos
++
++	/* -----------------------------------------------------
++	 *  unsigned int plat_my_core_pos(void)
++	 *  This function uses the plat_stm32mp_get_core_pos()
++	 *  definition to get the index of the calling CPU.
++	 * -----------------------------------------------------
++	 */
++func plat_my_core_pos
++	mrs	x0, mpidr_el1
++	b	plat_stm32mp_get_core_pos
++endfunc plat_my_core_pos
++
+ 	/* ---------------------------------------------
+ 	 * int plat_crash_console_init(void)
+ 	 *
+-- 
+2.47.2
+

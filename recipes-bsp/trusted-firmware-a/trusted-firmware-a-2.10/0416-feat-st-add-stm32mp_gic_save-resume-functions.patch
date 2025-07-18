@@ -1,0 +1,89 @@
+From 03c988728c23bc092738a7157e0876b1a1e03018 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 8 Nov 2023 11:00:21 +0100
+Subject: [PATCH 416/841] feat(st): add stm32mp_gic_save / resume functions
+
+With OSI CPUIdle and S2IDLE suspend request the GIC configuration is not
+restored in Linux, so this patch introduce the needed GICv2 functions to
+save restore the distributor context as it is done for GICv3
+(see gicv3_distif_save() and gicv3_distif_init_restore() functions).
+
+These functions will be called when GIC setup is lost in low power mode
+requested in PSCI CPU SUSPEND request, used in S2IDLE or CPUDILE,
+for example for STOP2 modes on STM32MP25x.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 706ea7178f0efae93da50e99dd6bae68c75bde97 feat(st): add stm32mp_gic_save / resume functions]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I5983e3a587281a702a0556ee3d79f6d1cfb4b6ec
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/340126
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  3 +++
+ plat/st/common/stm32mp_gic.c            | 15 +++++++++++++++
+ plat/st/stm32mp2/platform.mk            |  3 +++
+ 3 files changed, 21 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index db4f91970..e83cacf9d 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -49,6 +49,9 @@ void stm32mp_gic_cpuif_disable(void);
+ void stm32mp_gic_pcpu_init(void);
+ void stm32mp_gic_init(void);
+ 
++void stm32mp_gic_save(void);
++void stm32mp_gic_resume(void);
++
+ /* Check MMU status to allow spinlock use */
+ bool stm32mp_lock_available(void);
+ 
+diff --git a/plat/st/common/stm32mp_gic.c b/plat/st/common/stm32mp_gic.c
+index f0d6ea3d1..4cad7b032 100644
+--- a/plat/st/common/stm32mp_gic.c
++++ b/plat/st/common/stm32mp_gic.c
+@@ -40,6 +40,8 @@ static gicv2_driver_data_t platform_gic_data = {
+ 
+ static struct stm32mp_gic_instance stm32mp_gic;
+ 
++static gicv2_dist_ctx_t gicv2_dist_ctx;
++
+ void stm32mp_gic_init(void)
+ {
+ 	int node;
+@@ -104,3 +106,16 @@ void stm32mp_gic_pcpu_init(void)
+ 	gicv2_pcpu_distif_init();
+ 	gicv2_set_pe_target_mask(plat_my_core_pos());
+ }
++
++void stm32mp_gic_save(void)
++{
++	gicv2_distif_save(&gicv2_dist_ctx);
++}
++
++void stm32mp_gic_resume(void)
++{
++	gicv2_distif_init();
++	stm32mp_gic_pcpu_init();
++
++	gicv2_distif_restore(&gicv2_dist_ctx);
++}
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index f0a497de3..fc2a0a1d6 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -23,6 +23,9 @@ ENABLE_SVE_FOR_NS		:= 0
+ PSCI_EXTENDED_STATE_ID		:= 1
+ PSCI_OS_INIT_MODE		:= 1
+ 
++# Reduce the number of interruption in GIC context
++GICV2_INTR_NUM		:=	416
++
+ # Default Device tree
+ DTB_FILE_NAME			?=	stm32mp257f-ev1.dtb
+ 
+-- 
+2.47.2
+

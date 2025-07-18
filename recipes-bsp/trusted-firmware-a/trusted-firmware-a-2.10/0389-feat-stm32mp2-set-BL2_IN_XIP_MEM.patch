@@ -1,0 +1,53 @@
+From cdc9a55fd878ff23bb6203569bd7d36264c859fd Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 20 Oct 2023 11:41:25 +0200
+Subject: [PATCH 389/841] feat(stm32mp2): set BL2_IN_XIP_MEM
+
+PIE is enabled on STM32MP2 platform, but it shouldn't be enabled for
+BL2. Set the flag BL2_IN_XIP_MEM for this. This also allows a gain
+of 8kB. To properly compile, increase STM32MP_BL2_RO_SIZE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b4dc6909c624b5b2986f5da9e96ae435f483b71a feat(stm32mp2): set BL2_IN_XIP_MEM]
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Change-Id: I44ab084bffb72c6a4dffc071a463051e6106d261
+---
+ plat/st/stm32mp2/platform.mk    | 1 +
+ plat/st/stm32mp2/stm32mp2_def.h | 8 ++++----
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 3a4f13df3..a189f3517 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -13,6 +13,7 @@ include plat/st/common/common.mk
+ CRASH_REPORTING			:=	1
+ ENABLE_PIE			:=	1
+ PROGRAMMABLE_RESET_ADDRESS	:=	1
++BL2_IN_XIP_MEM			:=	1
+ 
+ # Disable features unsupported in ARMv8.0
+ ENABLE_SPE_FOR_NS		:= 0
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 40604815a..476fd160e 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -142,12 +142,12 @@ enum ddr_type {
+ 
+ #define STM32MP_BL31_SIZE		U(0x0001D000)	/* 116 KB for BL31 */
+ 
+-#define STM32MP_BL2_RO_SIZE		U(0x00018000)	/* 96 KB */
+-
+ #if TRUSTED_BOARD_BOOT
+-#define STM32MP_BL2_SIZE		U(0x0002E000)	/* 184 KB for BL2 */
++#define STM32MP_BL2_RO_SIZE		U(0x00021000)	/* 132 KB */
++#define STM32MP_BL2_SIZE		U(0x0002D000)	/* 180 KB for BL2 */
+ #else
+-#define STM32MP_BL2_SIZE		U(0x0002A000)	/* 168 KB for BL2 */
++#define STM32MP_BL2_RO_SIZE		U(0x00020000)	/* 128 KB */
++#define STM32MP_BL2_SIZE		U(0x00029000)	/* 164 KB for BL2 */
+ #endif
+ 
+ #define STM32MP_BL2_BASE		(STM32MP_SEC_SYSRAM_BASE + \
+-- 
+2.47.2
+

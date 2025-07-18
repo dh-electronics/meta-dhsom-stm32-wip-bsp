@@ -1,0 +1,60 @@
+From 8ddca9a89bacbf575c30fc62372b5ab6543e96a7 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Thu, 9 Mar 2023 12:15:19 +0100
+Subject: [PATCH 375/841] fix(st): fix uart issue in SSP mode
+
+NOT_UPSTREAMABLE
+
+Add a flush to ensure that the programmer get time to read the last
+command sent.
+Remove the is_valid_header that is only used in case of FIP. This
+must not be checked in case of SSP mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c2be8e383f177db228ab348574aaa5e751891a57 fix(st): fix uart issue in SSP mode]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: I456d996d00e48abc712c50556e414ff4e5552466
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/294990
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/stm32cubeprogrammer_uart.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/plat/st/common/stm32cubeprogrammer_uart.c b/plat/st/common/stm32cubeprogrammer_uart.c
+index 934df082f..9573c3942 100644
+--- a/plat/st/common/stm32cubeprogrammer_uart.c
++++ b/plat/st/common/stm32cubeprogrammer_uart.c
+@@ -138,11 +138,13 @@ static int uart_send_result(uint8_t byte)
+ 	return uart_write_8(byte);
+ }
+ 
++#if !STM32MP_SSP
+ static bool is_valid_header(fip_toc_header_t *header)
+ {
+ 	return (header->name == TOC_HEADER_NAME) &&
+ 	       (header->serial_number != 0U);
+ }
++#endif
+ 
+ static int uart_receive_command(uint8_t *command)
+ {
+@@ -395,12 +397,15 @@ static int uart_start_cmd(uintptr_t buffer)
+ 		return 0;
+ 	}
+ 
++#if !STM32MP_SSP
+ 	if (!is_valid_header((fip_toc_header_t *)buffer)) {
+ 		STM32PROG_ERROR("FIP Header check failed %lx, for phase %u\n",
+ 				buffer, handle.phase);
+ 		return -EIO;
+ 	}
++
+ 	VERBOSE("FIP header looks OK.\n");
++#endif
+ 
+ 	return 0;
+ }
+-- 
+2.47.2
+

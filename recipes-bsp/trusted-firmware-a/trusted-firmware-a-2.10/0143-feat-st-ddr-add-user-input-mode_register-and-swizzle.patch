@@ -1,0 +1,550 @@
+From 465f5d20db6bfd21278e1d3f066b0562595da0dc Mon Sep 17 00:00:00 2001
+From: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Date: Wed, 15 Dec 2021 16:42:12 +0100
+Subject: [PATCH 143/841] feat(st-ddr): add user input mode_register and
+ swizzle structures
+
+These structure are filled by device tree values during driver init
+phase.
+
+mode_register structure contains directly all the computed mode
+register values. Remove the related calculation part and affect
+directly the structure fields inside message blocks.
+
+Add a specific user custom function to set swizzle (IO muxing) values.
+
+Add also helper function to get base address for each new structure.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ee48d81023466d8a357621aaed9357f093c76282 feat(st-ddr): add user input mode_register and swizzle structures]
+Change-Id: I6f5ef243a85aa0ecab9f33cab829315a2f41bfd2
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+---
+ .../ddr/phy/phyinit/include/ddrphy_phyinit.h  |   4 +
+ .../phyinit/include/ddrphy_phyinit_struct.h   |  49 +++
+ .../phy/phyinit/src/ddrphy_phyinit_globals.c  |   2 +
+ .../phyinit/src/ddrphy_phyinit_initstruct.c   | 279 +++++-------------
+ ...ddrphy_phyinit_usercustom_custompretrain.c |  47 +++
+ 5 files changed, 175 insertions(+), 206 deletions(-)
+
+diff --git a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h
+index 226b8c4af..edf1dea3a 100644
+--- a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h
++++ b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h
+@@ -16,6 +16,8 @@ extern runtime_config_t runtimeconfig;
+ 
+ extern user_input_basic_t userinputbasic;
+ extern user_input_advanced_t userinputadvanced;
++extern user_input_mode_register_t userinputmoderegister;
++extern user_input_swizzle_t userinputswizzle;
+ 
+ extern pmu_smb_ddr_1d_t mb_ddr_1d[NB_PS];
+ extern pmu_smb_ddr_1d_t shdw_ddr_1d[NB_PS];
+@@ -25,5 +27,7 @@ int ddrphy_phyinit_softsetmb(int ps, char *field, int value);
+ void ddrphy_phyinit_initstruct(void);
+ void *ddrphy_phyinit_get_user_input_basic_base(void);
+ void *ddrphy_phyinit_get_user_input_advanced_base(void);
++void *ddrphy_phyinit_get_user_input_mode_register_base(void);
++void *ddrphy_phyinit_get_user_input_swizzle_base(void);
+ 
+ #endif /* DDRPHY_PHYINIT_H */
+diff --git a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_struct.h b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_struct.h
+index 388186e5b..8e70d808f 100644
+--- a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_struct.h
++++ b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_struct.h
+@@ -982,5 +982,54 @@ typedef struct user_input_advanced {
+ 	 */
+ } user_input_advanced_t;
+ 
++/*
++ * Structure for mode register (mandatory) user inputs
++ *
++ * The following basic data structure must be set and completed correctly so
++ * that the PhyInit software package can accurate fill message block structure.
++ * Only some mrx are used per DDR type, on related width:
++ * - DDR3: mr0..2 are used (16-bits values)
++ * - DDR4: mr0..6 are used (16-bits values)
++ * - LPDDR4: mr1..4 and mr11..22 are used (8-bits values)
++ */
++typedef struct user_input_mode_register {
++	int mr0[NB_PS];
++	int mr1[NB_PS];
++	int mr2[NB_PS];
++	int mr3[NB_PS];
++	int mr4[NB_PS];
++	int mr5[NB_PS];
++	int mr6[NB_PS];
++	int mr11[NB_PS];
++	int mr12[NB_PS];
++	int mr13[NB_PS];
++	int mr14[NB_PS];
++	int mr22[NB_PS];
++} user_input_mode_register_t;
++
++/*
++ * Structure for swizzle (mandatory) user inputs
++ *
++ * The following basic data structure must be set and completed correctly so
++ * that the PhyInit software package can accurate set swizzle (IO muxing) config.
++ * Only some swizzles are used per DDR type:
++ * - DDR3/DDR3: swizzle 0..32 are used
++ *   - 26 for hwtswizzle
++ *   - 7 for acswizzle
++ * - LPDDR4:  swizzle 0..43 are used
++ *   - 8 per byte for dqlnsel (total 32)
++ *   - 6 for mapcaatodfi
++ *   - 6 for mapcabtodfi
++ */
++#define NB_HWT_SWIZZLE			26
++#define NB_AC_SWIZZLE			7
++#define NB_DQLNSEL_SWIZZLE_PER_BYTE	8
++#define NB_MAPCAATODFI_SWIZZLE		6
++#define NB_MAPCABTODFI_SWIZZLE		6
++#define NB_SWIZZLE	44
++typedef struct user_input_swizzle {
++	int swizzle[NB_SWIZZLE];
++} user_input_swizzle_t;
++
+ #endif /* DDRPHY_PHYINIT_STRUCT_H */
+ 
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_globals.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_globals.c
+index 92e8ceaf5..43ad7d6f4 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_globals.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_globals.c
+@@ -12,6 +12,8 @@
+ runtime_config_t runtimeconfig;
+ user_input_basic_t userinputbasic;
+ user_input_advanced_t userinputadvanced;
++user_input_mode_register_t userinputmoderegister;
++user_input_swizzle_t userinputswizzle;
+ 
+ /* Firmware 1D Message Block structures */
+ pmu_smb_ddr_1d_t mb_ddr_1d[NB_PS];
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c
+index 47da2ef8f..89e746425 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c
+@@ -20,6 +20,16 @@ void *ddrphy_phyinit_get_user_input_advanced_base(void)
+ 	return (void *)&userinputadvanced;
+ }
+ 
++void *ddrphy_phyinit_get_user_input_mode_register_base(void)
++{
++	return (void *)&userinputmoderegister;
++}
++
++void *ddrphy_phyinit_get_user_input_swizzle_base(void)
++{
++	return (void *)&userinputswizzle;
++}
++
+ /*
+  * This is used to initialize the PhyInit structures before user defaults and overrides are applied.
+  *
+@@ -142,7 +152,6 @@ void ddrphy_phyinit_initstruct(void)
+ 	uint8_t caterminatingrankcha = 0x00U; /*Usually Rank0 is terminating rank */
+ 	uint8_t caterminatingrankchb = 0x00U; /*Usually Rank0 is terminating rank */
+ 	uint8_t dfimrlmargin = 0x02U; /*This needs to be large enough for max tDQSCK variation */
+-	uint8_t pucal = 0x01U;
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 
+ #if STM32MP_DDR3_TYPE
+@@ -174,18 +183,7 @@ void ddrphy_phyinit_initstruct(void)
+ 
+ 	uint16_t sequencectrl[NB_PS];
+ 
+-#if STM32MP_DDR3_TYPE
+-	uint16_t mr0[NB_PS];
+-	uint16_t mr1[NB_PS];
+-	uint16_t mr2[NB_PS];
+-#elif STM32MP_DDR4_TYPE
+-	uint16_t mr0[NB_PS];
+-	uint16_t mr1[NB_PS];
+-	uint16_t mr2[NB_PS];
+-	uint16_t mr3[NB_PS];
+-	uint16_t mr4[NB_PS];
+-	uint16_t mr5[NB_PS];
+-	uint16_t mr6[NB_PS];
++#if STM32MP_DDR4_TYPE
+ 	uint16_t alt_cas_l[NB_PS]; /* Need to set if using RDDBI */
+ 	uint16_t alt_wcas_l[NB_PS]; /* Need to set if using 2tck Write Preambles */
+ 	uint16_t rtt_nom_wr_park0[NB_PS];
+@@ -196,32 +194,7 @@ void ddrphy_phyinit_initstruct(void)
+ 	uint16_t rtt_nom_wr_park5[NB_PS];
+ 	uint16_t rtt_nom_wr_park6[NB_PS];
+ 	uint16_t rtt_nom_wr_park7[NB_PS];
+-#elif STM32MP_LPDDR4_TYPE
+-	uint16_t pdds[NB_PS];
+-	uint16_t dqodt[NB_PS];
+-	uint16_t caodt[NB_PS];
+-	uint16_t vrefca[NB_PS];
+-	uint16_t vrefcarange[NB_PS];
+-	uint16_t vrefdq[NB_PS];
+-	uint16_t vrefdqrange[NB_PS];
+-	uint16_t socodt[NB_PS];
+-	uint16_t ckodten[NB_PS];
+-	uint16_t csodten[NB_PS];
+-	uint16_t caodtdis[NB_PS];
+-	/* Iterate through all pstates to write the MR's */
+-	uint8_t mr1[NB_PS];
+-	uint8_t mr2[NB_PS];
+-	uint8_t mr3[NB_PS];
+-	uint8_t mr4[NB_PS];
+-	uint8_t mr11[NB_PS];
+-	uint8_t mr12[NB_PS];
+-	uint8_t mr13[NB_PS];
+-	uint8_t mr14[NB_PS];
+-	uint8_t mr16[NB_PS];
+-	uint8_t mr17[NB_PS];
+-	uint8_t mr22[NB_PS];
+-	uint8_t mr24[NB_PS];
+-#endif /* STM32MP_LPDDR4_TYPE */
++#endif /* STM32MP_DDR4_TYPE */
+ 
+ 	VERBOSE("%s Start\n", __func__);
+ 
+@@ -236,59 +209,12 @@ void ddrphy_phyinit_initstruct(void)
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 	}
+ 
+-#if STM32MP_DDR3_TYPE
+-	for (myps = 0; myps < NB_PS; myps++) {
+-		if (myps == 0) {
+-			mr0[0] = 0x1E14U; /* 1866: BL= BL8 ONLY, CL = 13, tWR = 14, PCPD-Fast-Exit */
+-			mr1[0] = 0x0004U; /* 1866: DLL-Enable, DIC = RZQ/6 , RTTNOM = RZQ/4 , AL=0 */
+-			mr2[0] = 0x0020U; /*
+-					  * 1866: PASR = full-array, CWL = 9, ASR = Manual,
+-					  * SR-TempRange = Normal, RTTWR = disable
+-					  */
+-		} else {
+-			mr0[myps] = 0x0000U;
+-			mr1[myps] = 0x0000U;
+-			mr2[myps] = 0x0000U;
+-		}
+-	}
+-#elif STM32MP_DDR4_TYPE
++#if STM32MP_DDR4_TYPE
+ 	for (myps = 0; myps < NB_PS; myps++) {
+-		if (myps == 0) {
+-			mr0[0] = 0x0630U;
+-			mr1[0] = 0x0201U;
+-			mr2[0] = 0x0020U;
+-			mr3[0] = 0x0400U;
+-			mr4[0] = 0x0000U;
+-			mr5[0] = 0x0480U;
+-			mr6[0] = 0x0800U | 0x0018U; /* Example Vref : 0x18 = 907mV = 0.75 * VDDQ */
+-		} else {
+-			mr0[myps] = 0x0000U;
+-			mr1[myps] = 0x0000U;
+-			mr2[myps] = 0x0000U;
+-			mr3[myps] = 0x0000U;
+-			mr4[myps] = 0x0000U;
+-			mr5[myps] = 0x0000U;
+-			mr6[myps] = 0x0000U;
+-		}
+-
+-		alt_cas_l[myps]  = 0x0000U;
++		alt_cas_l[myps] = 0x0000U;
+ 		alt_wcas_l[myps] = 0x0000U;
+ 	}
+-#elif STM32MP_LPDDR4_TYPE
+-	for (myps = 0; myps < NB_PS; myps++) {
+-		pdds[myps] = 0x6U;
+-		dqodt[myps] = 0x4U;
+-		caodt[myps] = 0x6U;
+-		vrefca[myps] = 0xDU;
+-		vrefcarange[myps] = 0x1U;
+-		vrefdq[myps] = 0xFU;
+-		vrefdqrange[myps] = 0x1U;
+-		socodt[myps] = 0x4U;
+-		ckodten[myps] = 0x0U;
+-		csodten[myps] = 0x0U;
+-		caodtdis[myps] = 0x0U;
+-	}
+-#endif /* STM32MP_LPDDR4_TYPE */
++#endif /* STM32MP_DDR4_TYPE */
+ 
+ 	/*
+ 	 * ##############################################################
+@@ -301,7 +227,6 @@ void ddrphy_phyinit_initstruct(void)
+ 	 * ##############################################################
+ 	 * 95% of users will not need to edit below
+ 	 * ##############################################################
+-	 * MR bit packing for LPDDR4
+ 	 */
+ 
+ #if STM32MP_DDR4_TYPE
+@@ -319,65 +244,7 @@ void ddrphy_phyinit_initstruct(void)
+ 		rtt_nom_wr_park6[myps] = 0x0U;
+ 		rtt_nom_wr_park7[myps] = 0x0U;
+ 	}
+-#elif STM32MP_LPDDR4_TYPE
+-	for (myps = 0; myps < NB_PS; myps++) {
+-		mr1[myps] =
+-			((0x0U << 0) & 0x03U) |
+-			((0x1U << 2) & 0x04U) |
+-			(uint8_t)((userinputadvanced.lp4rxpreamblemode[myps] << 3) & 0x08) |
+-			(uint8_t)((userinputadvanced.lp4nwr[myps] << 4) & 0x70U) |
+-			((0x0U << 7) & 0x80U);
+-
+-		mr2[myps] =
+-			(uint8_t)((userinputadvanced.lp4rl[myps] << 0) & 0x07) |
+-			(uint8_t)((userinputadvanced.lp4wl[myps] << 3) & 0x38) |
+-			((0x0U << 6) & 0x40U) |
+-			(uint8_t)(((sequencectrl[myps] & 0x2U) << 7) & 0x80U);
+-
+-		mr3[myps] =
+-			((pucal << 0) & 0x01U) |
+-			((userinputadvanced.lp4postambleext[myps] << 1) & 0x02) |
+-			((0x0U << 2) & 0x04U) |
+-			(uint8_t)((pdds[myps] << 3) & 0x38U) |
+-			(uint8_t)((userinputadvanced.lp4dbird[myps] << 6) & 0x40) |
+-			(uint8_t)((userinputadvanced.lp4dbiwr[myps] << 7) & 0x80);
+-
+-		mr4[myps] = 0x0U;
+-
+-		mr11[myps] =
+-			(uint8_t)((dqodt[myps] << 0) & 0x07U) |
+-			(uint8_t)((caodt[myps] << 4) & 0x70U);
+-
+-		mr12[myps] =
+-			(uint8_t)((vrefca[myps] << 0) & 0x3FU) |
+-			(uint8_t)((vrefcarange[myps] << 6) & 0x40U);
+-
+-		mr13[myps] =
+-			((0x0U << 0) & 0x01U) |	/* CBT */
+-			((0x0U << 1) & 0x02U) |	/* RPT */
+-			((0x0U << 2) & 0x04U) |	/* VRO */
+-			((0x1U << 3) & 0x08U) |	/* VRCG */
+-			((0x0U << 4) & 0x10U) |	/* RRO */
+-			((0x1U << 5) & 0x20U) |	/* DMD */
+-			((0x0U << 6) & 0x40U) |	/* FSP-WR */
+-			((0x0U << 7) & 0x80)U;	/* FSP-OP */
+-
+-		mr14[myps] =
+-			(uint8_t)((vrefdq[myps] << 0) & 0x3FU) |
+-			(uint8_t)((vrefdqrange[myps] << 6) & 0x40U);
+-
+-		mr16[myps] = 0x0U;
+-		mr17[myps] = 0x0U;
+-
+-		mr22[myps] =
+-			(uint8_t)((socodt[myps] << 0) & 0x07U) |
+-			(uint8_t)((ckodten[myps] << 3) & 0x08U) |
+-			(uint8_t)((csodten[myps] << 4) & 0x10U) |
+-			(uint8_t)((caodtdis[myps] << 5) & 0x20U) |
+-			(uint8_t)((0x0U << 6) & 0xc0U);
+-		mr24[myps] = 0x0U;
+-	} /* myps */
+-#endif /* STM32MP_LPDDR4_TYPE */
++#endif /* STM32MP_DDR4_TYPE */
+ 
+ 	/* 1D message block defaults */
+ 	for (myps = 0; myps < NB_PS; myps++) {
+@@ -410,7 +277,7 @@ void ddrphy_phyinit_initstruct(void)
+ #if STM32MP_DDR3_TYPE
+ 		mb_ddr_1d[myps].phycfg = (uint8_t)userinputadvanced.is2ttiming[myps];
+ #else
+-		mb_ddr_1d[myps].phycfg = (mr3[myps] & 0x8) ?
++		mb_ddr_1d[myps].phycfg = (userinputmoderegister.mr3[myps] & 0x8) ?
+ 					 0U : (uint8_t)userinputadvanced.is2ttiming[myps];
+ 		mb_ddr_1d[myps].x16present = (0x10 == userinputbasic.dramdatawidth) ?
+ 					     mb_ddr_1d[myps].cspresent : 0x0U;
+@@ -429,14 +296,14 @@ void ddrphy_phyinit_initstruct(void)
+ 		mb_ddr_1d[myps].rtt_nom_wr_park7 = rtt_nom_wr_park7[myps];
+ #endif /* STM32MP_DDR3_TYPE */
+ 
+-		mb_ddr_1d[myps].mr0 = mr0[myps];
+-		mb_ddr_1d[myps].mr1 = mr1[myps];
+-		mb_ddr_1d[myps].mr2 = mr2[myps];
++		mb_ddr_1d[myps].mr0 = (uint16_t)userinputmoderegister.mr0[myps];
++		mb_ddr_1d[myps].mr1 = (uint16_t)userinputmoderegister.mr1[myps];
++		mb_ddr_1d[myps].mr2 = (uint16_t)userinputmoderegister.mr2[myps];
+ #if STM32MP_DDR4_TYPE
+-		mb_ddr_1d[myps].mr3 = mr3[myps];
+-		mb_ddr_1d[myps].mr4 = mr4[myps];
+-		mb_ddr_1d[myps].mr5 = mr5[myps];
+-		mb_ddr_1d[myps].mr6 = mr6[myps];
++		mb_ddr_1d[myps].mr3 = (uint16_t)userinputmoderegister.mr3[myps];
++		mb_ddr_1d[myps].mr4 = (uint16_t)userinputmoderegister.mr4[myps];
++		mb_ddr_1d[myps].mr5 = (uint16_t)userinputmoderegister.mr5[myps];
++		mb_ddr_1d[myps].mr6 = (uint16_t)userinputmoderegister.mr6[myps];
+ 
+ 		mb_ddr_1d[myps].alt_cas_l = alt_cas_l[myps];
+ 		mb_ddr_1d[myps].alt_wcas_l = (uint8_t)alt_wcas_l[myps];
+@@ -539,55 +406,55 @@ void ddrphy_phyinit_initstruct(void)
+ 		mb_ddr_1d[myps].catrainopt = 0x00U;
+ 		mb_ddr_1d[myps].x8mode = 0x00U;
+ 
+-		mb_ddr_1d[myps].mr1_a0 = mr1[myps];
+-		mb_ddr_1d[myps].mr2_a0 = mr2[myps];
+-		mb_ddr_1d[myps].mr3_a0 = mr3[myps];
+-		mb_ddr_1d[myps].mr4_a0 = mr4[myps];
+-		mb_ddr_1d[myps].mr11_a0 = mr11[myps];
+-		mb_ddr_1d[myps].mr12_a0 = mr12[myps];
+-		mb_ddr_1d[myps].mr13_a0 = mr13[myps];
+-		mb_ddr_1d[myps].mr14_a0 = mr14[myps];
+-		mb_ddr_1d[myps].mr16_a0 = mr16[myps];
+-		mb_ddr_1d[myps].mr17_a0 = mr17[myps];
+-		mb_ddr_1d[myps].mr22_a0 = mr22[myps];
+-		mb_ddr_1d[myps].mr24_a0 = mr24[myps];
+-		mb_ddr_1d[myps].mr1_a1 = mr1[myps];
+-		mb_ddr_1d[myps].mr2_a1 = mr2[myps];
+-		mb_ddr_1d[myps].mr3_a1 = mr3[myps];
+-		mb_ddr_1d[myps].mr4_a1 = mr4[myps];
+-		mb_ddr_1d[myps].mr11_a1 = mr11[myps];
+-		mb_ddr_1d[myps].mr12_a1 = mr12[myps];
+-		mb_ddr_1d[myps].mr13_a1 = mr13[myps];
+-		mb_ddr_1d[myps].mr14_a1 = mr14[myps];
+-		mb_ddr_1d[myps].mr16_a1 = mr16[myps];
+-		mb_ddr_1d[myps].mr17_a1 = mr17[myps];
+-		mb_ddr_1d[myps].mr22_a1 = mr22[myps];
+-		mb_ddr_1d[myps].mr24_a1 = mr24[myps];
+-
+-		mb_ddr_1d[myps].mr1_b0 = mr1[myps];
+-		mb_ddr_1d[myps].mr2_b0 = mr2[myps];
+-		mb_ddr_1d[myps].mr3_b0 = mr3[myps];
+-		mb_ddr_1d[myps].mr4_b0 = mr4[myps];
+-		mb_ddr_1d[myps].mr11_b0 = mr11[myps];
+-		mb_ddr_1d[myps].mr12_b0 = mr12[myps];
+-		mb_ddr_1d[myps].mr13_b0 = mr13[myps];
+-		mb_ddr_1d[myps].mr14_b0 = mr14[myps];
+-		mb_ddr_1d[myps].mr16_b0 = mr16[myps];
+-		mb_ddr_1d[myps].mr17_b0 = mr17[myps];
+-		mb_ddr_1d[myps].mr22_b0 = mr22[myps];
+-		mb_ddr_1d[myps].mr24_b0 = mr24[myps];
+-		mb_ddr_1d[myps].mr1_b1 = mr1[myps];
+-		mb_ddr_1d[myps].mr2_b1 = mr2[myps];
+-		mb_ddr_1d[myps].mr3_b1 = mr3[myps];
+-		mb_ddr_1d[myps].mr4_b1 = mr4[myps];
+-		mb_ddr_1d[myps].mr11_b1 = mr11[myps];
+-		mb_ddr_1d[myps].mr12_b1 = mr12[myps];
+-		mb_ddr_1d[myps].mr13_b1 = mr13[myps];
+-		mb_ddr_1d[myps].mr14_b1 = mr14[myps];
+-		mb_ddr_1d[myps].mr16_b1 = mr16[myps];
+-		mb_ddr_1d[myps].mr17_b1 = mr17[myps];
+-		mb_ddr_1d[myps].mr22_b1 = mr22[myps];
+-		mb_ddr_1d[myps].mr24_b1 = mr24[myps];
++		mb_ddr_1d[myps].mr1_a0 = (uint8_t)userinputmoderegister.mr1[myps];
++		mb_ddr_1d[myps].mr2_a0 = (uint8_t)userinputmoderegister.mr2[myps];
++		mb_ddr_1d[myps].mr3_a0 = (uint8_t)userinputmoderegister.mr3[myps];
++		mb_ddr_1d[myps].mr4_a0 = (uint8_t)userinputmoderegister.mr4[myps];
++		mb_ddr_1d[myps].mr11_a0 = (uint8_t)userinputmoderegister.mr11[myps];
++		mb_ddr_1d[myps].mr12_a0 = (uint8_t)userinputmoderegister.mr12[myps];
++		mb_ddr_1d[myps].mr13_a0 = (uint8_t)userinputmoderegister.mr13[myps];
++		mb_ddr_1d[myps].mr14_a0 = (uint8_t)userinputmoderegister.mr14[myps];
++		mb_ddr_1d[myps].mr16_a0 = 0x00U;
++		mb_ddr_1d[myps].mr17_a0 = 0x00U;
++		mb_ddr_1d[myps].mr22_a0 = (uint8_t)userinputmoderegister.mr22[myps];
++		mb_ddr_1d[myps].mr24_a0 = 0x00U;
++		mb_ddr_1d[myps].mr1_a1 = (uint8_t)userinputmoderegister.mr1[myps];
++		mb_ddr_1d[myps].mr2_a1 = (uint8_t)userinputmoderegister.mr2[myps];
++		mb_ddr_1d[myps].mr3_a1 = (uint8_t)userinputmoderegister.mr3[myps];
++		mb_ddr_1d[myps].mr4_a1 = (uint8_t)userinputmoderegister.mr4[myps];
++		mb_ddr_1d[myps].mr11_a1 = (uint8_t)userinputmoderegister.mr11[myps];
++		mb_ddr_1d[myps].mr12_a1 = (uint8_t)userinputmoderegister.mr12[myps];
++		mb_ddr_1d[myps].mr13_a1 = (uint8_t)userinputmoderegister.mr13[myps];
++		mb_ddr_1d[myps].mr14_a1 = (uint8_t)userinputmoderegister.mr14[myps];
++		mb_ddr_1d[myps].mr16_a1 = 0x00U;
++		mb_ddr_1d[myps].mr17_a1 = 0x00U;
++		mb_ddr_1d[myps].mr22_a1 = (uint8_t)userinputmoderegister.mr22[myps];
++		mb_ddr_1d[myps].mr24_a1 = 0x00U;
++
++		mb_ddr_1d[myps].mr1_b0 = (uint8_t)userinputmoderegister.mr1[myps];
++		mb_ddr_1d[myps].mr2_b0 = (uint8_t)userinputmoderegister.mr2[myps];
++		mb_ddr_1d[myps].mr3_b0 = (uint8_t)userinputmoderegister.mr3[myps];
++		mb_ddr_1d[myps].mr4_b0 = (uint8_t)userinputmoderegister.mr4[myps];
++		mb_ddr_1d[myps].mr11_b0 = (uint8_t)userinputmoderegister.mr11[myps];
++		mb_ddr_1d[myps].mr12_b0 = (uint8_t)userinputmoderegister.mr12[myps];
++		mb_ddr_1d[myps].mr13_b0 = (uint8_t)userinputmoderegister.mr13[myps];
++		mb_ddr_1d[myps].mr14_b0 = (uint8_t)userinputmoderegister.mr14[myps];
++		mb_ddr_1d[myps].mr16_b0 = 0x00U;
++		mb_ddr_1d[myps].mr17_b0 = 0x00U;
++		mb_ddr_1d[myps].mr22_b0 = (uint8_t)userinputmoderegister.mr22[myps];
++		mb_ddr_1d[myps].mr24_b0 = 0x00U;
++		mb_ddr_1d[myps].mr1_b1 = (uint8_t)userinputmoderegister.mr1[myps];
++		mb_ddr_1d[myps].mr2_b1 = (uint8_t)userinputmoderegister.mr2[myps];
++		mb_ddr_1d[myps].mr3_b1 = (uint8_t)userinputmoderegister.mr3[myps];
++		mb_ddr_1d[myps].mr4_b1 = (uint8_t)userinputmoderegister.mr4[myps];
++		mb_ddr_1d[myps].mr11_b1 = (uint8_t)userinputmoderegister.mr11[myps];
++		mb_ddr_1d[myps].mr12_b1 = (uint8_t)userinputmoderegister.mr12[myps];
++		mb_ddr_1d[myps].mr13_b1 = (uint8_t)userinputmoderegister.mr13[myps];
++		mb_ddr_1d[myps].mr14_b1 = (uint8_t)userinputmoderegister.mr14[myps];
++		mb_ddr_1d[myps].mr16_b1 = 0x00U;
++		mb_ddr_1d[myps].mr17_b1 = 0x00U;
++		mb_ddr_1d[myps].mr22_b1 = (uint8_t)userinputmoderegister.mr22[myps];
++		mb_ddr_1d[myps].mr24_b1 = 0x00U;
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 
+ 		mb_ddr_1d[myps].share2dvrefresult = share2dvrefresult;
+diff --git a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_custompretrain.c b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_custompretrain.c
+index 8ec4c01d2..3f226268e 100644
+--- a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_custompretrain.c
++++ b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_custompretrain.c
+@@ -11,9 +11,13 @@
+ #include <lib/mmio.h>
+ 
+ #include <ddrphy_phyinit_usercustom.h>
++#include <ddrphy_phyinit.h>
+ 
+ #include <platform_def.h>
+ 
++/* DDRDBG registers */
++#define DDRDBG_DDR34_AC_SWIZZLE_ADD3_0		U(0x100)
++
+ /*
+  * This function is called before training firmware is executed. Any
+  * register override in this function might affect the firmware training
+@@ -40,7 +44,50 @@
+  */
+ void ddrphy_phyinit_usercustom_custompretrain(void)
+ {
++	int byte __unused;
++	int i = 0;
++	int j;
++	uintptr_t base;
++
+ 	VERBOSE("%s Start\n", __func__);
+ 
++#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
++	base = (uintptr_t)(DDRPHYC_BASE + 4 * (TMASTER | CSR_HWTSWIZZLEHWTADDRESS0_ADDR));
++
++	for (i = 0; i < NB_HWT_SWIZZLE; i++) {
++		mmio_write_16(base + i * sizeof(uint32_t),
++			      (uint16_t)userinputswizzle.swizzle[i]);
++	}
++
++	base = (uintptr_t)(stm32_ddrdbg_get_base() + DDRDBG_DDR34_AC_SWIZZLE_ADD3_0);
++
++	for (j = 0; j < NB_AC_SWIZZLE; j++, i++) {
++		mmio_write_32(base + j * sizeof(uint32_t), userinputswizzle.swizzle[i]);
++	}
++#else
++	for (byte = 0; byte < userinputbasic.numdbyte; byte++) {
++		base = (uintptr_t)(DDRPHYC_BASE + 4 * ((byte << 12) | TDBYTE | CSR_DQ0LNSEL_ADDR));
++
++		for (j = 0; j < NB_DQLNSEL_SWIZZLE_PER_BYTE; j++, i++) {
++			mmio_write_16(base + j * sizeof(uint32_t),
++				      (uint16_t)userinputswizzle.swizzle[i]);
++		}
++	}
++
++	base = (uintptr_t)(DDRPHYC_BASE + 4 * (TMASTER | CSR_MAPCAA0TODFI_ADDR));
++
++	for (j = 0; j < NB_MAPCAATODFI_SWIZZLE; j++, i++) {
++		mmio_write_16(base + j * sizeof(uint32_t),
++			      (uint16_t)userinputswizzle.swizzle[i]);
++	}
++
++	base = (uintptr_t)(DDRPHYC_BASE + 4 * (TMASTER | CSR_MAPCAB0TODFI_ADDR));
++
++	for (j = 0; j < NB_MAPCABTODFI_SWIZZLE; j++, i++) {
++		mmio_write_16(base + j * sizeof(uint32_t),
++			      (uint16_t)userinputswizzle.swizzle[i]);
++	}
++#endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
++
+ 	VERBOSE("%s End\n", __func__);
+ }
+-- 
+2.47.2
+

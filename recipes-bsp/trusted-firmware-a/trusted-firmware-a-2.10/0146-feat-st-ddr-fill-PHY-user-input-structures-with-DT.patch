@@ -1,0 +1,118 @@
+From 0da06a6885ab07a39e937c7ec89d5f2812f514b4 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 30 Aug 2021 15:44:28 +0200
+Subject: [PATCH 146/841] feat(st-ddr): fill PHY user input structures with DT
+
+The content of user input structures can be read in the Device Tree.
+The exact same order between DDR node and structure definition shall
+be kept to be consistent, in order to have an array-like update.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 411a2126c0d4f33b190d90b191381b8f733ba1aa feat(st-ddr): fill PHY user input structures with DT]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I12ff7633c9f1f33a378fed2021cb92f24976e325
+---
+ drivers/st/ddr/stm32mp2_ram.c | 66 ++++++++++++++++++++++++++++++++++-
+ 1 file changed, 65 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ram.c b/drivers/st/ddr/stm32mp2_ram.c
+index 6caa9d1f7..d80af8648 100644
+--- a/drivers/st/ddr/stm32mp2_ram.c
++++ b/drivers/st/ddr/stm32mp2_ram.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2021, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2021-2022, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+  */
+@@ -19,16 +19,75 @@
+ #include <lib/mmio.h>
+ #include <libfdt.h>
+ 
++#include <ddrphy_phyinit.h>
++
+ #include <platform_def.h>
+ 
++struct stm32mp2_ddr_ui_config {
++	void *basic;		/* Pointer to user_input basic structure */
++	void *advanced;		/* Pointer to user_input advanced structure */
++	void *mode_register;	/* Pointer to user_input mode register structure */
++	void *swizzle;		/* Pointer to user_input swizzle structure */
++};
++
+ static struct stm32mp_ddr_priv ddr_priv_data;
+ static bool ddr_self_refresh;
+ 
++static int ddr_dt_get_ui_param(void *fdt, int node, struct stm32mp2_ddr_ui_config *ui_config)
++{
++	int ret;
++	uint32_t size;
++
++	size = sizeof(struct user_input_basic) / sizeof(int);
++	ret = fdt_read_uint32_array(fdt, node, "st,phy-basic", size, ui_config->basic);
++
++	VERBOSE("%s: %s[0x%x] = %d\n", __func__, "st,phy-basic", size, ret);
++	if (ret != 0) {
++		ERROR("%s: Cannot read %s, error=%d\n", __func__, "st,phy-basic", ret);
++		return -EINVAL;
++	}
++
++	size = sizeof(struct user_input_advanced) / sizeof(int);
++	ret = fdt_read_uint32_array(fdt, node, "st,phy-advanced", size, ui_config->advanced);
++
++	VERBOSE("%s: %s[0x%x] = %d\n", __func__, "st,phy-advanced", size, ret);
++	if (ret != 0) {
++		ERROR("%s: Cannot read %s, error=%d\n", __func__, "st,phy-advanced", ret);
++		return -EINVAL;
++	}
++
++	size = sizeof(struct user_input_mode_register) / sizeof(int);
++	ret = fdt_read_uint32_array(fdt, node, "st,phy-mr", size, ui_config->mode_register);
++
++	VERBOSE("%s: %s[0x%x] = %d\n", __func__, "st,phy-mr", size, ret);
++	if (ret != 0) {
++		ERROR("%s: Cannot read %s, error=%d\n", __func__, "st,phy-mr", ret);
++		return -EINVAL;
++	}
++
++	size = sizeof(struct user_input_swizzle) / sizeof(int);
++	ret = fdt_read_uint32_array(fdt, node, "st,phy-swizzle", size, ui_config->swizzle);
++
++	VERBOSE("%s: %s[0x%x] = %d\n", __func__, "st,phy-swizzle", size, ret);
++	if (ret != 0) {
++		ERROR("%s: Cannot read %s, error=%d\n", __func__, "st,phy-swizzle", ret);
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
+ static int stm32mp2_ddr_setup(void)
+ {
+ 	struct stm32mp_ddr_priv *priv = &ddr_priv_data;
+ 	int ret;
+ 	struct stm32mp_ddr_config config;
++	struct stm32mp2_ddr_ui_config ui_config = {
++		ddrphy_phyinit_get_user_input_basic_base(),
++		ddrphy_phyinit_get_user_input_advanced_base(),
++		ddrphy_phyinit_get_user_input_mode_register_base(),
++		ddrphy_phyinit_get_user_input_swizzle_base(),
++	};
+ 	int node;
+ 	uintptr_t uret;
+ 	void *fdt;
+@@ -60,6 +119,11 @@ static int stm32mp2_ddr_setup(void)
+ 		return ret;
+ 	}
+ 
++	ret = ddr_dt_get_ui_param(fdt, node, &ui_config);
++	if (ret < 0) {
++		return ret;
++	}
++
+ 	config.self_refresh = false;
+ 
+ 	/* TODO if (stm32mp1_is_wakeup_from_standby()) {
+-- 
+2.47.2
+

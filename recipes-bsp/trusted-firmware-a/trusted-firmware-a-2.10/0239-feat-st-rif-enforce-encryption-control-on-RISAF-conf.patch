@@ -1,0 +1,41 @@
+From e68d5c976b3e00d873a2930e96dff0150399decd Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 11 Jan 2023 11:57:54 +0100
+Subject: [PATCH 239/841] feat(st-rif): enforce encryption control on RISAF
+ configuration
+
+The encryption is only available on secure area. Other configuration
+must be removed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 65eb941d6f8a7af9f2e74905457f7e0d4e0fa55b feat(st-rif): enforce encryption control on RISAF configuration]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: I0fd937f3ded799508209ae47a7d30865e624cce9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/284049
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/rif/stm32mp2_risaf.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/st/rif/stm32mp2_risaf.c b/drivers/st/rif/stm32mp2_risaf.c
+index db08bcfa7..995fa47f2 100644
+--- a/drivers/st/rif/stm32mp2_risaf.c
++++ b/drivers/st/rif/stm32mp2_risaf.c
+@@ -251,6 +251,11 @@ static int risaf_configure_region(int instance, uint32_t region_id, uint32_t cfg
+ 			ERROR("RISAF%d: encryption feature error\n", instance + 1);
+ 			return -EIO;
+ 		}
++
++		if ((cfg & _RISAF_REG_CFGR_SEC) != _RISAF_REG_CFGR_SEC) {
++			ERROR("RISAF%d: encryption on non secure area error\n", instance + 1);
++			return -EIO;
++		}
+ 	}
+ 
+ 	return 0;
+-- 
+2.47.2
+

@@ -1,0 +1,99 @@
+From 1c7cd3a4e9299353f4fa27aa2179ab4288714540 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Fri, 11 Oct 2024 15:24:56 +0200
+Subject: [PATCH 726/841] fix(stm32mp2): remove Tamper access when M33 is TDCID
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Tamper is under control of the TDCID, removing the accesses to TF-A when
+TDCID is on Cortex M side.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b62172df21a632872be0d0a2cd76c4c70b14a7d1 fix(stm32mp2): remove Tamper access when M33 is TDCID]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I522e7af97419105a420edfc04c56ba63a53d7671
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/411032
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index e8738a96c..ad98c9417 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -171,6 +171,7 @@ void bl2_platform_setup(void)
+ #endif
+ }
+ 
++#if !STM32MP_M33_TDCID
+ static void handle_potential_tamper(uint32_t bit_off)
+ {
+ 	/* Fixme: Add implementation specific logic here */
+@@ -202,7 +203,6 @@ static bool lse_tamper_detection(void)
+ 
+ static void reset_backup_domain(void)
+ {
+-#if !STM32MP_M33_TDCID
+ 	uintptr_t pwr_base = stm32mp_pwr_base();
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+ 
+@@ -235,11 +235,12 @@ static void reset_backup_domain(void)
+ 
+ 		mmio_clrbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
+ 	}
+-#endif
+ }
++#endif /* !STM32MP_M33_TDCID */
+ 
+ static void check_tamper_event(bool lse_tamper_occured)
+ {
++#if !STM32MP_M33_TDCID
+ 	uint32_t sr = mmio_read_32(TAMP_BASE + TAMP_SR);
+ 
+ 	if (sr == 0U) {
+@@ -250,8 +251,6 @@ static void check_tamper_event(bool lse_tamper_occured)
+ 	if (lse_tamper_occured) {
+ 		ERROR("** INTRUSION ALERT: LSE MONITORING TAMPER DETECTED **\n");
+ 		ERROR("\n");
+-
+-#if !STM32MP_M33_TDCID
+ 		/*
+ 		 * Fixme: Add logic to handle the LSE tamper here (e.g change RTC clock source
+ 		 * instead). This part is implementation specific.
+@@ -259,7 +258,6 @@ static void check_tamper_event(bool lse_tamper_occured)
+ 		mmio_clrbits_32(RCC_BASE + RCC_BDCR, RCC_BDCR_RTCCKEN);
+ 		ERROR("** Rebooting... **\n");
+ 		stm32mp_system_reset();
+-#endif
+ 	} else {
+ 		while (sr != 0U) {
+ 			unsigned int bit_off = __builtin_ctz(sr);
+@@ -282,6 +280,7 @@ static void check_tamper_event(bool lse_tamper_occured)
+ 		}
+ 		ERROR("\n");
+ 	}
++#endif
+ }
+ 
+ static void authentication_check(boot_api_context_t *boot_context)
+@@ -343,11 +342,11 @@ void bl2_el3_plat_arch_setup(void)
+ 		panic();
+ 	}
+ 
++#if !STM32MP_M33_TDCID
+ 	lse_tamper_occured = lse_tamper_detection();
+ 
+ 	reset_backup_domain();
+ 
+-#if !STM32MP_M33_TDCID
+ 	/*
+ 	 * Initialize DDR sub-system clock. This needs to be done before enabling DDR PLL (PLL2),
+ 	 * and so before stm32mp2_clk_init().
+-- 
+2.47.2
+

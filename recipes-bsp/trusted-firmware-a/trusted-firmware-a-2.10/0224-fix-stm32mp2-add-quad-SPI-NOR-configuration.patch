@@ -1,0 +1,50 @@
+From 2ee13f205d07e562d259f82c8e17a51c1f4a30b1 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 27 Sep 2022 11:57:55 +0200
+Subject: [PATCH 224/841] fix(stm32mp2): add quad SPI NOR configuration
+
+This patch adds quad SPI NOR read command support.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c8698c326620bece077c122b0c0021317296ca0c fix(stm32mp2): add quad SPI NOR configuration]
+Change-Id: I9e68d7f430a70ead19cca5992d14e917afd4f498
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/267827
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+---
+ plat/st/stm32mp2/stm32mp2_boot_device.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_boot_device.c b/plat/st/stm32mp2/stm32mp2_boot_device.c
+index 55a985c3f..8ca9b8b31 100644
+--- a/plat/st/stm32mp2/stm32mp2_boot_device.c
++++ b/plat/st/stm32mp2/stm32mp2_boot_device.c
+@@ -154,16 +154,18 @@ int plat_get_spi_nand_data(struct spinand_device *device)
+ #if STM32MP_SPI_NOR
+ int plat_get_nor_data(struct nor_device *device)
+ {
++	/* Quad read command used with MX25L51245G */
+ 	device->size = SZ_64M;
++	device->flags |= SPI_NOR_USE_BANK;
+ 
+ 	zeromem(&device->read_op, sizeof(struct spi_mem_op));
+-	device->read_op.cmd.opcode = SPI_NOR_OP_READ_FAST_4B;
++	device->read_op.cmd.opcode = SPI_NOR_OP_READ_1_1_4;
+ 	device->read_op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+-	device->read_op.addr.nbytes = 4U;
++	device->read_op.addr.nbytes = 3U;
+ 	device->read_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	device->read_op.dummy.nbytes = 1U;
+ 	device->read_op.dummy.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+-	device->read_op.data.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
++	device->read_op.data.buswidth = SPI_MEM_BUSWIDTH_4_LINE;
+ 	device->read_op.data.dir = SPI_MEM_DATA_IN;
+ 
+ 	return 0;
+-- 
+2.47.2
+

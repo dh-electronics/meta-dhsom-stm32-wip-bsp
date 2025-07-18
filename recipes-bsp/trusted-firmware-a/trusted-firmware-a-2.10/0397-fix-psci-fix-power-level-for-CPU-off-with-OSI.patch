@@ -1,0 +1,47 @@
+From 50077ff41ac94e96f6abbd0b1f85dc55d1d24f08 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 20 Oct 2023 14:39:55 +0200
+Subject: [PATCH 397/841] fix(psci): fix power level for CPU off with OSI
+
+Limit the local state update at PSCI_CPU_PWR_LVL in psci_cpu_off()
+when OS initiated is activated. The coordination for upper power level
+is done by Linux kernel and provided on the next PSCI suspend request.
+
+This patch avoids problem when this suspend request doesn't update the
+topology up to PLAT_MAX_PWR_LVL.
+
+Without this patch, the local state up to PLAT_MAX_PWR_LVL changes to
+OFF in psci_cpu_off() and cause and issue for the next call of
+psci_do_state_coordination().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f5b7328ccd87425f966514b57cfacebfc84149b1 fix(psci): fix power level for CPU off with OSI]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I430e135ce2690b75f82ec171eadd80759dedcc43
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/335145
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ lib/psci/psci_main.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/lib/psci/psci_main.c b/lib/psci/psci_main.c
+index a01553128..0c0892f7a 100644
+--- a/lib/psci/psci_main.c
++++ b/lib/psci/psci_main.c
+@@ -223,7 +223,12 @@ int psci_system_suspend(uintptr_t entrypoint, u_register_t context_id)
+ int psci_cpu_off(void)
+ {
+ 	int rc;
++#if PSCI_OS_INIT_MODE
++	/* When coordination is done by OS, only update local state for CORE */
++	unsigned int target_pwrlvl = PSCI_CPU_PWR_LVL;
++#else
+ 	unsigned int target_pwrlvl = PLAT_MAX_PWR_LVL;
++#endif
+ 
+ 	/*
+ 	 * Do what is needed to power off this CPU and possible higher power
+-- 
+2.47.2
+

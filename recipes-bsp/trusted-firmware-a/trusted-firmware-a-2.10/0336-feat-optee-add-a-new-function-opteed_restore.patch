@@ -1,0 +1,122 @@
+From c52c4af24c4f17549506ea0434c8f907291f9c33 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 13 Sep 2023 20:06:23 +0200
+Subject: [PATCH 336/841] feat(optee): add a new function opteed_restore
+
+Add a new function opteed_restore() called to restore the SPD
+configuration when BL31 memory is lost but OP-TEE is still load in
+memory, for example in DDR kept in self refresh during standby.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 02fcf0cbb5111cd5c1286ca062e02c32d39226e6 feat(optee): add a new function opteed_restore]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I35fe157397f8b7d46c6e45bb926b934ee96181af
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/327296
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ services/spd/opteed/opteed_main.c    | 55 ++++++++++++++++++----------
+ services/spd/opteed/opteed_private.h |  3 ++
+ 2 files changed, 39 insertions(+), 19 deletions(-)
+
+diff --git a/services/spd/opteed/opteed_main.c b/services/spd/opteed/opteed_main.c
+index 4d055db17..972216390 100644
+--- a/services/spd/opteed/opteed_main.c
++++ b/services/spd/opteed/opteed_main.c
+@@ -413,6 +413,35 @@ static int32_t opteed_handle_smc_load(uint64_t data_size, uint32_t data_pa)
+ }
+ #endif  /* OPTEE_ALLOW_SMC_LOAD */
+ 
++/*******************************************************************************
++ * This function register OPTEE image (BL32) for the first time
++ * on the primary cpu after a cold boot or restore the state after standby.
++ ******************************************************************************/
++static void opteed_register(void)
++{
++	uint64_t rc;
++	u_register_t flags;
++
++	/*
++	 * OPTEE has been successfully initialized.
++	 * Register power management hooks with PSCI
++	 */
++	psci_register_spd_pm_hook(&opteed_pm);
++
++	/*
++	 * Register an interrupt handler for S-EL1 interrupts
++	 * when generated during code executing in the
++	 * non-secure state.
++	 */
++	flags = 0;
++	set_interrupt_rm_flag(flags, NON_SECURE);
++	rc = register_interrupt_type_handler(INTR_TYPE_S_EL1,
++				opteed_sel1_interrupt_handler,
++				flags);
++	if (rc)
++		panic();
++}
++
+ /*******************************************************************************
+  * This function is responsible for handling all SMCs in the Trusted OS/App
+  * range from the non-secure state as defined in the SMC Calling Convention
+@@ -433,7 +462,6 @@ static uintptr_t opteed_smc_handler(uint32_t smc_fid,
+ 	cpu_context_t *ns_cpu_context;
+ 	uint32_t linear_id = plat_my_core_pos();
+ 	optee_context_t *optee_ctx = &opteed_sp_context[linear_id];
+-	uint64_t rc;
+ 
+ 	/*
+ 	 * Determine which security state this SMC originated from
+@@ -561,24 +589,7 @@ static uintptr_t opteed_smc_handler(uint32_t smc_fid,
+ 		if (optee_vector_table) {
+ 			set_optee_pstate(optee_ctx->state, OPTEE_PSTATE_ON);
+ 
+-			/*
+-			 * OPTEE has been successfully initialized.
+-			 * Register power management hooks with PSCI
+-			 */
+-			psci_register_spd_pm_hook(&opteed_pm);
+-
+-			/*
+-			 * Register an interrupt handler for S-EL1 interrupts
+-			 * when generated during code executing in the
+-			 * non-secure state.
+-			 */
+-			flags = 0;
+-			set_interrupt_rm_flag(flags, NON_SECURE);
+-			rc = register_interrupt_type_handler(INTR_TYPE_S_EL1,
+-						opteed_sel1_interrupt_handler,
+-						flags);
+-			if (rc)
+-				panic();
++			opteed_register();
+ 		}
+ 
+ 		/*
+@@ -693,3 +704,9 @@ DECLARE_RT_SVC(
+ 	NULL,
+ 	opteed_smc_handler
+ );
++
++/* Define an OPTEED service to restore the SPD when BL31 data are lost */
++void opteed_restore(void)
++{
++	opteed_register();
++}
+diff --git a/services/spd/opteed/opteed_private.h b/services/spd/opteed/opteed_private.h
+index c8fbc221f..6ec876295 100644
+--- a/services/spd/opteed/opteed_private.h
++++ b/services/spd/opteed/opteed_private.h
+@@ -159,6 +159,9 @@ void opteed_cpu_on_finish_handler(u_register_t unused);
+ extern optee_context_t opteed_sp_context[OPTEED_CORE_COUNT];
+ extern uint32_t opteed_rw;
+ extern struct optee_vectors *optee_vector_table;
++
++void opteed_restore(void);
++
+ #endif /*__ASSEMBLER__*/
+ 
+ #endif /* OPTEED_PRIVATE_H */
+-- 
+2.47.2
+

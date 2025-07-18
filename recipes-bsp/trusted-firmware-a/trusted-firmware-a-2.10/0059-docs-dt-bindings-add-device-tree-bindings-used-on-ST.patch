@@ -1,0 +1,2209 @@
+From 472fbb97e58e36fb7539203a0d3291873d2e63db Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Thu, 7 Feb 2019 10:30:19 +0100
+Subject: [PATCH 059/841] docs(dt-bindings): add device tree bindings used on
+ STM32MP1
+
+Add all binding documentation files for STM32MP13 and STM32MP15.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e1df880a7cf4e97f54a6f00d87f5d1fdde03f98f docs(dt-bindings): add device tree bindings used on STM32MP1]
+Change-Id: I3f7c3a1c50608dbd19cc24b13a8af0646bac0d50
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@st.com>
+Signed-off-by: Lionel Debieve <lionel.debieve@st.com>
+Signed-off-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+---
+ docs/devicetree/bindings/arm/secure.txt       |  53 ++
+ .../bindings/clock/st,stm32mp1-rcc.txt        | 496 ++++++++++++++
+ .../bindings/clock/st,stm32mp13-rcc.txt       | 640 ++++++++++++++++++
+ docs/devicetree/bindings/i2c/i2c-stm32.txt    |  54 ++
+ .../memory-controllers/st,stm32mp1-ddr.txt    | 289 ++++++++
+ docs/devicetree/bindings/mmc/mmci.txt         |  72 ++
+ .../bindings/mmc/st,stm32-sdmmc2.txt          |  22 +
+ .../bindings/power/st,stm32mp1-pwr.txt        |  43 ++
+ docs/devicetree/bindings/power/st,stpmic1.txt |  94 +++
+ .../bindings/reset/st,stm32mp1-rcc.txt        |   6 +
+ docs/devicetree/bindings/rng/st,stm32-rng.txt |  23 +
+ .../bindings/serial/st,stm32-usart.txt        |  88 +++
+ .../bindings/soc/st,stm32-etzpc.txt           |  54 ++
+ .../bindings/soc/st,stm32-romem.txt           |  52 ++
+ .../bindings/soc/st,stm32-stgen.txt           |  18 +
+ .../devicetree/bindings/soc/st,stm32-tamp.txt |  20 +
+ .../bindings/watchdog/st,stm32-iwdg.txt       |  27 +
+ 17 files changed, 2051 insertions(+)
+ create mode 100644 docs/devicetree/bindings/arm/secure.txt
+ create mode 100644 docs/devicetree/bindings/clock/st,stm32mp1-rcc.txt
+ create mode 100644 docs/devicetree/bindings/clock/st,stm32mp13-rcc.txt
+ create mode 100644 docs/devicetree/bindings/i2c/i2c-stm32.txt
+ create mode 100644 docs/devicetree/bindings/memory-controllers/st,stm32mp1-ddr.txt
+ create mode 100644 docs/devicetree/bindings/mmc/mmci.txt
+ create mode 100644 docs/devicetree/bindings/mmc/st,stm32-sdmmc2.txt
+ create mode 100644 docs/devicetree/bindings/power/st,stm32mp1-pwr.txt
+ create mode 100644 docs/devicetree/bindings/power/st,stpmic1.txt
+ create mode 100644 docs/devicetree/bindings/reset/st,stm32mp1-rcc.txt
+ create mode 100644 docs/devicetree/bindings/rng/st,stm32-rng.txt
+ create mode 100644 docs/devicetree/bindings/serial/st,stm32-usart.txt
+ create mode 100644 docs/devicetree/bindings/soc/st,stm32-etzpc.txt
+ create mode 100644 docs/devicetree/bindings/soc/st,stm32-romem.txt
+ create mode 100644 docs/devicetree/bindings/soc/st,stm32-stgen.txt
+ create mode 100644 docs/devicetree/bindings/soc/st,stm32-tamp.txt
+ create mode 100644 docs/devicetree/bindings/watchdog/st,stm32-iwdg.txt
+
+diff --git a/docs/devicetree/bindings/arm/secure.txt b/docs/devicetree/bindings/arm/secure.txt
+new file mode 100644
+index 000000000..e31303fb2
+--- /dev/null
++++ b/docs/devicetree/bindings/arm/secure.txt
+@@ -0,0 +1,53 @@
++* ARM Secure world bindings
++
++ARM CPUs with TrustZone support have two distinct address spaces,
++"Normal" and "Secure". Most devicetree consumers (including the Linux
++kernel) are not TrustZone aware and run entirely in either the Normal
++world or the Secure world. However some devicetree consumers are
++TrustZone aware and need to be able to determine whether devices are
++visible only in the Secure address space, only in the Normal address
++space, or visible in both. (One example of that situation would be a
++virtual machine which boots Secure firmware and wants to tell the
++firmware about the layout of the machine via devicetree.)
++
++The general principle of the naming scheme for Secure world bindings
++is that any property that needs a different value in the Secure world
++can be supported by prefixing the property name with "secure-". So for
++instance "secure-foo" would override "foo". For property names with
++a vendor prefix, the Secure variant of "vendor,foo" would be
++"vendor,secure-foo". If there is no "secure-" property then the Secure
++world value is the same as specified for the Normal world by the
++non-prefixed property. However, only the properties listed below may
++validly have "secure-" versions; this list will be enlarged on a
++case-by-case basis.
++
++Defining the bindings in this way means that a device tree which has
++been annotated to indicate the presence of Secure-only devices can
++still be processed unmodified by existing Non-secure software (and in
++particular by the kernel).
++
++Note that it is still valid for bindings intended for purely Secure
++world consumers (like kernels that run entirely in Secure) to simply
++describe the view of Secure world using the standard bindings. These
++secure- bindings only need to be used where both the Secure and Normal
++world views need to be described in a single device tree.
++
++Valid Secure world properties:
++
++- secure-status : specifies whether the device is present and usable
++  in the secure world. The combination of this with "status" allows
++  the various possible combinations of device visibility to be
++  specified. If "secure-status" is not specified it defaults to the
++  same value as "status"; if "status" is not specified either then
++  both default to "okay". This means the following combinations are
++  possible:
++
++   /* Neither specified: default to visible in both S and NS */
++   secure-status = "okay";                          /* visible in both */
++   status = "okay";                                 /* visible in both */
++   status = "okay"; secure-status = "okay";         /* visible in both */
++   secure-status = "disabled";                      /* NS-only */
++   status = "okay"; secure-status = "disabled";     /* NS-only */
++   status = "disabled"; secure-status = "okay";     /* S-only */
++   status = "disabled";                             /* disabled in both */
++   status = "disabled"; secure-status = "disabled"; /* disabled in both */
+diff --git a/docs/devicetree/bindings/clock/st,stm32mp1-rcc.txt b/docs/devicetree/bindings/clock/st,stm32mp1-rcc.txt
+new file mode 100644
+index 000000000..f227b8c55
+--- /dev/null
++++ b/docs/devicetree/bindings/clock/st,stm32mp1-rcc.txt
+@@ -0,0 +1,496 @@
++STMicroelectronics STM32 Peripheral Reset Clock Controller
++==========================================================
++
++The RCC IP is both a reset and a clock controller.
++
++RCC makes also power management (resume/supend and wakeup interrupt).
++
++Please also refer to reset.txt for common reset controller binding usage.
++
++Please also refer to clock-bindings.txt for common clock controller
++binding usage.
++
++
++Required properties:
++- compatible: "st,stm32mp1-rcc-secure", "st,stm32mp1-rcc", "syscon"
++  Adding "st,stm32mp1-rcc-secure" in the compatible list restricts
++  RCC access through RCC TZ_ENABLE bit.
++- reg: should be register base and length as documented in the datasheet
++- #clock-cells: 1, device nodes should specify the clock in their
++  "clocks" property, containing a phandle to the clock device node,
++  an index specifying the clock to use.
++- #reset-cells: Shall be 1
++- interrupts: Should contain a general interrupt line.
++- secure-interrupts: Should contain a interrupt line to the wake-up of
++                     processor (CSTOP).
++
++Example:
++	rcc: rcc@50000000 {
++		compatible = "st,stm32mp1-rcc", "syscon";
++		reg = <0x50000000 0x1000>;
++		#clock-cells = <1>;
++		#reset-cells = <1>;
++		interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
++		secure-interrupts = <GIC_SPI 145 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++Specifying clocks
++=================
++
++All available clocks are defined as preprocessor macros in
++dt-bindings/clock/stm32mp1-clks.h header and can be used in device
++tree sources.
++
++Specifying softreset control of devices
++=======================================
++
++Device nodes should specify the reset channel required in their "resets"
++property, containing a phandle to the reset device node and an index specifying
++which channel to use.
++The index is the bit number within the RCC registers bank, starting from RCC
++base address.
++It is calculated as: index = register_offset / 4 * 32 + bit_offset.
++Where bit_offset is the bit offset within the register.
++
++For example on STM32MP1, for LTDC reset:
++ ltdc = APB4_RSTSETR_offset / 4 * 32 + LTDC_bit_offset
++      = 0x180 / 4 * 32 + 0 = 3072
++
++The list of valid indices for STM32MP1 is available in:
++include/dt-bindings/reset-controller/stm32mp1-resets.h
++
++This file implements defines like:
++#define LTDC_R	3072
++
++
++Defining clock source distribution with property st,clksrc
++==========================================================
++
++- st,clksrc : The clock sources configuration array in a platform specific
++              order.
++
++  Property can be used to configure the clock distribution tree.
++  When used, it shall describe the whole distribution tree.
++
++  For the STM32MP15x family there are 9 clock sources selector which are
++  configured in the following order:
++	MPU AXI MCU PLL12 PLL3 PLL4 RTC MCO1 MCO2
++
++  Clock source configuration values are defined by macros CLK_<NAME>_<SOURCE>
++  from dt-bindings/clock/stm32mp1-clksrc.h.
++
++  Example:
++	st,clksrc = <
++		CLK_MPU_PLL1P
++		CLK_AXI_PLL2P
++		CLK_MCU_PLL3P
++		CLK_PLL12_HSE
++		CLK_PLL3_HSE
++		CLK_PLL4_HSE
++		CLK_RTC_LSE
++		CLK_MCO1_DISABLED
++		CLK_MCO2_DISABLED
++	>;
++
++Defining clock dividers with property st,clkdiv
++===============================================
++
++- st,clkdiv : The clock main dividers value specified in an array
++              in a platform specific order.
++
++  When used, it shall describe the whole clock dividers tree.
++
++  Property can be used to configure the clock main dividers value.
++  When used, it shall describe the whole clock dividers tree.
++
++  For the STM32MP15x family there are 11 dividers values expected.
++  They shall be configured in the following order:
++		MPU AXI MCU APB1 APB2 APB3 APB4 APB5 RTC MCO1 MCO2
++
++  The each divider value uses the DIV coding defined in RCC associated
++  register RCC_xxxDIVR. In most cases, it is:
++		0x0: not divided
++		0x1: division by 2
++		0x2: division by 4
++		0x3: division by 8
++		...
++
++  Note that for RTC MCO1 MCO2, the coding is different:
++		0x0: not divided
++		0x1: division by 2
++		0x2: division by 3
++		0x3: division by 4
++		...
++
++  Example:
++	st,clkdiv = <
++		1 /*MPU*/
++		0 /*AXI*/
++		0 /*MCU*/
++		1 /*APB1*/
++		1 /*APB2*/
++		1 /*APB3*/
++		1 /*APB4*/
++		2 /*APB5*/
++		23 /*RTC*/
++		0 /*MCO1*/
++		0 /*MCO2*/
++	>;
++
++Optional Properties:
++Defining peripherals kernel clock tree distribution with property st,pkcs
++=========================================================================
++
++- st,pkcs : used to configure the peripherals kernel clock selection.
++
++  The property is a list of peripheral kernel clock source identifiers defined
++  by macros CLK_<KERNEL-CLOCK>_<PARENT-CLOCK> as defined by header file
++  dt-bindings/clock/stm32mp1-clksrc.h.
++
++  st,pkcs may not list all the kernel clocks and has no ordering requirements.
++
++  Example:
++	st,pkcs = <
++		CLK_STGEN_HSE
++		CLK_CKPER_HSI
++		CLK_USBPHY_PLL2P
++		CLK_DSI_PLL2Q
++		CLK_I2C46_HSI
++		CLK_UART1_HSI
++		CLK_UART24_HSI
++	>;
++
++Defining peripheral PLL frequencies
++========================================================
++
++- children for a PLL static configuration with "st,stm32mp1-pll" compatible
++
++  Each PLL children nodes for PLL1 to PLL4 (see ref manual for details)
++  are listed with associated reg 0 to 3.
++
++  PLL2, PLL3 or PLL4 are off when their associated nodes are absent or
++  deactivated.
++
++  The configuration of PLL1, the source clock of Cortex-A7 core, with st,pll@0
++  node, is optional as TF-A automatically selects the most suitable operating
++  point for the platform.
++  The node st,pll@0 node should be absent; it is only used if you want to
++  override the PLL1 properties computed by TF-A (clock spreading for example).
++
++  Here are the available properties for each PLL node:
++    - compatible: should be "st,stm32mp1-pll"
++
++    - reg: index of the pll instance
++
++    - cfg: The parameters for PLL configuration in the following order:
++           DIVM DIVN DIVP DIVQ DIVR Output.
++
++	DIVx values are defined as in RCC spec:
++		0x0: bypass (division by 1)
++		0x1: division by 2
++		0x2: division by 3
++		0x3: division by 4
++		...
++
++	Output contains a bitfield for each output value (1:ON/0:OFF)
++		BIT(0) => output P : DIVPEN
++		BIT(1) => output Q : DIVQEN
++		BIT(2) => output R : DIVREN
++	  NB: macro PQR(p,q,r) can be used to build this value
++	      with p,q,r = 0 or 1.
++
++    - frac: Fractional part of the multiplication factor
++            (optional, PLL is in integer mode when absent).
++
++    - csg: Clock Spreading Generator (optional) with parameters in the
++	   following order: MOD_PER INC_STEP SSCG_MODE.
++
++	MOD_PER: Modulation Period Adjustment
++	INC_STEP: Modulation Depth Adjustment
++	SSCG_MODE: Spread spectrum clock generator mode, with associated
++		   defined from stm32mp1-clksrc.h:
++			- SSCG_MODE_CENTER_SPREAD = 0
++			- SSCG_MODE_DOWN_SPREAD = 1
++
++    Example:
++	st,pll@0 {
++		compatible = "st,stm32mp1-pll";
++		reg = <0>;
++		cfg = <1 53 0 0 0 1>;
++		frac = <0x810>;
++	};
++	st,pll@1 {
++		compatible = "st,stm32mp1-pll";
++		reg = <1>;
++		cfg = <1 43 1 0 0 PQR(0,1,1)>;
++		csg = <10 20 1>;
++	};
++	st,pll@2 {
++		compatible = "st,stm32mp1-pll";
++		reg = <2>;
++		cfg = <2 85 3 13 3 0>;
++		csg = <10 20 SSCG_MODE_CENTER_SPREAD>;
++	};
++	st,pll@3 {
++		compatible = "st,stm32mp1-pll";
++		reg = <3>;
++		cfg = <2 78 4 7 9 3>;
++	};
++
++Fixed clocks description
++========================
++
++The clock tree is also based on 5 fixed-clock in clocks node
++used to define the state of associated ST32MP1 oscillators:
++  - clk-lsi
++  - clk-lse
++  - clk-hsi
++  - clk-hse
++  - clk-csi
++
++At boot the clock tree initialization will
++  - enable oscillators present in device tree and not disabled
++    (node with status="disabled"),
++  - disable HSI oscillator if the node is absent (always activated by bootrom)
++    and not disabled (node with status="disabled").
++
++Optional properties :
++
++a) for external oscillator: "clk-lse", "clk-hse"
++
++  4 optional fields are managed
++  - "st,bypass" configures the oscillator bypass mode (HSEBYP, LSEBYP)
++  - "st,digbypass" configures the bypass mode as full-swing digital
++    signal (DIGBYP)
++  - "st,css" activates the clock security system (HSECSSON, LSECSSON)
++  - "st,drive" (only for LSE) contains the value of the drive for the
++     oscillator (see LSEDRV_ defined in the file
++     dt-bindings/clock/stm32mp1-clksrc.h)
++
++  Example board file:
++	/ {
++		clocks {
++			clk_hse: clk-hse {
++				#clock-cells = <0>;
++				compatible = "fixed-clock";
++				clock-frequency = <64000000>;
++				st,bypass;
++			};
++
++			clk_lse: clk-lse {
++				#clock-cells = <0>;
++				compatible = "fixed-clock";
++				clock-frequency = <32768>;
++				st,css;
++				st,drive = <LSEDRV_LOWEST>;
++			};
++	};
++
++b) for internal oscillator: "clk-hsi"
++
++  Internally HSI clock is fixed to 64MHz for STM32MP157 SoC.
++  In device tree, clk-hsi is the clock after HSIDIV (clk_hsi in RCC
++  doc). So this clock frequency is used to compute the expected HSI_DIV
++  for the clock tree initialization.
++
++  Example with HSIDIV = /1:
++	/ {
++		clocks {
++			clk_hsi: clk-hsi {
++				#clock-cells = <0>;
++				compatible = "fixed-clock";
++				clock-frequency = <64000000>;
++			};
++	};
++
++  Example with HSIDIV = /2
++	/ {
++		clocks {
++			clk_hsi: clk-hsi {
++				#clock-cells = <0>;
++				compatible = "fixed-clock";
++				clock-frequency = <32000000>;
++			};
++	};
++
++HSI & CSI calibration
++========================
++
++Calibration is an optional feature that may be enabled from device tree. It
++allows to request calibration of the HSI or the CSI clocks from several means:
++	- SiP SMC service
++	- Periodic calibration every X seconds
++	- Interrupt raised by the MCU
++
++This feature requires that a HW timer is assigned to the calibration sequence.
++
++Dedicated secure interrupt must be defined using "mcu_sev" name to start a
++calibration on detection of an interrupt raised by MCU.
++
++- st,hsi-cal: used to enable HSI clock calibration feature.
++
++- st,csi-cal; used to enable CSI clock calibration feature.
++
++- st,cal-sec: used to enable periodic calibration every specified seconds from
++  secure monitor. Time must be given in seconds. If not specified, calibration
++  is processed for each incoming request.
++
++Example:
++	&rcc {
++		st,hsi-cal;
++		st,csi-cal;
++		st,cal-sec = <15>;
++		secure-interrupts = <GIC_SPI 144 IRQ_TYPE_LEVEL_HIGH>,
++				<GIC_SPI 145 IRQ_TYPE_LEVEL_HIGH>;
++		secure-interrupt-names = "mcu_sev", "wakeup";
++	};
++
++
++Example of clock tree initialization
++====================================
++
++/ {
++	clocks {
++		clk_hse: clk-hse {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <24000000>;
++			st,digbypass;
++		};
++
++		clk_hsi: clk-hsi {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <64000000>;
++		};
++
++		clk_lse: clk-lse {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <32768>;
++		};
++
++		clk_lsi: clk-lsi {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <32000>;
++		};
++
++		clk_csi: clk-csi {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <4000000>;
++		};
++	};
++
++	soc {
++
++		rcc: rcc@50000000 {
++			compatible = "st,stm32mp1-rcc", "syscon";
++			reg = <0x50000000 0x1000>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			#clock-cells = <1>;
++			#reset-cells = <1>;
++			interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
++			secure-interrupts = <GIC_SPI 145 IRQ_TYPE_LEVEL_HIGH>;
++			secure-interrupt-names = "wakeup";
++
++			st,clksrc = <
++				CLK_MPU_PLL1P
++				CLK_AXI_PLL2P
++				CLK_MCU_PLL3P
++				CLK_PLL12_HSE
++				CLK_PLL3_HSE
++				CLK_PLL4_HSE
++				CLK_RTC_LSE
++				CLK_MCO1_DISABLED
++				CLK_MCO2_DISABLED
++			>;
++
++			st,clkdiv = <
++				1 /*MPU*/
++				0 /*AXI*/
++				0 /*MCU*/
++				1 /*APB1*/
++				1 /*APB2*/
++				1 /*APB3*/
++				1 /*APB4*/
++				2 /*APB5*/
++				23 /*RTC*/
++				0 /*MCO1*/
++				0 /*MCO2*/
++			>;
++
++			st,pkcs = <
++				CLK_CKPER_HSE
++				CLK_FMC_ACLK
++				CLK_QSPI_ACLK
++				CLK_ETH_DISABLED
++				CLK_SDMMC12_PLL4P
++				CLK_DSI_DSIPLL
++				CLK_STGEN_HSE
++				CLK_USBPHY_HSE
++				CLK_SPI2S1_PLL3Q
++				CLK_SPI2S23_PLL3Q
++				CLK_SPI45_HSI
++				CLK_SPI6_HSI
++				CLK_I2C46_HSI
++				CLK_SDMMC3_PLL4P
++				CLK_USBO_USBPHY
++				CLK_ADC_CKPER
++				CLK_CEC_LSE
++				CLK_I2C12_HSI
++				CLK_I2C35_HSI
++				CLK_UART1_HSI
++				CLK_UART24_HSI
++				CLK_UART35_HSI
++				CLK_UART6_HSI
++				CLK_UART78_HSI
++				CLK_SPDIF_PLL4P
++				CLK_FDCAN_PLL4Q
++				CLK_SAI1_PLL3Q
++				CLK_SAI2_PLL3Q
++				CLK_SAI3_PLL3Q
++				CLK_SAI4_PLL3Q
++				CLK_RNG1_LSI
++				CLK_RNG2_LSI
++				CLK_LPTIM1_PCLK1
++				CLK_LPTIM23_PCLK3
++				CLK_LPTIM45_LSE
++			>;
++
++			/* VCO = 1300.0 MHz => P = 650 (CPU) */
++			pll1: st,pll@0 {
++				compatible = "st,stm32mp1-pll";
++				reg = <0>;
++				cfg = <2 80 0 0 0 PQR(1,0,0)>;
++				frac = <0x800>;
++			};
++
++			/* VCO = 1066.0 MHz => P = 266 (AXI), Q = 533 (GPU),
++			                       R = 533 (DDR) */
++			pll2: st,pll@1 {
++				compatible = "st,stm32mp1-pll";
++				reg = <1>;
++				cfg = <2 65 1 0 0 PQR(1,1,1)>;
++				frac = <0x1400>;
++			};
++
++			/* VCO = 417.8 MHz => P = 209, Q = 24, R = 11 */
++			pll3: st,pll@2 {
++				compatible = "st,stm32mp1-pll";
++				reg = <2>;
++				cfg = <1 33 1 16 36 PQR(1,1,1)>;
++				frac = <0x1a04>;
++			};
++
++			/* VCO = 594.0 MHz => P = 99, Q = 74, R = 74 */
++			pll4: st,pll@3 {
++				compatible = "st,stm32mp1-pll";
++				reg = <3>;
++				cfg = <3 98 5 7 7 PQR(1,1,1)>;
++			};
++		};
++	};
++};
+diff --git a/docs/devicetree/bindings/clock/st,stm32mp13-rcc.txt b/docs/devicetree/bindings/clock/st,stm32mp13-rcc.txt
+new file mode 100644
+index 000000000..4a444beb5
+--- /dev/null
++++ b/docs/devicetree/bindings/clock/st,stm32mp13-rcc.txt
+@@ -0,0 +1,640 @@
++STMicroelectronics STM32 Peripheral Reset Clock Controller
++==========================================================
++
++The RCC IP is both a reset and a clock controller.
++
++RCC makes also power management (resume/supend and wakeup interrupt).
++
++Please also refer to reset.txt for common reset controller binding usage.
++
++Please also refer to clock-bindings.txt for common clock controller
++binding usage.
++
++
++Required properties:
++- compatible: "st,stm32mp13-rcc", "syscon"
++- reg: should be register base and length as documented in the datasheet
++- #clock-cells: 1, device nodes should specify the clock in their
++  "clocks" property, containing a phandle to the clock device node,
++  an index specifying the clock to use.
++- #reset-cells: Shall be 1
++- interrupts: Should contain a general interrupt line.
++- secure-interrupts: Should contain an interrupt line to the wake-up of
++                     processor (CSTOP).
++
++Example:
++	rcc: rcc@50000000 {
++		compatible = "st,stm32mp13-rcc", "syscon";
++		reg = <0x50000000 0x1000>;
++		#clock-cells = <1>;
++		#reset-cells = <1>;
++		interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
++		secure-interrupts = <GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++Specifying clocks
++=================
++
++All available clocks are defined as preprocessor macros in
++dt-bindings/clock/stm32mp13-clks.h header and can be used in device
++tree sources.
++
++Specifying softreset control of devices
++=======================================
++
++Device nodes should specify the reset channel required in their "resets"
++property, containing a phandle to the reset device node and an index specifying
++which channel to use.
++The index is the bit number within the RCC registers bank, starting from RCC
++base address.
++It is calculated as: index = register_offset / 4 * 32 + bit_offset.
++Where bit_offset is the bit offset within the register.
++
++For example on STM32MP13, for I2C2 reset:
++ i2c2 = APB1_RSTSETR_offset / 4 * 32 + I2C2_bit_offset
++      = 0x6A0 / 4 * 32 + 22 = 13590
++
++The list of valid indices for STM32MP13 is available in:
++include/dt-bindings/reset/stm32mp13-resets.h
++
++This file implements defines like:
++#define I2C2_R	13590
++
++
++Defining clock source distribution with property st,clksrc
++==========================================================
++
++- st,clksrc : used to configure the peripherals kernel clock selection.
++
++  The property is a list of peripheral kernel clock source identifiers defined
++  by macros CLK_<KERNEL-CLOCK>_<PARENT-CLOCK> as defined by header file
++  dt-bindings/clock/stm32mp13-clksrc.h.
++
++  st,clksrc may not list all the kernel clocks and has no ordering requirements.
++
++  Property can be used to configure the clock distribution tree.
++
++  Example:
++	st,clksrc = <
++		CLK_MPU_PLL1P
++		CLK_AXI_PLL2P
++		CLK_MLAHBS_PLL3
++		CLK_RTC_LSE
++		CLK_MCO1_DISABLED
++		CLK_MCO2_DISABLED
++		CLK_ETH1_PLL4P
++		CLK_ETH2_PLL4P
++		CLK_SDMMC1_PLL4P
++		CLK_SDMMC2_PLL4P
++		CLK_STGEN_HSE
++		CLK_USBPHY_HSE
++		CLK_I2C4_HSI
++	>;
++
++Defining clock dividers with property st,clkdiv
++===============================================
++
++- st,clkdiv : The property is a list of dividers defined
++              by macros DIV(DIV_<DIV-CLOCK>, value) as defined by header file
++	      dt-bindings/clock/stm32mp13-clksrc.h.
++
++  Property can be used to configure the clock main dividers value.
++
++  For the STM32MP13 family there are 12 dividers values expected.
++		MPU AXI MLAHB APB1 APB2 APB3 APB4 APB5 APB6 RTC MCO1 MCO2
++
++  Each divider value uses the DIV coding defined in RCC associated
++  register RCC_xxxDIVR. In most cases, it is:
++		0x0: not divided
++		0x1: division by 2
++		0x2: division by 4
++		0x3: division by 8
++		...
++
++  Note that the coding is different for:
++
++  RTC MCO1 MCO2
++		0x0: not divided
++		0x1: division by 2
++		0x2: division by 3
++		0x3: division by 4
++		...
++
++  DIV_MPU
++		0x0: no clock generated
++		0x1: division by 2
++		0x2: division by 3
++		0x3: division by 4
++		...
++		0xf: division by 16
++
++  Example:
++	st,clkdiv = <
++		DIV(DIV_MPU, 1)
++		DIV(DIV_AXI, 0)
++		DIV(DIV_MLAHB, 0)
++		DIV(DIV_APB1, 1)
++		DIV(DIV_APB2, 1)
++		DIV(DIV_APB3, 1)
++		DIV(DIV_APB4, 1)
++		DIV(DIV_APB5, 2)
++		DIV(DIV_APB6, 1)
++		DIV(DIV_RTC, 23)
++		DIV(DIV_MCO1, 0)
++		DIV(DIV_MCO2, 0)
++	>;
++
++Defining peripheral PLL frequencies
++========================================================
++
++- children for a PLL static configuration with "st,stm32mp1-pll" compatible
++
++  Each PLL children node for PLL1 to PLL4 (see ref manual for details)
++  are listed with associated reg 0 to 3.
++
++  PLL2, PLL3 or PLL4 are off when their associated nodes are absent or
++  deactivated.
++
++  The configuration of PLL1, the source clock of Cortex-A7 core, is mandatory
++  for TF-A.
++
++      Here are the available properties for each PLL node:
++    - compatible: should be "st,stm32mp1-pll"
++
++    - reg: index of the pll instance
++
++    - st,pll: Phandle of the default pll configuration.
++              A pll could have several configuration (5 max) and shoud be described in a subnode
++              just below.
++
++    - pllx_cfgx node: The PLL configuration node is composed of 2 mandatory parameters:
++        - st,pll_vco: Phandle of pll vco configuration.
++	              See description of 'st,pll_vco' node.
++
++        - st,pll_div_pqr: The parameters for PLL configuration in the following order:
++                          DIVP DIVQ DIVR Output.
++
++			  DIVx values are defined as in RCC spec:
++			  0x0: bypass (division by 1)
++			  0x1: division by 2
++			  0x2: division by 3
++			  0x3: division by 4
++			  ...
++  Note that in the next stage (e.g. OPTEE) the phandle of the default pll configuration
++  ('st,pll') could be optional (the configuration of TF-A will be kept).
++  The DVFS could apllied configuration at run-time from pllx_cfgx node.
++
++- st,pll_vco node: This node will contain all vco configuration of all PLLs in subnodes.
++                   We will found theses parameters in each subnodes.
++
++	   -src: Clock source configuration values are defined by macros CLK_<NAME>_<SOURCE>
++                 from dt-bindings/clock/stm32mp13-clksrc.h.
++
++	   -divmn: The parameters for PLL divider (DIVM) and multiplication factor (DIVN)
++	           configuration.
++
++	   - frac: Fractional part of the multiplication factor
++                   (optional, PLL is in integer mode when absent).
++
++	   - csg: Clock Spreading Generator (optional) with parameters in the
++	          following order: MOD_PER INC_STEP SSCG_MODE.
++
++	          MOD_PER: Modulation Period Adjustment
++		  INC_STEP: Modulation Depth Adjustment
++		  SSCG_MODE: Spread spectrum clock generator mode, with associated
++			     defined from stm32mp13-clksrc.h:
++		               - SSCG_MODE_CENTER_SPREAD = 0
++			       - SSCG_MODE_DOWN_SPREAD = 1
++
++    Example:
++	st,pll_vco {
++		pll1_vco_1300Mhz: pll1-vco-1300Mhz {
++			src = <CLK_PLL12_HSE>;
++			divmn = <2 80>;
++			frac = <0x800>;
++		};
++		...
++		pll2_vco_1066Mhz: pll2-vco-1066Mhz {
++			src = <CLK_PLL12_HSE>;
++			divmn = <2 65>;
++			frac = <0x1400>;
++			csg = <10 20 1>;
++		};
++		...
++	};
++
++	pll1:st,pll@0 {
++		compatible = "st,stm32mp1-pll";
++		reg = <0>;
++
++		st,pll = <&pll1_cfg1>;
++
++		pll1_cfg1: pll1_cfg1 {
++			st,pll_vco = <&pll1_vco_1300Mhz>;
++			st,pll_div_pqr = <0 1 1>;
++		};
++	};
++
++	st,pll@1 {
++		compatible = "st,stm32mp1-pll";
++		reg = <1>;
++
++		st,pll = <&pll2_cfg1>;
++
++		pll2_cfg1: pll2_cfg1 {
++			st,pll_vco = <&pll2_vco_1066Mhz>;
++			st,pll_div_pqr = <1 0 1>;
++		};
++	};
++
++  Note: pll1 and pll2 have same source clock, if source clock is different
++  between pll1 and pll2 a panic will be generated.
++
++Fixed clocks description
++========================
++
++The clock tree is also based on 5 fixed-clock in clocks node
++used to define the state of associated ST32MP1 oscillators:
++  - clk-lsi
++  - clk-lse
++  - clk-hsi
++  - clk-hse
++  - clk-csi
++
++At boot the clock tree initialization will
++  - enable oscillators present in device tree and not disabled
++    (node with status="disabled"),
++  - disable HSI oscillator if the node is absent (always activated by bootrom)
++    or disabled (node with status="disabled").
++
++Optional properties :
++
++a) for external oscillator: "clk-lse", "clk-hse"
++
++  4 optional fields are managed
++  - "st,bypass" configures the oscillator bypass mode (HSEBYP, LSEBYP)
++  - "st,digbypass" configures the bypass mode as full-swing digital
++    signal (DIGBYP)
++  - "st,css" activates the clock security system (HSECSSON, LSECSSON)
++  - "st,drive" (only for LSE) contains the value of the drive for the
++     oscillator (see LSEDRV_ defined in the file
++     dt-bindings/clock/stm32mp13-clksrc.h)
++
++  Example board file:
++	/ {
++		clocks {
++			clk_hse: clk-hse {
++				#clock-cells = <0>;
++				compatible = "fixed-clock";
++				clock-frequency = <24000000>;
++				st,bypass;
++			};
++
++			clk_lse: clk-lse {
++				#clock-cells = <0>;
++				compatible = "fixed-clock";
++				clock-frequency = <32768>;
++				st,css;
++				st,drive = <LSEDRV_LOWEST>;
++			};
++	};
++
++b) for internal oscillator: "clk-hsi"
++
++  Internally HSI clock is fixed to 64MHz for STM32MP13 SoC.
++  In device tree, clk-hsi is the clock after HSIDIV (clk_hsi in RCC
++  doc). So this clock frequency is used to compute the expected HSI_DIV
++  for the clock tree initialization.
++
++  Example with HSIDIV = /1:
++	/ {
++		clocks {
++			clk_hsi: clk-hsi {
++				#clock-cells = <0>;
++				compatible = "fixed-clock";
++				clock-frequency = <64000000>;
++			};
++	};
++
++  Example with HSIDIV = /2
++	/ {
++		clocks {
++			clk_hsi: clk-hsi {
++				#clock-cells = <0>;
++				compatible = "fixed-clock";
++				clock-frequency = <32000000>;
++			};
++	};
++
++HSI & CSI calibration
++========================
++
++Calibration is an optional feature that may be enabled from device tree. It
++allows to request calibration of the HSI or the CSI clocks from several means:
++	- SiP SMC service
++	- Periodic calibration every X seconds
++
++This feature requires that a HW timer is assigned to the calibration sequence.
++
++- st,hsi-cal: used to enable HSI clock calibration feature.
++
++- st,csi-cal: used to enable CSI clock calibration feature.
++
++- st,cal-sec: used to enable periodic calibration every specified seconds from
++  secure monitor. Time must be given in seconds. If not specified, calibration
++  is processed for each incoming request.
++
++Example:
++	&rcc {
++		st,hsi-cal;
++		st,csi-cal;
++		st,cal-sec = <15>;
++		secure-interrupts = <GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>;
++		secure-interrupt-names = "wakeup";
++	};
++
++
++Clocks and Operating Performance Points
++=======================================
++
++- st,clk_opp node: This node will contain all operating point configurations.
++		   We can have 3 operating points:
++		     - st,ck_mpu
++		     - st,ck_axi
++		     - ck_mlahbs
++		   These nodes are not mandatory, but we have to respect the naming.
++
++                   Each node will contain a list of operating point configurations (cfg_1, cfg_2...)
++
++                   These configuration subnodes contain these properties:
++
++		   mandatory parameters:
++		     -hz: Operating point frequency in hertz
++
++		     -st,clksrc: The clock source (same syntax of 'st,clksrc' property below)
++
++		   optional parameters:
++		     -st,clkdiv: The clock divider value (same syntax of 'st,clkdiv' property below)
++
++                     -st,pll: Phandle of the pll configuration (See description of 'pllx_cfgx' node)
++
++  Note that this OPP configuration will be apllied at the run-time and will override the clock tree
++  configuration.
++
++  Example:
++			st,clk_opp {
++				st,ck_mpu {
++					cfg_1 {
++						hz = <900000000>;
++						st,clksrc = <CLK_MPU_PLL1P>;
++						st,pll = <&pll1_cfg1>;
++					};
++
++					cfg_2 {
++						hz = <650000000>;
++						st,clksrc = <CLK_MPU_PLL1P>;
++						st,pll = <&pll1_cfg2>;
++					}
++
++
++Example of clock tree initialization and Operating Points Performance
++=====================================================================
++
++/ {
++	clocks {
++		clk_hse: clk-hse {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <24000000>;
++			st,digbypass;
++		};
++
++		clk_hsi: clk-hsi {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <64000000>;
++		};
++
++		clk_lse: clk-lse {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <32768>;
++		};
++
++		clk_lsi: clk-lsi {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <32000>;
++		};
++
++		clk_csi: clk-csi {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <4000000>;
++		};
++	};
++
++	soc {
++
++		rcc: rcc@50000000 {
++			compatible = "st,stm32mp13-rcc", "syscon";
++			reg = <0x50000000 0x1000>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			#clock-cells = <1>;
++			#reset-cells = <1>;
++			interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
++			secure-interrupts = <GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>;
++			secure-interrupt-names = "wakeup";
++
++			st,clksrc = <
++				CLK_MPU_PLL1P
++				CLK_AXI_PLL2P
++				CLK_MLAHBS_PLL3
++				CLK_RTC_LSE
++				CLK_MCO1_DISABLED
++				CLK_MCO2_DISABLED
++				CLK_CKPER_HSE
++				CLK_ETH1_PLL4P
++				CLK_ETH2_PLL4P
++				CLK_SDMMC1_PLL4P
++				CLK_SDMMC2_PLL4P
++				CLK_STGEN_HSE
++				CLK_USBPHY_HSE
++				CLK_I2C4_HSI
++				CLK_USBO_USBPHY
++				CLK_ADC2_CKPER
++				CLK_I2C12_HSI
++				CLK_UART2_HSI
++				CLK_UART4_HSI
++				CLK_SAES_AXI
++				CLK_DCMIPP_PLL2Q
++				CLK_LPTIM3_PCLK3
++			>;
++
++			st,clkdiv = <
++				DIV(DIV_MPU, 1)
++				DIV(DIV_AXI, 0)
++				DIV(DIV_MLAHB, 0)
++				DIV(DIV_APB1, 1)
++				DIV(DIV_APB2, 1)
++				DIV(DIV_APB3, 1)
++				DIV(DIV_APB4, 1)
++				DIV(DIV_APB5, 2)
++				DIV(DIV_APB6, 1)
++				DIV(DIV_RTC, 0)
++				DIV(DIV_MCO1, 0)
++				DIV(DIV_MCO2, 0)
++			>;
++
++			st,pll_vco {
++				pll1_vco_1800Mhz: pll1-vco-1800Mhz {
++					src = <CLK_PLL12_HSE>;
++					divmn = <1 74>;
++				};
++
++				pll1_vco_1300Mhz: pll1-vco-1300Mhz {
++					src = <CLK_PLL12_HSE>;
++					divmn = <2 80>;
++					frac = <0x800>;
++				};
++
++				pll2_vco_1066Mhz: pll2-vco-1066Mhz {
++					src = <CLK_PLL12_HSE>;
++					divmn = <2 65>;
++					frac = <0x1400>;
++				};
++
++				pll3_vco_417Mhz: pll3-vco-417Mhz {
++					src = <CLK_PLL3_HSE>;
++					divmn = <1 33>;
++					frac = <0x1a04>;
++				};
++
++				pll4_vco_600Mhz: pll4-vco-600Mhz {
++					src = <CLK_PLL4_HSE>;
++					divmn = <1 49>;
++				};
++			};
++
++			/* VCO = 1300.0 MHz => P = 650 (CPU) */
++			pll1:st,pll@0 {
++				compatible = "st,stm32mp1-pll";
++				reg = <0>;
++
++				st,pll = <&pll1_cfg1>;
++
++				pll1_cfg1: pll1_cfg1 {
++					st,pll_vco = <&pll1_vco_1300Mhz>;
++					st,pll_div_pqr = <0 1 1>;
++				};
++
++				pll1_cfg2: pll2_cfg1 {
++					st,pll_vco = <&pll1_vco_1800Mhz>;
++					st,pll_div_pqr = <0 1 1>;
++				};
++			};
++
++			/* VCO = 1066.0 MHz => P = 266 (AXI), Q = 266, R = 533 (DDR) */
++			pll2:st,pll@1 {
++				compatible = "st,stm32mp1-pll";
++				reg = <1>;
++
++				st,pll = <&pll2_cfg1>;
++
++				pll2_cfg1: pll2_cfg1 {
++					st,pll_vco = <&pll2_vco_1066Mhz>;
++					st,pll_div_pqr = <1 0 1>;
++				};
++			};
++
++			/* VCO = 417.8 MHz => P = 209, Q = 24, R = 11 */
++			pll3:st,pll@2 {
++				compatible = "st,stm32mp1-pll";
++				reg = <2>;
++
++				st,pll = <&pll3_cfg1>;
++
++				pll3_cfg1: pll3_cfg1 {
++					st,pll_vco = <&pll3_vco_417Mhz>;
++					st,pll_div_pqr = <1 16 1>;
++				};
++			};
++
++			/* VCO = 600.0 MHz => P = 50, Q = 10, R = 100 */
++			pll4:st,pll@3 {
++				compatible = "st,stm32mp1-pll";
++				reg = <3>;
++				st,pll = <&pll4_cfg1>;
++
++				pll4_cfg1: pll4_cfg1 {
++					st,pll_vco = <&pll4_vco_600Mhz>;
++					st,pll_div_pqr = <11 59 5>;
++				};
++			};
++
++			st,clk_opp {
++				st,ck_mpu {
++					cfg_1 {
++						hz = <900000000>;
++						st,clksrc = <CLK_MPU_PLL1P>;
++						st,pll = <&pll1_cfg1>;
++					};
++
++					cfg_2 {
++						hz = <650000000>;
++						st,clksrc = <CLK_MPU_PLL1P>;
++						st,pll = <&pll1_cfg2>;
++					};
++
++					cfg_3 {
++						hz = <450000000>;
++						st,clksrc = <CLK_MPU_PLL1P_DIV>;
++						st,clkdiv = <DIV(DIV_MPU, 1)>;
++						st,pll = <&pll1_cfg1>;
++					};
++
++					cfg_4 {
++						hz = <64000000>;
++						st,clksrc = <CLK_MPU_HSI>;
++					};
++
++					cfg_5 {
++						hz = <24000000>;
++						st,clksrc = <CLK_MPU_HSE>;
++					};
++				};
++
++				st,ck_axi {
++					cfg_1 {
++						hz = <266500000>;
++						st,clksrc = <CLK_AXI_PLL2P>;
++						st,clkdiv = <DIV(DIV_AXI, 0)>;
++						st,pll = <&pll2_cfg1>;
++					};
++
++					cfg_2 {
++						hz = <64000000>;
++						st,clksrc = <CLK_AXI_HSI>;
++						st,clkdiv = <DIV(DIV_AXI, 0)>;
++					};
++				};
++
++				st,ck_mlahbs {
++					cfg_1 {
++						hz = <208877930>;
++						st,clksrc = <CLK_MLAHBS_PLL3>;
++						st,clkdiv = <DIV(DIV_MLAHB, 0)>;
++						st,pll = <&pll3_cfg1>;
++					};
++
++					cfg_2 {
++						hz = <12000000>;
++						st,clksrc = <CLK_MLAHBS_HSE>;
++						st,clkdiv = <DIV(DIV_MLAHB, 1)>;
++					};
++				};
++			};
++		};
++	};
++};
+diff --git a/docs/devicetree/bindings/i2c/i2c-stm32.txt b/docs/devicetree/bindings/i2c/i2c-stm32.txt
+new file mode 100644
+index 000000000..68aefa6dc
+--- /dev/null
++++ b/docs/devicetree/bindings/i2c/i2c-stm32.txt
+@@ -0,0 +1,54 @@
++* I2C controller embedded in STMicroelectronics STM32 I2C platform
++
++Required properties :
++- compatible : Must be one of the following
++  - "st,stm32f7-i2c"
++- reg : Offset and length of the register set for the device
++- resets: Must contain the phandle to the reset controller.
++- clocks: Must contain the input clock of the I2C instance.
++- A pinctrl state named "default" must be defined to set pins in mode of
++  operation for I2C transfer. An optional pinctrl state named "sleep" has to
++  be defined as well as to put I2C in low power mode in suspend mode.
++- #address-cells = <1>;
++- #size-cells = <0>;
++
++Optional properties :
++- clock-frequency : Desired I2C bus clock frequency in Hz. If not specified,
++  the default 100 kHz frequency will be used.
++- i2c-scl-rising-time-ns : Only for STM32F7, I2C SCL Rising time for the board
++  (default: 25)
++- i2c-scl-falling-time-ns : Only for STM32F7, I2C SCL Falling time for the board
++  (default: 10)
++  I2C Timings are derived from these 2 values
++- st,syscfg-fmp:  Only for STM32F7, use to set Fast Mode Plus bit within SYSCFG
++  whether Fast Mode Plus speed is selected by slave.
++	1st cell : phandle to syscfg
++	2nd cell : register offset within SYSCFG
++	3rd cell : register bitmask for FMP bit
++
++Example :
++
++	i2c@40005400 {
++		compatible = "st,stm32f4-i2c";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		reg = <0x40005400 0x400>;
++		resets = <&rcc 277>;
++		clocks = <&rcc 0 149>;
++		pinctrl-0 = <&i2c1_sda_pin>, <&i2c1_scl_pin>;
++		pinctrl-names = "default";
++	};
++
++	i2c@40005400 {
++		compatible = "st,stm32f7-i2c";
++		#address-cells = <1>;
++		#size-cells = <0>;
++		reg = <0x40005400 0x400>;
++		resets = <&rcc STM32F7_APB1_RESET(I2C1)>;
++		clocks = <&rcc 1 CLK_I2C1>;
++		pinctrl-0 = <&i2c1_sda_pin>, <&i2c1_scl_pin>;
++		pinctrl-1 =  <&i2c1_sda_pin_sleep>, <&i2c1_scl_pin_sleep>;
++		pinctrl-names = "default", "sleep";
++		st,syscfg-fmp = <&syscfg 0x4 0x1>;
++	};
++
+diff --git a/docs/devicetree/bindings/memory-controllers/st,stm32mp1-ddr.txt b/docs/devicetree/bindings/memory-controllers/st,stm32mp1-ddr.txt
+new file mode 100644
+index 000000000..ec610925b
+--- /dev/null
++++ b/docs/devicetree/bindings/memory-controllers/st,stm32mp1-ddr.txt
+@@ -0,0 +1,289 @@
++ST,stm32mp1 DDR3/LPDDR2/LPDDR3 Controller (DDRCTRL and DDRPHYC)
++
++--------------------
++Required properties:
++--------------------
++- compatible	: Should be "st,stm32mp1-ddr" for STM32MP15x
++		  Should be "st,stm32mp13-ddr" for STM32MP13x
++- reg		: controleur (DDRCTRL) and phy (DDRPHYC) base address
++- clocks	: controller clocks handle
++- clock-names	: associated controller clock names
++		  the "ddrphyc" clock is used to check the DDR frequency
++		  at phy level according the expected value in "mem-speed" field
++
++the next attributes are DDR parameters, they are generated by DDR tools
++included in STM32 Cube tool
++
++info attributes:
++----------------
++- st,mem-name	: name for DDR configuration, simple string for information
++- st,mem-speed	: DDR expected speed for the setting in kHz
++- st,mem-size	: DDR mem size in byte
++
++
++controlleur attributes:
++-----------------------
++- st,ctl-reg	: controleur values depending of the DDR type
++		  (DDR3/LPDDR2/LPDDR3)
++	for STM32MP13x and STM32MP15x: 25 values are requested in this order
++		MSTR
++		MRCTRL0
++		MRCTRL1
++		DERATEEN
++		DERATEINT
++		PWRCTL
++		PWRTMG
++		HWLPCTL
++		RFSHCTL0
++		RFSHCTL3
++		CRCPARCTL0
++		ZQCTL0
++		DFITMG0
++		DFITMG1
++		DFILPCFG0
++		DFIUPD0
++		DFIUPD1
++		DFIUPD2
++		DFIPHYMSTR
++		ODTMAP
++		DBG0
++		DBG1
++		DBGCMD
++		POISONCFG
++		PCCFG
++
++- st,ctl-timing	: controleur values depending of frequency and timing parameter
++		  of DDR
++	for STM32MP13x and STM32MP15x: 12 values are requested in this order
++		RFSHTMG
++		DRAMTMG0
++		DRAMTMG1
++		DRAMTMG2
++		DRAMTMG3
++		DRAMTMG4
++		DRAMTMG5
++		DRAMTMG6
++		DRAMTMG7
++		DRAMTMG8
++		DRAMTMG14
++		ODTCFG
++
++- st,ctl-map	: controleur values depending of address mapping
++	for STM32MP13x and STM32MP15x: 9 values are requested in this order
++		ADDRMAP1
++		ADDRMAP2
++		ADDRMAP3
++		ADDRMAP4
++		ADDRMAP5
++		ADDRMAP6
++		ADDRMAP9
++		ADDRMAP10
++		ADDRMAP11
++
++- st,ctl-perf	: controleur values depending of performance and scheduling
++	for STM32MP13x: 11 values are requested in this order
++		SCHED
++		SCHED1
++		PERFHPR1
++		PERFLPR1
++		PERFWR1
++		PCFGR_0
++		PCFGW_0
++		PCFGQOS0_0
++		PCFGQOS1_0
++		PCFGWQOS0_0
++		PCFGWQOS1_0
++
++	for STM32MP15x: 17 values are requested in this order
++		SCHED
++		SCHED1
++		PERFHPR1
++		PERFLPR1
++		PERFWR1
++		PCFGR_0
++		PCFGW_0
++		PCFGQOS0_0
++		PCFGQOS1_0
++		PCFGWQOS0_0
++		PCFGWQOS1_0
++		PCFGR_1
++		PCFGW_1
++		PCFGQOS0_1
++		PCFGQOS1_1
++		PCFGWQOS0_1
++		PCFGWQOS1_1
++
++phyc attributes:
++----------------
++- st,phy-reg	: phy values depending of the DDR type (DDR3/LPDDR2/LPDDR3)
++	for STM32MP13x: 9 values are requested in this order
++		PGCR
++		ACIOCR
++		DXCCR
++		DSGCR
++		DCR
++		ODTCR
++		ZQ0CR1
++		DX0GCR
++		DX1GCR
++
++	for STM32MP15x: 11 values are requested in this order
++		PGCR
++		ACIOCR
++		DXCCR
++		DSGCR
++		DCR
++		ODTCR
++		ZQ0CR1
++		DX0GCR
++		DX1GCR
++		DX2GCR
++		DX3GCR
++
++- st,phy-timing	: phy values depending of frequency and timing parameter of DDR
++	for STM32MP13x and STM32MP15x: 10 values are requested in this order
++		PTR0
++		PTR1
++		PTR2
++		DTPR0
++		DTPR1
++		DTPR2
++		MR0
++		MR1
++		MR2
++		MR3
++
++Example:
++
++/ {
++	soc {
++		ddr: ddr@0x5A003000{
++			compatible = "st,stm32mp1-ddr";
++
++			reg = <0x5A003000 0x550
++			       0x5A004000 0x234>;
++
++			clocks = <&rcc_clk AXIDCG>,
++				 <&rcc_clk DDRC1>,
++				 <&rcc_clk DDRC2>,
++				 <&rcc_clk DDRPHYC>,
++				 <&rcc_clk DDRCAPB>,
++				 <&rcc_clk DDRPHYCAPB>;
++
++			clock-names = "axidcg",
++				      "ddrc1",
++				      "ddrc2",
++				      "ddrphyc",
++				      "ddrcapb",
++				      "ddrphycapb";
++
++			st,mem-name = "DDR3 2x4Gb 533MHz";
++			st,mem-speed = <533000>;
++			st,mem-size = <0x40000000>;
++
++			st,ctl-reg = <
++				0x00040401 /*MSTR*/
++				0x00000010 /*MRCTRL0*/
++				0x00000000 /*MRCTRL1*/
++				0x00000000 /*DERATEEN*/
++				0x00800000 /*DERATEINT*/
++				0x00000000 /*PWRCTL*/
++				0x00400010 /*PWRTMG*/
++				0x00000000 /*HWLPCTL*/
++				0x00210000 /*RFSHCTL0*/
++				0x00000000 /*RFSHCTL3*/
++				0x00000000 /*CRCPARCTL0*/
++				0xC2000040 /*ZQCTL0*/
++				0x02050105 /*DFITMG0*/
++				0x00000202 /*DFITMG1*/
++				0x07000000 /*DFILPCFG0*/
++				0xC0400003 /*DFIUPD0*/
++				0x00000000 /*DFIUPD1*/
++				0x00000000 /*DFIUPD2*/
++				0x00000000 /*DFIPHYMSTR*/
++				0x00000001 /*ODTMAP*/
++				0x00000000 /*DBG0*/
++				0x00000000 /*DBG1*/
++				0x00000000 /*DBGCMD*/
++				0x00000000 /*POISONCFG*/
++				0x00000010 /*PCCFG*/
++			>;
++
++			st,ctl-timing = <
++				0x0080008A /*RFSHTMG*/
++				0x121B2414 /*DRAMTMG0*/
++				0x000D041B /*DRAMTMG1*/
++				0x0607080E /*DRAMTMG2*/
++				0x0050400C /*DRAMTMG3*/
++				0x07040407 /*DRAMTMG4*/
++				0x06060303 /*DRAMTMG5*/
++				0x02020002 /*DRAMTMG6*/
++				0x00000202 /*DRAMTMG7*/
++				0x00001005 /*DRAMTMG8*/
++				0x000D041B /*DRAMTMG1*/4
++				0x06000600 /*ODTCFG*/
++			>;
++
++			st,ctl-map = <
++				0x00080808 /*ADDRMAP1*/
++				0x00000000 /*ADDRMAP2*/
++				0x00000000 /*ADDRMAP3*/
++				0x00001F1F /*ADDRMAP4*/
++				0x07070707 /*ADDRMAP5*/
++				0x0F070707 /*ADDRMAP6*/
++				0x00000000 /*ADDRMAP9*/
++				0x00000000 /*ADDRMAP10*/
++				0x00000000 /*ADDRMAP11*/
++			>;
++
++			st,ctl-perf = <
++				0x00001201 /*SCHED*/
++				0x00001201 /*SCHED*/1
++				0x01000001 /*PERFHPR1*/
++				0x08000200 /*PERFLPR1*/
++				0x08000400 /*PERFWR1*/
++				0x00010000 /*PCFGR_0*/
++				0x00000000 /*PCFGW_0*/
++				0x02100B03 /*PCFGQOS0_0*/
++				0x00800100 /*PCFGQOS1_0*/
++				0x01100B03 /*PCFGWQOS0_0*/
++				0x01000200 /*PCFGWQOS1_0*/
++				0x00010000 /*PCFGR_1*/
++				0x00000000 /*PCFGW_1*/
++				0x02100B03 /*PCFGQOS0_1*/
++				0x00800000 /*PCFGQOS1_1*/
++				0x01100B03 /*PCFGWQOS0_1*/
++				0x01000200 /*PCFGWQOS1_1*/
++			>;
++
++			st,phy-reg = <
++				0x01442E02 /*PGCR*/
++				0x10400812 /*ACIOCR*/
++				0x00000C40 /*DXCCR*/
++				0xF200001F /*DSGCR*/
++				0x0000000B /*DCR*/
++				0x00010000 /*ODTCR*/
++				0x0000007B /*ZQ0CR1*/
++				0x0000CE81 /*DX0GCR*/
++				0x0000CE81 /*DX1GCR*/
++				0x0000CE81 /*DX2GCR*/
++				0x0000CE81 /*DX3GCR*/
++			>;
++
++			st,phy-timing = <
++				0x0022A41B /*PTR0*/
++				0x047C0740 /*PTR1*/
++				0x042D9C80 /*PTR2*/
++				0x369477D0 /*DTPR0*/
++				0x098A00D8 /*DTPR1*/
++				0x10023600 /*DTPR2*/
++				0x00000830 /*MR0*/
++				0x00000000 /*MR1*/
++				0x00000208 /*MR2*/
++				0x00000000 /*MR3*/
++			>;
++
++			status = "okay";
++		};
++	};
++};
+diff --git a/docs/devicetree/bindings/mmc/mmci.txt b/docs/devicetree/bindings/mmc/mmci.txt
+new file mode 100644
+index 000000000..6d3c626e0
+--- /dev/null
++++ b/docs/devicetree/bindings/mmc/mmci.txt
+@@ -0,0 +1,72 @@
++* ARM PrimeCell MultiMedia Card Interface (MMCI) PL180/1
++
++The ARM PrimeCell MMCI PL180 and PL181 provides an interface for
++reading and writing to MultiMedia and SD cards alike.
++
++This file documents differences between the core properties described
++by mmc.txt and the properties used by the mmci driver. Using "st" as
++the prefix for a property, indicates support by the ST Micro variant.
++
++Required properties:
++- compatible             : contains "arm,pl18x", "arm,primecell".
++- vmmc-supply            : phandle to the regulator device tree node, mentioned
++                           as the VCC/VDD supply in the eMMC/SD specs.
++
++Optional properties:
++- arm,primecell-periphid : contains the PrimeCell Peripheral ID, it overrides
++                           the ID provided by the HW
++- resets                 : phandle to internal reset line.
++			   Should be defined for sdmmc variant.
++- vqmmc-supply           : phandle to the regulator device tree node, mentioned
++                           as the VCCQ/VDD_IO supply in the eMMC/SD specs.
++specific for ux500 variant:
++- st,sig-dir-dat0        : bus signal direction pin used for DAT[0].
++- st,sig-dir-dat2        : bus signal direction pin used for DAT[2].
++- st,sig-dir-dat31       : bus signal direction pin used for DAT[3] and DAT[1].
++- st,sig-dir-dat74       : bus signal direction pin used for DAT[4] to DAT[7].
++- st,sig-dir-cmd         : cmd signal direction pin used for CMD.
++- st,sig-pin-fbclk       : feedback clock signal pin used.
++
++specific for sdmmc variant:
++- st,sig-dir             : signal direction polarity used for cmd, dat0 dat123.
++- st,neg-edge            : data & command phase relation, generated on
++                           sd clock falling edge.
++- st,use-ckin            : use ckin pin from an external driver to sample
++                           the receive data (example: with voltage
++			   switch transceiver).
++
++Deprecated properties:
++- mmc-cap-mmc-highspeed  : indicates whether MMC is high speed capable.
++- mmc-cap-sd-highspeed   : indicates whether SD is high speed capable.
++
++Example:
++
++sdi0_per1@80126000 {
++	compatible = "arm,pl18x", "arm,primecell";
++	reg = <0x80126000 0x1000>;
++	interrupts = <0 60 IRQ_TYPE_LEVEL_HIGH>;
++
++	dmas = <&dma 29 0 0x2>, /* Logical - DevToMem */
++	       <&dma 29 0 0x0>; /* Logical - MemToDev */
++	dma-names = "rx", "tx";
++
++	clocks = <&prcc_kclk 1 5>, <&prcc_pclk 1 5>;
++	clock-names = "sdi", "apb_pclk";
++
++	max-frequency = <100000000>;
++	bus-width = <4>;
++	cap-sd-highspeed;
++	cap-mmc-highspeed;
++	cd-gpios  = <&gpio2 31 0x4>; // 95
++	st,sig-dir-dat0;
++	st,sig-dir-dat2;
++	st,sig-dir-cmd;
++	st,sig-pin-fbclk;
++
++	vmmc-supply = <&ab8500_ldo_aux3_reg>;
++	vqmmc-supply = <&vmmci>;
++
++	pinctrl-names = "default", "sleep";
++	pinctrl-0 = <&sdi0_default_mode>;
++	pinctrl-1 = <&sdi0_sleep_mode>;
++};
+diff --git a/docs/devicetree/bindings/mmc/st,stm32-sdmmc2.txt b/docs/devicetree/bindings/mmc/st,stm32-sdmmc2.txt
+new file mode 100644
+index 000000000..51576a384
+--- /dev/null
++++ b/docs/devicetree/bindings/mmc/st,stm32-sdmmc2.txt
+@@ -0,0 +1,22 @@
++* STMicroelectronics STM32 SDMMC2 controller
++
++The highspeed MMC host controller on STM32 soc family
++provides an interface for MMC, SD and SDIO types of memory cards.
++
++This file documents differences between the core properties described
++by mmci.txt and the properties used by the sdmmc2 driver.
++
++Required properties:
++ - compatible: should be one of:
++   "st,stm32-sdmmc2"
++
++Example:
++	sdmmc1: sdmmc@0x58005000 {
++		compatible = "st,stm32-sdmmc2";
++		reg = <0x58005000 0x1000>;
++		clocks = <&rcc SDMMC1_K>;
++		resets = <&rcc SDMMC1_R>;
++		cap-sd-highspeed;
++		cap-mmc-highspeed;
++		status = "disabled";
++	};
+diff --git a/docs/devicetree/bindings/power/st,stm32mp1-pwr.txt b/docs/devicetree/bindings/power/st,stm32mp1-pwr.txt
+new file mode 100644
+index 000000000..22779b05a
+--- /dev/null
++++ b/docs/devicetree/bindings/power/st,stm32mp1-pwr.txt
+@@ -0,0 +1,43 @@
++STMicroelectronics STM32MP1 Power Management Controller
++=======================================================
++
++The PWR IP is responsible for handling the power related resources such as
++clocks, power supplies and resets. It provides 6 wake-up pins that are handled
++by an interrupt-controller. Wake-up pin can be used to wake-up from STANDBY SoC
++state.
++
++Required properties:
++- compatible should be: "st,stm32mp1-pwr", "st,stm32-pwr"
++- reg: should be register base and length as documented in the
++  datasheet
++
++Optional Properties:
++- Nodes corresponding to PSCI commands issued by kernel:
++  - system_suspend_supported_soc_modes: list of supported SoC modes in suspend
++  - system_off_soc_mode: SoC mode for shutdown
++  - st,retram-enabled-in-standby-ddr-sr: enable retram during standby-ddr-sr
++
++The list of SoC modes is in include/dt-bindings/power/stm32mp1-power.h:
++  - modes for system_suspend
++	1 -> STM32_PM_CSTOP_ALLOW_STOP
++	2 -> STM32_PM_CSTOP_ALLOW_LP_STOP
++	3 -> STM32_PM_CSTOP_ALLOW_LPLV_STOP
++	4 -> STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR
++  - modes for system_off
++	6 -> STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF
++	7 -> STM32_PM_SHUTDOWN
++
++Example:
++
++pwr: pwr@50001000 {
++	compatible = "st,stm32mp1-pwr", "st,stm32-pwr", "syscon", "simple-mfd";
++	reg = <0x50001000 0x400>;
++
++	system_suspend_supported_soc_modes = <
++		STM32_PM_CSLEEP_RUN
++		STM32_PM_CSTOP_ALLOW_LP_STOP
++		STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR
++	>;
++
++	system_off_soc_mode = <STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF>;
++};
+diff --git a/docs/devicetree/bindings/power/st,stpmic1.txt b/docs/devicetree/bindings/power/st,stpmic1.txt
+new file mode 100644
+index 000000000..83307d23b
+--- /dev/null
++++ b/docs/devicetree/bindings/power/st,stpmic1.txt
+@@ -0,0 +1,94 @@
++* STMicroelectronics STPMIC1 Power Management IC
++
++Required parent device properties:
++- compatible:			"st,stpmic1"
++- reg:				The I2C slave address for the STPMIC1 chip.
++- interrupts:			The interrupt lines the device is connected to.
++				The second interrupt is used for wake-up.
++- #interrupt-cells:		Should be 2.
++- interrupt-controller: 	Describes the STPMIC1 as an interrupt
++  controller (has its own domain). Interrupt number are the following:
++	/* Interrupt Register 1 (0x50 for latch) */
++	IT_SWOUT_R=0
++	IT_SWOUT_F=1
++	IT_VBUS_OTG_R=2
++	IT_VBUS_OTG_F=3
++	IT_WAKEUP_R=4
++	IT_WAKEUP_F=5
++	IT_PONKEY_R=6
++	IT_PONKEY_F=7
++	/* Interrupt Register 2 (0x51 for latch) */
++	IT_OVP_BOOST=8
++	IT_OCP_BOOST=9
++	IT_OCP_SWOUT=10
++	IT_OCP_OTG=11
++	IT_CURLIM_BUCK4=12
++	IT_CURLIM_BUCK3=13
++	IT_CURLIM_BUCK2=14
++	IT_CURLIM_BUCK1=15
++	/* Interrupt Register 3 (0x52 for latch) */
++	IT_SHORT_SWOUT=16
++	IT_SHORT_SWOTG=17
++	IT_CURLIM_LDO6=18
++	IT_CURLIM_LDO5=19
++	IT_CURLIM_LDO4=20
++	IT_CURLIM_LDO3=21
++	IT_CURLIM_LDO2=22
++	IT_CURLIM_LDO1=23
++	/* Interrupt Register 3 (0x52 for latch) */
++	IT_SWIN_R=24
++	IT_SWIN_F=25
++	IT_RESERVED_1=26
++	IT_RESERVED_2=27
++	IT_VINLOW_R=28
++	IT_VINLOW_F=29
++	IT_TWARN_R=30
++	IT_TWARN_F=31
++
++STPMIC1 consists in a varied group of sub-devices.
++Each sub-device binding is be described in own documentation file.
++
++Device			 Description
++------			------------
++st,stpmic1-onkey	: Power on key, see ../input/st,stpmic1-onkey.txt
++st,stpmic1-regulators	: Regulators, see ../regulator/st,stpmic1-regulator.txt
++st,stpmic1-wdt		: Watchdog, see ../watchdog/st,stpmic1-wdt.txt
++
++Example:
++
++pmic: pmic@33 {
++	compatible = "st,stpmic1";
++	reg = <0x33>;
++	interrupt-parent = <&gpioa>;
++	interrupts = <0 2>;
++	interrupt-controller;
++	#interrupt-cells = <2>;
++
++	onkey {
++		compatible = "st,stpmic1-onkey";
++		interrupts = <IT_PONKEY_F 0>,<IT_PONKEY_R 1>;
++		interrupt-names = "onkey-falling", "onkey-rising";
++		power-off-time-sec = <10>;
++	};
++
++	watchdog {
++		compatible = "st,stpmic1-wdt";
++	};
++
++	regulators {
++		compatible = "st,stpmic1-regulators";
++
++		vdd_core: buck1 {
++			regulator-name = "vdd_core";
++			regulator-boot-on;
++			regulator-min-microvolt = <700000>;
++			regulator-max-microvolt = <1200000>;
++		};
++		vdd: buck3 {
++			regulator-name = "vdd";
++			regulator-min-microvolt = <3300000>;
++			regulator-max-microvolt = <3300000>;
++			regulator-boot-on;
++			regulator-pull-down;
++		};
++	};
+diff --git a/docs/devicetree/bindings/reset/st,stm32mp1-rcc.txt b/docs/devicetree/bindings/reset/st,stm32mp1-rcc.txt
+new file mode 100644
+index 000000000..b4edaf7c7
+--- /dev/null
++++ b/docs/devicetree/bindings/reset/st,stm32mp1-rcc.txt
+@@ -0,0 +1,6 @@
++STMicroelectronics STM32MP1 Peripheral Reset Controller
++=======================================================
++
++The RCC IP is both a reset and a clock controller.
++
++Please see Documentation/devicetree/bindings/clock/st,stm32mp1-rcc.txt
+diff --git a/docs/devicetree/bindings/rng/st,stm32-rng.txt b/docs/devicetree/bindings/rng/st,stm32-rng.txt
+new file mode 100644
+index 000000000..3c613d791
+--- /dev/null
++++ b/docs/devicetree/bindings/rng/st,stm32-rng.txt
+@@ -0,0 +1,23 @@
++STMicroelectronics STM32 HW RNG
++===============================
++
++The STM32 hardware random number generator is a simple fixed purpose IP and
++is fully separated from other crypto functions.
++
++Required properties:
++
++- compatible : Should be "st,stm32-rng"
++- reg : Should be register base and length as documented in the datasheet
++- clocks : The clock needed to enable the RNG
++
++Optional properties:
++- resets : The reset to properly start RNG
++- clock-error-detect : Enable the clock detection management
++
++Example:
++
++	rng: rng@50060800 {
++		compatible = "st,stm32-rng";
++		reg = <0x50060800 0x400>;
++		clocks = <&rcc 0 38>;
++	};
+diff --git a/docs/devicetree/bindings/serial/st,stm32-usart.txt b/docs/devicetree/bindings/serial/st,stm32-usart.txt
+new file mode 100644
+index 000000000..08b499045
+--- /dev/null
++++ b/docs/devicetree/bindings/serial/st,stm32-usart.txt
+@@ -0,0 +1,88 @@
++* STMicroelectronics STM32 USART
++
++Required properties:
++- compatible: can be either:
++  - "st,stm32-uart",
++  - "st,stm32f7-uart",
++  - "st,stm32h7-uart".
++  depending is compatible with stm32(f4), stm32f7 or stm32h7.
++- reg: The address and length of the peripheral registers space
++- interrupts:
++  - The interrupt line for the USART instance,
++  - An optional wake-up interrupt.
++- interrupt-names: Contains "event" for the USART interrupt line.
++- clocks: The input clock of the USART instance
++
++Optional properties:
++- resets: Must contain the phandle to the reset controller.
++- pinctrl-names: Set to "default". An additional "sleep" state can be defined
++  to set pins in sleep state when in low power. In case the device is used as
++  a wakeup source, "idle" state is defined in order to keep RX pin active.
++  For a console device, an optional state "no_console_suspend" can be defined
++  to enable console messages during suspend. Typically, "no_console_suspend" and
++  "default" states can refer to the same pin configuration.
++- pinctrl-n: Phandle(s) pointing to pin configuration nodes.
++  For Pinctrl properties see ../pinctrl/pinctrl-bindings.txt
++- st,hw-flow-ctrl: bool flag to enable hardware flow control.
++- rs485-rts-delay, rs485-rx-during-tx, rs485-rts-active-low,
++  linux,rs485-enabled-at-boot-time: see rs485.txt.
++- dmas: phandle(s) to DMA controller node(s). Refer to stm32-dma.txt
++- dma-names: "rx" and/or "tx"
++- wakeup-source: bool flag to indicate this device has wakeup capabilities
++- interrupt-names : Should contain "wakeup" if optional wake-up interrupt is
++  used.
++
++Note for dma using:
++- "tx" dma can be used without any constraint since it uses single
++dma transfers.
++- "rx" dma using requires some attention:
++   1) if you cannot anticipate the length of your received packets
++   and if your usart device embeds an internal fifo, then DON'T use
++   dma mode.
++   2) if you enable dma mode WITHOUT mdma intermediate copy (cf.
++   stm32-dma.txt), then the availability of the received data will
++   depend on the dma driver policy and it may be delayed until dma
++   internal fifo is full. The usart driver will see this checking
++   the dma residue when rx interrupt (RXNE or RTO) occurs.
++   3) if you enable dma mode WITH mdma intermediate copy (cf.
++   stm32-dma.txt) then the usart driver will never see the dma
++   residue becoming smaller than RX_BUF_P but it will get its
++   rx dma complete callback called when the cyclic transfer period
++   (RX_BUF_P) is reached.
++The three possibilities above are ordered from the most cpu time
++consuming one to the least one. The counterpart of this optimisation
++is the reception granularity achievable by the usart driver, from
++one byte up to RX_BUF_P.
++
++Examples:
++usart4: serial@40004c00 {
++	compatible = "st,stm32-uart";
++	reg = <0x40004c00 0x400>;
++	interrupts = <52>;
++	clocks = <&clk_pclk1>;
++	pinctrl-names = "default", "sleep", "idle", "no_console_suspend";
++	pinctrl-0 = <&pinctrl_usart4>;
++	pinctrl-1 = <&pinctrl_usart4_sleep>;
++	pinctrl-2 = <&pinctrl_usart4_idle>;
++	pinctrl-3 = <&pinctrl_usart4>;
++};
++
++usart2: serial@40004400 {
++	compatible = "st,stm32-uart";
++	reg = <0x40004400 0x400>;
++	interrupts = <38>;
++	clocks = <&clk_pclk1>;
++	st,hw-flow-ctrl;
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_usart2 &pinctrl_usart2_rtscts>;
++};
++
++usart1: serial@40011000 {
++	compatible = "st,stm32-uart";
++	reg = <0x40011000 0x400>;
++	interrupts = <37>;
++	clocks = <&rcc 0 164>;
++	dmas = <&dma2 2 4 0x414 0x0>,
++	       <&dma2 7 4 0x414 0x0>;
++	dma-names = "rx", "tx";
++};
+diff --git a/docs/devicetree/bindings/soc/st,stm32-etzpc.txt b/docs/devicetree/bindings/soc/st,stm32-etzpc.txt
+new file mode 100644
+index 000000000..ec58557ad
+--- /dev/null
++++ b/docs/devicetree/bindings/soc/st,stm32-etzpc.txt
+@@ -0,0 +1,54 @@
++STM32 ETZPC
++---------------------------------
++
++Required properties:
++- compatible: should be "st,stm32-etzpc"
++- reg: physical base address and length of the registers set for the device
++- clocks: reference to the clock entry
++
++Optional property:
++- st,decprot: Configure option to properly set firewall for IPs.
++
++Examples:
++etzpc: etzpc@5C007000 {
++			compatible = "st,stm32-etzpc";
++			reg = <0x5C007000 0x400>;
++			clocks = <&rcc TZPC>;
++		};
++
++Firewall specifications
++=======================
++
++DECPROT macro must be used to properly configure IP firewalling. It must
++specify ID, domain and locking register status.
++
++The macro is defined in the binding header file [1].
++
++Example:
++	... {
++	st,decprot = <
++	DECPROT(STM32MP1_ETZPC_I2C4_ID, DECPROT_NS_RW, DECPROT_UNLOCK)
++	DECPROT(STM32MP1_ETZPC_RNG1_ID, DECPROT_NS_RW, DECPROT_UNLOCK)
++	DECPROT(STM32MP1_ETZPC_HASH1_ID, DECPROT_NS_RW,	DECPROT_UNLOCK)
++	DECPROT(STM32MP1_ETZPC_CRYP1_ID, DECPROT_NS_RW,	DECPROT_UNLOCK)
++	DECPROT(STM32MP1_ETZPC_GPIOZ_ID, DECPROT_NS_RW,	DECPROT_UNLOCK)>;
++	};
++
++Specify Peripheral IDs
++=======================
++
++Each peripheral is identified with a specific ID. Each platform defines the
++identifiers relevant to that platform. Peripheral IDs are defined in [1].
++
++Specify domain
++==============
++Firewall controls peripherals in specific domains:
++
++DECPROT_S_RW		0x0  -> Read/write Secure
++DECPROT_NS_R_S_W	0x1  -> Non secure read / Read/write Secure
++DECPROT_MCU_ISOLATION	0x2  -> MCU access only
++DECPROT_NS_RW		0x3  -> Non secure read/write
++
++
++[1] include/dt-bindings/soc/st,stm32-etzpc.h
++
+diff --git a/docs/devicetree/bindings/soc/st,stm32-romem.txt b/docs/devicetree/bindings/soc/st,stm32-romem.txt
+new file mode 100644
+index 000000000..424e18a5c
+--- /dev/null
++++ b/docs/devicetree/bindings/soc/st,stm32-romem.txt
+@@ -0,0 +1,52 @@
++STMicroelectronics STM32 Factory-programmed data device tree bindings
++
++This represents STM32 Factory-programmed read only non-volatile area: locked
++flash, OTP, read-only HW regs... This contains various information such as:
++analog calibration data for temperature sensor (e.g. TS_CAL1, TS_CAL2),
++internal vref (VREFIN_CAL), unique device ID...
++
++Required properties:
++- compatible:		Should be one of:
++			"st,stm32f4-otp"
++			"st,stm32mp13-bsec"
++			"st,stm32mp15-bsec"
++- reg:			Offset and length of factory-programmed area.
++- #address-cells:	Should be '<1>'.
++- #size-cells:		Should be '<1>'.
++
++Optional Data cells:
++- Must be child nodes as described in nvmem.txt.
++
++Optional-properties:
++- "st,non-secure-otp" specifies that the OTP can be accessed by non-secure
++  world through secure world services. Only useful for upper OTPs. This
++  property mandates 32-bit granularity of the related nvmem area, that is
++  offset and length are both multiple of 4.
++
++Example on stm32f4:
++	romem: efuse@1fff7800 {
++		compatible = "st,stm32f4-otp";
++		reg = <0x1fff7800 0x400>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		/* Data cells: ts_cal1 at 0x1fff7a2c */
++		ts_cal1: calib@22c {
++			reg = <0x22c 0x2>;
++		};
++		...
++	};
++
++Example on stm32mp15:
++	bsec: efuse@5c005000 {
++		compatible = "st,stm32mp15-bsec";
++		reg = <0x5c005000 0x400>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		mac_addr: mac_addr@e4 {
++			reg = <0xe4 0x8>;
++			st,non-secure-otp;
++		};
++		...
++	};
+diff --git a/docs/devicetree/bindings/soc/st,stm32-stgen.txt b/docs/devicetree/bindings/soc/st,stm32-stgen.txt
+new file mode 100644
+index 000000000..dbd962ebc
+--- /dev/null
++++ b/docs/devicetree/bindings/soc/st,stm32-stgen.txt
+@@ -0,0 +1,18 @@
++STMicroelectronics STM32 STGEN
++===============================
++
++The STM32 System Generic Counter generate a time count value. This
++is a 64 bits wide counter.
++
++Required properties:
++
++- compatible : Should be "st,stm32-stgen"
++- reg : Should be register base and length as documented in the datasheet
++
++Example:
++
++	stgen: stgen@5C008000 {
++		compatible = "st,stm32-stgen";
++		reg = <0x5C008000 0x1000>;
++		status = "okay";
++	};
+diff --git a/docs/devicetree/bindings/soc/st,stm32-tamp.txt b/docs/devicetree/bindings/soc/st,stm32-tamp.txt
+new file mode 100644
+index 000000000..e903b466a
+--- /dev/null
++++ b/docs/devicetree/bindings/soc/st,stm32-tamp.txt
+@@ -0,0 +1,20 @@
++STM32 TAMPER
++---------------------------------
++
++Required properties:
++- compatible: should be "st,stm32-tamp"
++- reg: physical base address and length of the registers set for the device
++- clocks: reference to the clock entry
++
++Optional property:
++- st,out3-pc13: Configure option register to map OUT3 on PC13
++- wakeup-source : Configure tamp as wakeup-src
++
++Examples:
++tamp: tamp@5C00A000 {
++	compatible = "st,stm32-tamp";
++	reg = <0x5C00A000 0x100>;
++	clocks = <&rcc_clk RTCAPB>;
++	st,out3-pc13;
++	wakeup-source;
++};
+diff --git a/docs/devicetree/bindings/watchdog/st,stm32-iwdg.txt b/docs/devicetree/bindings/watchdog/st,stm32-iwdg.txt
+new file mode 100644
+index 000000000..2d35e978d
+--- /dev/null
++++ b/docs/devicetree/bindings/watchdog/st,stm32-iwdg.txt
+@@ -0,0 +1,27 @@
++STM32 Independent WatchDoG (IWDG)
++---------------------------------
++
++Required properties:
++- compatible: should be "st,stm32mp1-iwdg".
++- reg: physical base address and length of the registers set for the device.
++- clocks: reference to the clock entry lsi. Additional pclk clock entry.
++  is required only for st,stm32mp1-iwdg.
++- clock-names: name of the clocks used.
++  "pclk", "lsi" for st,stm32mp1-iwdg.
++
++Optional properties:
++- timeout-sec: Watchdog timeout value in seconds.
++- secure-timeout-sec: Watchdog early timeout management in seconds.
++- stm32,enable-on-stop: Keep watchdog enable during stop.
++- stm32,enable-on-standby: Keep watchdog enable durung standby.
++
++Examples:
++
++iwdg2: iwdg@5a002000 {
++	compatible = "st,stm32mp1-iwdg";
++	reg = <0x5a002000 0x400>;
++	clocks = <&rcc IWDG2>, <&clk_lsi>;
++	clock-names = "pclk", "lsi";
++	instance = <2>;
++	timeout-sec = <30>;
++};
+-- 
+2.47.2
+

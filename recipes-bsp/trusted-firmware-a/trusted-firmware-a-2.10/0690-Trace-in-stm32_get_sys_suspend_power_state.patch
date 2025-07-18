@@ -1,0 +1,51 @@
+From e7ec64d681d3f2f382d9d0d76b09051a4db7b238 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 27 Sep 2024 14:35:20 +0200
+Subject: [PATCH 690/841] Trace in stm32_get_sys_suspend_power_state
+
+When Standby1 is limited by TF-A BL31, it is difficult to understood the
+cause of the issue without modifing the code.
+
+This patch allows to have the minimal information in console needed to
+understood this restriction, when the console is not suspended by Linux
+kernel in system suspend with:
+
+echo N > /sys/module/printk/parameters/console_suspend
+
+By default the console is suspended in suspend mode and the trace is not
+displayed and the added latency for trace is acceptable for this use case
+(vs time to freeze linux tasks).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2bdfd3d8ca7c98b9c26b11c283f19b3335b1b8d0 Trace in stm32_get_sys_suspend_power_state]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ib9ea42d4cde3bb5592b86c5ddaf7a11a03a38613
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/407876
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index cf6b848d4..355db5f33 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -1098,6 +1098,13 @@ static void stm32_get_sys_suspend_power_state(psci_power_state_t *req_state)
+ 		VERBOSE("%s: max_pwr_state = PWRSTATE_LP_STOP2, M33 is running\n", __func__);
+ 	}
+ 
++	/* Trace to debug low power mode restriction */
++	if (max_pwr_state != PWRSTATE_STANDBY) {
++		INFO("max_pwr_state=%x C1IMR1=%x C1IMR2=%x C1IMR3=%x CPU2D2SR=%x\n",
++		     max_pwr_state, c1imr1, c1imr2, c1imr3,
++		     mmio_read_32(pwr_base + PWR_CPU2D2SR));
++	}
++
+ 	/* Search the max supported POWERDOWN modes  <= max_pwr_state */
+ 	for (i = ARRAY_SIZE(stm32mp_supported_pwr_states) - 1U; i > 0U; i--) {
+ 		pwr_state = stm32mp_supported_pwr_states[i];
+-- 
+2.47.2
+

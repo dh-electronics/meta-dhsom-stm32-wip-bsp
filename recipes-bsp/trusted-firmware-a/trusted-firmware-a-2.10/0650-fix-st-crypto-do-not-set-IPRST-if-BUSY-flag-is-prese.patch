@@ -1,0 +1,46 @@
+From 8988c397c75019b29569f8b2292a7270997e40f6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 28 Jun 2024 14:03:32 +0200
+Subject: [PATCH 650/841] fix(st-crypto): do not set IPRST if BUSY flag is
+ present
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+An issue appear when a IPRST is set when BUSY flag is still set.
+Put the IP reset under condition solve this issue.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 56d417256223e68a2160f5e0ad6df48c61fe8202 fix(st-crypto): do not set IPRST if BUSY flag is present]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ibb096c1a362b8077285812e1ffca749c7fc93a03
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/390345
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/crypto/stm32_saes.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/st/crypto/stm32_saes.c b/drivers/st/crypto/stm32_saes.c
+index ec8e6efa1..147c9a1b4 100644
+--- a/drivers/st/crypto/stm32_saes.c
++++ b/drivers/st/crypto/stm32_saes.c
+@@ -128,9 +128,11 @@ static int saes_start(struct stm32_saes_context *ctx)
+ 	uint64_t timeout;
+ 
+ 	/* Reset IP */
+-	mmio_setbits_32(ctx->base + _SAES_CR, _SAES_CR_IPRST);
+-	udelay(SAES_RESET_DELAY);
+-	mmio_clrbits_32(ctx->base + _SAES_CR, _SAES_CR_IPRST);
++	if ((mmio_read_32(ctx->base + _SAES_SR) & _SAES_SR_BUSY) != _SAES_SR_BUSY) {
++		mmio_setbits_32(ctx->base + _SAES_CR, _SAES_CR_IPRST);
++		udelay(SAES_RESET_DELAY);
++		mmio_clrbits_32(ctx->base + _SAES_CR, _SAES_CR_IPRST);
++	}
+ 
+ 	timeout = timeout_init_us(SAES_TIMEOUT_US);
+ 	while ((mmio_read_32(ctx->base + _SAES_SR) & _SAES_SR_BUSY) == _SAES_SR_BUSY) {
+-- 
+2.47.2
+

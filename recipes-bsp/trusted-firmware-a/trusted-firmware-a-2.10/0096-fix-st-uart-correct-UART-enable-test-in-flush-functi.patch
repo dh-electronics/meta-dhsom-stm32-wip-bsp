@@ -1,0 +1,36 @@
+From 7ca26266f678a717caaaba8b0d0c53f582f1e2e9 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 28 Jun 2023 17:41:17 +0200
+Subject: [PATCH 096/841] fix(st-uart): correct UART enable test in flush
+ function
+
+Correct test if UART is enabled.
+Avoid panic when flush has not happened in the given time. The function
+just exits in that case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git acebf6ecae2b46daa1302316453542721ccb8f58 fix(st-uart): correct UART enable test in flush function]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I550211d348687b52dcf23b5f13f4afc891801e6a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/315186
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/uart/aarch32/stm32_console.S | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/st/uart/aarch32/stm32_console.S b/drivers/st/uart/aarch32/stm32_console.S
+index 1c46c2bf6..0094c637d 100644
+--- a/drivers/st/uart/aarch32/stm32_console.S
++++ b/drivers/st/uart/aarch32/stm32_console.S
+@@ -246,7 +246,7 @@ func console_stm32_core_flush
+ 	mov	r2, #USART_TIMEOUT
+ txe_loop_3:
+ 	subs	r2, r2, #1
+-	beq	plat_panic_handler
++	beq	1f
+ 	ldr	r1, [r0, #USART_ISR]
+ 	tst	r1, #USART_ISR_TXE
+ 	beq	txe_loop_3
+-- 
+2.47.2
+

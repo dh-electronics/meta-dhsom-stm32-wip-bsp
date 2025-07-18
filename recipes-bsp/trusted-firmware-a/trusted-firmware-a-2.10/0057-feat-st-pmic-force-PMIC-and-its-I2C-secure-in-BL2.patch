@@ -1,0 +1,47 @@
+From 0158714619e3aebbebe0bb2bbab05ffb3635905f Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 29 Mar 2022 11:35:44 +0200
+Subject: [PATCH 057/841] feat(st-pmic): force PMIC and its I2C secure in BL2
+
+On STM32MP13, the PMIC, and so its I2C bus must be secured. Instead
+of looking for that info in device tree, just force them to DT_SECURE.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f24260470a7a87cb7d489757dda37a911148a8cd feat(st-pmic): force PMIC and its I2C secure in BL2]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I408f260f07f57031816080314549991d28cd08e9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/246098
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic.c b/drivers/st/pmic/stm32mp_pmic.c
+index fd318bc39..7663f7dfc 100644
+--- a/drivers/st/pmic/stm32mp_pmic.c
++++ b/drivers/st/pmic/stm32mp_pmic.c
+@@ -59,7 +59,11 @@ int dt_pmic_status(void)
+ 		return status;
+ 	}
+ 
++#if defined(IMAGE_BL2)
++	status = DT_SECURE;
++#else
+ 	status = (int)fdt_get_status(node);
++#endif
+ 
+ 	return status;
+ }
+@@ -117,6 +121,10 @@ static int dt_pmic_i2c_config(struct dt_node_info *i2c_info,
+ 		return -FDT_ERR_NOTFOUND;
+ 	}
+ 
++#if defined(IMAGE_BL2)
++	i2c_info->status = DT_SECURE;
++#endif
++
+ 	return stm32_i2c_get_setup_from_fdt(fdt, i2c_node, init);
+ }
+ 
+-- 
+2.47.2
+

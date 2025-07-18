@@ -1,0 +1,135 @@
+From 72d2485cd42dcee6e44fff0a45f0a6c0c2729d82 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 5 Feb 2024 10:13:36 +0100
+Subject: [PATCH 515/841] feat(stm32mp23): add SoC part numbers
+
+Add STM32MP23xx SoCs part numbers and the code to display it at boot.
+As for STM32MP25, STM32MP23xC and STM32MP23xF can support
+authenticated boot.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6f12b589f12bef0e29ca00dade54c88ebb1ed67e feat(stm32mp23): add SoC part numbers]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I9fd5cefa7df47ebb0263959a3180f5bfceb1c0dd
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/357544
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h     | 17 +++++++++
+ plat/st/stm32mp2/stm32mp2_private.c | 54 +++++++++++++++++++++++++++++
+ 2 files changed, 71 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 95118d61e..66614bcd9 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -67,6 +67,23 @@
+ #define STM32MP215F_PART_NB	U(0x8003300D)
+ #endif /* STM32MP21 */
+ 
++#if STM32MP23
++#define STM32MP2_CHIP_ID	U(0x505)
++
++#define STM32MP231A_PART_NB	U(0x400B3FEF)
++#define STM32MP231C_PART_NB	U(0x000B31EF)
++#define STM32MP231D_PART_NB	U(0xC00B3FEF)
++#define STM32MP231F_PART_NB	U(0x800B31EF)
++#define STM32MP233A_PART_NB	U(0x400B3F8E)
++#define STM32MP233C_PART_NB	U(0x000B318E)
++#define STM32MP233D_PART_NB	U(0xC00B3F8E)
++#define STM32MP233F_PART_NB	U(0x800B318E)
++#define STM32MP235A_PART_NB	U(0x40082F82)
++#define STM32MP235C_PART_NB	U(0x00082182)
++#define STM32MP235D_PART_NB	U(0xC0082F82)
++#define STM32MP235F_PART_NB	U(0x80082182)
++#endif /* STM32MP23 */
++
+ #if STM32MP25
+ #define STM32MP2_CHIP_ID	U(0x505)
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 53932682c..35a546c2d 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -274,6 +274,44 @@ void stm32mp_get_soc_name(char name[STM32_SOC_NAME_SIZE])
+ 		cpu_s = "215F";
+ 		break;
+ #endif /* STM32MP21 */
++#if STM32MP23
++	case STM32MP231A_PART_NB:
++		cpu_s = "231A";
++		break;
++	case STM32MP231C_PART_NB:
++		cpu_s = "231C";
++		break;
++	case STM32MP231D_PART_NB:
++		cpu_s = "231D";
++		break;
++	case STM32MP231F_PART_NB:
++		cpu_s = "231F";
++		break;
++	case STM32MP233A_PART_NB:
++		cpu_s = "233A";
++		break;
++	case STM32MP233C_PART_NB:
++		cpu_s = "233C";
++		break;
++	case STM32MP233D_PART_NB:
++		cpu_s = "233D";
++		break;
++	case STM32MP233F_PART_NB:
++		cpu_s = "233F";
++		break;
++	case STM32MP235A_PART_NB:
++		cpu_s = "235A";
++		break;
++	case STM32MP235C_PART_NB:
++		cpu_s = "235C";
++		break;
++	case STM32MP235D_PART_NB:
++		cpu_s = "235D";
++		break;
++	case STM32MP235F_PART_NB:
++		cpu_s = "235F";
++		break;
++#endif /* STM32MP23 */
+ #if STM32MP25
+ 	case STM32MP251A_PART_NB:
+ 		cpu_s = "251A";
+@@ -395,10 +433,18 @@ bool stm32mp_is_single_core(void)
+ 	bool single_core = false;
+ 
+ 	switch (get_part_number()) {
++#if STM32MP23
++	case STM32MP231A_PART_NB:
++	case STM32MP231C_PART_NB:
++	case STM32MP231D_PART_NB:
++	case STM32MP231F_PART_NB:
++#endif /* STM32MP23 */
++#if STM32MP25
+ 	case STM32MP251A_PART_NB:
+ 	case STM32MP251C_PART_NB:
+ 	case STM32MP251D_PART_NB:
+ 	case STM32MP251F_PART_NB:
++#endif /* STM32MP25 */
+ 		single_core = true;
+ 		break;
+ 	default:
+@@ -453,6 +499,14 @@ bool stm32mp_is_auth_supported(void)
+ 	case STM32MP215C_PART_NB:
+ 	case STM32MP215F_PART_NB:
+ #endif /* STM32MP21 */
++#if STM32MP23
++	case STM32MP231C_PART_NB:
++	case STM32MP231F_PART_NB:
++	case STM32MP233C_PART_NB:
++	case STM32MP233F_PART_NB:
++	case STM32MP235C_PART_NB:
++	case STM32MP235F_PART_NB:
++#endif /* STM32MP23 */
+ #if STM32MP25
+ 	case STM32MP251C_PART_NB:
+ 	case STM32MP251F_PART_NB:
+-- 
+2.47.2
+

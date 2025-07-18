@@ -1,0 +1,94 @@
+From e1acab1404cfea8fd421a9b31722c8e77bb0e47f Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Mon, 11 Mar 2024 19:15:41 +0100
+Subject: [PATCH 543/841] feat(st-spi): Add the support of the SFDP calibration
+
+Add the support of the SFDP calibration for JEDEC flashes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 72d48bbedabc678a1feac9c0eb4dc2444f9f1767 feat(st-spi): Add the support of the SFDP calibration]
+Change-Id: Ib7c91df4efe041a3df7ce9e8de3a77a5a0756fcf
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/366686
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/spi/stm32_ospi.c | 38 +++++++++++++++++++++++++++++++++++--
+ 1 file changed, 36 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index ca20d757b..7e5a7c5c8 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -401,6 +401,29 @@ static int stm32_ospi_hb_test_cfi(void)
+ 	return ret;
+ }
+ 
++static int stm32_ospi_hb_test_jedec(void)
++{
++	int ret = -EIO;
++	uint16_t sfdp[2];
++
++	stm32_ospi_hb_write16(0xF0U, 0U);
++	stm32_ospi_hb_write16(0xAAU, 0xAAAU);
++	stm32_ospi_hb_write16(0x55U, 0x554U);
++	stm32_ospi_hb_write16(0x90U, 0xAAAU);
++
++	sfdp[0] = stm32_ospi_hb_read16(0U);
++	sfdp[1] = stm32_ospi_hb_read16(0x2U);
++
++	/* compare with "SF" & "DP" */
++	if ((sfdp[0] == 0x4653) && (sfdp[1] == 0x5044)) {
++		ret = 0;
++	}
++
++	stm32_ospi_hb_write16(0xF0U, 0U);
++
++	return ret;
++}
++
+ static int stm32_ospi_hb_init(void *fdt, int bus_node)
+ {
+ 	int ret;
+@@ -408,6 +431,7 @@ static int stm32_ospi_hb_init(void *fdt, int bus_node)
+ 	int bus_subnode = 0;
+ 	const fdt32_t *cuint = NULL;
+ 	bool wzl = false;
++	bool jedec_flash = false;
+ 	unsigned int tacc = 0U;
+ 	unsigned int max_freq = 0U;
+ 	unsigned long ospi_clk = clk_get_rate(stm32_ospi.clock_id);
+@@ -445,6 +469,11 @@ static int stm32_ospi_hb_init(void *fdt, int bus_node)
+ 		if ((fdt_getprop(fdt, bus_subnode, "st,wzl", NULL)) != NULL) {
+ 			wzl = true;
+ 		}
++
++		if (fdt_node_check_compatible(fdt, bus_subnode,
++					      "jedec-flash") == 0) {
++			jedec_flash = true;
++		}
+ 	}
+ 
+ 	/* Enable the controller */
+@@ -489,8 +518,13 @@ static int stm32_ospi_hb_init(void *fdt, int bus_node)
+ 	mmio_write_32(ospi_base() + _OSPI_CCR, ccr);
+ 
+ 	/* Calibrate the DLL */
+-	ret = stm32_ospi_dtr_calibrate(prescaler, bus_freq,
+-				       stm32_ospi_hb_test_cfi);
++	if (jedec_flash) {
++		ret = stm32_ospi_dtr_calibrate(prescaler, bus_freq,
++					       stm32_ospi_hb_test_jedec);
++	} else {
++		ret = stm32_ospi_dtr_calibrate(prescaler, bus_freq,
++					       stm32_ospi_hb_test_cfi);
++	}
+ 	if (ret != 0) {
+ 		return ret;
+ 	}
+-- 
+2.47.2
+

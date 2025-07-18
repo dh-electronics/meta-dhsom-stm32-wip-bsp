@@ -1,0 +1,66 @@
+From 7ad6d5eabd824722ed6006fb1556721f8bc4bf34 Mon Sep 17 00:00:00 2001
+From: Ludovic Barre <ludovic.barre@st.com>
+Date: Tue, 19 Nov 2019 14:27:02 +0100
+Subject: [PATCH 078/841] feat(stm32mp1): add hypervisor mode for bl33
+
+This patch allows to execute bl33 in hypervisor mode
+if BL33_HYP compilation flag is defined.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c05344d950976042e6d7062eca10ccde867511bd feat(stm32mp1): add hypervisor mode for bl33]
+Change-Id: Icd0de8e9a8180f2ca67952bd6b98f38712e52716
+Signed-off-by: Ludovic Barre <ludovic.barre@st.com>
+Signed-off-by: Sebastien Pasdeloup <sebastien.pasdeloup-ext@st.com>
+---
+ plat/st/stm32mp1/plat_bl2_mem_params_desc.c | 4 ++++
+ plat/st/stm32mp1/platform.mk                | 5 +++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/plat/st/stm32mp1/plat_bl2_mem_params_desc.c b/plat/st/stm32mp1/plat_bl2_mem_params_desc.c
+index 9ca09307f..9f1a3e588 100644
+--- a/plat/st/stm32mp1/plat_bl2_mem_params_desc.c
++++ b/plat/st/stm32mp1/plat_bl2_mem_params_desc.c
+@@ -119,7 +119,11 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
+ 				      VERSION_2, entry_point_info_t,
+ 				      NON_SECURE | EXECUTABLE),
+ 
++#if BL33_HYP
++		.ep_info.spsr = SPSR_MODE32(MODE32_hyp, SPSR_T_ARM,
++#else
+ 		.ep_info.spsr = SPSR_MODE32(MODE32_svc, SPSR_T_ARM,
++#endif
+ 					    SPSR_E_LITTLE,
+ 					    DISABLE_ALL_EXCEPTIONS),
+ 
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index 0ac0f9590..92fccfd31 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -119,6 +119,9 @@ endif
+ # Download load address for serial boot devices
+ DWL_BUFFER_BASE 	?=	0xC7000000
+ 
++# Hypervisor mode
++BL33_HYP			?= 0
++
+ # Device tree
+ ifeq ($(STM32MP13),1)
+ BL2_DTSI		:=	stm32mp13-bl2.dtsi
+@@ -163,6 +166,7 @@ endif
+ # Enable flags for C files
+ $(eval $(call assert_booleans,\
+ 	$(sort \
++		BL33_HYP \
+ 		PKA_USE_BRAINPOOL_P256T1 \
+ 		PKA_USE_NIST_P256 \
+ 		STM32MP_CRYPTO_ROM_LIB \
+@@ -185,6 +189,7 @@ $(eval $(call assert_numerics,\
+ 
+ $(eval $(call add_defines,\
+ 	$(sort \
++		BL33_HYP \
+ 		DWL_BUFFER_BASE \
+ 		PKA_USE_BRAINPOOL_P256T1 \
+ 		PKA_USE_NIST_P256 \
+-- 
+2.47.2
+

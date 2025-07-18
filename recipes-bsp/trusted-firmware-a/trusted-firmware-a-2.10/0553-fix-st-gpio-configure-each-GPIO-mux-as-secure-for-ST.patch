@@ -1,0 +1,46 @@
+From f626f68e46cd5fcc39935e13568e17f119ba5bf2 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 14 Feb 2024 15:46:02 +0100
+Subject: [PATCH 553/841] fix(st-gpio): configure each GPIO mux as secure for
+ STM32MP25
+
+GPIOs are configured as secure by default on STM32MP25 in BL2 or in BL31
+to avoid any issues.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 593d615a1a05c13c8aedd3150c073878d74e23ab fix(st-gpio): configure each GPIO mux as secure for STM32MP25]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I80c5944d4ae662f9e28269c3dc543b13f0e26a7b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/360540
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/368602
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/gpio/stm32_gpio.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/gpio/stm32_gpio.c b/drivers/st/gpio/stm32_gpio.c
+index da6a7b120..a882737eb 100644
+--- a/drivers/st/gpio/stm32_gpio.c
++++ b/drivers/st/gpio/stm32_gpio.c
+@@ -286,7 +286,7 @@ static void set_gpio(uint32_t bank, uint32_t pin, uint32_t mode, uint32_t type,
+ 
+ #if STM32MP25
+ 	set_gpio_secure_cfg(bank, pin, true);
+-#endif
++#else
+ 
+ 	if (status == DT_SECURE) {
+ 		stm32mp_register_secure_gpio(bank, pin);
+@@ -300,6 +300,7 @@ static void set_gpio(uint32_t bank, uint32_t pin, uint32_t mode, uint32_t type,
+ 		set_gpio_secure_cfg(bank, pin, false);
+ #endif
+ 	}
++#endif
+ }
+ 
+ void set_gpio_secure_cfg(uint32_t bank, uint32_t pin, bool secure)
+-- 
+2.47.2
+

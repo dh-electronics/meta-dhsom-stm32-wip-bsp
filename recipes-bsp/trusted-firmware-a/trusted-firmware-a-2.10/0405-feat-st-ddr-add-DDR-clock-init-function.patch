@@ -1,0 +1,47 @@
+From 6c8c4c07b0fc2dc58345df24a74387165e96796a Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 24 Oct 2023 16:35:35 +0200
+Subject: [PATCH 405/841] feat(st-ddr): add DDR clock init function
+
+This function enables DDR clocks in RCC_DDRCPCFGR register.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b566940633988b55b2060479417cbfcc212b913b feat(st-ddr): add DDR clock init function]
+Change-Id: I51e9253df99c4faf3290930419991e5cc66f1a5f
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/335914
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr_helpers.c     | 6 ++++++
+ include/drivers/st/stm32mp2_ddr_helpers.h | 1 +
+ 2 files changed, 7 insertions(+)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index 1528113eb..b2ad0ff58 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -499,3 +499,9 @@ void ddr_restore_sr_mode(void)
+ {
+ 	ddr_set_sr_mode(saved_ddr_sr_mode);
+ }
++
++void ddr_sub_system_clk_init(void)
++{
++	mmio_write_32(stm32mp_rcc_base() + RCC_DDRCPCFGR,
++		      RCC_DDRCPCFGR_DDRCPEN | RCC_DDRCPCFGR_DDRCPLPEN);
++}
+diff --git a/include/drivers/st/stm32mp2_ddr_helpers.h b/include/drivers/st/stm32mp2_ddr_helpers.h
+index 423ea9f61..91d49182c 100644
+--- a/include/drivers/st/stm32mp2_ddr_helpers.h
++++ b/include/drivers/st/stm32mp2_ddr_helpers.h
+@@ -29,5 +29,6 @@ enum stm32mp2_ddr_sr_mode ddr_read_sr_mode(void);
+ void ddr_set_sr_mode(enum stm32mp2_ddr_sr_mode mode);
+ void ddr_save_sr_mode(void);
+ void ddr_restore_sr_mode(void);
++void ddr_sub_system_clk_init(void);
+ 
+ #endif /* STM32MP2_DDR_HELPERS_H */
+-- 
+2.47.2
+

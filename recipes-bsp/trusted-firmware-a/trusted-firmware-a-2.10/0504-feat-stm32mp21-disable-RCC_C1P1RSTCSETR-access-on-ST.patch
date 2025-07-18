@@ -1,0 +1,63 @@
+From 04b640bcbbc12f0d23ce5eb0f7c9909e2e64c289 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 19 Feb 2024 11:22:19 +0100
+Subject: [PATCH 504/841] feat(stm32mp21): disable RCC_C1P1RSTCSETR access on
+ STM32MP21
+
+RCC_C1P1RSTCSETR is not present on STM32MP21.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ed5293f612bf11ecba217ea10fb42d07a12a9a5b feat(stm32mp21): disable RCC_C1P1RSTCSETR access on STM32MP21]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I2d8d89391d2f58c33fac61796dd0885cbe2cc9d4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/360883
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 32557a338..990d3c63b 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -239,8 +239,10 @@ static int stm32_pwr_domain_on(u_register_t mpidr)
+ 		isb();
+ 		sev();
+ 	} else {
++#if !STM32MP21
+ 		/* Reset the secondary core */
+ 		mmio_write_32(RCC_BASE + RCC_C1P1RSTCSETR, RCC_C1P1RSTCSETR_C1P1PORRST);
++#endif /* !STM32MP21 */
+ 	}
+ 
+ 	return PSCI_E_SUCCESS;
+@@ -545,12 +547,14 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 		/* Restore register in CA35SS */
+ 		mmio_write_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR, stm32_sec_entrypoint);
+ 
++#if !STM32MP21
+ 		/* Start the secondary core if it was running before STOP */
+ 		if ((core_id == STM32MP_PRIMARY_CPU) &&
+ 		    stm32mp_state_check(STM32MP_SECONDARY_CPU, STATE_START)) {
+ 			/* Reset the secondary core to execute warm boot */
+ 			mmio_write_32(RCC_BASE + RCC_C1P1RSTCSETR, RCC_C1P1RSTCSETR_C1P1PORRST);
+ 		}
++#endif /* !STM32MP21 */
+ 		break;
+ 	case PWRSTATE_STOP1:
+ 	case PWRSTATE_LP_STOP1:
+@@ -649,8 +653,10 @@ static void __dead2 stm32_system_off(void)
+ 		/* After reset, the core is stopped, waiting in WFI loop */
+ 		stm32mp_state_set(STM32MP_SECONDARY_CPU, STATE_START, false);
+ 
++#if !STM32MP21
+ 		/* Reset the secondary core */
+ 		mmio_write_32(RCC_BASE + RCC_C1P1RSTCSETR, RCC_C1P1RSTCSETR_C1P1PORRST);
++#endif /* !STM32MP21 */
+ 
+ 		/* Forbid access to DDR */
+ 		stm32mp_state_set(STM32MP_PRIMARY_CPU, STATE_DDR, false);
+-- 
+2.47.2
+

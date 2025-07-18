@@ -1,0 +1,74 @@
+From cf4a55e1861c38354bf21c040989960a8fd9cc28 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Tue, 18 Feb 2025 09:14:14 +0100
+Subject: [PATCH 794/841] feat(stm32mp2): rename stm32_otp_is_closed_device()
+ to stm32_is_bsec_closed()
+
+Function stm32_is_bsec_closed() only return the status of bsec.
+Hence rename to stm32_is_bsec_closed()
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ec547132643262d80cfab43970a2eb24382f422f feat(stm32mp2): rename stm32_otp_is_closed_device() to stm32_is_bsec_closed()]
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: Iacf39c6afc42482889aaa4d4b2f58da638856e97
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/437894
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/include/stm32mp2_private.h | 4 ++--
+ plat/st/stm32mp2/stm32mp2_otp.c             | 2 +-
+ plat/st/stm32mp2/stm32mp2_private.c         | 2 +-
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index a4392af57..d13282d01 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -89,7 +89,7 @@ static inline uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value)
+ 	return bsec_read_sw_lock(otp, value);
+ }
+ 
+-static inline bool stm32_otp_is_closed_device(void)
++static inline bool stm32_is_bsec_closed(void)
+ {
+ 	return (bsec_get_state() & BSEC_STATE_MASK) == BSEC_STATE_CLOSED;
+ }
+@@ -109,7 +109,7 @@ uint32_t stm32_otp_shadow_read(uint32_t *val, uint32_t otp);
+ uint32_t stm32_otp_write(uint32_t val, uint32_t otp);
+ uint32_t stm32_otp_set_sr_lock(uint32_t otp);
+ uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value);
+-bool stm32_otp_is_closed_device(void);
++bool stm32_is_bsec_closed(void);
+ #endif /* STM32MP_M33_TDCID */
+ 
+ uint32_t otp_mirror_read(uint32_t *val, uint32_t otp);
+diff --git a/plat/st/stm32mp2/stm32mp2_otp.c b/plat/st/stm32mp2/stm32mp2_otp.c
+index b6ee09d36..9aa18a84f 100644
+--- a/plat/st/stm32mp2/stm32mp2_otp.c
++++ b/plat/st/stm32mp2/stm32mp2_otp.c
+@@ -36,7 +36,7 @@ uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value)
+ 	return BSEC_OK;
+ }
+ 
+-bool stm32_otp_is_closed_device(void)
++bool stm32_is_bsec_closed(void)
+ {
+ 	/*
+ 	 * As we cannot check BSEC status, return true here and only rely on lifecycle OTP
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 0d3a93366..07d1b77bf 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -541,7 +541,7 @@ uint32_t stm32mp_check_closed_device(void)
+ 		panic();
+ 	}
+ 
+-	if (!stm32_otp_is_closed_device() ||
++	if (!stm32_is_bsec_closed() ||
+ 	    ((otp_val & SECURE_BOOT_CLOSED_SECURE) == 0U)) {
+ 		status = STM32MP_CHIP_SEC_OPEN;
+ 	}
+-- 
+2.47.2
+

@@ -1,0 +1,49 @@
+From bf4c21b56705ed0ac9c1eb3ca04befeca3eda1a8 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 19 Dec 2024 19:53:38 +0100
+Subject: [PATCH 775/841] feat(stm32mp2): update stm32mp_system_reset for M33
+ TDCID
+
+The global reset of the platform is handled by TDCID, so the CA35
+reset must request reset of CA35 subsystem when M33 is TDCID,
+the RCC_GRSTCSETR register is only accessible by CM33.
+
+This patch avoid IAC when reset is requested.
+
+TODO: sent request to CM33 with SCMI reset message
+      but without SCMI channel support in TF-A BL2
+      BL31 only use an infinite loop to wait watchdog
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 24172a8d7d691d5360c68380b87d9339d1da30f1 feat(stm32mp2): update stm32mp_system_reset for M33 TDCID]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ia3ea14f4b5c7cbe7076ec81c68f29b4e0867c256
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/426135
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/reset/stm32mp2_reset.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/st/reset/stm32mp2_reset.c b/drivers/st/reset/stm32mp2_reset.c
+index 435415f1b..bf557d4fd 100644
+--- a/drivers/st/reset/stm32mp2_reset.c
++++ b/drivers/st/reset/stm32mp2_reset.c
+@@ -65,9 +65,14 @@ int stm32mp_reset_deassert(uint32_t id, unsigned int to_us)
+ 
+ void __dead2 stm32mp_system_reset(void)
+ {
++#if STM32MP_M33_TDCID
++	INFO("BL31: System reset, waiting watchdog\n");
++	/* TODO: use SCMI channel to request C1 reset to cortex M33 */
++#else
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+ 
+ 	mmio_setbits_32(rcc_base + RCC_GRSTCSETR, RCC_GRSTCSETR_SYSRST);
++#endif
+ 
+ 	/* Loop in case system reset is not immediately caught */
+ 	for ( ; ; ) {
+-- 
+2.47.2
+

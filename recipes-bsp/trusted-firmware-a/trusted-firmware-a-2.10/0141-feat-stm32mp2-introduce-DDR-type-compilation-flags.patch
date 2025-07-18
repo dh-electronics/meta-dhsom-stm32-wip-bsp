@@ -1,0 +1,84 @@
+From 3cc43cb9626c9e55693ca25833433a65c44a4dc6 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 5 Jul 2021 15:23:54 +0200
+Subject: [PATCH 141/841] feat(stm32mp2): introduce DDR type compilation flags
+
+Binary size limitation implies to define DDR type build flags.
+User must set one single type in the build command line.
+DDR_TYPE is then deduced, and will help in relative definitions.
+A check routine is implemented to verify correct configuration.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3bcb2f560cf63776c76e026755d9eb5f0731c81f feat(stm32mp2): introduce DDR type compilation flags]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I87d0a492196efea33831d9c090e6e434cc7c0a1e
+---
+ plat/st/stm32mp2/platform.mk | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index b11c5e0b8..8d18f639a 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -44,6 +44,20 @@ STM32_RNG_VER		:=	4
+ # Download load address for serial boot devices
+ DWL_BUFFER_BASE 	?=	0x87000000
+ 
++# DDR types
++STM32MP_DDR3_TYPE	?=	0
++STM32MP_DDR4_TYPE	?=	0
++STM32MP_LPDDR4_TYPE	?=	0
++ifeq (${STM32MP_DDR3_TYPE},1)
++DDR_TYPE		:=	ddr3
++endif
++ifeq (${STM32MP_DDR4_TYPE},1)
++DDR_TYPE		:=	ddr4
++endif
++ifeq (${STM32MP_LPDDR4_TYPE},1)
++DDR_TYPE		:=	lpddr4
++endif
++
+ # DDR features
+ STM32MP_DDR_DUAL_AXI_PORT	:=	1
+ 
+@@ -66,6 +80,9 @@ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
+ $(eval $(call assert_booleans,\
+ 	$(sort \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
++		STM32MP_DDR3_TYPE \
++		STM32MP_DDR4_TYPE \
++		STM32MP_LPDDR4_TYPE \
+ 		STM32MP25 \
+ )))
+ 
+@@ -85,6 +102,9 @@ $(eval $(call add_defines,\
+ 		STM32_RNG_VER \
+ 		STM32_TF_A_COPIES \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
++		STM32MP_DDR3_TYPE \
++		STM32MP_DDR4_TYPE \
++		STM32MP_LPDDR4_TYPE \
+ 		STM32MP25 \
+ )))
+ 
+@@ -155,4 +175,18 @@ BL31_SOURCES			+=	${GICV2_SOURCES}					\
+ BL31_SOURCES			+=	plat/common/plat_psci_common.c
+ 
+ # Compilation rules
++.PHONY: check_ddr_type
++.SUFFIXES:
++
++bl2: check_ddr_type
++
++check_ddr_type:
++	$(eval DDR_TYPE = $(shell echo $$(($(STM32MP_DDR3_TYPE) + \
++					   $(STM32MP_DDR4_TYPE) + \
++					   $(STM32MP_LPDDR4_TYPE)))))
++	@if [ ${DDR_TYPE} != 1 ]; then \
++		echo "One and only one DDR type must be defined"; \
++		false; \
++	fi
++
+ include plat/st/common/common_rules.mk
+-- 
+2.47.2
+
