@@ -1,0 +1,37 @@
+From 261180b5c724adb8e52770ebf2a6a60a75851d04 Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Tue, 29 Nov 2022 11:36:31 +0530
+Subject: [PATCH 30/39] usb: dwc3: fix incrx_mode setting for INCRX_BURST_MODE
+
+incrx_mode is incorrectly set to UNDEF_LENGTH_BURST_MODE when
+only one burst-type is provided in DT
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 4846eb08a03c39dda8cc0fbe7def39bbd43bd74d usb: dwc3: fix incrx_mode setting for INCRX_BURST_MODE]
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Change-Id: I3eb95f2a650e13b537dc321a6a97aaeefa0dc16f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/303890
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+---
+ drivers/usb/dwc3/core.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/core.c b/drivers/usb/dwc3/core.c
+index 6664c64b875..bd1a7e0413c 100644
+--- a/drivers/usb/dwc3/core.c
++++ b/drivers/usb/dwc3/core.c
+@@ -1192,7 +1192,8 @@ void dwc3_of_parse(struct dwc3 *dwc)
+ 				       i, &val))
+ 			break;
+ 
+-		dwc->incrx_mode = INCRX_UNDEF_LENGTH_BURST_MODE;
++		if (i > 0)
++			dwc->incrx_mode = INCRX_UNDEF_LENGTH_BURST_MODE;
+ 		dwc->incrx_size = max(dwc->incrx_size, val);
+ 	}
+ }
+-- 
+2.53.0
+

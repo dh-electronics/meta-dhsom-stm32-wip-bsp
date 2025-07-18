@@ -1,0 +1,35 @@
+From f1a915780e5f691b71fc825f52931a71b434b889 Mon Sep 17 00:00:00 2001
+From: Patrice Chotard <patrice.chotard@foss.st.com>
+Date: Thu, 19 Oct 2023 13:19:33 +0200
+Subject: [PATCH 10/39] stm32mp2: Limit DDR usage under 4GB boundary for
+ STM32MP2
+
+Limit DDR usage under 4GB boundary on STM32MP2 regardless of
+memory size declared in device tree.
+CONFIG_TOP_UNMAPPED_SIZE becomes useless, remove it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 3c45a779f25da61f67152e6cd1a610867df1b1d5 stm32mp2: Limit DDR usage under 4GB boundary for STM32MP2]
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Change-Id: I39a249713ad81a40e57fc06a20c97652a8f35e73
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/334793
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ arch/arm/mach-stm32mp/dram_init.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm/mach-stm32mp/dram_init.c b/arch/arm/mach-stm32mp/dram_init.c
+index 20fc4d3a274..ce9063bf53a 100644
+--- a/arch/arm/mach-stm32mp/dram_init.c
++++ b/arch/arm/mach-stm32mp/dram_init.c
+@@ -82,7 +82,7 @@ phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
+ 	 * make sure U-Boot uses address space below 4GB boundaries even
+ 	 * if the effective available memory is bigger
+ 	 */
+-	gd->ram_top = clamp_val(gd->ram_top, 0, SZ_4G - 1);
++	gd->ram_top = clamp_val((gd->ram_base + gd->ram_size), 0, SZ_4G - 1);
+ 
+ 	/* add 8M for U-Boot reserved memory: display, fdt, gd,... */
+ 	size = ALIGN(SZ_8M + CONFIG_SYS_MALLOC_LEN + total_size, MMU_SECTION_SIZE);
+-- 
+2.53.0
+

@@ -1,0 +1,85 @@
+From eafc92bc2b88c8751ad5fc13cc1c294998829a61 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Wed, 26 Mar 2025 16:28:26 +0100
+Subject: [PATCH 12/39] firmware: scmi: smt: add a polling completion method
+
+Since u-boot does not support interrupt, implement a polling completion
+method on smt status with a timeout.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git ff1c1a77fcaeaec3cc37054855c9025433c1caa7 firmware: scmi: smt: add a polling completion method]
+Change-Id: I0e4ef68cb7da51975530bf1c5de7edd9bf5a6d32
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/446888
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ drivers/firmware/scmi/smt.c | 21 +++++++++++++++++++++
+ drivers/firmware/scmi/smt.h | 11 +++++++++++
+ 2 files changed, 32 insertions(+)
+
+diff --git a/drivers/firmware/scmi/smt.c b/drivers/firmware/scmi/smt.c
+index cd1c0801f72..f3678366cea 100644
+--- a/drivers/firmware/scmi/smt.c
++++ b/drivers/firmware/scmi/smt.c
+@@ -16,6 +16,7 @@
+ #include <dm/ofnode.h>
+ #include <linux/compat.h>
+ #include <linux/io.h>
++#include <linux/iopoll.h>
+ #include <linux/ioport.h>
+ 
+ #include "smt.h"
+@@ -136,6 +137,26 @@ int scmi_read_resp_from_smt(struct udevice *dev, struct scmi_smt *smt,
+ 	return 0;
+ }
+ 
++/**
++ * Wait SCMI message from a SMT shared buffer @smt and copy it into @msg.
++ * Return 0 on success and with a negative errno in case of error.
++ */
++int scmi_wait_resp_from_smt(struct udevice *dev, struct scmi_smt *smt,
++			    struct scmi_msg *msg,  ulong timeout_us)
++{
++	struct scmi_smt_header *hdr = (void *)smt->buf;
++	__le32 status;
++	int ret;
++
++	ret = readl_poll_timeout(&hdr->channel_status, status, status &
++				 SCMI_SHMEM_CHAN_STAT_CHANNEL_FREE,
++				 timeout_us);
++	if (ret)
++		return ret;
++
++	return scmi_read_resp_from_smt(dev, smt, msg);
++}
++
+ /**
+  * Clear SMT flags in shared buffer to allow further message exchange
+  */
+diff --git a/drivers/firmware/scmi/smt.h b/drivers/firmware/scmi/smt.h
+index 9d669a6c922..4a7874304bf 100644
+--- a/drivers/firmware/scmi/smt.h
++++ b/drivers/firmware/scmi/smt.h
+@@ -106,6 +106,17 @@ int scmi_read_resp_from_smt(struct udevice *dev, struct scmi_smt *smt,
+ 
+ void scmi_clear_smt_channel(struct scmi_smt *smt);
+ 
++/*
++ * Wait SCMI message from a SMT shared memory
++ * @dev: SCMI device
++ * @smt: Reference to shared memory using SMT header
++ * @msg: Output SCMI message received
++ * @timeout_us:	The maximum time to wait for a message to be available, in
++ *		micro-seconds. A value of 0 does not wait at all.
++ */
++int scmi_wait_resp_from_smt(struct udevice *dev, struct scmi_smt *smt,
++			    struct scmi_msg *msg, ulong timeout_us);
++
+ /*
+  * Write SCMI message to SMT_MSG shared memory
+  * @dev: SCMI device
+-- 
+2.53.0
+
