@@ -1,0 +1,129 @@
+From 3336ce897e89664a56aadaef6e6e54a28652b251 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 30 Aug 2023 11:02:32 +0200
+Subject: [PATCH 333/841] feat(mtd): add hyperflash framework
+
+This framework supports hyperflash devices. It uses a common high
+level access using the io_mtd.
+
+It is limited to the read functionalities.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 73f775b1012dbb42f84df5fef12921672681ef58 feat(mtd): add hyperflash framework]
+Change-Id: I324254e48112b5a40fa2102237cf06542264c1e7
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/326825
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/mtd/hyperflash/hyperflash.c | 49 +++++++++++++++++++++++++++++
+ include/drivers/hyperflash.h        | 38 ++++++++++++++++++++++
+ 2 files changed, 87 insertions(+)
+ create mode 100644 drivers/mtd/hyperflash/hyperflash.c
+ create mode 100644 include/drivers/hyperflash.h
+
+diff --git a/drivers/mtd/hyperflash/hyperflash.c b/drivers/mtd/hyperflash/hyperflash.c
+new file mode 100644
+index 000000000..a76962987
+--- /dev/null
++++ b/drivers/mtd/hyperflash/hyperflash.c
+@@ -0,0 +1,49 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <assert.h>
++#include <stddef.h>
++
++#include <common/debug.h>
++#include <drivers/hyperflash.h>
++#include <lib/utils.h>
++
++static struct hyperflash_device hyperflash_dev;
++
++#pragma weak plat_get_hyperflash_data
++int plat_get_hyperflash_data(struct hyperflash_device *device)
++{
++	return 0;
++}
++
++int hyperflash_read(unsigned int offset, uintptr_t buffer, size_t length,
++		    size_t *length_read)
++{
++	return hyperflash_dev.ops->read(offset, (uint8_t *)buffer, length,
++					length_read);
++}
++
++void hyperflash_ctrl_init(const struct hyperflash_ctrl_ops *ops)
++{
++	hyperflash_dev.ops = ops;
++}
++
++int hyperflash_init(unsigned long long *size, unsigned int *erase_size)
++{
++	if (hyperflash_dev.ops->read == NULL) {
++		return -ENODEV;
++	}
++
++	if (plat_get_hyperflash_data(&hyperflash_dev) != 0) {
++		return -EINVAL;
++	}
++
++	assert(hyperflash_dev.size != 0U);
++
++	*size = hyperflash_dev.size;
++
++	return 0;
++}
+diff --git a/include/drivers/hyperflash.h b/include/drivers/hyperflash.h
+new file mode 100644
+index 000000000..ab5eaf145
+--- /dev/null
++++ b/include/drivers/hyperflash.h
+@@ -0,0 +1,38 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef DRIVERS_HYPERFLASH_H
++#define DRIVERS_HYPERFLASH_H
++
++#include <errno.h>
++#include <stdbool.h>
++#include <stdint.h>
++
++struct hyperflash_ctrl_ops {
++	int (*read)(unsigned int offset, uint8_t *buffer, size_t length,
++		    size_t *length_read);
++};
++
++struct hyperflash_device {
++	const struct hyperflash_ctrl_ops *ops;
++	uint32_t size;
++};
++
++int hyperflash_read(unsigned int offset, uintptr_t buffer, size_t length,
++		    size_t *length_read);
++int hyperflash_init(unsigned long long *size, unsigned int *erase_size);
++void hyperflash_ctrl_init(const struct hyperflash_ctrl_ops *ops);
++
++/*
++ * Platform can implement this to override default hyperflash
++ * configuration.
++ *
++ * @device: target hyperflash device.
++ * Return 0 on success, negative value otherwise.
++ */
++int plat_get_hyperflash_data(struct hyperflash_device *device);
++
++#endif	/* DRIVERS_HYPERFLASH_H */
+-- 
+2.47.2
+

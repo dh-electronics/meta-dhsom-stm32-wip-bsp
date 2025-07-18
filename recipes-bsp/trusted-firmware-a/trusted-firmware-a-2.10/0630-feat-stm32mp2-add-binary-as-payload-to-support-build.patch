@@ -1,0 +1,54 @@
+From 89dde9bc530994f59fbb09b3b17201291c4880df Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Wed, 24 Apr 2024 11:01:46 +0200
+Subject: [PATCH 630/841] feat(stm32mp2): add binary as payload to support
+ buildroot
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Currently, the BL31 DTB file, which is used for the --soc-fw-config FIP
+component, is included using the TOOL_ADD_IMAGE macro intended for
+external images. This setup requires issuing two make commands for the
+fip target to be built. Since Buildroot builds TF-A in a single pass,
+the current method is incompatible.
+
+This commit changes the inclusion method to TOOL_ADD_PAYLOAD for the
+--soc-fw-config FIP component, allowing Buildroot to build the fip
+target in one pass. However, this approach has a downside: the
+ENCRYPTED_BL31 flag is not taken into account. Therefore, the usual
+command is retained for cases where ENCRYPTED_BL31 is used.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 324d48cee7433f00c854cd9b192ab83b04c5095c feat(stm32mp2): add binary as payload to support buildroot]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Signed-off-by: Romain Gantois <romain.gantois@bootlin.com>
+Change-Id: I912af352b01a8f9b6c1d757defd3e95717178542
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/376172
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/386064
+---
+ plat/st/stm32mp2/platform.mk | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index e7059255e..14450248c 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -168,7 +168,11 @@ FDT_SOURCES			+=	$(addprefix $(DT_SOURCE_PATH)/, $(patsubst %.dtb,%.dts,$(STM32M
+ # Add the FW_CONFIG to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
+ # Add the SOC_FW_CONFIG to FIP and specify the same to certtool
++ifeq ($(ENCRYPT_BL31),1)
+ $(eval $(call TOOL_ADD_IMG,STM32MP_SOC_FW_CONFIG,--soc-fw-config,,$(ENCRYPT_BL31)))
++else
++$(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_SOC_FW_CONFIG},--soc-fw-config))
++endif
+ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+ # Add the FW_DDR to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_IMG,STM32MP_DDR_FW,--ddr-fw))
+-- 
+2.47.2
+

@@ -1,0 +1,199 @@
+From cdad60b469a6f29dfee768d0ecc768f964bb33d4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 7 Jun 2024 14:18:49 +0200
+Subject: [PATCH 617/841] feat(stm32mp2): implement new SoC revision ID system
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+SoC revision ID of MP2 family are now defined with the OTP 102.
+This patch implement this new system.
+It also removes "stm32mp_syscfg_get_chip_version" function that is now
+useless.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 48d7c734b96cddebdf0b757c7e5bb8bc29e88a90 feat(stm32mp2): implement new SoC revision ID system]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ia8e7b4ac314727b33068a5b99827f814d62c96f9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/365356
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/386062
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ fdts/stm32mp211.dtsi                        |  3 ++
+ fdts/stm32mp231.dtsi                        |  3 ++
+ fdts/stm32mp251.dtsi                        |  3 ++
+ plat/st/stm32mp2/include/stm32mp2_private.h |  1 -
+ plat/st/stm32mp2/stm32mp2_def.h             | 32 ++++++++++-----------
+ plat/st/stm32mp2/stm32mp2_private.c         | 21 +++++++++++++-
+ plat/st/stm32mp2/stm32mp2_syscfg.c          | 10 -------
+ 7 files changed, 45 insertions(+), 28 deletions(-)
+
+diff --git a/fdts/stm32mp211.dtsi b/fdts/stm32mp211.dtsi
+index e8b1656f5..b951dc539 100644
+--- a/fdts/stm32mp211.dtsi
++++ b/fdts/stm32mp211.dtsi
+@@ -307,6 +307,9 @@
+ 			nand2_otp: otp20@50 {
+ 				reg = <0x50 0x4>;
+ 			};
++			rev_otp@198 {
++				reg = <0x198 0x4>;
++			};
+ 			package_otp@1e8 {
+ 				reg = <0x1e8 0x1>;
+ 			};
+diff --git a/fdts/stm32mp231.dtsi b/fdts/stm32mp231.dtsi
+index 7f7dd3e29..3b0864d69 100644
+--- a/fdts/stm32mp231.dtsi
++++ b/fdts/stm32mp231.dtsi
+@@ -331,6 +331,9 @@
+ 			nand2_otp: otp20@50 {
+ 				reg = <0x50 0x4>;
+ 			};
++			rev_otp@198 {
++				reg = <0x198 0x4>;
++			};
+ 			package_otp@1e8 {
+ 				reg = <0x1e8 0x1>;
+ 			};
+diff --git a/fdts/stm32mp251.dtsi b/fdts/stm32mp251.dtsi
+index e0c88faa8..c3f93861a 100644
+--- a/fdts/stm32mp251.dtsi
++++ b/fdts/stm32mp251.dtsi
+@@ -379,6 +379,9 @@
+ 			nand2_otp: otp20@50 {
+ 				reg = <0x50 0x4>;
+ 			};
++			rev_otp@198 {
++				reg = <0x198 0x4>;
++			};
+ 			package_otp@1e8 {
+ 				reg = <0x1e8 0x1>;
+ 			};
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index 30dc6656b..455ef4d0f 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -9,7 +9,6 @@
+ 
+ void configure_mmu(void);
+ 
+-uint32_t stm32mp_syscfg_get_chip_version(void);
+ uint32_t stm32mp_syscfg_get_chip_dev_id(void);
+ void stm32mp_syscfg_mask_potential_tamper_enable(void);
+ void stm32mp_syscfg_mask_potential_tamper_disable(void);
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 216f53301..0c53d4413 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -108,12 +108,11 @@
+ #define STM32MP257F_PART_NB	U(0x80002000)
+ #endif /* STM32MP25 */
+ 
+-#if STM32MP21
+-#define STM32MP2_REV_A		U(0x0000)
+-#else /* STM32MP21 */
+-#define STM32MP2_REV_A		U(0x1000)
+-#endif /* STM32MP21 */
+-#define STM32MP2_REV_B		U(0x2000)
++#define STM32MP2_REV_A		U(0x08)
++#define STM32MP2_REV_B		U(0x10)
++#define STM32MP2_REV_X		U(0x12)
++#define STM32MP2_REV_Y		U(0x11)
++#define STM32MP2_REV_Z		U(0x09)
+ 
+ /*******************************************************************************
+  * PACKAGE ID
+@@ -449,16 +448,17 @@ enum ddr_type {
+ #define STM32MP2_UPPER_OTP_START		0x100U
+ 
+ /* OTP labels */
+-#define PART_NUMBER_OTP				"part_number_otp"
+-#define PACKAGE_OTP				"package_otp"
+-#define HCONF1_OTP				"otp124"
+-#define NAND_OTP				"otp16"
+-#define NAND2_OTP				"otp20"
+-#define BOARD_ID_OTP				"board_id"
+-#define UID_OTP					"uid_otp"
+-#define LIFECYCLE2_OTP				"otp18"
+-#define PKH_OTP					"otp144"
+-#define ENCKEY_OTP				"otp260"
++#define PART_NUMBER_OTP			"part_number_otp"
++#define REVISION_OTP			"rev_otp"
++#define PACKAGE_OTP			"package_otp"
++#define HCONF1_OTP			"otp124"
++#define NAND_OTP			"otp16"
++#define NAND2_OTP			"otp20"
++#define BOARD_ID_OTP			"board_id"
++#define UID_OTP				"uid_otp"
++#define LIFECYCLE2_OTP			"otp18"
++#define PKH_OTP				"otp144"
++#define ENCKEY_OTP			"otp260"
+ 
+ /* OTP mask */
+ /* PACKAGE */
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index cbedd7cc5..b5e9f053a 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -196,7 +196,17 @@ uintptr_t stm32_get_header_address(void)
+ 
+ uint32_t stm32mp_get_chip_version(void)
+ {
+-	return stm32mp_syscfg_get_chip_version();
++	static uint32_t rev;
++
++	if (rev != 0U) {
++		return rev;
++	}
++
++	if (stm32_get_otp_value(REVISION_OTP, &rev) != 0) {
++		panic();
++	}
++
++	return rev;
+ }
+ 
+ uint32_t stm32mp_get_chip_dev_id(void)
+@@ -398,6 +408,15 @@ void stm32mp_get_soc_name(char name[STM32_SOC_NAME_SIZE])
+ 	case STM32MP2_REV_B:
+ 		cpu_r = "B";
+ 		break;
++	case STM32MP2_REV_X:
++		cpu_r = "X";
++		break;
++	case STM32MP2_REV_Y:
++		cpu_r = "Y";
++		break;
++	case STM32MP2_REV_Z:
++		cpu_r = "Z";
++		break;
+ 	default:
+ 		cpu_r = "?";
+ 		break;
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index 1a114b67f..f16d20520 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -114,16 +114,6 @@ static uint32_t syscfg_cccr_offset[SYSFG_NB_IO_ID] = {
+ 	[SYSFG_VDD_IO_ID] = SYSCFG_VDDCCCR,
+ };
+ 
+-/*
+- * @brief  Get silicon revision from SYSCFG registers.
+- * @retval chip version (REV_ID).
+- */
+-uint32_t stm32mp_syscfg_get_chip_version(void)
+-{
+-	return (mmio_read_32(SYSCFG_BASE + SYSCFG_DEVICEID) &
+-		SYSCFG_DEVICEID_REV_ID_MASK) >> SYSCFG_DEVICEID_REV_ID_SHIFT;
+-}
+-
+ /*
+  * @brief  Get device ID from SYSCFG registers.
+  * @retval device ID (DEV_ID).
+-- 
+2.47.2
+

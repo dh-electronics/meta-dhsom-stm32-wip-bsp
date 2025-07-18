@@ -1,0 +1,90 @@
+From 5aa54fb211686e0a6e4361ef13643158fac7aae3 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 2 May 2023 15:16:46 +0200
+Subject: [PATCH 298/841] feat(st): add support for external device tree files
+
+It can be handy, e.g for tests purpose, to manage DT files in an
+external directory. This new path should then be managed in mk files,
+instead of the default one (fdts/). By default, this external path is
+set to fdts/external-dt/tf-a, but can be overridden in command line,
+by setting TFA_EXTERNAL_DT.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d0153117095dd3a28e4dd867c126624bdf25c5b3 feat(st): add support for external device tree files]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I219742e00199b3ac54337ccd2fdb794cc096f3d4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/303977
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/common.mk       |  2 ++
+ plat/st/common/common_rules.mk |  2 +-
+ plat/st/stm32mp1/platform.mk   | 14 ++++++++++++--
+ 3 files changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index 8e46104e3..0802a79e1 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -56,6 +56,8 @@ ifeq ($(shell test $(DTC_VERSION) -ge 10601; echo $$?),0)
+ DTC_FLAGS			+=	-Wno-interrupt_provider
+ endif
+ 
++TFA_EXTERNAL_DT		?=	fdts/external-dt/tf-a
++
+ # Macros and rules to build TF binary
+ STM32_TF_ELF_LDFLAGS		:=	--hash-style=gnu --as-needed
+ STM32_TF_LINKERFILE		:=	${BUILD_PLAT}/${PLAT}.ld
+diff --git a/plat/st/common/common_rules.mk b/plat/st/common/common_rules.mk
+index f39caab82..659d8b9fa 100644
+--- a/plat/st/common/common_rules.mk
++++ b/plat/st/common/common_rules.mk
+@@ -41,7 +41,7 @@ check_dtc_version:
+ 	fi
+ 
+ # Create DTB file for BL2
+-${BUILD_PLAT}/fdts/%-bl2.dts: fdts/%.dts fdts/${BL2_DTSI} | ${BUILD_PLAT} fdt_dirs
++${BUILD_PLAT}/fdts/%-bl2.dts: $(DT_SOURCE_PATH)/%.dts fdts/${BL2_DTSI} | ${BUILD_PLAT} fdt_dirs
+ 	@echo '#include "$(patsubst fdts/%,%,$<)"' > $@
+ 	@echo '#include "${BL2_DTSI}"' >> $@
+ 
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index d5ab9ab06..5f6e0d7f3 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -135,6 +135,16 @@ FDT_SOURCES		+=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl32.dts,$(D
+ endif
+ endif
+ 
++ifneq (,$(wildcard fdts/$(patsubst %.dtb,%.dts,$(DTB_FILE_NAME))))
++DT_SOURCE_PATH		:=	fdts
++else
++ifneq (,$(wildcard $(TFA_EXTERNAL_DT)/$(patsubst %.dtb,%.dts,$(DTB_FILE_NAME))))
++DT_SOURCE_PATH		:=	$(TFA_EXTERNAL_DT)
++else
++$(error Cannot find $(patsubst %.dtb,%.dts,$(DTB_FILE_NAME)) file)
++endif
++endif
++
+ # Macros and rules to build TF binary
+ STM32_TF_STM32		:=	$(addprefix ${BUILD_PLAT}/tf-a-, $(patsubst %.dtb,%.stm32,$(DTB_FILE_NAME)))
+ STM32_LD_FILE		:=	plat/st/stm32mp1/stm32mp1.ld.S
+@@ -149,7 +159,7 @@ endif
+ STM32MP_FW_CONFIG_NAME	:=	$(patsubst %.dtb,%-fw-config.dtb,$(DTB_FILE_NAME))
+ STM32MP_FW_CONFIG	:=	${BUILD_PLAT}/fdts/$(STM32MP_FW_CONFIG_NAME)
+ ifneq (${AARCH32_SP},none)
+-FDT_SOURCES		+=	$(addprefix fdts/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_NAME)))
++FDT_SOURCES		+=	$(addprefix $(DT_SOURCE_PATH)/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_NAME)))
+ endif
+ # Add the FW_CONFIG to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
+@@ -300,7 +310,7 @@ BL2_SOURCES		+=	plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+ 
+ ifeq ($(AARCH32_SP),sp_min)
+ # Create DTB file for BL32
+-${BUILD_PLAT}/fdts/%-bl32.dts: fdts/%.dts fdts/${BL32_DTSI} | ${BUILD_PLAT} fdt_dirs
++${BUILD_PLAT}/fdts/%-bl32.dts: $(DT_SOURCE_PATH)/%.dts fdts/${BL32_DTSI} | ${BUILD_PLAT} fdt_dirs
+ 	@echo '#include "$(patsubst fdts/%,%,$<)"' > $@
+ 	@echo '#include "${BL32_DTSI}"' >> $@
+ 
+-- 
+2.47.2
+

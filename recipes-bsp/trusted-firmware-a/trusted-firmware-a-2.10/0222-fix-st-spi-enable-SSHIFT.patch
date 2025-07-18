@@ -1,0 +1,60 @@
+From df3d33719abd8240ce9e9a6e1560cf08ec1a0ec6 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Thu, 15 Sep 2022 09:23:15 +0200
+Subject: [PATCH 222/841] fix(st-spi): enable SSHIFT
+
+Set SSHIFT at probe time.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 35dd9e247a528e0ab2f1992a2a19d8f67c4aa928 fix(st-spi): enable SSHIFT]
+Change-Id: Ib409826afecc4bf6a0a2e92ff90de563823409a0
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/267824
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/st/spi/stm32_ospi.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index 1659c4937..1c945d482 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -237,7 +237,7 @@ static int stm32_ospi_send(const struct spi_mem_op *op, uint8_t fmode)
+ {
+ 	uint64_t timeout;
+ 	uint32_t ccr;
+-	uint32_t tcr;
++	uint32_t dcyc = 0U;
+ 	int ret;
+ 
+ 	VERBOSE("%s: cmd:%x mode:%d.%d.%d.%d addr:%" PRIx64 " len:%x\n",
+@@ -254,12 +254,11 @@ static int stm32_ospi_send(const struct spi_mem_op *op, uint8_t fmode)
+ 		mmio_write_32(ospi_base() + _OSPI_DLR, op->data.nbytes - 1U);
+ 	}
+ 
+-	tcr = _OSPI_TCR_SSHIFT;
+ 	if ((op->dummy.buswidth != 0U) && (op->dummy.nbytes != 0U)) {
+-		tcr |= op->dummy.nbytes * 8U / op->dummy.buswidth;
++		dcyc = op->dummy.nbytes * 8U / op->dummy.buswidth;
+ 	}
+ 
+-	mmio_clrsetbits_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_DCYC, tcr);
++	mmio_clrsetbits_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_DCYC, dcyc);
+ 
+ 	mmio_clrsetbits_32(ospi_base() + _OSPI_CR, _OSPI_CR_FMODE,
+ 			   fmode << _OSPI_CR_FMODE_SHIFT);
+@@ -592,6 +591,7 @@ int stm32_ospi_init(void)
+ 		}
+ 	}
+ 
++	mmio_write_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_SSHIFT);
+ 	mmio_write_32(ospi_base() + _OSPI_DCR1,
+ 		      _OSPI_DCR1_DEVSIZE | _OSPI_DCR1_DLYBYP);
+ 
+-- 
+2.47.2
+

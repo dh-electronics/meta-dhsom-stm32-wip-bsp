@@ -1,0 +1,42 @@
+From 265ea34ba57bec15784b178725954dcc30a8f369 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Thu, 25 Jan 2024 17:10:03 +0100
+Subject: [PATCH 471/841] feat(stm32mp1): handle st,mask-reset property
+
+Handle st,mask-reset property.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 89e0045caabd28faf29e09ca1ec58b566d0bff1d feat(stm32mp1): handle st,mask-reset property]
+Change-Id: Ic7162d09300e1f6402491595bdc03ca87d8ec6d8
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/354509
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic.c b/drivers/st/pmic/stm32mp_pmic.c
+index ae7ed110c..0e774b848 100644
+--- a/drivers/st/pmic/stm32mp_pmic.c
++++ b/drivers/st/pmic/stm32mp_pmic.c
+@@ -423,6 +423,15 @@ static int register_pmic(void)
+ 			     __LINE__, reg_name);
+ 			return ret;
+ 		}
++
++		if (fdt_getprop(fdt, subnode, "st,mask-reset", NULL)  != NULL) {
++			VERBOSE("%s: set mask-reset\n", desc->node_name);
++			ret = pmic_set_flag(desc, REGUL_MASK_RESET);
++			if (ret != 0) {
++				ERROR("set mask-reset failed\n");
++				return ret;
++			}
++		}
+ 	}
+ 
+ 	return 0;
+-- 
+2.47.2
+

@@ -1,0 +1,86 @@
+From 007389a360685c5bcb3d7116c9bde66dd1c038fd Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 27 Jan 2023 17:17:21 +0100
+Subject: [PATCH 260/841] feat(st): get encryption key info from DT
+
+Add a helper function that will get the index of the encryption key OTP
+from device tree and its length. Through static variable we will be able
+to store this information and no more read it from DT.
+This is required if BL2 DT region is unmapped to give more space when
+loading other binaries in SYSRAM.
+Directly use this function in STM32MP Crypto lib.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e0fe8693a4677f96135bd019b2d0b47f16dca05c feat(st): get encryption key info from DT]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Iced3744e320b6473e91c3a78396589fcfd9199f4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/287590
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  1 +
+ plat/st/common/stm32mp_common.c         | 21 +++++++++++++++++++++
+ plat/st/common/stm32mp_crypto_lib.c     |  3 +--
+ 3 files changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 8e8fe1f9c..35d64d23d 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -61,6 +61,7 @@ int stm32_get_otp_value_from_idx(const uint32_t otp_idx, uint32_t *otp_val);
+ int stm32_lock_enc_key_otp(void);
+ /* update UID_WORD_NB array */
+ int stm32_get_uid_otp(uint32_t uid[]);
++int stm32_get_enc_key_otp_idx_len(uint32_t *otp_idx, uint32_t *otp_len);
+ 
+ /* Get IWDG platform instance ID from peripheral IO memory base address */
+ uint32_t stm32_iwdg_get_instance(uintptr_t base);
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 6c32bb0e4..7e5447468 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -263,6 +263,27 @@ int stm32_get_uid_otp(uint32_t uid[])
+ 	return 0;
+ }
+ 
++int stm32_get_enc_key_otp_idx_len(uint32_t *otp_idx, uint32_t *otp_len)
++{
++	static uint32_t idx;
++	static uint32_t len;
++	int ret;
++
++	if (len == 0U) {
++		ret = stm32_get_otp_index(ENCKEY_OTP, &idx, &len);
++		if (ret != 0) {
++			len = 0U;
++			ERROR("%s: get %s index error\n", __func__, ENCKEY_OTP);
++			return -EINVAL;
++		}
++	}
++
++	*otp_idx = idx;
++	*otp_len = len;
++
++	return 0;
++}
++
+ #if  defined(IMAGE_BL2)
+ static void reset_uart(uint32_t reset)
+ {
+diff --git a/plat/st/common/stm32mp_crypto_lib.c b/plat/st/common/stm32mp_crypto_lib.c
+index 50729f005..be5fb49a9 100644
+--- a/plat/st/common/stm32mp_crypto_lib.c
++++ b/plat/st/common/stm32mp_crypto_lib.c
+@@ -521,8 +521,7 @@ int plat_get_enc_key_info(enum fw_enc_status_t fw_enc_status, uint8_t *key,
+ 		return -EINVAL;
+ 	}
+ 
+-	if (stm32_get_otp_index(ENCKEY_OTP, &otp_idx, &otp_len) != 0) {
+-		VERBOSE("%s: get %s index error\n", __func__, ENCKEY_OTP);
++	if (stm32_get_enc_key_otp_idx_len(&otp_idx, &otp_len) != 0) {
+ 		return -EINVAL;
+ 	}
+ 
+-- 
+2.47.2
+

@@ -1,0 +1,199 @@
+From 4775c9ef18cbfb4f8536129f4633e8fb56c5097f Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Tue, 6 Jul 2021 16:38:39 +0200
+Subject: [PATCH 045/841] feat(stm32mp1): add LPLV-Stop2 mode
+
+Add LPLV-Stop2 mode just before Standby-DDR-SR.
+Rework stm32_pwr_down_wfi_wrapper to store critical registers in global
+variables declared from stm32mp1_critic_power.c.
+Add stm32_pwr_back_from_stop2 and stm32_pwr_call_optee_ep to wake-up
+from LPLV-Stop2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 838d1b5a98e3c841d91a90607005af99c474c315 feat(stm32mp1): add LPLV-Stop2 mode]
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Change-Id: I437d9a9cce95d5e64e22df45e01ade7b043b2483
+---
+ include/dt-bindings/power/stm32mp1-power.h    |  9 ++--
+ .../stm32mp1/include/stm32mp1_critic_power.h  |  4 ++
+ plat/st/stm32mp1/stm32mp1_critic_power.c      | 44 +++++++++++++++++--
+ .../stm32mp1/stm32mp1_critic_power_wrapper.S  | 43 ++++++++++++++++++
+ 4 files changed, 93 insertions(+), 7 deletions(-)
+
+diff --git a/include/dt-bindings/power/stm32mp1-power.h b/include/dt-bindings/power/stm32mp1-power.h
+index d588dd71f..3202e0b44 100644
+--- a/include/dt-bindings/power/stm32mp1-power.h
++++ b/include/dt-bindings/power/stm32mp1-power.h
+@@ -11,9 +11,10 @@
+ #define STM32_PM_CSTOP_ALLOW_STOP		1
+ #define STM32_PM_CSTOP_ALLOW_LP_STOP		2
+ #define STM32_PM_CSTOP_ALLOW_LPLV_STOP		3
+-#define STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR	4
+-#define STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF	5
+-#define STM32_PM_SHUTDOWN			6
+-#define STM32_PM_MAX_SOC_MODE			7
++#define STM32_PM_CSTOP_ALLOW_LPLV_STOP2		4
++#define STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR	5
++#define STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF	6
++#define STM32_PM_SHUTDOWN			7
++#define STM32_PM_MAX_SOC_MODE			8
+ 
+ #endif /* DT_BINDINGS_STM32MP1_POWER_H */
+diff --git a/plat/st/stm32mp1/include/stm32mp1_critic_power.h b/plat/st/stm32mp1/include/stm32mp1_critic_power.h
+index 3a9e9b92c..0ce8733e4 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_critic_power.h
++++ b/plat/st/stm32mp1/include/stm32mp1_critic_power.h
+@@ -8,5 +8,9 @@
+ #define STM32MP1_CRITIC_POWER_H
+ 
+ extern void stm32_pwr_down_wfi_wrapper(bool is_cstop, uint32_t mode);
++extern void stm32_pwr_back_from_stop2(void);
++void stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode);
++void stm32_pwr_call_optee_ep(void);
++void stm32_pwr_cstop_critic_exit(void);
+ 
+ #endif /* STM32MP1_CRITIC_POWER_H */
+diff --git a/plat/st/stm32mp1/stm32mp1_critic_power.c b/plat/st/stm32mp1/stm32mp1_critic_power.c
+index f7695a998..0ae41f644 100644
+--- a/plat/st/stm32mp1/stm32mp1_critic_power.c
++++ b/plat/st/stm32mp1/stm32mp1_critic_power.c
+@@ -9,6 +9,7 @@
+ #include <drivers/arm/gicv2.h>
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/st/stm32_iwdg.h>
++#include <drivers/st/stm32mp_clkfunc.h>
+ #include <drivers/st/stm32mp_pmic.h>
+ #include <drivers/st/stm32mp1_ddr_helpers.h>
+ #include <dt-bindings/power/stm32mp1-power.h>
+@@ -19,7 +20,7 @@
+ 
+ static void cstop_critic_enter(uint32_t mode)
+ {
+-	/* init generic timer that is needed for udelay used in ddr driver */
++	/* Init generic timer that is needed for udelay used in ddr driver */
+ 	generic_delay_timer_init();
+ 
+ 	/* Switch to Software Self-Refresh mode */
+@@ -51,8 +52,19 @@ static void shutdown_critic_enter(void)
+ /*
+  * stm32_exit_cstop_critic - Exit from CSTOP mode reenable DDR
+  */
+-static void cstop_critic_exit(void)
++void stm32_pwr_cstop_critic_exit(void)
+ {
++#if STM32MP13
++	bsec_write_scratch((uint32_t)0U);
++#endif
++
++#if defined(IMAGE_BL2)
++	/* Init generic timer that is needed for udelay used in ddr driver */
++	stm32mp_stgen_restore_rate();
++
++	generic_delay_timer_init();
++#endif
++
+ 	if (ddr_sw_self_refresh_exit() != 0) {
+ 		panic();
+ 	}
+@@ -60,6 +72,18 @@ static void cstop_critic_exit(void)
+ 
+ void stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode)
+ {
++	if (mode == (uint32_t)STM32_PM_CSTOP_ALLOW_LPLV_STOP2) {
++#if STM32MP15
++		ERROR("LPLV-Stop2 mode not supported\n");
++		panic();
++#endif
++
++#if STM32MP13
++		/* If mode is STOP 2, set the entry point */
++		bsec_write_scratch((uint32_t)stm32_pwr_back_from_stop2);
++#endif
++	}
++
+ 	if (mode != (uint32_t)STM32_PM_CSLEEP_RUN) {
+ 		dcsw_op_all(DC_OP_CISW);
+ 	}
+@@ -83,6 +107,20 @@ void stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode)
+ 	stm32_iwdg_refresh();
+ 
+ 	if (is_cstop) {
+-		cstop_critic_exit();
++		stm32_pwr_cstop_critic_exit();
+ 	}
+ }
++
++#if STM32MP13
++void stm32_pwr_call_optee_ep(void)
++{
++	void (*optee_ep)(void);
++
++	optee_ep = (void (*)(void))stm32_pm_get_optee_ep();
++
++	optee_ep();
++
++	/* This shouldn't be reached */
++	panic();
++}
++#endif
+diff --git a/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S b/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+index 54dbdbc7d..c3fb5cdbf 100644
+--- a/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
++++ b/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+@@ -13,7 +13,12 @@
+ #include <smccc_helpers.h>
+ 
+ 	.global	stm32_pwr_down_wfi_load
++	.global	stm32_pwr_cstop_critic_exit
+ 	.global	stm32_pwr_down_wfi_wrapper
++#if STM32MP13
++	.global	stm32_pwr_back_from_stop2
++	.global	stm32_pwr_call_optee_ep
++#endif
+ 	.global	bl2_vector_table
+ 	.global	disable_mmu_secure
+ 	.global	__STACKS_END__
+@@ -82,3 +87,41 @@ func stm32_pwr_down_wfi_wrapper
+ 
+ 	pop	{r4,r5,r6,pc}
+ endfunc stm32_pwr_down_wfi_wrapper
++
++#if STM32MP13
++func stm32_pwr_back_from_stop2
++	# switch to monitor mode.
++	cps	#MODE32_mon
++
++	ldr	sp, =__STACKS_END__
++
++	ldr	r1, =bl2_vector_table
++	stcopr	r1, VBAR
++	stcopr	r1, MVBAR
++
++	# exit ddr from self refresh
++	bl	stm32_pwr_cstop_critic_exit
++
++	# Restore stack
++	ldr	r1, =saved_sp
++	ldr	sp, [r1]
++
++	# Restore VBAR
++	ldr	r1, =saved_vbar
++	ldr	r0, [r1]
++	stcopr	r0, VBAR
++
++	# Restore MVBAR
++	ldr	r1, =saved_mvbar
++	ldr	r0, [r1]
++	stcopr	r0, MVBAR
++
++	# Synchronize on memory access and instruction
++	# after resetting stack/IT handler
++	dsb
++	isb
++
++	bl stm32_pwr_call_optee_ep
++
++endfunc stm32_pwr_back_from_stop2
++#endif
+-- 
+2.47.2
+

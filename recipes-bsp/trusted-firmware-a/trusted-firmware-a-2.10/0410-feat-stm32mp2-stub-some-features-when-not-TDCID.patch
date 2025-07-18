@@ -1,0 +1,97 @@
+From 2bfeec055fd6c1356f06288b16def2e8f3610913 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 12 Sep 2023 17:43:40 +0200
+Subject: [PATCH 410/841] feat(stm32mp2): stub some features when not TDCID
+
+The backup domain registers, RISAB and RISAF peripherals are
+no more accessible. Put them under STM32MP_M33_TDCID flag.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 18734804d67936628d856795c968f4520b45f4d6 feat(stm32mp2): stub some features when not TDCID]
+Change-Id: I7428c60b4276a49dd300427e1f573be474142ace
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 55b258e71..fb35d9a2b 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -187,6 +187,7 @@ void bl2_platform_setup(void)
+ 
+ static void reset_backup_domain(void)
+ {
++#if !STM32MP_M33_TDCID
+ 	uintptr_t pwr_base = stm32mp_pwr_base();
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+ 
+@@ -211,6 +212,7 @@ static void reset_backup_domain(void)
+ 
+ 		mmio_clrbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
+ 	}
++#endif
+ }
+ 
+ void bl2_el3_plat_arch_setup(void)
+@@ -290,6 +292,10 @@ skip_console_init:
+ 	}
+ #endif
+ 
++	if (stm32_rifsc_check_peripheral_access() != 0) {
++		panic();
++	}
++
+ 	if (stm32_rifsc_semaphore_init() != 0) {
+ 		panic();
+ 	}
+@@ -311,6 +317,7 @@ skip_console_init:
+ 	fconf_populate("TB_FW", STM32MP_DTB_BASE);
+ 
+ #if STM32MP_DDR_FIP_IO_STORAGE || TRUSTED_BOARD_BOOT
++#if !STM32MP_M33_TDCID
+ 	/*
+ 	 * RISAB3 setup (dedicated for SRAM1)
+ 	 *
+@@ -319,6 +326,7 @@ skip_console_init:
+ 	 * DDR firmwares are saved there before being loaded in DDRPHY memory.
+ 	 */
+ 	mmio_write_32(RISAB3_BASE + RISAB_CR, RISAB_CR_SRWIAD);
++#endif
+ #endif /* STM32MP_DDR_FIP_IO_STORAGE || TRUSTED_BOARD_BOOT */
+ #if STM32MP_USB_PROGRAMMER
+ 	/*
+@@ -336,6 +344,7 @@ skip_console_init:
+ 		      RIFSC_USB_BOOT_USBDR_RIMC_CONF);
+ #endif /* STM32MP_USB_PROGRAMMER */
+ 
++#if !STM32MP_M33_TDCID
+ 	/*
+ 	 * RISAB5 setup (dedicated for RETRAM)
+ 	 *
+@@ -349,6 +358,7 @@ skip_console_init:
+ 	if (stm32mp2_pwr_init_io_domains() != 0) {
+ 		panic();
+ 	}
++#endif
+ 
+ #if STM32MP_DDR_FIP_IO_STORAGE
+ 	/* Skip DDR FW ID = the first image to load for standby exit */
+@@ -366,6 +376,7 @@ skip_console_init:
+ 
+ static void prepare_encryption(void)
+ {
++#if !STM32MP_M33_TDCID
+ 	uint8_t mkey[RISAF_KEY_SIZE_IN_BYTES];
+ 
+ 	if (stm32mp_is_wakeup_from_standby()) {
+@@ -382,6 +393,7 @@ static void prepare_encryption(void)
+ 	if (stm32mp2_risaf_write_encryption_key(RISAF4_INST, mkey) != 0) {
+ 		panic();
+ 	}
++#endif
+ }
+ 
+ /*******************************************************************************
+-- 
+2.47.2
+

@@ -1,0 +1,56 @@
+From cb29c630994de81ed360026fa1135cc6d021e374 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 24 Oct 2024 19:06:36 +0200
+Subject: [PATCH 733/841] feat(stm32mp2): increase extra partition for M33TDCID
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When cortex M33 is TDCID there are more partition present to parse.
+increasing number to 12 (14 partition in total with BL2 ones).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b7078fc946a12a67ed0c483b3cce518783941367 feat(stm32mp2): increase extra partition for M33TDCID]
+Change-Id: I2eae9947f6ca26a903b98641a70532a2b02cd772
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/414044
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/platform.mk | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 3966b20ec..3d4253fca 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -4,9 +4,17 @@
+ # SPDX-License-Identifier: BSD-3-Clause
+ #
+ 
++STM32MP_M33_TDCID		?=	0
++
+ # Extra partitions used to find FIP, contains:
++ifeq (${STM32MP_M33_TDCID},1)
++# fsbl-m (2), m33ddr (2), m33lp (2), m33fw (2), metadata (2) and the
++# FIP partitions (2)
++STM32_EXTRA_PARTS		:=	12
++else
+ # metadata (2) and fsbl-m (2) and the FIP partitions (default is 2).
+ STM32_EXTRA_PARTS		:=	6
++endif
+ 
+ include plat/st/common/common.mk
+ 
+@@ -41,7 +49,6 @@ TF_CFLAGS			+=	-DSTM32MP2X
+ STM32MP21			?=	0
+ STM32MP23			?=	0
+ STM32MP25			?=	0
+-STM32MP_M33_TDCID		?=	0
+ 
+ ifneq ($(findstring stm32mp21,$(DTB_FILE_NAME)),)
+ STM32MP21			:=	1
+-- 
+2.47.2
+

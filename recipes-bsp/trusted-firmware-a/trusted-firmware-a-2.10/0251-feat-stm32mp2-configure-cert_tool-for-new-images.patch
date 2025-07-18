@@ -1,0 +1,145 @@
+From c633581ebb6120486f3c832f3dfeb49a872cbb6a Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 18 Jan 2023 14:43:11 +0100
+Subject: [PATCH 251/841] feat(stm32mp2): configure cert_tool for new images
+
+With platform extensions for cert_tool, the DDR firmware and STM32MP
+certificate can be managed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 63b3d1d91936f616f599da1897f857a71d043a35 feat(stm32mp2): configure cert_tool for new images]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I26062062ff16fac8a606f090ade998d812c5b06a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/285747
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/stm32mp2/cert_create_tbbr.mk          | 20 +++++++
+ .../stm32mp2/include/tbbr/stm32mp2_tbb_cert.h | 25 +++++++++
+ plat/st/stm32mp2/stm32mp2_tbb_cert.c          | 55 +++++++++++++++++++
+ 3 files changed, 100 insertions(+)
+ create mode 100644 plat/st/stm32mp2/cert_create_tbbr.mk
+ create mode 100644 plat/st/stm32mp2/include/tbbr/stm32mp2_tbb_cert.h
+ create mode 100644 plat/st/stm32mp2/stm32mp2_tbb_cert.c
+
+diff --git a/plat/st/stm32mp2/cert_create_tbbr.mk b/plat/st/stm32mp2/cert_create_tbbr.mk
+new file mode 100644
+index 000000000..2b94fdd81
+--- /dev/null
++++ b/plat/st/stm32mp2/cert_create_tbbr.mk
+@@ -0,0 +1,20 @@
++#
++# Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++# Override TBBR Cert to update generic certificate
++$(eval $(call add_define,PLAT_DEF_OID))
++$(eval $(call add_define,PDEF_CERTS))
++$(eval $(call add_define,PDEF_EXTS))
++
++PLAT_INCLUDE	+= -I${PLAT_DIR}include
++
++src/stm32mp2_tbb_cert.o: ${PLAT_DIR}stm32mp2_tbb_cert.c
++	${Q}${HOSTCC} -c ${HOSTCCFLAGS} ${INC_DIR} $< -o $@
++
++PLAT_OBJECTS	= src/stm32mp2_tbb_cert.o
++
++OBJECTS		+= $(PLAT_OBJECTS)
++
+diff --git a/plat/st/stm32mp2/include/tbbr/stm32mp2_tbb_cert.h b/plat/st/stm32mp2/include/tbbr/stm32mp2_tbb_cert.h
+new file mode 100644
+index 000000000..25efafc26
+--- /dev/null
++++ b/plat/st/stm32mp2/include/tbbr/stm32mp2_tbb_cert.h
+@@ -0,0 +1,25 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef STM32MP2_TBB_CERT_H
++#define STM32MP2_TBB_CERT_H
++
++#include <tbbr/tbb_cert.h>
++#include <tbbr/tbb_ext.h>
++
++/*
++ * Enumerate the certificates that are used to establish the chain of trust
++ */
++enum {
++	STM32MP_CONFIG_CERT = FWU_CERT + 1
++};
++
++/* Plat Defined TBBR extensions */
++enum {
++	DDR_FW_HASH_EXT = FWU_HASH_EXT + 1,
++};
++
++#endif /* STM32MP2_TBB_CERT_H */
+diff --git a/plat/st/stm32mp2/stm32mp2_tbb_cert.c b/plat/st/stm32mp2/stm32mp2_tbb_cert.c
+new file mode 100644
+index 000000000..3810a2f0c
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_tbb_cert.c
+@@ -0,0 +1,55 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <platform_oid.h>
++
++#include "tbbr/tbb_ext.h"
++#include "tbbr/tbb_key.h"
++
++#include "tbbr/stm32mp2_tbb_cert.h"
++
++/*
++ * Certificates used in the chain of trust
++ *
++ * The order of the certificates must follow the enumeration specified in
++ * stm32mp2_tbb_cert.h. All certificates are self-signed, so the issuer certificate
++ * field points to itself.
++ */
++static cert_t stm32mp2_tbb_certs[] = {
++	[0] = {
++		.id = STM32MP_CONFIG_CERT,
++		.opt = "stm32mp-cfg-cert",
++		.help_msg = "STM32MP Config Certificate (output file)",
++		.fn = NULL,
++		.cn = "STM32MP config FW Certificate",
++		.key = ROT_KEY,
++		.issuer = STM32MP_CONFIG_CERT,
++		.ext = {
++			TRUSTED_FW_NVCOUNTER_EXT,
++			HW_CONFIG_HASH_EXT,
++			FW_CONFIG_HASH_EXT,
++			DDR_FW_HASH_EXT
++		},
++		.num_ext = 4
++	},
++};
++
++PLAT_REGISTER_COT(stm32mp2_tbb_certs);
++
++static ext_t stm32mp2_tbb_ext[] = {
++	[0] = {
++		.oid = DDR_FW_HASH_OID,
++		.opt = "ddr-fw",
++		.help_msg = "DDR Firmware image file",
++		.sn = "DDR Firmware Hash",
++		.ln = "DDR Firmware hash (SHA256)",
++		.asn1_type = V_ASN1_OCTET_STRING,
++		.type = EXT_TYPE_HASH,
++		.optional = 1
++	}
++};
++
++PLAT_REGISTER_EXTENSIONS(stm32mp2_tbb_ext);
+-- 
+2.47.2
+

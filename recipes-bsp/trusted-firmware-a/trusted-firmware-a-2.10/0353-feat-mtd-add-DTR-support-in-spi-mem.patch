@@ -1,0 +1,303 @@
+From 2e77711dc0f3bf41080c3532cb2b10e0cd7c1007 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 27 Sep 2023 13:22:51 +0200
+Subject: [PATCH 353/841] feat(mtd): add DTR support in spi-mem
+
+Add a field dtr to know whether command/address/dummy/data should be
+sent in DTR mode and add a nbytes field on command as in DTR the
+command is on 2 bytes.
+
+Add spi_mem_dtr_supports_op() to provide a basic sanity check for DTR
+ops and performs the buswidth requirement check.
+
+SPI NAND and SPI NOR frameworks are modified to set cmd.nbytes field
+to 1 (as they are currently running in STR mode).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ef229ee2327fe2eb90ad23db822e46e2a50257ce feat(mtd): add DTR support in spi-mem]
+Change-Id: Ie7dc17bca708d7dabbf628afa25b05382756c1fe
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/331571
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/mtd/nand/spi_nand.c             |  5 +++
+ drivers/mtd/nor/spi_nor.c               |  2 +
+ drivers/mtd/spi-mem/spi_mem.c           | 57 ++++++++++++++++++++++---
+ include/drivers/spi_mem.h               | 26 ++++++++++-
+ plat/st/stm32mp1/stm32mp1_boot_device.c |  2 +
+ plat/st/stm32mp2/stm32mp2_boot_device.c |  1 +
+ 6 files changed, 85 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/mtd/nand/spi_nand.c b/drivers/mtd/nand/spi_nand.c
+index 8c8143499..5c915944d 100644
+--- a/drivers/mtd/nand/spi_nand.c
++++ b/drivers/mtd/nand/spi_nand.c
+@@ -38,6 +38,7 @@ static int spi_nand_reg(bool read_reg, uint8_t reg, uint8_t *val,
+ 		op.cmd.opcode = SPI_NAND_OP_SET_FEATURE;
+ 	}
+ 
++	op.cmd.nbytes = 1U;
+ 	op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	op.addr.val = reg;
+ 	op.addr.nbytes = 1U;
+@@ -131,6 +132,7 @@ static int spi_nand_reset(void)
+ 
+ 	zeromem(&op, sizeof(struct spi_mem_op));
+ 	op.cmd.opcode = SPI_NAND_OP_RESET;
++	op.cmd.nbytes = 1U;
+ 	op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 
+ 	ret = spi_mem_exec_op(&op);
+@@ -147,6 +149,7 @@ static int spi_nand_read_id(uint8_t *id)
+ 
+ 	zeromem(&op, sizeof(struct spi_mem_op));
+ 	op.cmd.opcode = SPI_NAND_OP_READ_ID;
++	op.cmd.nbytes = 1U;
+ 	op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	op.data.dir = SPI_MEM_DATA_IN;
+ 	op.data.nbytes = SPI_NAND_MAX_ID_LEN;
+@@ -167,6 +170,7 @@ static int spi_nand_load_page(unsigned int page)
+ 
+ 	zeromem(&op, sizeof(struct spi_mem_op));
+ 	op.cmd.opcode = SPI_NAND_OP_LOAD_PAGE;
++	op.cmd.nbytes = 1U;
+ 	op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	op.addr.val = (block_nb << block_sh) | page_nb;
+ 	op.addr.nbytes = 3U;
+@@ -274,6 +278,7 @@ int spi_nand_init(unsigned long long *size, unsigned int *erase_size)
+ 	spinand_dev.nand_dev->nb_planes = 1;
+ 
+ 	spinand_dev.spi_read_cache_op.cmd.opcode = SPI_NAND_OP_READ_FROM_CACHE;
++	spinand_dev.spi_read_cache_op.cmd.nbytes = 1U;
+ 	spinand_dev.spi_read_cache_op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	spinand_dev.spi_read_cache_op.addr.nbytes = 2U;
+ 	spinand_dev.spi_read_cache_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+diff --git a/drivers/mtd/nor/spi_nor.c b/drivers/mtd/nor/spi_nor.c
+index c271fafeb..7625a4006 100644
+--- a/drivers/mtd/nor/spi_nor.c
++++ b/drivers/mtd/nor/spi_nor.c
+@@ -42,6 +42,7 @@ static int spi_nor_reg(uint8_t reg, uint8_t *buf, size_t len,
+ 
+ 	zeromem(&op, sizeof(struct spi_mem_op));
+ 	op.cmd.opcode = reg;
++	op.cmd.nbytes = 1U;
+ 	op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	op.data.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	op.data.dir = dir;
+@@ -329,6 +330,7 @@ int spi_nor_init(unsigned long long *size, unsigned int *erase_size)
+ 
+ 	/* Default read command used */
+ 	nor_dev.read_op.cmd.opcode = SPI_NOR_OP_READ;
++	nor_dev.read_op.cmd.nbytes = 1U;
+ 	nor_dev.read_op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	nor_dev.read_op.addr.nbytes = 3U;
+ 	nor_dev.read_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+diff --git a/drivers/mtd/spi-mem/spi_mem.c b/drivers/mtd/spi-mem/spi_mem.c
+index 1eb7f3662..d4a81e389 100644
+--- a/drivers/mtd/spi-mem/spi_mem.c
++++ b/drivers/mtd/spi-mem/spi_mem.c
+@@ -69,7 +69,7 @@ static bool spi_mem_check_buswidth_req(uint8_t buswidth, bool tx)
+ 	return false;
+ }
+ 
+-static bool spi_mem_supports_op(const struct spi_mem_op *op)
++static bool spi_mem_check_buswidth(const struct spi_mem_op *op)
+ {
+ 	if (!spi_mem_check_buswidth_req(op->cmd.buswidth, true)) {
+ 		return false;
+@@ -94,6 +94,49 @@ static bool spi_mem_supports_op(const struct spi_mem_op *op)
+ 	return true;
+ }
+ 
++bool spi_mem_dtr_supports_op(const struct spi_mem_op *op)
++{
++	if ((op->cmd.buswidth == 8U) && ((op->cmd.nbytes % 2U) != 0U)) {
++		return false;
++	}
++
++	if ((op->addr.nbytes != 0U) && (op->addr.buswidth == 8U) &&
++	    ((op->addr.nbytes % 2U) != 0U)) {
++		return false;
++	}
++
++	if ((op->dummy.nbytes != 0U) && (op->dummy.buswidth == 8U) &&
++	    ((op->dummy.nbytes % 2U) != 0U)) {
++		return false;
++	}
++
++	return spi_mem_check_buswidth(op);
++}
++
++bool spi_mem_default_supports_op(const struct spi_mem_op *op)
++{
++	if (op->cmd.dtr || op->addr.dtr || op->dummy.dtr || op->data.dtr) {
++		return false;
++	}
++
++	if (op->cmd.nbytes != 1U) {
++		return false;
++	}
++
++	return spi_mem_check_buswidth(op);
++}
++
++static bool spi_mem_supports_op(const struct spi_mem_op *op)
++{
++	const struct spi_bus_ops *ops = spi_slave.ops;
++
++	if (ops->supports_op != NULL) {
++		return ops->supports_op(op);
++	}
++
++	return spi_mem_default_supports_op(op);
++}
++
+ static int spi_mem_set_speed_mode(void)
+ {
+ 	const struct spi_bus_ops *ops = spi_slave.ops;
+@@ -160,9 +203,9 @@ int spi_mem_exec_op(const struct spi_mem_op *op)
+ 	const struct spi_bus_ops *ops = spi_slave.ops;
+ 	int ret;
+ 
+-	VERBOSE("%s: cmd:%x mode:%d.%d.%d.%d addqr:%" PRIx64 " len:%x\n",
+-		__func__, op->cmd.opcode, op->cmd.buswidth, op->addr.buswidth,
+-		op->dummy.buswidth, op->data.buswidth,
++	VERBOSE("%s: cmd:%x dtr:%d mode:%d.%d.%d.%d addqr:%" PRIx64 " len:%x\n",
++		__func__, op->cmd.opcode, op->cmd.dtr, op->cmd.buswidth,
++		op->addr.buswidth, op->dummy.buswidth, op->data.buswidth,
+ 		op->addr.val, op->data.nbytes);
+ 
+ 	if (!spi_mem_supports_op(op)) {
+@@ -196,9 +239,9 @@ int spi_mem_dirmap_read(const struct spi_mem_op *op)
+ 	const struct spi_bus_ops *ops = spi_slave.ops;
+ 	int ret;
+ 
+-	VERBOSE("%s: cmd:%x mode:%d.%d.%d.%d addr:%" PRIx64 " len:%x\n",
+-		__func__, op->cmd.opcode, op->cmd.buswidth, op->addr.buswidth,
+-		op->dummy.buswidth, op->data.buswidth,
++	VERBOSE("%s: cmd:%x dtr:%d mode:%d.%d.%d.%d addr:%" PRIx64 " len:%x\n",
++		__func__, op->cmd.opcode, op->cmd.dtr, op->cmd.buswidth,
++		op->addr.buswidth, op->dummy.buswidth, op->data.buswidth,
+ 		op->addr.val, op->data.nbytes);
+ 
+ 	if (op->data.dir != SPI_MEM_DATA_IN) {
+diff --git a/include/drivers/spi_mem.h b/include/drivers/spi_mem.h
+index 539b741b9..154ea2505 100644
+--- a/include/drivers/spi_mem.h
++++ b/include/drivers/spi_mem.h
+@@ -30,8 +30,11 @@ enum spi_mem_data_dir {
+ /*
+  * struct spi_mem_op - Describes a SPI memory operation.
+  *
++ * @cmd.nbytes: number of opcode bytes (only 1 or 2 are valid). The opcode is
++ *		sent MSB-first.
+  * @cmd.buswidth: Number of IO lines used to transmit the command.
+  * @cmd.opcode: Operation opcode.
++ * @cmd.dtr: whether the command opcode should be sent in DTR mode or not
+  * @addr.nbytes: Number of address bytes to send. Can be zero if the operation
+  *		 does not need to send an address.
+  * @addr.buswidth: Number of IO lines used to transmit the address.
+@@ -39,33 +42,44 @@ enum spi_mem_data_dir {
+  *	      Note that only @addr.nbytes are taken into account in this
+  *	      address value, so users should make sure the value fits in the
+  *	      assigned number of bytes.
++ * @addr.dtr: whether the address should be sent in DTR mode or not
+  * @dummy.nbytes: Number of dummy bytes to send after an opcode or address. Can
+  *		  be zero if the operation does not require dummy bytes.
+  * @dummy.buswidth: Number of IO lines used to transmit the dummy bytes.
++ * @dummy.dtr: whether the dummy bytes should be sent in DTR mode or not
+  * @data.buswidth: Number of IO lines used to send/receive the data.
++ * @data.dtr: whether the data should be sent in DTR mode or not
++ * @data.dtr_swab16: whether the byte order of 16-bit words is swapped when read
++ *		     or written in Octal DTR mode compared to STR mode.
+  * @data.dir: Direction of the transfer.
+  * @data.nbytes: Number of data bytes to transfer.
+  * @data.buf: Input or output data buffer depending on data::dir.
+  */
+ struct spi_mem_op {
+ 	struct {
++		uint8_t nbytes;
+ 		uint8_t buswidth;
+-		uint8_t opcode;
++		bool dtr;
++		uint16_t opcode;
+ 	} cmd;
+ 
+ 	struct {
+ 		uint8_t nbytes;
+ 		uint8_t buswidth;
++		bool dtr;
+ 		uint64_t val;
+ 	} addr;
+ 
+ 	struct {
+ 		uint8_t nbytes;
+ 		uint8_t buswidth;
++		bool dtr;
+ 	} dummy;
+ 
+ 	struct {
+ 		uint8_t buswidth;
++		bool dtr;
++		bool dtr_swab16;
+ 		enum spi_mem_data_dir dir;
+ 		unsigned int nbytes;
+ 		void *buf;
+@@ -132,8 +146,18 @@ struct spi_bus_ops {
+ 	 * Returns: 0 on success, a negative error code otherwise.
+ 	 */
+ 	int (*dirmap_read)(const struct spi_mem_op *op);
++
++	/*
++	 * Check if an operation is supported by the controller.
++	 *
++	 * @op: The memory operation to execute.
++	 * Returns: 0 on success, a negative error code otherwise.
++	 */
++	bool (*supports_op)(const struct spi_mem_op *op);
+ };
+ 
++bool spi_mem_dtr_supports_op(const struct spi_mem_op *op);
++bool spi_mem_default_supports_op(const struct spi_mem_op *op);
+ int spi_mem_exec_op(const struct spi_mem_op *op);
+ int spi_mem_dirmap_read(const struct spi_mem_op *op);
+ int spi_mem_init_slave(void *fdt, int bus_node,
+diff --git a/plat/st/stm32mp1/stm32mp1_boot_device.c b/plat/st/stm32mp1/stm32mp1_boot_device.c
+index 1995fbb10..63d528503 100644
+--- a/plat/st/stm32mp1/stm32mp1_boot_device.c
++++ b/plat/st/stm32mp1/stm32mp1_boot_device.c
+@@ -177,6 +177,7 @@ int plat_get_spi_nand_data(struct spinand_device *device)
+ {
+ 	zeromem(&device->spi_read_cache_op, sizeof(struct spi_mem_op));
+ 	device->spi_read_cache_op.cmd.opcode = SPI_NAND_OP_READ_FROM_CACHE_4X;
++	device->spi_read_cache_op.cmd.nbytes = 1U;
+ 	device->spi_read_cache_op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	device->spi_read_cache_op.addr.nbytes = 2U;
+ 	device->spi_read_cache_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+@@ -197,6 +198,7 @@ int plat_get_nor_data(struct nor_device *device)
+ 
+ 	zeromem(&device->read_op, sizeof(struct spi_mem_op));
+ 	device->read_op.cmd.opcode = SPI_NOR_OP_READ_1_1_4;
++	device->read_op.cmd.nbytes = 1U;
+ 	device->read_op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	device->read_op.addr.nbytes = 3U;
+ 	device->read_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+diff --git a/plat/st/stm32mp2/stm32mp2_boot_device.c b/plat/st/stm32mp2/stm32mp2_boot_device.c
+index 5fbea453c..a391f6498 100644
+--- a/plat/st/stm32mp2/stm32mp2_boot_device.c
++++ b/plat/st/stm32mp2/stm32mp2_boot_device.c
+@@ -161,6 +161,7 @@ int plat_get_nor_data(struct nor_device *device)
+ 
+ 	zeromem(&device->read_op, sizeof(struct spi_mem_op));
+ 	device->read_op.cmd.opcode = SPI_NOR_OP_READ_1_1_4;
++	device->read_op.cmd.nbytes = 1U;
+ 	device->read_op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+ 	device->read_op.addr.nbytes = 3U;
+ 	device->read_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
+-- 
+2.47.2
+

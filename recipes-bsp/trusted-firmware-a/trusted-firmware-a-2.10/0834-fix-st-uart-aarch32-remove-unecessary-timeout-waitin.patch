@@ -1,0 +1,64 @@
+From 83a34aeebbfc71e12cc2b92740fdd731e2d835fc Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cl=C3=A9ment=20Le=20Goffic?= <clement.legoffic@foss.st.com>
+Date: Tue, 13 May 2025 15:16:32 +0200
+Subject: [PATCH 834/841] fix(st-uart): aarch32: remove unecessary timeout
+ waiting in putc
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The UART is configured with FIFO enabled, therefore putting a
+character in the TDR register and wait for the transmission flag
+complete is enough.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 34df86df38b8b56bf3dfb06cc4f05cbc5bb4c9fd fix(st-uart): aarch32: remove unecessary timeout waiting in putc]
+Change-Id: I33a82ec82608adae7fc532ed524e401de5137ac6
+Signed-off-by: Clément Le Goffic <clement.legoffic@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/457870
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Amelie DELAUNAY <amelie.delaunay@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/uart/aarch32/stm32_console.S | 13 +------------
+ 1 file changed, 1 insertion(+), 12 deletions(-)
+
+diff --git a/drivers/st/uart/aarch32/stm32_console.S b/drivers/st/uart/aarch32/stm32_console.S
+index 0094c637d..005dee9ac 100644
+--- a/drivers/st/uart/aarch32/stm32_console.S
++++ b/drivers/st/uart/aarch32/stm32_console.S
+@@ -155,7 +155,7 @@ endfunc console_stm32_register
+ 	 * In : r0 - character to be printed
+ 	 *      r1 - console base address
+ 	 * Out : return -1 on error else return character.
+-	 * Clobber list : r2, r3
++	 * Clobber list : r2
+ 	 * --------------------------------------------------------
+ 	 */
+ func console_stm32_core_putc
+@@ -164,22 +164,11 @@ func console_stm32_core_putc
+ 	beq	putc_error
+ 
+ 	/* Check Transmit Data Register Empty */
+-	mov	r3, #USART_TIMEOUT
+ txe_loop:
+-	subs	r3, r3, #1
+-	beq	putc_error
+ 	ldr	r2, [r1, #USART_ISR]
+ 	tst	r2, #USART_ISR_TXE
+ 	beq	txe_loop
+ 	str	r0, [r1, #USART_TDR]
+-	/* Check transmit complete flag */
+-	mov	r3, #USART_TIMEOUT
+-tc_loop:
+-	subs	r3, r3, #1
+-	beq	putc_error
+-	ldr	r2, [r1, #USART_ISR]
+-	tst	r2, #USART_ISR_TC
+-	beq	tc_loop
+ 	bx	lr
+ putc_error:
+ 	mov	r0, #-1
+-- 
+2.47.2
+

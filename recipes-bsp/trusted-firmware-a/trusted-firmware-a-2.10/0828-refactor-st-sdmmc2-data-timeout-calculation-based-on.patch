@@ -1,0 +1,114 @@
+From 914704e9ae2b0cb86d6114a25407abb6509afabf Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 6 May 2025 18:07:08 +0200
+Subject: [PATCH 828/841] refactor(st-sdmmc2): data timeout calculation based
+ on data length
+
+The data timeout is calculated based on a minimal throughput
+of 256 KB/s. The timeout is set at least to 2 seconds.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 12b23ffdfde856e4e2f08efcdc8f4b0a56635aef refactor(st-sdmmc2): data timeout calculation based on data length]
+Change-Id: Idd3f04c42616581f88b2f09615662e603baae8d1
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/456304
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/mmc/stm32_sdmmc2.c | 32 +++++++++++++++++++++++++-------
+ 1 file changed, 25 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/st/mmc/stm32_sdmmc2.c b/drivers/st/mmc/stm32_sdmmc2.c
+index 917b810c5..54d66fb97 100644
+--- a/drivers/st/mmc/stm32_sdmmc2.c
++++ b/drivers/st/mmc/stm32_sdmmc2.c
+@@ -116,7 +116,7 @@
+ 
+ #define TIMEOUT_US_1_MS			1000U
+ #define TIMEOUT_US_10_MS		10000U
+-#define TIMEOUT_US_1_S			1000000U
++#define TIMEOUT_10_MS			10U
+ 
+ /* Power cycle delays in ms */
+ #define VCC_POWER_OFF_DELAY		2
+@@ -233,6 +233,7 @@ static int stm32_sdmmc2_send_cmd_req(struct mmc_cmd *cmd)
+ 	uint64_t timeout;
+ 	uint32_t flags_cmd, status;
+ 	uint32_t flags_data = 0;
++	uint32_t timeout_msecs = TIMEOUT_10_MS;
+ 	int err = 0;
+ 	uintptr_t base = sdmmc2_params.reg_base;
+ 	unsigned int cmd_reg, arg_reg;
+@@ -322,6 +323,15 @@ static int stm32_sdmmc2_send_cmd_req(struct mmc_cmd *cmd)
+ 		break;
+ 	}
+ 
++	if (flags_data != 0U) {
++		timeout_msecs = mmio_read_32(base + SDMMC_DLENR) >> 8U;
++
++		/* At least, a timeout of 2 seconds is set */
++		if (timeout_msecs < 2000U) {
++			timeout_msecs = 2000U;
++		}
++	}
++
+ 	next_cmd_is_acmd = (cmd->cmd_idx == MMC_CMD(55));
+ 
+ 	mmio_write_32(base + SDMMC_ICR, SDMMC_STATIC_FLAGS);
+@@ -412,12 +422,12 @@ static int stm32_sdmmc2_send_cmd_req(struct mmc_cmd *cmd)
+ 
+ 	status = mmio_read_32(base + SDMMC_STAR);
+ 
+-	timeout = timeout_init_us(TIMEOUT_US_10_MS);
++	timeout = timeout_init_us(timeout_msecs * 1000U);
+ 
+ 	while ((status & flags_data) == 0U) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("%s: timeout 10ms (cmd = %u,status = %x)\n",
+-			      __func__, cmd->cmd_idx, status);
++			ERROR("%s: timeout %ums (cmd = %u,status = %x)\n",
++			      __func__, timeout_msecs, cmd->cmd_idx, status);
+ 			err = -ETIMEDOUT;
+ 			goto err_exit;
+ 		}
+@@ -603,6 +613,7 @@ static int stm32_sdmmc2_read(int lba, uintptr_t buf, size_t size)
+ 	uintptr_t base = sdmmc2_params.reg_base;
+ 	uintptr_t fifo_reg = base + SDMMC_FIFOR;
+ 	uint64_t timeout;
++	uint32_t timeout_msecs;
+ 	int ret;
+ 
+ 	/* Assert buf is 4 bytes aligned */
+@@ -620,7 +631,14 @@ static int stm32_sdmmc2_read(int lba, uintptr_t buf, size_t size)
+ 		flags |= SDMMC_STAR_DBCKEND;
+ 	}
+ 
+-	timeout = timeout_init_us(TIMEOUT_US_1_S);
++	timeout_msecs = (uint32_t) (size >> 8U);
++
++	/* At least, a timeout of 2 seconds is set */
++	if (timeout_msecs < 2000U) {
++		timeout_msecs = 2000U;
++	}
++
++	timeout = timeout_init_us(timeout_msecs * 1000U);
+ 
+ 	do {
+ 		status = mmio_read_32(base + SDMMC_STAR);
+@@ -643,8 +661,8 @@ static int stm32_sdmmc2_read(int lba, uintptr_t buf, size_t size)
+ 		}
+ 
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("%s: timeout 1s (status = %x)\n",
+-			      __func__, status);
++			ERROR("%s: timeout %ums (status = %x)\n",
++			      __func__, timeout_msecs, status);
+ 			mmio_write_32(base + SDMMC_ICR,
+ 				      SDMMC_STATIC_FLAGS);
+ 
+-- 
+2.47.2
+

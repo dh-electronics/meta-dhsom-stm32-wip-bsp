@@ -1,0 +1,163 @@
+From a42b9c96254d032b3c301e67d6992fd2bac56711 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 7 Jun 2022 15:56:33 +0200
+Subject: [PATCH 211/841] feat(stm32mp2): add RIFSC/RISAB protection for USB3DR
+
+Add RIFSC/RISAB protection for USB3-IP:
+- USB3DR Peripheral only accessible form Secure/Priv
+- USB3DR Master is Secure/Priv to access SYSRAM in bl2 plat setup.
+- Add RISAB4 setup for SRAM2 access to secure device
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 779e232fb8beb9ee2397cc27007e26ed6561b409 feat(stm32mp2): add RIFSC/RISAB protection for USB3DR]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Ic735cd1cadc5a3a52065b0c7db328268d405a77c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/262433
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ include/drivers/st/stm32mp_rifsc_regs.h | 35 +++++++++++++++++++++++++
+ plat/st/stm32mp2/bl2_plat_setup.c       | 23 ++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_def.h         | 22 ++++++++++++++++
+ 3 files changed, 80 insertions(+)
+ create mode 100644 include/drivers/st/stm32mp_rifsc_regs.h
+
+diff --git a/include/drivers/st/stm32mp_rifsc_regs.h b/include/drivers/st/stm32mp_rifsc_regs.h
+new file mode 100644
+index 000000000..b393af34a
+--- /dev/null
++++ b/include/drivers/st/stm32mp_rifsc_regs.h
+@@ -0,0 +1,35 @@
++/*
++ * Copyright (C) 2022, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef STM32MP_RIFSC_REGS_H
++#define STM32MP_RIFSC_REGS_H
++
++/* RIFSC offset register */
++#define _RIFSC_RISC_CR			U(0x0)
++#define _RIFSC_RISC_SECCFGR(id)		(U(0x10) + U(0x4) * ((id) / 32))
++#define _RIFSC_RISC_PRIVCFGR(id)	(U(0x30) + U(0x4) * ((id) / 32))
++#define _RIFSC_RISC_RCFGLOCKR(id)	(U(0x50) + U(0x4) * ((id) / 32))
++#define _RIFSC_RISC_PERy_CIDCFGR(id)	(U(0x100) + U(0x8) * (id))
++#define _RIFSC_RISC_PERy_SEMCR(id)	(U(0x104) + U(0x8) * (id))
++#define _RIFSC_RIMC_CR			U(0xC00)
++#define _RIFSC_RIMC_SR			U(0xC04)
++#define _RIFSC_RIMC_ATTR(x)		(U(0xC10) + U(0x4) * (x))
++#define _RIFSC_PPSR(x)			(U(0xFB0) + U(0x4) * (x))
++#define _RIFSC_HWCFGR3			U(0xFE8)
++#define _RIFSC_HWCFGR2			U(0xFEC)
++#define _RIFSC_HWCFGR1			U(0xFF0)
++#define _RIFSC_VERR			U(0xFF4)
++#define _RFISC_IPIDR			U(0xFF8)
++#define _RFISC_SIDR			U(0xFFC)
++
++/* RIFSC_RIMC_ATTRx register fields */
++#define RIFSC_RIMC_ATTRx_CIDSEL			BIT_32(2)
++#define RIFSC_RIMC_ATTRx_MCID_MASK		GENMASK(6, 4)
++#define RIFSC_RIMC_ATTRx_MCID_SHIFT		4
++#define RIFSC_RIMC_ATTRx_MSEC			BIT_32(8)
++#define RIFSC_RIMC_ATTRx_MPRIV			BIT_32(9)
++
++#endif /* STM32MP_RIFSC_REGS_H */
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 078f8a669..711abea67 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -21,6 +21,7 @@
+ #include <drivers/st/regulator_fixed.h>
+ #include <drivers/st/stm32_console.h>
+ #include <drivers/st/stm32mp_reset.h>
++#include <drivers/st/stm32mp_rifsc_regs.h>
+ #include <drivers/st/stm32mp_risab_regs.h>
+ #include <drivers/st/stm32mp2_ram.h>
+ #include <drivers/st/stm32mp2_risaf.h>
+@@ -255,6 +256,28 @@ skip_console_init:
+ 	 */
+ 	mmio_write_32(RISAB3_BASE + RISAB_CR, RISAB_CR_SRWIAD);
+ #endif
++#if STM32MP_USB_PROGRAMMER
++	/* Enabling SRAM2 clock is not needed as it is a critical clock */
++	/*
++	 * RISAB4 setup (dedicated for SRAM2)
++	 *
++	 * Allow secure read/writes data accesses to non-secure
++	 * blocks or pages, all RISAB registers are writable.
++	 * Secure execution is still illegal. DDR FIP is saved here.
++	 */
++	mmio_write_32(RISAB4_BASE + RISAB_CR, RISAB_CR_SRWIAD);
++
++	/*
++	 * Set USB3DR Peripheriphal accesses to Secure/Privilege only
++	 */
++	mmio_write_32(RIFSC_BASE + _RIFSC_RISC_SECCFGR(RISUP_USB3DR), RIFSC_USB3DR_SEC);
++	mmio_write_32(RIFSC_BASE + _RIFSC_RISC_PRIVCFGR(RISUP_USB3DR), RIFSC_USB3DR_PRIV);
++
++	/*
++	 * Apply USB boot specific configuration to RIF master USB3DR
++	 */
++	mmio_write_32(RIFSC_BASE + _RIFSC_RIMC_ATTR(RIMU_USB3DR), RIFSC_USB_BOOT_USBDR_RIMC_CONF);
++#endif /* STM32MP_USB_PROGRAMMER */
+ 
+ 	if (stm32mp2_pwr_init_io_domains() != 0) {
+ 		panic();
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index dbe49590b..4c08ad733 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -19,6 +19,7 @@
+ #include <dt-bindings/clock/stm32mp25-clksrc.h>
+ #include <dt-bindings/gpio/stm32-gpio.h>
+ #include <dt-bindings/reset/stm32mp25-resets.h>
++#include <dt-bindings/soc/rif.h>
+ 
+ #ifndef __ASSEMBLER__
+ #include <boot_api.h>
+@@ -437,9 +438,11 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ /*******************************************************************************
+  * STM32MP RIF
+  ******************************************************************************/
++#define RIFSC_BASE				U(0x42080000)
+ #define RISAB1_BASE				U(0x420F0000)
+ #define RISAB2_BASE				U(0x42100000)
+ #define RISAB3_BASE				U(0x42110000)
++#define RISAB4_BASE				U(0x42120000)
+ #define RISAB5_BASE				U(0x42130000)
+ 
+ #define RISAF1_INST				0
+@@ -478,6 +481,25 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ #define RISAF_KEY_SIZE_IN_BYTES			RISAF_ENCRYPTION_KEY_SIZE_IN_BYTES
+ #define RISAF_SEED_SIZE_IN_BYTES		U(4)
+ 
++/*******************************************************************************
++ * USB boot RIFSC specific configurations
++ ******************************************************************************/
++#define RIMU_USB3DR			U(4)
++#define RISUP_USB3DR			U(66)
++
++/*
++ * Protection for USB3-IP Peripheriphal: accessible form Secure/Priv
++ */
++#define RIFSC_USB3DR_PRIV		BIT(RISUP_USB3DR / U(32))
++#define RIFSC_USB3DR_SEC		BIT(RISUP_USB3DR / U(32))
++
++/*
++ * USB3DR Secure/Priv Master (DMA) access
++ */
++#define RIFSC_USB_BOOT_USBDR_RIMC_CONF	(RIFSC_RIMC_ATTRx_MPRIV | RIFSC_RIMC_ATTRx_MSEC | \
++					 RIF_CID1 << RIFSC_RIMC_ATTRx_MCID_SHIFT | \
++					 RIFSC_RIMC_ATTRx_CIDSEL)
++
+ /*******************************************************************************
+  * STM32MP CA35SSC
+  ******************************************************************************/
+-- 
+2.47.2
+

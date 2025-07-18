@@ -1,0 +1,53 @@
+From 784e53ce30d5a71cfeeb1de1b894944355f5755d Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 23 Jan 2024 14:08:14 +0100
+Subject: [PATCH 556/841] fix(stm32mp2): fix the LP-Stop2 and LPLV-Stop2
+
+According the ref manual:
+
++ LP-Stop2 if CPU1: CStop & PDDS_D1=1
+              CPU2: CStop & LPDS_D2=1
+
++ LPLV-Stop2 if CPU1: CStop & PDDS_D1=1 +
+                CPU2: CStop & LPDS_D2=1 & LVDS_D2=1
+
+=> the PWR_CPU1CR_LPDS_D1 / PWR_CPU1CR_LVDS_D1 is not required
+   for these 2 low power modes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0867e075bcb96dfa00b5506abc007648ae3a47c5 fix(stm32mp2): fix the LP-Stop2 and LPLV-Stop2]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I65cb5a112b33d843a5173317d4651c1c81482417
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/353653
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/368668
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 95b1bf627..25adc116c 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -427,7 +427,7 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 
+ 	case PWRSTATE_LP_STOP2:
+ 		print_mode_info("LP_Stop2");
+-		mmio_write_32(pwr_base + PWR_CPU1CR, PWR_CPU1CR_PDDS_D1 | PWR_CPU1CR_LPDS_D1);
++		mmio_write_32(pwr_base + PWR_CPU1CR, PWR_CPU1CR_PDDS_D1);
+ 		mmio_write_32(pwr_base + PWR_CPU2CR, PWR_CPU2CR_LPDS_D2);
+ 
+ 		stm32mp_gic_cpuif_disable();
+@@ -437,8 +437,7 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 
+ 	case PWRSTATE_LPLV_STOP2:
+ 		print_mode_info("LPLV_Stop2");
+-		mmio_write_32(pwr_base + PWR_CPU1CR,
+-			      PWR_CPU1CR_PDDS_D1 | PWR_CPU1CR_LPDS_D1 | PWR_CPU1CR_LVDS_D1);
++		mmio_write_32(pwr_base + PWR_CPU1CR, PWR_CPU1CR_PDDS_D1);
+ 		mmio_write_32(pwr_base + PWR_CPU2CR, PWR_CPU2CR_LPDS_D2 | PWR_CPU2CR_LVDS_D2);
+ 
+ 		stm32mp_gic_cpuif_disable();
+-- 
+2.47.2
+

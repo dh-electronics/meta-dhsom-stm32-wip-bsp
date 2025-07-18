@@ -1,0 +1,109 @@
+From 9ea0d193a69efc819764d2851e6d316c06d165d3 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 24 Jan 2023 18:43:39 +0100
+Subject: [PATCH 085/841] refactor(stm32mp1): move is_wakeup_from_standby in
+ platform common part
+
+Move this function to common part (with stm32mp_ prefix), as it is used
+on all platforms. Rename also the call in DDR driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b1d1c81f43ab1e2e8f03169a338aa4bd952d8fa3 refactor(stm32mp1): move is_wakeup_from_standby in platform common part]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Icfa9231a54af7dac3d9f8cd644866fd785de1f99
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/287294
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp1_ram.c               | 2 +-
+ plat/st/common/include/stm32mp_common.h     | 1 +
+ plat/st/stm32mp1/bl2_plat_setup.c           | 4 ++--
+ plat/st/stm32mp1/include/stm32mp1_private.h | 1 -
+ plat/st/stm32mp1/stm32mp1_private.c         | 4 ++--
+ 5 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp1_ram.c b/drivers/st/ddr/stm32mp1_ram.c
+index c870d2780..c04f55f7d 100644
+--- a/drivers/st/ddr/stm32mp1_ram.c
++++ b/drivers/st/ddr/stm32mp1_ram.c
+@@ -91,7 +91,7 @@ static int stm32mp1_ddr_setup(void)
+ 
+ 	config.self_refresh = false;
+ 
+-	if (stm32mp1_is_wakeup_from_standby()) {
++	if (stm32mp_is_wakeup_from_standby()) {
+ 		config.self_refresh = true;
+ 		config.zdata = stm32_get_zdata_from_context();
+ 	}
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 8a72efe27..c322228d2 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -82,6 +82,7 @@ static inline void stm32mp_setup_early_console(void)
+ #endif
+ 
+ bool stm32mp_skip_boot_device_after_standby(void);
++bool stm32mp_is_wakeup_from_standby(void);
+ 
+ /*
+  * Platform util functions for the GPIO driver
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 4e25931c5..6e7992028 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -367,7 +367,7 @@ skip_console_init:
+ 
+ 	if (dt_pmic_status() > 0) {
+ 		initialize_pmic();
+-		if (!stm32mp1_is_wakeup_from_standby() &&
++		if (!stm32mp_is_wakeup_from_standby() &&
+ 		    pmic_voltages_init() != 0) {
+ 			ERROR("PMIC voltages init failed\n");
+ 			panic();
+@@ -429,7 +429,7 @@ static void prepare_encryption(void)
+ 
+ 	stm32_mce_init();
+ 
+-	if (stm32mp1_is_wakeup_from_standby()) {
++	if (stm32mp_is_wakeup_from_standby()) {
+ 		stm32mp1_pm_get_mce_mkey_from_context(mkey);
+ 		stm32_mce_reload_configuration();
+ 	} else {
+diff --git a/plat/st/stm32mp1/include/stm32mp1_private.h b/plat/st/stm32mp1/include/stm32mp1_private.h
+index 8b8020adc..b8ec809e4 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_private.h
++++ b/plat/st/stm32mp1/include/stm32mp1_private.h
+@@ -15,7 +15,6 @@ void stm32mp1_arch_security_setup(void);
+ void stm32mp1_security_setup(void);
+ 
+ bool stm32mp1_addr_inside_backupsram(uintptr_t addr);
+-bool stm32mp1_is_wakeup_from_standby(void);
+ 
+ void stm32mp1_syscfg_init(void);
+ void stm32mp1_syscfg_enable_io_compensation_start(void);
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index 11d8542ac..2dd88edcb 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -669,7 +669,7 @@ bool stm32mp1_addr_inside_backupsram(uintptr_t addr)
+ 		(addr < (STM32MP_BACKUP_RAM_BASE + STM32MP_BACKUP_RAM_SIZE));
+ }
+ 
+-bool stm32mp1_is_wakeup_from_standby(void)
++bool stm32mp_is_wakeup_from_standby(void)
+ {
+ 	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_MP_RSTSCLRR);
+ #if STM32MP15
+@@ -703,7 +703,7 @@ bool stm32mp_skip_boot_device_after_standby(void)
+ 	static int skip = -1;
+ 
+ 	if (skip == -1) {
+-		if (stm32mp1_is_wakeup_from_standby()) {
++		if (stm32mp_is_wakeup_from_standby()) {
+ 			skip = 1;
+ #if STM32MP15
+ 			if (stm32_pm_get_optee_ep() == 0U) {
+-- 
+2.47.2
+

@@ -1,0 +1,395 @@
+From 332723232318bcf52cfe797b0774efb352c263f8 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@st.com>
+Date: Tue, 10 Nov 2020 09:21:08 +0100
+Subject: [PATCH 369/841] feat(st): add SSP support for STM32CubeProgrammer
+
+NOT_UPSTREAMABLE
+
+Add STM32CubeProgrammer communication update for SSP support.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5560018d91c2679c99065a58e8fcb092f08376c4 feat(st): add SSP support for STM32CubeProgrammer]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@st.com>
+Change-Id: I1830bff82d87b3535f0787eb5f47c56960feccaa
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/185335
+Reviewed-by: CITOOLS <smet-aci-reviews@lists.codex.cro.st.com>
+Reviewed-by: Lionel DEBIEVE <lionel.debieve@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@st.com>
+Tested-by: Lionel DEBIEVE <lionel.debieve@st.com>
+---
+ plat/st/common/include/stm32cubeprogrammer.h |  13 ++
+ plat/st/common/stm32cubeprogrammer_uart.c    | 143 ++++++++++++++++++-
+ plat/st/common/stm32cubeprogrammer_usb.c     |  90 ++++++++++++
+ plat/st/stm32mp1/stm32mp1_usb_dfu.c          |   5 +
+ 4 files changed, 250 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/common/include/stm32cubeprogrammer.h b/plat/st/common/include/stm32cubeprogrammer.h
+index 1bd24953a..9a171ab35 100644
+--- a/plat/st/common/include/stm32cubeprogrammer.h
++++ b/plat/st/common/include/stm32cubeprogrammer.h
+@@ -16,6 +16,7 @@
+ #define PHASE_DDR_FW		2U
+ #define PHASE_SSBL		3U
+ #define PHASE_CMD		0xF1U
++#define PHASE_SSP		0xF3U
+ #define PHASE_RESET		0xFFU
+ 
+ /* Functions provided by plat */
+@@ -29,4 +30,16 @@ int stm32cubeprog_usb_load(struct usb_handle *usb_core_handle,
+ int stm32cubeprog_uart_load(uintptr_t instance, uint8_t phase,
+ 			   uintptr_t base, size_t len);
+ 
++int stm32cubeprog_usb_ssp(struct usb_handle *usb_core_handle,
++			  uintptr_t cert_base,
++			  size_t cert_len,
++			  uintptr_t ssp_base,
++			  size_t ssp_len);
++
++int stm32cubeprog_uart_ssp(uintptr_t instance,
++			   uintptr_t cert_base,
++			   size_t cert_len,
++			   uintptr_t ssp_base,
++			   size_t ssp_len);
++
+ #endif /* STM32CUBEPROGRAMMER_H */
+diff --git a/plat/st/common/stm32cubeprogrammer_uart.c b/plat/st/common/stm32cubeprogrammer_uart.c
+index 38c46e4f7..934df082f 100644
+--- a/plat/st/common/stm32cubeprogrammer_uart.c
++++ b/plat/st/common/stm32cubeprogrammer_uart.c
+@@ -47,6 +47,9 @@ static const uint8_t command_tab[] = {
+ 	GET_VER_COMMAND,
+ 	GET_ID_COMMAND,
+ 	PHASE_COMMAND,
++#if STM32MP_SSP
++	READ_PART_COMMAND,
++#endif
+ 	START_COMMAND,
+ 	DOWNLOAD_COMMAND
+ };
+@@ -58,6 +61,10 @@ struct stm32prog_uart_handle_s {
+ 	uint8_t *addr;
+ 	uint32_t len;
+ 	uint8_t phase;
++#if STM32MP_SSP
++	uintptr_t cert_base;
++	size_t cert_len;
++#endif
+ 	/* Error msg buffer: max 255 in UART protocol, reduced in TF-A */
+ 	uint8_t error[64];
+ } handle;
+@@ -398,6 +405,97 @@ static int uart_start_cmd(uintptr_t buffer)
+ 	return 0;
+ }
+ 
++#if STM32MP_SSP
++static int uart_read_part(void)
++{
++	uint8_t byte = 0U;
++	uint8_t xor = 0U;
++	uint8_t partid = 0U;
++	uint16_t size = 0U;
++	uint32_t start_address = 0U;
++	uint32_t i;
++	size_t length;
++	uint8_t *buffer;
++
++	/* Get partition id */
++	if (uart_read_8(&partid) != 0) {
++		return -EIO;
++	}
++
++	if ((partid != PHASE_FLASHLAYOUT) && (partid != PHASE_SSP)) {
++		return -EPERM;
++	}
++
++	xor = partid;
++
++	/* Get address */
++	for (i = 4U; i > 0U; i--) {
++		if (uart_read_8(&byte) != 0) {
++			return -EIO;
++		}
++
++		xor ^= byte;
++		start_address = (start_address << 8) | byte;
++	}
++
++	/* Checksum */
++	if (uart_read_8(&byte) != 0) {
++		return -EIO;
++	}
++
++	if (xor != byte) {
++		WARN("UART: Start cmd: address checksum: %x != %x\n",
++		     xor, byte);
++		return -EPROTO;
++	}
++	/* OFFSET != 0 not supported */
++	if (start_address != 0U) {
++		return -EIO;
++	}
++
++	uart_write_8(ACK_BYTE);
++
++	/* Get number of bytes to send */
++	if (uart_read_8(&byte) != 0) {
++		return -EIO;
++	}
++
++	xor = byte;
++
++	/* Send Size + 1 */
++	size = byte++;
++
++	/* Checksum */
++	if (uart_read_8(&byte) != 0) {
++		return -EIO;
++	}
++
++	if ((xor ^ byte) != 0xFF) {
++		WARN("UART: Start cmd: length checksum: %x != %x\n", xor, byte);
++		return -EPROTO;
++	}
++
++	uart_write_8(ACK_BYTE);
++
++	if (partid != PHASE_SSP) {
++		WARN("Not supported\n");
++		return -EPROTO;
++	}
++
++	length = handle.cert_len;
++	buffer = (uint8_t *)handle.cert_base;
++
++	for (i = 0U; i < length; i++, buffer++) {
++		uart_write_8(*buffer);
++	}
++	for (; i < size; i++) {
++		uart_write_8(0x0);
++	}
++
++	return 0;
++}
++#endif /* STM32MP_SSP */
++
+ static int uart_read(uint8_t id, uintptr_t buffer, size_t length)
+ {
+ 	bool start_done = false;
+@@ -456,11 +554,21 @@ static int uart_read(uint8_t id, uintptr_t buffer, size_t length)
+ 		case DOWNLOAD_COMMAND:
+ 			ret = uart_download_part();
+ 			break;
+-
++#if STM32MP_SSP
++		case READ_PART_COMMAND:
++			ret = uart_read_part();
++			break;
++#endif
+ 		case START_COMMAND:
+ 			ret = uart_start_cmd(buffer);
+ 			if ((ret == 0) && (handle.phase == id)) {
+ 				INFO("UART: Start phase %u\n", handle.phase);
++#if STM32MP_SSP
++				if (handle.phase == PHASE_SSP) {
++					handle.phase = PHASE_RESET;
++					break;
++				}
++#endif
+ 				start_done = true;
+ 			}
+ 			break;
+@@ -497,6 +605,39 @@ const struct stm32_uart_init_s init = {
+ 	.fifo_mode = STM32_UART_FIFOMODE_EN,
+ };
+ 
++#if STM32MP_SSP
++int stm32cubeprog_uart_ssp(uintptr_t instance,
++			   uintptr_t cert_base,
++			   size_t cert_len,
++			   uintptr_t ssp_base,
++			   size_t ssp_len)
++{
++	int ret;
++
++	if (stm32_uart_init(&handle.uart, instance, &init) != 0U) {
++		return -EIO;
++	}
++
++	/* NACK to synchronize STM32CubeProgrammer */
++	ret = uart_send_result(NACK_BYTE);
++	if (ret != 0) {
++		return ret;
++	}
++
++	if (cert_base == UNDEFINED_DOWN_ADDR) {
++		/* Send Provisioning message to programmer for reboot */
++		STM32PROG_ERROR("Provisioning\n");
++	} else {
++		handle.cert_base = cert_base;
++		handle.cert_len  = cert_len;
++		handle.phase = PHASE_SSP;
++	}
++
++	return uart_read(handle.phase, ssp_base, ssp_len);
++
++}
++#endif
++
+ int stm32cubeprog_uart_load(uintptr_t instance, uint8_t phase,
+ 			    uintptr_t base, size_t len)
+ {
+diff --git a/plat/st/common/stm32cubeprogrammer_usb.c b/plat/st/common/stm32cubeprogrammer_usb.c
+index c6e83b3e1..b9b955caa 100644
+--- a/plat/st/common/stm32cubeprogrammer_usb.c
++++ b/plat/st/common/stm32cubeprogrammer_usb.c
+@@ -21,6 +21,10 @@ struct dfu_state {
+ 	uintptr_t base;
+ 	size_t len;
+ 	uintptr_t address;
++#if STM32MP_SSP
++	uintptr_t cert_base;
++	size_t cert_len;
++#endif
+ 	/* working buffer */
+ 	uint8_t buffer[UCHAR_MAX];
+ };
+@@ -62,7 +66,15 @@ static int dfu_callback_upload(uint8_t alt, uintptr_t *buffer, uint32_t *len,
+ 	switch (usb_dfu_get_phase(alt)) {
+ 	case PHASE_CMD:
+ 		/* Get Pḧase */
++#if STM32MP_SSP
++		if (dfu->phase == PHASE_SSP) {
++			dfu->buffer[0] = PHASE_FLASHLAYOUT;
++		} else {
++			dfu->buffer[0] = dfu->phase;
++		}
++#else
+ 		dfu->buffer[0] = dfu->phase;
++#endif
+ 		dfu->buffer[1] = (uint8_t)(dfu->address);
+ 		dfu->buffer[2] = (uint8_t)(dfu->address >> 8);
+ 		dfu->buffer[3] = (uint8_t)(dfu->address >> 16);
+@@ -85,6 +97,28 @@ static int dfu_callback_upload(uint8_t alt, uintptr_t *buffer, uint32_t *len,
+ 		}
+ 		break;
+ 
++#if STM32MP_SSP
++	case PHASE_SSP:
++		/* Fix phase to flashlayout phase */
++		dfu->buffer[0] = PHASE_FLASHLAYOUT;
++		dfu->buffer[1] = (uint8_t)(dfu_state.cert_base);
++		dfu->buffer[2] = (uint8_t)(dfu_state.cert_base >> 8);
++		dfu->buffer[3] = (uint8_t)(dfu_state.cert_base >> 16);
++		dfu->buffer[4] = (uint8_t)(dfu_state.cert_base >> 24);
++		dfu->buffer[5] = 0x00;
++		dfu->buffer[6] = 0x00;
++		dfu->buffer[7] = 0x00;
++		dfu->buffer[8] = 0x00;
++		length = 9U;
++
++		if ((length + dfu_state.cert_len) <= sizeof(dfu->buffer)) {
++			memcpy(&dfu->buffer[9], (uint8_t *)dfu_state.cert_base,
++			       dfu_state.cert_len);
++			length += dfu_state.cert_len;
++		}
++
++		break;
++#endif
+ 	default:
+ 		DFU_ERROR("phase ID :%i, alternate %i for phase %i\n",
+ 			  dfu->phase, alt, usb_dfu_get_phase(alt));
+@@ -137,6 +171,14 @@ static int dfu_callback_manifestation(uint8_t alt, void *user_data)
+ 	     dfu->phase, alt, dfu->address);
+ 
+ 	switch (dfu->phase) {
++#if STM32MP_SSP
++	case PHASE_SSP:
++		/* Configure End with request detach */
++		dfu->phase = PHASE_FLASHLAYOUT;
++		dfu->address = UNDEFINED_DOWN_ADDR;
++		dfu->len = 0;
++		break;
++#else
+ 	case PHASE_DDR_FW:
+ 	case PHASE_SSBL:
+ 		if (!is_valid_header((fip_toc_header_t *)dfu->base)) {
+@@ -150,6 +192,7 @@ static int dfu_callback_manifestation(uint8_t alt, void *user_data)
+ 		dfu->address = UNDEFINED_DOWN_ADDR;
+ 		dfu->len = 0;
+ 		break;
++#endif /* STM32MP_SSP */
+ 	default:
+ 		DFU_ERROR("Unknown phase\n");
+ 	}
+@@ -164,6 +207,53 @@ static const struct usb_dfu_media usb_dfu_fops = {
+ 	.manifestation = dfu_callback_manifestation,
+ };
+ 
++#if STM32MP_SSP
++int stm32cubeprog_usb_ssp(struct usb_handle *usb_core_handle,
++			  uintptr_t cert_base,
++			  size_t cert_len,
++			  uintptr_t ssp_base,
++			  size_t ssp_len)
++{
++	int ret;
++
++	usb_core_handle->user_data = (void *)&dfu_state;
++
++	INFO("DFU USB START...\n");
++	ret = usb_core_start(usb_core_handle);
++	if (ret != USBD_OK) {
++		return -EIO;
++	}
++
++	if (cert_base == UNDEFINED_DOWN_ADDR) {
++		dfu_state_t *dfu = (dfu_state_t *)usb_core_handle->user_data;
++
++		/* Send Provisioning message to programmer for reboot */
++		DFU_ERROR("Provisioning\n");
++	} else {
++		dfu_state.phase = PHASE_SSP;
++		dfu_state.image_id = MAX_IMAGE_IDS;
++		dfu_state.address = ssp_base;
++		dfu_state.base = ssp_base;
++		dfu_state.len = ssp_len;
++		dfu_state.cert_base = cert_base;
++		dfu_state.cert_len = cert_len;
++	}
++
++	ret = usb_dfu_loop(usb_core_handle, &usb_dfu_fops);
++	if (ret != USBD_OK) {
++		return -EIO;
++	}
++
++	INFO("DFU USB STOP...\n");
++	ret = usb_core_stop(usb_core_handle);
++	if (ret != USBD_OK) {
++		return -EIO;
++	}
++
++	return 0;
++}
++#endif
++
+ int stm32cubeprog_usb_load(struct usb_handle *usb_core_handle,
+ 			   uint8_t phase,
+ 			   uintptr_t base,
+diff --git a/plat/st/stm32mp1/stm32mp1_usb_dfu.c b/plat/st/stm32mp1/stm32mp1_usb_dfu.c
+index 305ebf13e..5cde2499c 100644
+--- a/plat/st/stm32mp1/stm32mp1_usb_dfu.c
++++ b/plat/st/stm32mp1/stm32mp1_usb_dfu.c
+@@ -391,6 +391,11 @@ uint8_t usb_dfu_get_phase(uint8_t alt)
+ 		break;
+ #endif
+ #if STM32MP15
++#if STM32MP_SSP
++	case 0:
++		ret =  PHASE_SSP;
++		break;
++#endif
+ 	case 3:
+ 		ret = PHASE_SSBL;
+ 		break;
+-- 
+2.47.2
+

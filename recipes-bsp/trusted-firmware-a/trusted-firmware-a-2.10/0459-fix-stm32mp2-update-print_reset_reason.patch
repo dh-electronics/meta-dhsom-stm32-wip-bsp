@@ -1,0 +1,72 @@
+From 3f2c6183fa94e5413252de44e592e1f9c5625e98 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 12 Jan 2024 09:46:13 +0100
+Subject: [PATCH 459/841] fix(stm32mp2): update print_reset_reason
+
+Test D1STBYRSTF is enough to detect Standby exit and the test on
+STBYC1RSTF allow to detect the associated low power mode.
+
+In reference manual:
+  "STBYC1RSTF, STBYC2RSTF, D2STBYRSTF and D1STBYRSTF flags in
+   RCC_C1BOOTRSTSSETR and RCC_C2BOOTRSTSSETR are copied from
+   SBF, SBF_D2 and SBF_D1 in PWR_CPU1CR and PWR_CPU2CR."
+
+So RCC_C1BOOTRSTSSETR.STBYC1RSTF == PWR_CPU1CR.SBF
+
+And in "Table 97. Low-power mode exit flags"
+the RCC indicate D1 DStandby (D1STBYRSTF=1) for the 3 modes,
+we have the possible value for these bits:
+                SBF   SBF   SBF
+                D1    D2
+        Run2 =   1     0     0
+       Stop2 =   1     0     0
+  Standby1/2 =   1     1     1
+
+With STBYC1RSTF=1 when D1STBYRSTF=1, the current test on STBYC1RSTF
+can't be reached.
+
+This patch corrects this issue and display the expected reset reason
+for standby1/2 exit to indicates that the system has been in Standby
+mode for CPU1 with updated trace: "System exits from Standby for CA35".
+
+PS: The remaining case, D1 standby exit from Run2 or Stop2, should not
+occur as the BL2 is skipped by ROM code in this case if the entry
+point is correctly configured in BL31.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c26853dae2fe2d402681a626f2064d5b2641c2bb fix(stm32mp2): update print_reset_reason]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ie29bace1229954387ffdab59db749072e1c5d112
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/351055
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 8dad9e36d..3d63bcc2f 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -93,13 +93,13 @@ static void print_reset_reason(void)
+ 	INFO("Reset reason (0x%x):\n", rstsr);
+ 
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) == 0U) {
+-		if ((rstsr & RCC_C1BOOTRSTSCLRR_D1STBYRSTF) != 0U) {
+-			INFO("D1 domain exits from DStandby\n");
++		if ((rstsr & RCC_C1BOOTRSTSCLRR_STBYC1RSTF) != 0U) {
++			INFO("System exits from Standby for CA35\n");
+ 			return;
+ 		}
+ 
+-		if ((rstsr & RCC_C1BOOTRSTSCLRR_STBYC1RSTF) != 0U) {
+-			INFO("System exits from A35 STANDBY\n");
++		if ((rstsr & RCC_C1BOOTRSTSCLRR_D1STBYRSTF) != 0U) {
++			INFO("D1 domain exits from DStandby\n");
+ 			return;
+ 		}
+ 	}
+-- 
+2.47.2
+

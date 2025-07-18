@@ -1,0 +1,41 @@
+From f8851e44054866c30376df4992e3c36ce0fd038f Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 7 Feb 2023 16:04:07 +0100
+Subject: [PATCH 280/841] feat(stm32mp2): reduce BL2 size for non trusted boot
+
+When TRUSTED_BOARD_BOOT is not enabled, we do not need as much space.
+And as DEBUG is enabled, BL31 size increases, and it doesn't fit in
+SYSRAM. Determine STM32MP_BL2_SIZE in function of the flag
+TRUSTED_BOARD_BOOT.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7a0bdf418ae2c00d5339d3d3c089ba3ab3174ccc feat(stm32mp2): reduce BL2 size for non trusted boot]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: If1237e0c664804c8a91e70829d6f1a36f918829e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/289689
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index c9d8a5d3d..779a8c984 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -147,7 +147,13 @@ enum ddr_type {
+ #define STM32MP_BL31_SIZE		U(0x0001C000)	/* 112 KB for BL31 */
+ 
+ #define STM32MP_BL2_RO_SIZE		U(0x00018000)	/* 96 KB */
++
++#if TRUSTED_BOARD_BOOT
+ #define STM32MP_BL2_SIZE		U(0x0002E000)	/* 184 KB for BL2 */
++#else
++#define STM32MP_BL2_SIZE		U(0x0002A000)	/* 168 KB for BL2 */
++#endif
++
+ #define STM32MP_BL2_BASE		(STM32MP_SEC_SYSRAM_BASE + \
+ 					 STM32MP_SEC_SYSRAM_SIZE - \
+ 					 STM32MP_BL2_SIZE)
+-- 
+2.47.2
+

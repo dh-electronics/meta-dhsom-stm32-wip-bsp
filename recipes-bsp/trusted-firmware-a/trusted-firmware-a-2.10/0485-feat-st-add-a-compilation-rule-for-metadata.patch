@@ -1,0 +1,43 @@
+From 23004c4aeecc137c9147d4c76472d7bc1ae967fa Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 20 Feb 2024 15:06:15 +0100
+Subject: [PATCH 485/841] feat(st): add a compilation rule for metadata
+
+As the generation of metadata.bin is no more a dependency of stm32 file,
+add a new rule to allow its generation.
+This new metadata rule will have to be called like this:
+ make PLAT=stm32mp2 PSA_FWU_SUPPORT=1 metadata
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c7f1a5fc2b12ea42f890501d18420675f5c16555 feat(st): add a compilation rule for metadata]
+Change-Id: Ia76fa469e8f467c89b3b11e16592bd852596b160
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/361335
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/common_rules.mk | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/common/common_rules.mk b/plat/st/common/common_rules.mk
+index 59f096307..6e4efcdd4 100644
+--- a/plat/st/common/common_rules.mk
++++ b/plat/st/common/common_rules.mk
+@@ -1,5 +1,5 @@
+ #
+-# Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++# Copyright (c) 2023-2024, STMicroelectronics - All Rights Reserved
+ #
+ # SPDX-License-Identifier: BSD-3-Clause
+ #
+@@ -82,3 +82,8 @@ tf-a-%.stm32: tf-a-%.bin ${STM32_DEPS}
+ 		-n ${STM32_HEADER_VERSION_MINOR} \
+ 		-b ${STM32_HEADER_BL2_BINARY_TYPE}
+ 	@echo
++
++ifeq (${PSA_FWU_SUPPORT},1)
++.PHONY: metadata
++metadata: ${BUILD_PLAT}/metadata.bin
++endif
+-- 
+2.47.2
+

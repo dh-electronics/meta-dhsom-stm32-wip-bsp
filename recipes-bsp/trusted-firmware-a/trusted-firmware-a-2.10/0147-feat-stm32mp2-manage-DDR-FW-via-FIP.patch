@@ -1,0 +1,381 @@
+From 732fe5b199618470c69cd42c1c6117a1e36985b4 Mon Sep 17 00:00:00 2001
+From: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Date: Thu, 2 Dec 2021 18:47:41 +0100
+Subject: [PATCH 147/841] feat(stm32mp2): manage DDR FW via FIP
+
+This feature is enabled by default using STM32MP_DDR_FIP_IO_STORAGE.
+
+FIP stores DDR firmware binary in SRAM1 which needs to be mapped.
+RISAB3 has to be configured to allow access to SRAM1.
+Add ddr-fw image in tools/st/plat_fiptool/ (as done by NXP).
+Add UUID in DT but also on platform side.
+Add image ID and update maximum number on platform side also.
+
+Fill related descriptor information, add policy and update numbers.
+DDR_TYPE variable is used to identify binary file, and image is now
+added in the fiptool command line.
+Add certificates entries, that will be used to authenticate HW_CONFIG
+and FW_CONFIG as on STM32MP1, but also DDR_FW
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7afaebeaaa70dbc42de914b07f48303128514760 feat(stm32mp2): manage DDR FW via FIP]
+Change-Id: I09ab0a5c63406055a7b5ccd16d65e443de47ca2f
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+---
+ fdts/stm32mp25-bl2.dtsi                       |  3 ++
+ plat/st/common/stm32mp_fconf_io.c             | 12 +++++++-
+ plat/st/stm32mp2/bl2_plat_setup.c             | 12 ++++++++
+ plat/st/stm32mp2/include/plat_def_fip_uuid.h  | 18 +++++++++++
+ plat/st/stm32mp2/include/plat_tbbr_img_def.h  | 22 ++++++++++++++
+ plat/st/stm32mp2/plat_bl2_mem_params_desc.c   | 18 +++++++++++
+ plat/st/stm32mp2/platform.mk                  | 13 ++++++++
+ plat/st/stm32mp2/stm32mp2_def.h               |  8 +++++
+ plat/st/stm32mp2/stm32mp2_private.c           | 12 ++++++++
+ .../st/stm32mp2/plat_def_uuid_config.c        | 30 +++++++++++++++++++
+ .../plat_fiptool/st/stm32mp2/plat_fiptool.mk  | 25 ++++++++++++++++
+ 11 files changed, 172 insertions(+), 1 deletion(-)
+ create mode 100644 plat/st/stm32mp2/include/plat_def_fip_uuid.h
+ create mode 100644 plat/st/stm32mp2/include/plat_tbbr_img_def.h
+ create mode 100644 tools/fiptool/plat_fiptool/st/stm32mp2/plat_def_uuid_config.c
+ create mode 100644 tools/fiptool/plat_fiptool/st/stm32mp2/plat_fiptool.mk
+
+diff --git a/fdts/stm32mp25-bl2.dtsi b/fdts/stm32mp25-bl2.dtsi
+index 784546730..6885e480a 100644
+--- a/fdts/stm32mp25-bl2.dtsi
++++ b/fdts/stm32mp25-bl2.dtsi
+@@ -26,6 +26,9 @@
+ 	st-io_policies {
+ 		fip-handles {
+ 			compatible = "st,io-fip-handle";
++#if STM32MP_DDR_FIP_IO_STORAGE
++			ddr_fw_uuid = "b11249be-92dd-4b10-867c-2c6a4b47a7fb";
++#endif
+ 			fw_cfg_uuid = "5807e16a-8459-47be-8ed5-648e8dddab0e";
+ 			bl31_uuid = "47d4086d-4cfe-9846-9b95-2950cbbd5a00";
+ 			bl32_uuid = "05d0e189-53dc-1347-8d2b-500a4b7a3e38";
+diff --git a/plat/st/common/stm32mp_fconf_io.c b/plat/st/common/stm32mp_fconf_io.c
+index e2210de05..a83f3ccfa 100644
+--- a/plat/st/common/stm32mp_fconf_io.c
++++ b/plat/st/common/stm32mp_fconf_io.c
+@@ -88,9 +88,16 @@ struct plat_io_policy policies[MAX_NUMBER_IDS] = {
+ #define TBBR_UUID_NUMBER	U(0)
+ #endif
+ 
++#if STM32MP_DDR_FIP_IO_STORAGE
++#define DDR_FW_UUID_NUMBER	U(1)
++#else
++#define DDR_FW_UUID_NUMBER	U(0)
++#endif
++
+ #define FCONF_ST_IO_UUID_NUMBER	(DEFAULT_UUID_NUMBER + \
+ 				 BL31_UUID_NUMBER + \
+-				 TBBR_UUID_NUMBER)
++				 TBBR_UUID_NUMBER + \
++				 DDR_FW_UUID_NUMBER)
+ 
+ static io_uuid_spec_t fconf_stm32mp_uuids[FCONF_ST_IO_UUID_NUMBER];
+ static OBJECT_POOL_ARRAY(fconf_stm32mp_uuids_pool, fconf_stm32mp_uuids);
+@@ -102,6 +109,9 @@ struct policies_load_info {
+ 
+ /* image id to property name table */
+ static const struct policies_load_info load_info[FCONF_ST_IO_UUID_NUMBER] = {
++#if STM32MP_DDR_FIP_IO_STORAGE
++	{DDR_FW_ID, "ddr_fw_uuid"},
++#endif
+ 	{FW_CONFIG_ID, "fw_cfg_uuid"},
+ #ifdef __aarch64__
+ 	{BL31_IMAGE_ID, "bl31_uuid"},
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 501f2e585..26e2e75ff 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -21,6 +21,7 @@
+ #include <drivers/st/regulator_fixed.h>
+ #include <drivers/st/stm32_console.h>
+ #include <drivers/st/stm32mp_reset.h>
++#include <drivers/st/stm32mp_risab_regs.h>
+ #include <drivers/st/stm32mp2_risaf.h>
+ #include <lib/fconf/fconf.h>
+ #include <lib/fconf/fconf_dyn_cfg_getter.h>
+@@ -235,6 +236,17 @@ skip_console_init:
+ 
+ 	fconf_populate("TB_FW", STM32MP_DTB_BASE);
+ 
++#if STM32MP_DDR_FIP_IO_STORAGE
++	/*
++	 * RISAB3 setup (dedicated for SRAM1)
++	 *
++	 * Allow secure read/writes data accesses to non-secure
++	 * blocks or pages, all RISAB registers are writable.
++	 * DDR firmwares are saved there before being loaded in DDRPHY memory.
++	 */
++	mmio_write_32(RISAB3_BASE + RISAB_CR, RISAB_CR_SRWIAD);
++#endif
++
+ 	stm32mp_io_setup();
+ }
+ 
+diff --git a/plat/st/stm32mp2/include/plat_def_fip_uuid.h b/plat/st/stm32mp2/include/plat_def_fip_uuid.h
+new file mode 100644
+index 000000000..8f7d2af8c
+--- /dev/null
++++ b/plat/st/stm32mp2/include/plat_def_fip_uuid.h
+@@ -0,0 +1,18 @@
++/*
++ * Copyright (c) 2021-2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef PLAT_DEF_FIP_UUID_H
++#define PLAT_DEF_FIP_UUID_H
++
++#define UUID_DDR_FW \
++	{{0xb1, 0x12, 0x49, 0xbe}, {0x92, 0xdd}, {0x4b, 0x10}, 0x86, 0x7c, \
++	 {0x2c, 0x6a, 0x4b, 0x47, 0xa7, 0xfb} }
++
++#define UUID_STM32MP_CONFIG_CERT \
++	{{0x50, 0x1d, 0x8d, 0xd2}, {0x8b, 0xce}, {0x49, 0xa5}, 0x84, 0xeb, \
++	 {0x55, 0x9a, 0x9f, 0x2e, 0xae, 0xaf} }
++#endif /* PLAT_DEF_FIP_UUID_H */
++
+diff --git a/plat/st/stm32mp2/include/plat_tbbr_img_def.h b/plat/st/stm32mp2/include/plat_tbbr_img_def.h
+new file mode 100644
+index 000000000..98604861e
+--- /dev/null
++++ b/plat/st/stm32mp2/include/plat_tbbr_img_def.h
+@@ -0,0 +1,22 @@
++/*
++ * Copyright (c) 2021, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef PLAT_TBBR_IMG_DEF_H
++#define PLAT_TBBR_IMG_DEF_H
++
++#include <export/common/tbbr/tbbr_img_def_exp.h>
++
++#if STM32MP_DDR_FIP_IO_STORAGE
++#define DDR_FW_ID		MAX_IMG_IDS_WITH_SPMDS
++#define MAX_IMG_WITH_DDR_IDS	MAX_IMG_IDS_WITH_SPMDS + 1
++#else
++#define MAX_IMG_WITH_DDR_IDS	MAX_IMG_IDS_WITH_SPMDS
++#endif
++
++#define MAX_NUMBER_IDS		MAX_IMG_WITH_DDR_IDS
++
++#endif /* PLAT_TBBR_IMG_DEF_H */
++
+diff --git a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+index 2ba482474..2906a009f 100644
+--- a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
++++ b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+@@ -19,6 +19,24 @@
+  * the next executable image id.
+  ******************************************************************************/
+ static bl_mem_params_node_t bl2_mem_params_descs[] = {
++#if STM32MP_DDR_FIP_IO_STORAGE
++	/* Fill FW_DDR related information if it exists */
++	{
++		.image_id = DDR_FW_ID,
++		SET_STATIC_PARAM_HEAD(ep_info, PARAM_IMAGE_BINARY,
++				      VERSION_2, entry_point_info_t,
++				      SECURE | NON_EXECUTABLE),
++		SET_STATIC_PARAM_HEAD(image_info, PARAM_IMAGE_BINARY,
++				      VERSION_2, image_info_t,
++				      0),
++
++		.image_info.image_base = STM32MP_DDR_FW_BASE,
++		.image_info.image_max_size = STM32MP_DDR_FW_MAX_SIZE,
++
++		.next_handoff_image_id = INVALID_IMAGE_ID,
++	},
++#endif
++
+ 	/* Fill FW_CONFIG related information if it exists */
+ 	{
+ 		.image_id = FW_CONFIG_ID,
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 186005470..f4c3f3795 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -60,6 +60,7 @@ endif
+ 
+ # DDR features
+ STM32MP_DDR_DUAL_AXI_PORT	:=	1
++STM32MP_DDR_FIP_IO_STORAGE	:=	1
+ 
+ # Device tree
+ BL2_DTSI			:=	stm32mp25-bl2.dtsi
+@@ -72,14 +73,23 @@ STM32_BINARY_MAPPING		:=	plat/st/stm32mp2/${ARCH}/stm32mp2.S
+ 
+ STM32MP_FW_CONFIG_NAME	:=	$(patsubst %.dtb,%-fw-config.dtb,$(DTB_FILE_NAME))
+ STM32MP_FW_CONFIG	:=	${BUILD_PLAT}/fdts/$(STM32MP_FW_CONFIG_NAME)
++ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
++STM32MP_DDR_FW_NAME	:=	${DDR_TYPE}_pmu_train.bin
++STM32MP_DDR_FW		:=	drivers/st/ddr/phy/firmware/bin/${STM32MP_DDR_FW_NAME}
++endif
+ FDT_SOURCES		+=	$(addprefix fdts/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_NAME)))
+ # Add the FW_CONFIG to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
++ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
++# Add the FW_DDR to FIP and specify the same to certtool
++$(eval $(call TOOL_ADD_IMG,STM32MP_DDR_FW,--ddr-fw))
++endif
+ 
+ # Enable flags for C files
+ $(eval $(call assert_booleans,\
+ 	$(sort \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
++		STM32MP_DDR_FIP_IO_STORAGE \
+ 		STM32MP_DDR3_TYPE \
+ 		STM32MP_DDR4_TYPE \
+ 		STM32MP_LPDDR4_TYPE \
+@@ -97,11 +107,14 @@ $(eval $(call assert_numerics,\
+ $(eval $(call add_defines,\
+ 	$(sort \
+ 		DWL_BUFFER_BASE \
++		PLAT_DEF_FIP_UUID \
+ 		PLAT_PARTITION_MAX_ENTRIES \
++		PLAT_TBBR_IMG_DEF \
+ 		STM32_HASH_VER \
+ 		STM32_RNG_VER \
+ 		STM32_TF_A_COPIES \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
++		STM32MP_DDR_FIP_IO_STORAGE \
+ 		STM32MP_DDR3_TYPE \
+ 		STM32MP_DDR4_TYPE \
+ 		STM32MP_LPDDR4_TYPE \
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 1f3f77eca..b42964a31 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -57,6 +57,8 @@
+  ******************************************************************************/
+ #define STM32MP_SYSRAM_BASE		U(0x0E000000)
+ #define STM32MP_SYSRAM_SIZE		U(0x00040000)
++#define SRAM1_BASE			U(0x0E040000)
++#define SRAM1_SIZE			U(0x00020000)
+ 
+ #define STM32MP_NS_SYSRAM_SIZE		PAGE_SIZE
+ #define STM32MP_NS_SYSRAM_BASE		(STM32MP_SYSRAM_BASE + \
+@@ -140,6 +142,11 @@ enum ddr_type {
+ #define STM32MP_DTB_BASE		STM32MP_BL2_DTB_BASE
+ #endif
+ 
++#if STM32MP_DDR_FIP_IO_STORAGE
++#define STM32MP_DDR_FW_BASE		SRAM1_BASE
++#define STM32MP_DDR_FW_MAX_SIZE		U(0x8800)
++#endif
++
+ #define STM32MP_FW_CONFIG_BASE		(STM32MP_SYSRAM_BASE + \
+ 					 STM32MP_SYSRAM_SIZE - \
+ 					 PAGE_SIZE)
+@@ -373,6 +380,7 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+  ******************************************************************************/
+ #define RISAB1_BASE				U(0x420F0000)
+ #define RISAB2_BASE				U(0x42100000)
++#define RISAB3_BASE				U(0x42110000)
+ #define RISAB5_BASE				U(0x42130000)
+ 
+ #define RISAF1_INST				0
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index ab4b20dc0..303d7600d 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -37,6 +37,15 @@
+ 					MT_NS | \
+ 					MT_EXECUTE_NEVER)
+ 
++#if STM32MP_DDR_FIP_IO_STORAGE
++#define MAP_SRAM1	MAP_REGION_FLAT(SRAM1_BASE, \
++					SRAM1_SIZE, \
++					MT_MEMORY | \
++					MT_RW | \
++					MT_SECURE | \
++					MT_EXECUTE_NEVER)
++#endif
++
+ #define MAP_DEVICE	MAP_REGION_FLAT(STM32MP_DEVICE_BASE, \
+ 					STM32MP_DEVICE_SIZE, \
+ 					MT_DEVICE | \
+@@ -47,6 +56,9 @@
+ #if defined(IMAGE_BL2)
+ static const mmap_region_t stm32mp2_mmap[] = {
+ 	MAP_SYSRAM,
++#if STM32MP_DDR_FIP_IO_STORAGE
++	MAP_SRAM1,
++#endif
+ 	MAP_DEVICE,
+ 	{0}
+ };
+diff --git a/tools/fiptool/plat_fiptool/st/stm32mp2/plat_def_uuid_config.c b/tools/fiptool/plat_fiptool/st/stm32mp2/plat_def_uuid_config.c
+new file mode 100644
+index 000000000..ff786e0cd
+--- /dev/null
++++ b/tools/fiptool/plat_fiptool/st/stm32mp2/plat_def_uuid_config.c
+@@ -0,0 +1,30 @@
++/*
++ * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <stddef.h>
++
++#include <firmware_image_package.h>
++
++#include "tbbr_config.h"
++
++toc_entry_t plat_def_toc_entries[] = {
++	{
++		.name = "DDR_FW",
++		.uuid = UUID_DDR_FW,
++		.cmdline_name = "ddr-fw"
++	},
++	{
++		.name = "STM32MP CONFIG CERT",
++		.uuid = UUID_STM32MP_CONFIG_CERT,
++		.cmdline_name = "stm32mp-cfg-cert"
++	},
++
++	{
++		.name = NULL,
++		.uuid = { {0} },
++		.cmdline_name = NULL,
++	}
++};
+diff --git a/tools/fiptool/plat_fiptool/st/stm32mp2/plat_fiptool.mk b/tools/fiptool/plat_fiptool/st/stm32mp2/plat_fiptool.mk
+new file mode 100644
+index 000000000..ef2d1999d
+--- /dev/null
++++ b/tools/fiptool/plat_fiptool/st/stm32mp2/plat_fiptool.mk
+@@ -0,0 +1,25 @@
++#
++# Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++# Name of the platform defined source file name,
++# which contains platform defined UUID entries populated
++# in the plat_def_toc_entries[].
++PLAT_DEF_UUID_FILE_NAME	:= plat_def_uuid_config
++
++INCLUDE_PATHS		+= -I${PLAT_DIR}/include -I./
++
++PLAT_DEF_UUID		:= yes
++
++ifeq (${PLAT_DEF_UUID},yes)
++HOSTCCFLAGS += -DPLAT_DEF_FIP_UUID
++
++${PLAT_DEF_UUID_FILE_NAME}.o: plat_fiptool/st/stm32mp2/${PLAT_DEF_UUID_FILE_NAME}.c
++	${HOSTCC} -c ${CPPFLAGS} ${HOSTCCFLAGS} ${INCLUDE_PATHS} $< -o $@
++
++PLAT_OBJECTS += ${PLAT_DEF_UUID_FILE_NAME}.o
++endif
++
++OBJECTS += ${PLAT_OBJECTS}
+-- 
+2.47.2
+

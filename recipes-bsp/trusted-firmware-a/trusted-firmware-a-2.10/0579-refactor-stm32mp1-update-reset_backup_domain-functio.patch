@@ -1,0 +1,42 @@
+From ac1069be1d9639f86787ad2a78825771c4d03cb0 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Tue, 19 Mar 2024 14:16:24 +0100
+Subject: [PATCH 579/841] refactor(stm32mp1): update reset_backup_domain
+ function
+
+Change the condition of the backup domain reset to check the
+RCC_BDCR_RTCCKEN bit. When LSE CSS is enabled and a tamper event
+occurs, the RTCSRC[1:0] bit-field is cleared, leading to a incorrect
+cold boot detection.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8be6f7c5018e371ec4d470f45d695872c41ff6d6 refactor(stm32mp1): update reset_backup_domain function]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Ic3449f269d2497422c8fe665ebe7f9dc166ccf88
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/371026
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/373929
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index bba2af634..3eacb2951 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -260,7 +260,7 @@ static void reset_backup_domain(void)
+ 	}
+ 
+ 	/* Reset backup domain on cold boot cases */
+-	if ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_RTCSRC_MASK) == 0U) {
++	if ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_RTCCKEN) == 0U) {
+ 		mmio_setbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
+ 
+ 		while ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_VSWRST) == 0U) {
+-- 
+2.47.2
+

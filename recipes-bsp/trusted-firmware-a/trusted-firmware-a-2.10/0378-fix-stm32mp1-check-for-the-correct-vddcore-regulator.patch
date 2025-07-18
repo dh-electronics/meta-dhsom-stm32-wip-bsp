@@ -1,0 +1,53 @@
+From 931525e7f4a0c682eb3f2b1f5e273742106eb605 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Fri, 26 May 2023 09:37:16 +0200
+Subject: [PATCH 378/841] fix(stm32mp1): check for the correct vddcore
+ regulator
+
+NOT_UPSTREAMABLE
+
+Update the regulator detection to use the SYSRAM regulator
+instead of CPU one. On STM32MP13, the SYSRAM has a dedicated
+power domain and the SYSRAM supply is no more the CPU one.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6ebae2528ddc1640be539b3da68162e1a98b2381 fix(stm32mp1): check for the correct vddcore regulator]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: I2fc1e54159999848bfea3b6597f1376e2894820f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/308668
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp1/stm32mp1_ssp.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp1/stm32mp1_ssp.c b/plat/st/stm32mp1/stm32mp1_ssp.c
+index 6a60fbf22..b9808087b 100644
+--- a/plat/st/stm32mp1/stm32mp1_ssp.c
++++ b/plat/st/stm32mp1/stm32mp1_ssp.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2017-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -858,13 +858,13 @@ static void ssp_start(boot_api_context_t *boot_context)
+ 	}
+ 
+ 	/*
+-	 * Keep VDDCORE && VDD enabled if pmic used to generate
++	 * Keep VDDCORE && VDD enabled if PMIC used to generate
+ 	 * the required MPSYSRST.
+ 	 */
+ 	if (dt_pmic_status() > 0) {
+ 		struct rdev *regul;
+ 
+-		regul = dt_get_cpu_regulator();
++		regul = dt_get_sysram_regulator();
+ 		if (regul == NULL) {
+ 			panic();
+ 		}
+-- 
+2.47.2
+

@@ -1,0 +1,40 @@
+From 86a02c0ad6f3fe93e4fb51b4f85680df0b1dae84 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 11 Oct 2023 17:12:53 +0200
+Subject: [PATCH 398/841] refactor(st-clock): support deactivated STGEN in
+ stm32mp_stgen_config
+
+Update function stm32mp_stgen_config() to support deactivated STGEN
+when frequency is 0, for example on STOP2 exit for STM32MP25.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d17647935e2c840a14d3c3b62253e001607c44ed refactor(st-clock): support deactivated STGEN in stm32mp_stgen_config]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Id371c4602a614bbfa0ecc7ce2d2e0ac5261e1d52
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/333654
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/clk/stm32mp_clkfunc.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/clk/stm32mp_clkfunc.c b/drivers/st/clk/stm32mp_clkfunc.c
+index cff174f21..5b47cb68a 100644
+--- a/drivers/st/clk/stm32mp_clkfunc.c
++++ b/drivers/st/clk/stm32mp_clkfunc.c
+@@ -350,9 +350,11 @@ void stm32mp_stgen_config(unsigned long rate)
+ 	}
+ 
+ 	mmio_clrbits_32(STGEN_BASE + CNTCR_OFF, CNTCR_EN);
+-	counter = stm32mp_stgen_get_counter() * rate / cntfid0;
+ 
+-	stgen_set_counter(counter);
++	if (cntfid0 != 0U) {
++		counter = stm32mp_stgen_get_counter() * rate / cntfid0;
++		stgen_set_counter(counter);
++	}
+ 	mmio_write_32(STGEN_BASE + CNTFID_OFF, rate);
+ 	mmio_setbits_32(STGEN_BASE + CNTCR_OFF, CNTCR_EN);
+ 
+-- 
+2.47.2
+
