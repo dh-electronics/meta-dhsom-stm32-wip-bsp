@@ -1,0 +1,69 @@
+From 69b34043e6e2e3573d27a147ad34052a24287a69 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Wed, 17 May 2023 12:36:01 +0200
+Subject: [PATCH 300/841] feat(fdt-wrappers): add function to read uint64 with
+ default value
+
+Adds a new utility function fdt_read_uint64_default() to read a uint64
+value with a default value, as it is already done for uint32.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 25194b7aa04e2f6a6989893c2b6f505f6f668b31 feat(fdt-wrappers): add function to read uint64 with default value]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Ibc85e30c3e4dd4b5171bdec106f4e32eb78c579f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/307451
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ common/fdt_wrappers.c         | 15 ++++++++++++++-
+ include/common/fdt_wrappers.h |  2 ++
+ 2 files changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/common/fdt_wrappers.c b/common/fdt_wrappers.c
+index 783b660ee..9138716d1 100644
+--- a/common/fdt_wrappers.c
++++ b/common/fdt_wrappers.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2023, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2018-2023, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -88,6 +88,19 @@ int fdt_read_uint64(const void *dtb, int node, const char *prop_name,
+ 	return 0;
+ }
+ 
++uint64_t fdt_read_uint64_default(const void *dtb, int node,
++				 const char *prop_name, uint64_t dflt_value)
++{
++	uint64_t ret = dflt_value;
++	int err = fdt_read_uint64(dtb, node, prop_name, &ret);
++
++	if (err < 0) {
++		return dflt_value;
++	}
++
++	return ret;
++}
++
+ /*
+  * Read bytes from a given property of the given node. Any number of
+  * bytes of the property can be read. The fdt pointer is updated.
+diff --git a/include/common/fdt_wrappers.h b/include/common/fdt_wrappers.h
+index abbf9764b..9a5972859 100644
+--- a/include/common/fdt_wrappers.h
++++ b/include/common/fdt_wrappers.h
+@@ -21,6 +21,8 @@ uint32_t fdt_read_uint32_default(const void *dtb, int node,
+ 				 const char *prop_name, uint32_t dflt_value);
+ int fdt_read_uint64(const void *dtb, int node, const char *prop_name,
+ 		    uint64_t *value);
++uint64_t fdt_read_uint64_default(const void *dtb, int node,
++				 const char *prop_name, uint64_t dflt_value);
+ int fdt_read_uint32_array(const void *dtb, int node, const char *prop_name,
+ 			  unsigned int cells, uint32_t *value);
+ int fdtw_read_string(const void *dtb, int node, const char *prop,
+-- 
+2.47.2
+

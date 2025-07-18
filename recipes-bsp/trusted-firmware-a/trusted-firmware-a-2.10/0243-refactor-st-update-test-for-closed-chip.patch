@@ -1,0 +1,257 @@
+From 2168e5cfe42f022ca5ed4ad471f1fa79d287011d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 1 Feb 2023 15:04:30 +0100
+Subject: [PATCH 243/841] refactor(st): update test for closed chip
+
+The function stm32mp_is_closed_device() is replaced with
+stm32mp_check_closed_device(), which return an uint32_t, either
+STM32MP_CHIP_SEC_OPEN or STM32MP_CHIP_SEC_CLOSED.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 57added63dc77faa4ca798b071e6ac703bcb0c91 refactor(st): update test for closed chip]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ie0790cdc36c4b6522083bc1f0e7c38e8061e6adf
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/288423
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ drivers/st/bsec/bsec2.c                 |  2 +-
+ drivers/st/mce/stm32_mce.c              |  5 +++--
+ plat/st/common/include/stm32mp_common.h |  5 ++++-
+ plat/st/common/stm32mp_crypto_lib.c     |  6 ++++--
+ plat/st/common/stm32mp_trusted_boot.c   |  8 ++++----
+ plat/st/stm32mp1/bl2_plat_setup.c       |  7 ++++---
+ plat/st/stm32mp1/stm32mp1_private.c     | 15 ++++++++++-----
+ plat/st/stm32mp2/bl2_plat_setup.c       |  3 ++-
+ plat/st/stm32mp2/stm32mp2_private.c     |  4 ++--
+ 9 files changed, 34 insertions(+), 21 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index 7706d3b89..e2500ca43 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -824,7 +824,7 @@ uint32_t bsec_get_secure_state(void)
+ 		result = BSEC_STATE_INVALID;
+ 	} else {
+ 		if ((status & BSEC_OTP_STATUS_SECURE) != 0U) {
+-			if (stm32mp_is_closed_device()) {
++			if (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) {
+ 				result = BSEC_STATE_SEC_CLOSED;
+ 			} else {
+ 				result = BSEC_STATE_SEC_OPEN;
+diff --git a/drivers/st/mce/stm32_mce.c b/drivers/st/mce/stm32_mce.c
+index 89dd9ba99..837f377bb 100644
+--- a/drivers/st/mce/stm32_mce.c
++++ b/drivers/st/mce/stm32_mce.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2020-2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2020-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -382,7 +382,8 @@ static int fconf_populate_mce(uintptr_t config)
+ 	/* Check the node offset point to "st,mem-encrypt" compatible property */
+ 	const char *compatible_str = "st,mem-encrypt";
+ 
+-	if (!stm32mp_is_closed_device() && !stm32mp_is_auth_supported()) {
++	if ((stm32mp_check_closed_device() == STM32MP_CHIP_SEC_OPEN) &&
++	    !stm32mp_is_auth_supported()) {
+ 		return 0;
+ 	}
+ 
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index bd6c433df..8e8fe1f9c 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -14,6 +14,9 @@
+ #define JEDEC_ST_BKID U(0x0)
+ #define JEDEC_ST_MFID U(0x20)
+ 
++#define STM32MP_CHIP_SEC_CLOSED		U(0x34D9CCC5)
++#define STM32MP_CHIP_SEC_OPEN		U(0xA764D182)
++
+ /* FWU configuration (max supported value is 15) */
+ #define FWU_MAX_TRIAL_REBOOT		U(3)
+ 
+@@ -26,8 +29,8 @@ uint32_t stm32mp_get_boot_action(void);
+ #endif
+ 
+ bool stm32mp_is_single_core(void);
+-bool stm32mp_is_closed_device(void);
+ bool stm32mp_is_auth_supported(void);
++uint32_t stm32mp_check_closed_device(void);
+ 
+ /* Return the base address of the DDR controller */
+ uintptr_t stm32mp_ddrctrl_base(void);
+diff --git a/plat/st/common/stm32mp_crypto_lib.c b/plat/st/common/stm32mp_crypto_lib.c
+index e282115d7..50729f005 100644
+--- a/plat/st/common/stm32mp_crypto_lib.c
++++ b/plat/st/common/stm32mp_crypto_lib.c
+@@ -58,7 +58,8 @@ static void crypto_lib_init(void)
+ 		panic();
+ 	}
+ 
+-	if (stm32mp_is_closed_device() || stm32mp_is_auth_supported()) {
++	if ((stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) ||
++	    stm32mp_is_auth_supported()) {
+ #if STM32MP_CRYPTO_ROM_LIB
+ 		boot_context = (boot_api_context_t *)stm32mp_get_boot_ctx_address();
+ 		auth_ops.verify_signature = boot_context->bootrom_ecdsa_verify_signature;
+@@ -322,7 +323,8 @@ static int crypto_verify_signature(void *data_ptr, unsigned int data_len,
+ 	size_t bignum_len = sizeof(sig) / 2U;
+ 	unsigned int seq_num = 0U;
+ 
+-	if (!stm32mp_is_closed_device() && !stm32mp_is_auth_supported()) {
++	if ((stm32mp_check_closed_device() == STM32MP_CHIP_SEC_OPEN) &&
++	    !stm32mp_is_auth_supported()) {
+ 		return CRYPTO_SUCCESS;
+ 	}
+ 
+diff --git a/plat/st/common/stm32mp_trusted_boot.c b/plat/st/common/stm32mp_trusted_boot.c
+index 94716d8a7..f19ed92e4 100644
+--- a/plat/st/common/stm32mp_trusted_boot.c
++++ b/plat/st/common/stm32mp_trusted_boot.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -65,14 +65,14 @@ static int copy_hash_from_otp(const char *otp_name, uint8_t *hash, size_t len)
+ 		 * Check if key hash values in OTP are 0 or 0xFFFFFFFFF
+ 		 * programmed : Invalid Key
+ 		 */
+-		if (!stm32mp_is_closed_device() && !valid) {
++		if ((stm32mp_check_closed_device() == STM32MP_CHIP_SEC_OPEN) && !valid) {
+ 			if ((tmp != 0U) && (tmp != 0xFFFFFFFFU) && (tmp != first)) {
+ 				valid = true;
+ 			}
+ 		}
+ 	}
+ 
+-	if (!stm32mp_is_closed_device() && !valid) {
++	if ((stm32mp_check_closed_device() == STM32MP_CHIP_SEC_OPEN) && !valid) {
+ 		return 0;
+ 	}
+ 
+@@ -160,7 +160,7 @@ int plat_get_rotpk_info(void *cookie, void **key_ptr, unsigned int *key_len,
+ 	*key_ptr = &root_pk_hash;
+ 	*flags = ROTPK_IS_HASH;
+ 
+-	if ((res == 0) && !stm32mp_is_closed_device()) {
++	if ((res == 0) && (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_OPEN)) {
+ 		*flags |= ROTPK_NOT_DEPLOYED;
+ 	}
+ 
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index c60de5122..88abfddcb 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -348,7 +348,7 @@ void bl2_el3_plat_arch_setup(void)
+ 
+ skip_console_init:
+ #if !TRUSTED_BOARD_BOOT
+-	if (stm32mp_is_closed_device()) {
++	if (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) {
+ 		/* Closed chip mandates authentication */
+ 		ERROR("Secure chip: TRUSTED_BOARD_BOOT must be enabled\n");
+ 		panic();
+@@ -384,7 +384,7 @@ skip_console_init:
+ 	stm32_iwdg_refresh();
+ 
+ 	if (bsec_read_debug_conf() != 0U) {
+-		if (stm32mp_is_closed_device()) {
++		if (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) {
+ #if DEBUG
+ 			WARN("\n%s", debug_msg);
+ #else
+@@ -478,7 +478,8 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 	switch (image_id) {
+ 	case FW_CONFIG_ID:
+ #if STM32MP13
+-		if (stm32mp_is_closed_device() || stm32mp_is_auth_supported()) {
++		if ((stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) ||
++		    stm32mp_is_auth_supported()) {
+ 			prepare_encryption();
+ 		}
+ #endif
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index 74b09d460..6420627b3 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -534,12 +534,12 @@ bool stm32mp_is_single_core(void)
+ }
+ 
+ /* Return true when device is in closed state */
+-bool stm32mp_is_closed_device(void)
++uint32_t stm32mp_check_closed_device(void)
+ {
+ 	uint32_t value;
+ 
+ 	if (stm32_get_otp_value(CFG0_OTP, &value) != 0) {
+-		return true;
++		return STM32MP_CHIP_SEC_CLOSED;
+ 	}
+ 
+ #if STM32MP13
+@@ -547,17 +547,22 @@ bool stm32mp_is_closed_device(void)
+ 
+ 	switch (value) {
+ 	case CFG0_OPEN_DEVICE:
+-		return false;
++		return STM32MP_CHIP_SEC_OPEN;
+ 	case CFG0_CLOSED_DEVICE:
+ 	case CFG0_CLOSED_DEVICE_NO_BOUNDARY_SCAN:
+ 	case CFG0_CLOSED_DEVICE_NO_JTAG:
+-		return true;
++		return STM32MP_CHIP_SEC_CLOSED;
+ 	default:
+ 		panic();
+ 	}
+ #endif
+ #if STM32MP15
+-	return (value & CFG0_CLOSED_DEVICE) == CFG0_CLOSED_DEVICE;
++	if ((value & CFG0_CLOSED_DEVICE) == CFG0_CLOSED_DEVICE) {
++		return STM32MP_CHIP_SEC_CLOSED;
++	} else {
++		return STM32MP_CHIP_SEC_OPEN;
++	}
++
+ #endif
+ }
+ 
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index cf556d0c1..a9ceaead4 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -322,7 +322,8 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 
+ 	switch (image_id) {
+ 	case FW_CONFIG_ID:
+-		if (stm32mp_is_closed_device() || stm32mp_is_auth_supported()) {
++		if ((stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) ||
++		    stm32mp_is_auth_supported()) {
+ 			prepare_encryption();
+ 		}
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 10251fb42..603f2eafa 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -338,9 +338,9 @@ bool stm32mp_is_single_core(void)
+ }
+ 
+ /* Return true when device is in closed state */
+-bool stm32mp_is_closed_device(void)
++uint32_t stm32mp_check_closed_device(void)
+ {
+-	return false;
++	return STM32MP_CHIP_SEC_OPEN;
+ }
+ 
+ /* Return true when device supports secure boot */
+-- 
+2.47.2
+

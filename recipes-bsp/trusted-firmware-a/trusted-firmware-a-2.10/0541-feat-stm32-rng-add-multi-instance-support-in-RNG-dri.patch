@@ -1,0 +1,182 @@
+From 510d2f4ef3b6de983cf42472bd81bac4ea67e75c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 22 Feb 2024 15:16:10 +0100
+Subject: [PATCH 541/841] feat(stm32-rng): add multi instance support in RNG
+ driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This patch allows the driver to initialize as many RNG instances as
+enabled in the device tree.
+The driver will still use only one instance for the TF-A purpose as it
+needs only one to work. The others are activated because needed by
+specific IPs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b4c652ae17a470f4de6f58d1a394b5ec46a12264 feat(stm32-rng): add multi instance support in RNG driver]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ie4d7f01f4ffe5a9e2d0e5e7317b008edd3b80a17
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/362072
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/crypto/stm32_rng.c | 101 ++++++++++++++++++++++++----------
+ 1 file changed, 72 insertions(+), 29 deletions(-)
+
+diff --git a/drivers/st/crypto/stm32_rng.c b/drivers/st/crypto/stm32_rng.c
+index 1342fd454..82e69d177 100644
+--- a/drivers/st/crypto/stm32_rng.c
++++ b/drivers/st/crypto/stm32_rng.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -9,6 +9,7 @@
+ #include <stdbool.h>
+ 
+ #include <arch_helpers.h>
++#include <common/fdt_wrappers.h>
+ #include <drivers/clk.h>
+ #include <drivers/delay_timer.h>
+ #include <drivers/st/stm32_rng.h>
+@@ -212,62 +213,104 @@ bail:
+ 	return rc;
+ }
+ 
++/*
++ * stm32_rng_select: Select a specified RNG instance from its base address.
++ * This function only works if the driver is uninitialized.
++ */
++void stm32_rng_select(uintptr_t rng_base)
++{
++	if ((stm32_rng.base != 0U) && (stm32_rng.clock != 0U)) {
++		/* Driver is already initialized */
++		return;
++	}
++
++	stm32_rng.base = rng_base;
++}
++
+ /*
+  * stm32_rng_init: Initialize rng from DT
+  * return 0 on success, negative value on failure
+  */
+ int stm32_rng_init(void)
+ {
++	struct stm32_rng_instance rng = {0,0};
+ 	void *fdt;
+-	struct dt_node_info dt_rng;
+ 	int node;
++	int success = 0;
+ 
+ 	if (stm32_rng.base != 0U) {
+-		/* Driver is already initialized */
+-		return 0;
++		if(stm32_rng.clock != 0U) {
++			/* Driver is already initialized */
++			return 0;
++		}
++
++		rng.base = stm32_rng.base;
+ 	}
+ 
+ 	if (fdt_get_address(&fdt) == 0) {
+ 		panic();
+ 	}
+ 
+-	node = dt_get_node(&dt_rng, -1, DT_RNG_COMPAT);
+-	if (node < 0) {
+-		return 0;
+-	}
++	fdt_for_each_compatible_node(fdt, node, DT_RNG_COMPAT) {
++		struct dt_node_info dt_rng;
++		int ret;
+ 
+-	if (dt_rng.status == DT_DISABLED) {
+-		return 0;
+-	}
++		dt_fill_device_info(&dt_rng, node);
+ 
+-	assert(dt_rng.base != 0U);
++		VERBOSE("Setting up rng@%x, status: %x\n", dt_rng.base, dt_rng.status);
+ 
+-	stm32_rng.base = dt_rng.base;
++		/*
++		 * All the valid RNG peripherals available in device tree are
++		 * activated but only the last RNG found is assigned to the RNG
++		 * instance of the driver.
++		 */
++		if ((dt_rng.status == DT_DISABLED) || (dt_rng.base == 0U)) {
++			continue;
++		}
+ 
+-	if (dt_rng.clock < 0) {
+-		panic();
+-	}
++		stm32_rng.base = dt_rng.base;
+ 
+-	stm32_rng.clock = (unsigned long)dt_rng.clock;
+-	clk_enable(stm32_rng.clock);
++		if (dt_rng.clock < 0) {
++			panic();
++		}
+ 
+-	if (dt_rng.reset >= 0) {
+-		int ret;
++		stm32_rng.clock = (unsigned long)dt_rng.clock;
++		clk_enable(stm32_rng.clock);
+ 
+-		ret = stm32mp_reset_assert((unsigned long)dt_rng.reset,
+-					   TIMEOUT_US_1MS);
+-		if (ret != 0) {
+-			panic();
++		if (stm32_rng.base == rng.base) {
++			/* Set the rng instance as the rng to use by TF-A */
++			rng.clock = stm32_rng.clock;
+ 		}
+ 
+-		udelay(20);
++		if (dt_rng.reset >= 0) {
++
++			ret = stm32mp_reset_assert((unsigned long)dt_rng.reset, TIMEOUT_US_1MS);
++			if (ret != 0) {
++				panic();
++			}
++
++			udelay(20);
+ 
+-		ret = stm32mp_reset_deassert((unsigned long)dt_rng.reset,
+-					     TIMEOUT_US_1MS);
++			ret = stm32mp_reset_deassert((unsigned long)dt_rng.reset, TIMEOUT_US_1MS);
++			if (ret != 0) {
++				panic();
++			}
++		}
++
++		ret = stm32_rng_enable();
+ 		if (ret != 0) {
+-			panic();
++			ERROR("Failed to enable rng@%x\n", dt_rng.base);
++		} else {
++			success++;
+ 		}
+ 	}
+ 
+-	return stm32_rng_enable();
++	if (success > 0) {
++		if ((rng.clock != 0U) && (rng.base != 0U)) {
++			stm32_rng = rng;
++		}
++		return 0;
++	}
++
++	return -ENODEV;
+ }
+-- 
+2.47.2
+

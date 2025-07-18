@@ -1,0 +1,164 @@
+From e07b4ca0a017be9edb93dbcfe07aca314af09f54 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 20 Feb 2024 17:22:00 +0100
+Subject: [PATCH 527/841] feat(stm32mp21): enable USBOTG DFU
+
+USBOTG DFU is present on STM32MP21. Enable related driver and adapt
+platform init sequence.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git eb8de44174ae019179f00e465fa598278d86db69 feat(stm32mp21): enable USBOTG DFU]
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Ia7d885c86400b7f90bd605bd797612007989b909
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/361431
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/platform.mk        |  8 ++++++--
+ plat/st/stm32mp2/stm32mp2_def.h     | 10 +++++++---
+ plat/st/stm32mp2/stm32mp2_private.c | 10 +++++-----
+ plat/st/stm32mp2/stm32mp2_usb_dfu.c | 12 +++++++++++-
+ 4 files changed, 29 insertions(+), 11 deletions(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 3a9d0e43c..2d7af8a63 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -290,9 +290,13 @@ endif
+ ifeq (${STM32MP_USB_PROGRAMMER},1)
+ #The DFU stack uses only one end point, reduce the USB stack footprint
+ $(eval $(call add_define_val,CONFIG_USBD_EP_NB,1U))
++ifeq ($(STM32MP21),1)
++BL2_SOURCES			+=	drivers/st/usb/stm32mp1_usb.c
++else
+ $(eval $(call add_define,USB_CORE_AVOID_PACKET_SPLIT_MPS))
+-BL2_SOURCES			+=	drivers/st/usb_dwc3/usb_dwc3.c				\
+-					plat/st/stm32mp2/stm32mp2_usb_dfu.c
++BL2_SOURCES			+=	drivers/st/usb_dwc3/usb_dwc3.c
++endif
++BL2_SOURCES			+=	plat/st/stm32mp2/stm32mp2_usb_dfu.c
+ endif
+ 
+ ifeq ($(STM32MP_M33_TDCID),0)
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 6042a7b32..863857761 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -148,7 +148,7 @@
+ #define STM32MP_SEC_SYSRAM_BASE		STM32MP_SYSRAM_BASE
+ 
+ #if defined(IMAGE_BL2)
+-#if STM32MP_USB_PROGRAMMER
++#if STM32MP_USB_PROGRAMMER && !STM32MP21
+ #define STM32MP_SEC_DEVICE_SYSRAM_SIZE		STM32MP_USB_DWC3_SIZE
+ #define STM32MP_SEC_DEVICE_SYSRAM_BASE		(STM32MP_SYSRAM_BASE + \
+ 						 STM32MP_SYSRAM_SIZE - \
+@@ -159,9 +159,9 @@
+ 
+ #define STM32MP_USB_DWC3_BASE		STM32MP_SEC_DEVICE_SYSRAM_BASE
+ #define STM32MP_USB_DWC3_SIZE		PAGE_SIZE
+-#else /* STM32MP_USB_PROGRAMMER */
++#else /* STM32MP_USB_PROGRAMMER && !STM32MP21 */
+ #define STM32MP_SEC_SYSRAM_SIZE		STM32MP_SYSRAM_SIZE
+-#endif /* STM32MP_USB_PROGRAMMER */
++#endif /* STM32MP_USB_PROGRAMMER && !STM32MP21 */
+ #else /* IMAGE_BL2 */
+ #define STM32MP_NS_SYSRAM_SIZE		PAGE_SIZE
+ #define STM32MP_NS_SYSRAM_BASE		(STM32MP_SYSRAM_BASE + \
+@@ -539,7 +539,11 @@ enum ddr_type {
+ /*******************************************************************************
+  * STM32MP2 USB
+  ******************************************************************************/
++#if STM32MP21
++#define USB_OTG_BASE			U(0x48300000)
++#else /* STM32MP21 */
+ #define USB_DWC3_BASE			U(0x48300000)
++#endif /* STM32MP21 */
+ 
+ /*******************************************************************************
+  * STM32MP2 DDRCTRL
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 8320b0d71..94deee855 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -39,14 +39,14 @@
+ 					MT_SECURE | \
+ 					MT_EXECUTE_NEVER)
+ 
+-#if STM32MP_USB_PROGRAMMER
++#if STM32MP_USB_PROGRAMMER && !STM32MP21
+ #define MAP_SEC_DEVICE_SYSRAM	MAP_REGION_FLAT(STM32MP_SEC_DEVICE_SYSRAM_BASE, \
+ 					STM32MP_SEC_DEVICE_SYSRAM_SIZE, \
+ 					MT_DEVICE | \
+ 					MT_RW | \
+ 					MT_SECURE | \
+ 					MT_EXECUTE_NEVER)
+-#endif
++#endif /* STM32MP_USB_PROGRAMMER && !STM32MP21 */
+ 
+ /* Non-secure SYSRAM is used a uncached memory for SCMI message transfer */
+ #define MAP_NS_SYSRAM	MAP_REGION_FLAT(STM32MP_NS_SYSRAM_BASE, \
+@@ -72,12 +72,12 @@
+ 
+ #if defined(IMAGE_BL2)
+ static const mmap_region_t stm32mp2_mmap[] = {
+-#if STM32MP_USB_PROGRAMMER
++#if STM32MP_USB_PROGRAMMER && !STM32MP21
+ 	MAP_SEC_SYSRAM,
+ 	MAP_SEC_DEVICE_SYSRAM,
+-#else
++#else /* !STM32MP_USB_PROGRAMMER || STM32MP21 */
+ 	MAP_SYSRAM,
+-#endif
++#endif /* STM32MP_USB_PROGRAMMER && !STM32MP21 */
+ 	MAP_SRAM1,
+ 	MAP_DEVICE,
+ 	{0}
+diff --git a/plat/st/stm32mp2/stm32mp2_usb_dfu.c b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
+index cce6442d1..8b4547f79 100644
+--- a/plat/st/stm32mp2/stm32mp2_usb_dfu.c
++++ b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022-2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -8,7 +8,11 @@
+ #include <string.h>
+ 
+ #include <common/debug.h>
++#if STM32MP21
++#include <drivers/st/stm32mp1_usb.h>
++#else /* STM32MP21 */
+ #include <drivers/st/usb_dwc3.h>
++#endif /* STM32MP21 */
+ #include <drivers/usb_device.h>
+ 
+ #include <platform_def.h>
+@@ -325,14 +329,20 @@ static const struct usb_desc dfu_desc = {
+ 
+ static struct usb_handle usb_core_handle;
+ static struct pcd_handle pcd_handle;
++#if !STM32MP21
+ static dwc3_handle_t dwc3_handle;
++#endif /* !STM32MP21 */
+ 
+ struct usb_handle *usb_dfu_plat_init(void)
+ {
+ 	/* prepare USB Driver */
+ 	pcd_handle.in_ep[0].maxpacket = USB_MAX_EP0_SIZE;
+ 	pcd_handle.out_ep[0].maxpacket = USB_MAX_EP0_SIZE;
++#if STM32MP21
++	stm32mp1_usb_init_driver(&usb_core_handle, &pcd_handle, (uint32_t *)USB_OTG_BASE);
++#else /* STM32MP21 */
+ 	usb_dwc3_init_driver(&usb_core_handle, &pcd_handle, &dwc3_handle, (void *)USB_DWC3_BASE);
++#endif /* STM32MP21 */
+ 
+ 	/* keep the configuration from ROM code */
+ 	usb_core_handle.ep0_state = USBD_EP0_DATA_IN;
+-- 
+2.47.2
+

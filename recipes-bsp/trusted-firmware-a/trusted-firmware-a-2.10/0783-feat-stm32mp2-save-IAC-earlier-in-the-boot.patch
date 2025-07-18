@@ -1,0 +1,124 @@
+From b82df14711e4c14c5482766b75ddf76c35836c72 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 19 Feb 2025 11:16:30 +0100
+Subject: [PATCH 783/841] feat(stm32mp2): save IAC earlier in the boot
+
+The iac_dump function help debugging IAC that occurred during ROM code
+execution. To be able to catch IAC that could occur in TF-A, save the
+IAC status earlier. And in case of serial boot clear those IAC just
+after that. The display is still done once the console is configured.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 01411b0a13f36f8de327871390e8985e270e77c4 feat(stm32mp2): save IAC earlier in the boot]
+Change-Id: Ib9e5a05d419d4d5e4ec06b25b39e641b650d1103
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/438357
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 53 ++++++++++++++++++++++---------
+ 1 file changed, 38 insertions(+), 15 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index ecd5288ea..0abda2f50 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -53,12 +53,15 @@ IMPORT_SYM(uintptr_t, __DATA_END__, DATA_END);
+ #define IAC_EXCEPT_LSB_BIT(x) ((x) * 32U)
+ #define IAC_EXCEPT_MSB_BIT(x) (IAC_EXCEPT_LSB_BIT(x) + 31U)
+ 
++#if DEBUG && !STM32MP_M33_TDCID
++/* Save all IAC ISR registers + the number of IAC found on last u32 */
++static uint32_t iac_list[IAC_NB + 1U];
++#endif
++
+ static void iac_dump(void)
+ {
+-#if !STM32MP_M33_TDCID
+-#if DEBUG
+-	unsigned int i;
+-	unsigned int bit;
++#if DEBUG && !STM32MP_M33_TDCID
++	uint32_t i;
+ 
+ 	for (i = 0U; i < IAC_NB; i++) {
+ 		uint32_t isr = mmio_read_32(IAC_BASE + IAC_ISR(i));
+@@ -69,6 +72,25 @@ static void iac_dump(void)
+ 			continue;
+ 		}
+ 
++		iac_list[i] = isr;
++		iac_list[IAC_NB]++;
++	}
++#endif
++}
++
++static void iac_display(void)
++{
++#if DEBUG && !STM32MP_M33_TDCID
++	unsigned int i;
++	unsigned int bit;
++
++	if (iac_list[IAC_NB] == 0U) {
++		return;
++	}
++
++	for (i = 0U; i < IAC_NB; i++) {
++		uint32_t isr = iac_list[i];
++
+ 		WARN("IAC exceptions pending [%u:%u] = %x\n",
+ 		     IAC_EXCEPT_MSB_BIT(i), IAC_EXCEPT_LSB_BIT(i), isr);
+ 		bit = 0U;
+@@ -81,7 +103,6 @@ static void iac_dump(void)
+ 		}
+ 	}
+ #endif
+-#endif
+ }
+ 
+ #if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
+@@ -174,6 +195,16 @@ void bl2_el3_early_platform_setup(u_register_t arg0 __unused,
+ 	notify_cpu2();
+ #endif
+ 
++	iac_dump();
++
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++	/*
++	 * fixup: clean IAC that may be caused by bootrom. They are
++	 * irrelevant in programmer mode.
++	 */
++	clean_iac();
++#endif
++
+ 	stm32mp_save_boot_ctx_address(BOOT_CTX_ADDR);
+ 
+ 	stm32_save_header();
+@@ -476,15 +507,7 @@ void bl2_el3_plat_arch_setup(void)
+ 		goto skip_console_init;
+ 	}
+ 
+-	iac_dump();
+-
+-#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
+-	/*
+-	 * fixup: clean IAC that may be caused by bootrom. They are
+-	 * irrelevant in programmer mode.
+-	 */
+-	clean_iac();
+-#endif
++	iac_display();
+ 
+ 	stm32mp_print_cpuinfo();
+ 
+-- 
+2.47.2
+

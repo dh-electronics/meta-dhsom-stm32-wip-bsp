@@ -1,0 +1,56 @@
+From 9b9c93b2919c4a850f18cf45eb0feb9eb9d0ac7f Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 17 May 2021 17:11:18 +0200
+Subject: [PATCH 036/841] feat(st-pmic): add a switch-off function
+
+This function calls the stpmic1_switch_off() function, waits for 100us
+for the switch-off to occur. And panics in case it has not switched-off.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4b0dbef17932666f29d3e478394de2ce13791c46 feat(st-pmic): add a switch-off function]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I51d1c145edae9d9272ea8ad0b9b9b89488bb5a39
+---
+ drivers/st/pmic/stm32mp_pmic.c    | 10 ++++++++++
+ include/drivers/st/stm32mp_pmic.h |  7 +++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic.c b/drivers/st/pmic/stm32mp_pmic.c
+index 1e1628770..fd318bc39 100644
+--- a/drivers/st/pmic/stm32mp_pmic.c
++++ b/drivers/st/pmic/stm32mp_pmic.c
+@@ -360,6 +360,16 @@ int pmic_voltages_init(void)
+ 	return 0;
+ }
+ 
++void pmic_switch_off(void)
++{
++	if (stpmic1_switch_off() == 0) {
++		udelay(100);
++	}
++
++	/* Shouldn't be reached */
++	panic();
++}
++
+ enum {
+ 	STPMIC1_BUCK1 = 0,
+ 	STPMIC1_BUCK2,
+diff --git a/include/drivers/st/stm32mp_pmic.h b/include/drivers/st/stm32mp_pmic.h
+index 303c57148..5059cb424 100644
+--- a/include/drivers/st/stm32mp_pmic.h
++++ b/include/drivers/st/stm32mp_pmic.h
+@@ -55,4 +55,11 @@ int pmic_ddr_power_init(enum ddr_type ddr_type);
+  */
+ int pmic_voltages_init(void);
+ 
++/*
++ * pmic_switch_off - switch off the platform with PMIC
++ *
++ * Panics on errors
++ */
++void pmic_switch_off(void);
++
+ #endif /* STM32MP_PMIC_H */
+-- 
+2.47.2
+

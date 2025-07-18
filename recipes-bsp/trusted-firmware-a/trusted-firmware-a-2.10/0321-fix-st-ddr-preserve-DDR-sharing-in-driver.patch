@@ -1,0 +1,88 @@
+From a0898b4694e3cf20940b61c7f3b28501591bdd61 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 17 Jul 2023 12:08:27 +0200
+Subject: [PATCH 321/841] fix(st-ddr): preserve DDR sharing in driver
+
+RCC_DDRITFCFGR_DDRSHR is handled by power stack and not by the DDR
+driver. So this field mustn't be updated on driver side.
+Replace all write by bit operations (clear and/or set).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4bf479990ce2c3bfd1e520e3be9997dc2b68f94a fix(st-ddr): preserve DDR sharing in driver]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Ibbdc950fe9d02938e0211fa85b00ac9b415e69ff
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/323363
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr.c         | 10 +++++-----
+ drivers/st/ddr/stm32mp2_ddr_helpers.c |  3 ++-
+ 2 files changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
+index 9a1c3c259..aaaced53d 100644
+--- a/drivers/st/ddr/stm32mp2_ddr.c
++++ b/drivers/st/ddr/stm32mp2_ddr.c
+@@ -220,7 +220,7 @@ static void ddr_reset(struct stm32mp_ddr_priv *priv)
+ {
+ 	udelay(DDR_DELAY_1US);
+ 
+-	mmio_write_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
++	mmio_setbits_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+ 	mmio_write_32(priv->rcc + RCC_DDRPHYCAPBCFGR,
+ 		      RCC_DDRPHYCAPBCFGR_DDRPHYCAPBEN | RCC_DDRPHYCAPBCFGR_DDRPHYCAPBLPEN |
+ 		      RCC_DDRPHYCAPBCFGR_DDRPHYCAPBRST);
+@@ -232,7 +232,7 @@ static void ddr_reset(struct stm32mp_ddr_priv *priv)
+ 
+ 	udelay(DDR_DELAY_1US);
+ 
+-	mmio_write_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
++	mmio_setbits_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+ 	mmio_write_32(priv->rcc + RCC_DDRPHYCAPBCFGR,
+ 		      RCC_DDRPHYCAPBCFGR_DDRPHYCAPBEN | RCC_DDRPHYCAPBCFGR_DDRPHYCAPBLPEN);
+ 	mmio_write_32(priv->rcc + RCC_DDRCAPBCFGR,
+@@ -248,7 +248,7 @@ static void ddr_standby_reset(struct stm32mp_ddr_priv *priv)
+ 
+ 	mmio_write_32(priv->rcc + RCC_DDRCPCFGR,
+ 		      RCC_DDRCPCFGR_DDRCPEN | RCC_DDRCPCFGR_DDRCPLPEN | RCC_DDRCPCFGR_DDRCPRST);
+-	mmio_write_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
++	mmio_setbits_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+ 	mmio_write_32(priv->rcc + RCC_DDRPHYCAPBCFGR,
+ 		      RCC_DDRPHYCAPBCFGR_DDRPHYCAPBEN | RCC_DDRPHYCAPBCFGR_DDRPHYCAPBLPEN |
+ 		      RCC_DDRPHYCAPBCFGR_DDRPHYCAPBRST);
+@@ -267,7 +267,7 @@ static void ddr_standby_reset_release(struct stm32mp_ddr_priv *priv)
+ 	udelay(DDR_DELAY_1US);
+ 
+ 	mmio_write_32(priv->rcc + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPEN | RCC_DDRCPCFGR_DDRCPLPEN);
+-	mmio_write_32(priv->rcc + RCC_DDRITFCFGR, 0U);
++	mmio_clrbits_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+ 	mmio_clrbits_32(priv->rcc + RCC_DDRPHYCAPBCFGR, RCC_DDRPHYCAPBCFGR_DDRPHYCAPBRST);
+ 	mmio_write_32(priv->rcc + RCC_DDRCFGR, RCC_DDRCFGR_DDRCFGEN | RCC_DDRCFGR_DDRCFGLPEN);
+ 
+@@ -283,7 +283,7 @@ static void ddr_sysconf_configuration(struct stm32mp_ddr_priv *priv)
+ 		      (uint32_t)ddrphy_phyinit_get_user_input_basic_pllbypass_0());
+ 
+ 	mmio_write_32(priv->rcc + RCC_DDRPHYCCFGR, RCC_DDRPHYCCFGR_DDRPHYCEN);
+-	mmio_write_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
++	mmio_setbits_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+ 
+ 	udelay(DDR_DELAY_1US);
+ }
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index 61e9011af..16a8f0831 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -337,7 +337,8 @@ static int sr_hsr_set(void)
+ {
+ 	uintptr_t ddrctrl_base = stm32mp_ddrctrl_base();
+ 
+-	mmio_write_32(stm32mp_rcc_base() + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRCKMOD_HSR);
++	mmio_clrsetbits_32(stm32mp_rcc_base() + RCC_DDRITFCFGR,
++			   RCC_DDRITFCFGR_DDRCKMOD_MASK, RCC_DDRITFCFGR_DDRCKMOD_HSR);
+ 
+ 	/*
+ 	 * manage quasi-dynamic registers modification
+-- 
+2.47.2
+

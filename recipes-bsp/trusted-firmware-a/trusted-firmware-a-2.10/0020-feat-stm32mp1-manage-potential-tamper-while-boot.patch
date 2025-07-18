@@ -1,0 +1,41 @@
+From 83e97a9259b9cdd7297e1a52fdb4827ee04f7cdb Mon Sep 17 00:00:00 2001
+From: Nicolas Toromanoff <nicolas.toromanoff@st.com>
+Date: Mon, 8 Feb 2021 08:55:53 +0100
+Subject: [PATCH 020/841] feat(stm32mp1): manage potential tamper while boot
+
+In BL2, with BMEN=1 blocked secrets due to any potential tamper
+will be unblocked, and blocked again at end of boot when
+BMEN is reset to 0 at end of BL2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a645947d19133dd50317aade74d308c623237284 feat(stm32mp1): manage potential tamper while boot]
+Change-Id: I27119ee11281a5991e799c9f5b7c4f6735b0c50b
+Signed-off-by: Nicolas Toromanoff <nicolas.toromanoff@st.com>
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index afca3d74e..6baa13446 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -299,6 +299,9 @@ void bl2_el3_plat_arch_setup(void)
+ 		goto skip_console_init;
+ 	}
+ 
++	/* Enter in boot mode */
++	stm32mp1_syscfg_boot_mode_enable();
++
+ 	stm32mp_print_cpuinfo();
+ 
+ 	board_model = dt_get_board_model();
+@@ -574,4 +577,7 @@ void bl2_el3_plat_prepare_exit(void)
+ #endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 
+ 	stm32mp1_security_setup();
++
++	/* end of boot mode */
++	stm32mp1_syscfg_boot_mode_disable();
+ }
+-- 
+2.47.2
+

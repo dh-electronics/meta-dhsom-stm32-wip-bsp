@@ -1,0 +1,59 @@
+From 7f0d19629fceb03dcf9a87956158043cc91a67c3 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 25 Mar 2025 14:48:49 +0100
+Subject: [PATCH 819/841] fix(stm32mp2): fix system off on STM32MP25
+
+The standby2 mode is possible only if no active EXTI1/2 wake-up source
+so we must clear the IMR of EXT1. This patch avoids watchdog after
+poweroff command for activated wakeup on USBH (GIC 201, EXTI1 59) or
+PCIE with wake-gpios.
+
+This patch also deactivated RCC_DDRITFCFGR_DDRSHR to be aligned with
+Standby1 behavior.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ea314f88b9892117241a08f7d80c4bc48965a9c0 fix(stm32mp2): fix system off on STM32MP25]
+Fixes: 598676ea21f5 ("fix(stm32mp2): correct stm32_system_off")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I2cfb27da5df0c25e719ecdee3900086bdee5df5c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/446489
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index fd0f4e541..64ad135c7 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -941,6 +941,7 @@ static void __dead2 stm32_system_off(void)
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+ 	u_register_t mpidr = read_mpidr();
+ 	unsigned int core_id = MPIDR_AFFLVL0_VAL(mpidr);
++	uintptr_t exti1_base = STM32MP_EXTI1_BASE;
+ 	uintptr_t exti2_base = STM32MP_EXTI2_BASE;
+ #if !STM32MP_M33_TDCID
+ 	uint32_t otp_idx = 0U;
+@@ -1011,6 +1012,7 @@ static void __dead2 stm32_system_off(void)
+ 
+ #if !STM32MP_M33_TDCID
+ 	/* Force DDR off */
++	mmio_clrbits_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRSHR);
+ 	ddr_sub_system_clk_off();
+ #endif
+ 
+@@ -1041,6 +1043,10 @@ static void __dead2 stm32_system_off(void)
+ 	stm32_pm_context_clear();
+ 
+ 	/* Deactivate all WakeUp except WKUP pins */
++	mmio_write_32(exti1_base + EXTI1_C1IMR1, 0U);
++	mmio_write_32(exti1_base + EXTI1_C1IMR2, 0U);
++	mmio_write_32(exti1_base + EXTI1_C1IMR3, 0U);
++
+ 	mmio_write_32(exti2_base + EXTI2_C1IMR1, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C1IMR2, 0U);
+ #if !STM32MP21
+-- 
+2.47.2
+

@@ -1,0 +1,69 @@
+From 04b1dc540e91ebe3eb506bcdb76a001f6c125990 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 11 Oct 2024 11:54:57 +0200
+Subject: [PATCH 724/841] fix(stm32-rif): extend behaviour of peripheral access
+ acquisition
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fix stm32_rifsc_access_check verification as the current implementation
+isn't cover all the cases.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ceaee0372fbff0427cc3756c9c3e2108dfc05cac fix(stm32-rif): extend behaviour of peripheral access acquisition]
+Change-Id: I09f6aa00409cc43f8a409cd58a622c3e1d4cd52d
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/410697
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/rif/stm32_rifsc.c | 20 ++++++++++++++++----
+ 1 file changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/st/rif/stm32_rifsc.c b/drivers/st/rif/stm32_rifsc.c
+index 23b564d53..e7c091926 100644
+--- a/drivers/st/rif/stm32_rifsc.c
++++ b/drivers/st/rif/stm32_rifsc.c
+@@ -53,21 +53,33 @@ static int stm32_rifsc_access_check(unsigned int id)
+ 	/*
+ 	 * Peripheral used by TF-A are supposed to be secure privileged
+ 	 */
+-	if(((sec_reg_value & BIT_32(periph_offset)) == 0U) &&
++	if (((sec_reg_value & BIT_32(periph_offset)) == 0U) &&
+ 	    ((priv_reg_value & BIT_32(periph_offset)) == 0U)) {
+ 		return -EACCES;
+ 	}
+ 
+ 	/*
+ 	 * If semaphore is enabled CID1 must be whitelisted and
+-	 * semaphore free to take.
++	 * semaphore taken by CID1 or free to take.
+ 	 * Otherwise, static CID must be CID1.
+ 	 */
+ 	if ((cid_reg_value & _RIFSC_CIDCFGR_SEM_EN) != 0U) {
+-		if (((cid_reg_value & BIT(RIF_CID1 + _RIFSC_CIDCFGR_SEML_SHIFT)) != 0U) &&
+-		    ((sem_reg_value & _RIFSC_SEMCR_SEM_MUTEX) == 0U)) {
++
++		/* Check if CID1 is whitelisted */
++		if (((cid_reg_value & BIT(RIF_CID1 + _RIFSC_CIDCFGR_SEML_SHIFT)) == 0U)) {
+ 			return -EACCES;
+ 		}
++
++		/*
++		 * If the last successful acquisition of the semaphore
++		 * is not done by CID1, then the semapohre must be free
++		 * to take.
++		 */
++		if ((((sem_reg_value & _RIFSC_SEMCR_SEMCID_MASK) >>
++		      _RIFSC_SEMCR_SEMCID_SHIFT) != RIF_CID1) &&
++		    ((sem_reg_value & _RIFSC_SEMCR_SEM_MUTEX) != 0U)) {
++				return -EACCES;
++		}
+ 	} else {
+ 		if (((cid_reg_value & _RIFSC_CIDCFGR_SCID_MASK) >>
+ 			_RIFSC_CIDCFGR_SCID_SHIFT) != RIF_CID1) {
+-- 
+2.47.2
+

@@ -1,0 +1,261 @@
+From 93ff7fc828d7ad74fc67bd47c630cd50ccd67410 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Wed, 6 Oct 2021 11:39:39 +0200
+Subject: [PATCH 139/841] feat(st-ddr): add self-refresh sequences for STM32MP2
+
+Those sequences have been separately provided by DDRSS team.
+Supports set/entry/exit for each self-refresh mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f363d554f231917033ebafcbd98cc36239193133 feat(st-ddr): add self-refresh sequences for STM32MP2]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I08dd50d9117519b947ee1ab5929d025c323747fd
+---
+ drivers/st/ddr/stm32mp2_ddr_helpers.c     | 153 +++++++++++++++++++---
+ include/drivers/st/stm32mp2_ddr_regs.h    |   8 +-
+ include/drivers/st/stm32mp_ddrctrl_regs.h |   3 +
+ 3 files changed, 145 insertions(+), 19 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index 05262c668..fea2b3583 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -4,6 +4,8 @@
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+ 
++#include <errno.h>
++
+ #include <arch_helpers.h>
+ #include <common/debug.h>
+ #include <drivers/delay_timer.h>
+@@ -15,24 +17,145 @@
+ 
+ #include <platform_def.h>
+ 
++/* HW idle period (unit: Multiples of 32 DFI clock cycles) */
++#define HW_IDLE_PERIOD			0x3
++
+ static enum stm32mp2_ddr_sr_mode saved_ddr_sr_mode;
+ 
++#pragma weak stm32_ddrdbg_get_base
++uintptr_t stm32_ddrdbg_get_base(void)
++{
++	return 0U;
++}
++
++static int sr_loop(bool is_entry)
++{
++	uint32_t read_data;
++	uint64_t timeout = timeout_init_us(DDR_TIMEOUT_US_1S);
++	bool repeat_loop = false;
++
++	/* Wait for DDRCTRL to be out of or back to "normal/mission mode" */
++	do {
++		read_data = mmio_read_32(stm32mp_ddrctrl_base() + DDRCTRL_STAT) &
++			    DDRCTRL_STAT_SELFREF_TYPE_MASK;
++
++		if (timeout_elapsed(timeout)) {
++			return -ETIMEDOUT;
++		}
++
++		if (is_entry) {
++			repeat_loop = (read_data == 0x0);
++		} else {
++			repeat_loop = (read_data != 0x0);
++		}
++	} while (repeat_loop);
++
++	return 0;
++}
++
++static int sr_entry_loop(void)
++{
++	return sr_loop(true);
++}
++
++static int sr_exit_loop(void)
++{
++	return sr_loop(false);
++}
++
++static int sr_ssr_set(void)
++{
++	return 0;
++}
++
++static int sr_ssr_entry(void)
++{
++	/* Enable APB access to internal CSR registers */
++	mmio_write_32(stm32mp_ddrphyc_base() + DDRPHY_APBONLY0_MICROCONTMUXSEL, 0);
++
++	/* SW self refresh entry prequested */
++	mmio_write_32(stm32mp_ddrctrl_base() + DDRCTRL_PWRCTL, DDRCTRL_PWRCTL_SELFREF_SW);
++
++	return sr_entry_loop();
++}
++
++static int sr_ssr_exit(void)
++{
++	/* Enable APB access to internal CSR registers */
++	mmio_write_32(stm32mp_ddrphyc_base() + DDRPHY_APBONLY0_MICROCONTMUXSEL, 0);
++
++	/* SW self refresh entry prequested */
++	mmio_write_32(stm32mp_ddrctrl_base() + DDRCTRL_PWRCTL, 0);
++
++	return sr_exit_loop();
++}
++
++static int sr_hsr_set(void)
++{
++	mmio_write_32(stm32mp_rcc_base() + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRCKMOD_HSR);
++
++	/* sw_done set to 0 to enable quasi-dynamic parameters programmation */
++	mmio_write_32(stm32mp_ddrctrl_base() + DDRCTRL_SWCTL, 0);
++
++	mmio_write_32(stm32mp_ddrctrl_base() + DDRCTRL_HWLPCTL,
++		      DDRCTRL_HWLPCTL_HW_LP_EN | DDRCTRL_HWLPCTL_HW_LP_EXIT_IDLE_EN |
++		      (HW_IDLE_PERIOD << DDRCTRL_HWLPCTL_HW_LP_IDLE_X32_SHIFT));
++
++	return 0;
++}
++
++static int sr_hsr_entry(void)
++{
++	mmio_write_32(stm32mp_rcc_base() + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPLPEN);
++
++	return sr_entry_loop(); /* read_data should be equal to 0x223 */
++}
++
++static int sr_hsr_exit(void)
++{
++	mmio_write_32(stm32mp_rcc_base() + RCC_DDRCPCFGR,
++		      RCC_DDRCPCFGR_DDRCPLPEN | RCC_DDRCPCFGR_DDRCPEN);
++
++	/* TODO: check if sr_exit_loop() is needed here */
++
++	return 0;
++}
++
++static int sr_asr_set(void)
++{
++	mmio_write_32(stm32_ddrdbg_get_base() + DDRDBG_LP_DISABLE, 0);
++
++	return 0;
++}
++
++static int sr_asr_entry(void)
++{
++	/*
++	 * Automatically enter into self refresh when there is no ddr traffic
++	 * for the delay programmed into SYSCONF_DDRC_AUTO_SR_DELAY register.
++	 * Default value is 0x20 (unit: Multiples of 32 DFI clock cycles).
++	 */
++	return sr_entry_loop();
++}
++
++static int sr_asr_exit(void)
++{
++	return sr_exit_loop();
++}
++
+ int ddr_sw_self_refresh_exit(void)
+ {
+ 	int ret = -1;
+ 
+ 	switch (saved_ddr_sr_mode) {
+ 	case DDR_SSR_MODE:
+-		/* TODO create related service */
+-		ret = 0;
++		ret = sr_ssr_exit();
+ 		break;
+ 	case DDR_HSR_MODE:
+-		/* TODO create related service */
+-		ret = 0;
++		ret = sr_hsr_exit();
+ 		break;
+ 	case DDR_ASR_MODE:
+-		/* TODO create related service */
+-		ret = 0;
++		ret = sr_asr_exit();
+ 		break;
+ 	default:
+ 		break;
+@@ -54,16 +177,13 @@ int ddr_standby_sr_entry(void)
+ 
+ 	switch (saved_ddr_sr_mode) {
+ 	case DDR_SSR_MODE:
+-		/* TODO create related service */
+-		ret = 0;
++		ret = sr_ssr_entry();
+ 		break;
+ 	case DDR_HSR_MODE:
+-		/* TODO create related service */
+-		ret = 0;
++		ret = sr_hsr_entry();
+ 		break;
+ 	case DDR_ASR_MODE:
+-		/* TODO create related service */
+-		ret = 0;
++		ret = sr_asr_entry();
+ 		break;
+ 	default:
+ 		break;
+@@ -105,16 +225,13 @@ void ddr_set_sr_mode(enum stm32mp2_ddr_sr_mode mode)
+ 
+ 	switch (mode) {
+ 	case DDR_SSR_MODE:
+-		/* TODO create related service */
+-		ret = 0;
++		ret = sr_ssr_set();
+ 		break;
+ 	case DDR_HSR_MODE:
+-		/* TODO create related service */
+-		ret = 0;
++		ret = sr_hsr_set();
+ 		break;
+ 	case DDR_ASR_MODE:
+-		/* TODO create related service */
+-		ret = 0;
++		ret = sr_asr_set();
+ 		break;
+ 	default:
+ 		break;
+diff --git a/include/drivers/st/stm32mp2_ddr_regs.h b/include/drivers/st/stm32mp2_ddr_regs.h
+index f6c57eabe..78cc8ceb3 100644
+--- a/include/drivers/st/stm32mp2_ddr_regs.h
++++ b/include/drivers/st/stm32mp2_ddr_regs.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2021, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2021-2022, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+  */
+@@ -15,4 +15,10 @@ struct stm32mp_ddrphy {
+ 	uint32_t dummy;
+ } __packed;
+ 
++/* DDRPHY registers offsets */
++#define DDRPHY_APBONLY0_MICROCONTMUXSEL		U(0x340000)
++
++/* DDRDBG registers offsets */
++#define DDRDBG_LP_DISABLE			U(0x0)
++
+ #endif /* STM32MP2_DDR_REGS_H */
+diff --git a/include/drivers/st/stm32mp_ddrctrl_regs.h b/include/drivers/st/stm32mp_ddrctrl_regs.h
+index caaa63083..20acde4be 100644
+--- a/include/drivers/st/stm32mp_ddrctrl_regs.h
++++ b/include/drivers/st/stm32mp_ddrctrl_regs.h
+@@ -229,6 +229,9 @@ struct stm32mp_ddrctl {
+ #define DDRCTRL_RFSHCTL3_REFRESH_UPDATE_LEVEL	BIT(1)
+ 
+ #define DDRCTRL_HWLPCTL_HW_LP_EN		BIT(0)
++#define DDRCTRL_HWLPCTL_HW_LP_EXIT_IDLE_EN	BIT(1)
++#define DDRCTRL_HWLPCTL_HW_LP_IDLE_X32_MASK	GENMASK(27, 16)
++#define DDRCTRL_HWLPCTL_HW_LP_IDLE_X32_SHIFT	16
+ 
+ #define DDRCTRL_RFSHTMG_T_RFC_NOM_X1_X32_MASK	GENMASK(27, 16)
+ #define DDRCTRL_RFSHTMG_T_RFC_NOM_X1_X32_SHIFT	16
+-- 
+2.47.2
+

@@ -1,0 +1,77 @@
+From a72e3e238b46eb3a1242f135ec776e9ff63a9621 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 8 Jan 2024 15:36:20 +0100
+Subject: [PATCH 449/841] fix(stm32mp1): stub some code for SSP
+
+If SSP is enabled, we do not need to save boot information in a backup
+register. The NVMEM driver is then not needed, and some other code can
+also be stubbed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6238a87e0aaecde38f61b2a567bf6a4b738fe15f fix(stm32mp1): stub some code for SSP]
+Change-Id: Id790057afbd0b9418f83e4720ff734f9731e517f
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/349826
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ plat/st/common/stm32mp_common.c | 6 ++++--
+ plat/st/stm32mp1/stm32mp1_ssp.c | 4 +---
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 411f3b2c3..0957a74da 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2023, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -352,7 +352,7 @@ int stm32mp_uart_console_setup(void)
+ 	}
+ #endif
+ 
+-#if STM32MP_UART_PROGRAMMER || !defined(IMAGE_BL2)
++#if (STM32MP_UART_PROGRAMMER || !defined(IMAGE_BL2)) && !STM32MP_SSP
+ 	stm32_get_boot_interface(&boot_itf, &boot_instance);
+ 
+ 	if ((boot_itf == BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART) &&
+@@ -436,6 +436,7 @@ void stm32_display_board_info(uint32_t board_id)
+ 	       BOARD_ID2BOM(board_id));
+ }
+ 
++#if !STM32MP_SSP
+ void stm32_save_boot_info(boot_api_context_t *boot_context)
+ {
+ 	uint32_t auth_status;
+@@ -660,3 +661,4 @@ void stm32_set_max_fwu_trial_boot_cnt(void)
+ 					FWU_INFO_CNT_MSK);
+ }
+ #endif /* PSA_FWU_SUPPORT */
++#endif /* !STM32MP_SSP */
+diff --git a/plat/st/stm32mp1/stm32mp1_ssp.c b/plat/st/stm32mp1/stm32mp1_ssp.c
+index b9808087b..2819242b8 100644
+--- a/plat/st/stm32mp1/stm32mp1_ssp.c
++++ b/plat/st/stm32mp1/stm32mp1_ssp.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2017-2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2017-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -998,8 +998,6 @@ void bl2_el3_plat_arch_setup(void)
+ 		initialize_pmic();
+ 	}
+ 
+-	stm32_save_boot_info(boot_context);
+-
+ #if DEBUG
+ 	if (stm32mp_uart_console_setup() != 0) {
+ 		goto skip_console_init;
+-- 
+2.47.2
+

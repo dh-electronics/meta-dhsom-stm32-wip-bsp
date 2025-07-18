@@ -1,0 +1,88 @@
+From e6ef4ccdad70bf1974ccdbd6faf477b8194a3e71 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Wed, 26 Jun 2024 14:22:19 +0200
+Subject: [PATCH 637/841] feat(st): rework FWU to consider trial counter 0 as
+ uninitialized
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ST platforms use a backup register as a countdown  trial counter to
+avoid an infinite boot loop in case of a bad firmware update. Use boot
+count 1 instead of 0 to switch to an alternate boot bank. This allows
+consideration of a 0 in the backup register as an uninitialized counter
+and simplifies its setup.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ff968c9b97159986e74c6bc8424df2843542add9 feat(st): rework FWU to consider trial counter 0 as uninitialized]
+Signed-off-by: Christophe Guibout <christophe.guibout@st.com>
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I2424fadaa355aa2bdbdb2d3da395485fbbc8e530
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/389849
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/bl2_io_storage.c         | 27 +++++++++++++++++--------
+ plat/st/common/include/stm32mp_common.h |  2 +-
+ 2 files changed, 20 insertions(+), 9 deletions(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 34a16ddb6..98362a9a4 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -800,20 +800,31 @@ uint32_t plat_fwu_get_boot_idx(void)
+ 
+ 		boot_idx = data->active_index;
+ 
+-		if (data->bank_state[boot_idx] == FWU_BANK_STATE_VALID) {
+-			if (stm32_get_and_dec_fwu_trial_boot_cnt() == 0U) {
++		switch (data->bank_state[boot_idx]) {
++		case FWU_BANK_STATE_ACCEPTED:
++			stm32_set_max_fwu_trial_boot_cnt();
++			break;
++		case FWU_BANK_STATE_VALID:
++			uint32_t bootcount = stm32_get_and_dec_fwu_trial_boot_cnt();
++			if (bootcount == 1U) {
+ 				WARN("Trial FWU fails %u times\n",
+-				     FWU_MAX_TRIAL_REBOOT);
++				     (FWU_MAX_TRIAL_REBOOT - 1U));
+ 				boot_idx = fwu_get_alternate_boot_bank();
++			} else if (bootcount == 0U) {
++				WARN("Trial backup register empty : set max boot count\n");
++				stm32_set_max_fwu_trial_boot_cnt();
++			} else {
++				VERBOSE("Trial FWU: %u\n",
++					FWU_MAX_TRIAL_REBOOT - bootcount);
+ 			}
+-		} else if (data->bank_state[boot_idx] ==
+-			   FWU_BANK_STATE_ACCEPTED) {
+-			stm32_set_max_fwu_trial_boot_cnt();
+-		} else {
++			break;
++		case FWU_BANK_STATE_INVALID:
++		default:
+ 			ERROR("The active bank(%u) of the platform is in Invalid State.\n",
+-				boot_idx);
++			      boot_idx);
+ 			boot_idx = fwu_get_alternate_boot_bank();
+ 			stm32_clear_fwu_trial_boot_cnt();
++			break;
+ 		}
+ 	}
+ 
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index beb113d32..2fd93632b 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -19,7 +19,7 @@
+ #define STM32MP_CHIP_SEC_OPEN		U(0xA764D182)
+ 
+ /* FWU configuration (max supported value is 15) */
+-#define FWU_MAX_TRIAL_REBOOT		U(3)
++#define FWU_MAX_TRIAL_REBOOT		U(4)
+ 
+ /* Functions to save and get boot context address given by ROM code */
+ void stm32mp_save_boot_ctx_address(uintptr_t address);
+-- 
+2.47.2
+

@@ -1,0 +1,71 @@
+From ad6aeea9e140e623da11c1579caa851861acb6c6 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Mon, 10 Jul 2023 17:57:43 +0200
+Subject: [PATCH 322/841] feat(st): drivers/stm32_iwdg: start the watchdog on
+ status okay
+
+If the watchdog is not already started by the HW and its DT node
+reports status okay, start the watchdog with default timeout.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git fdf7cc11e008ca64d16a52855f288b705960b0d2 feat(st): drivers/stm32_iwdg: start the watchdog on status okay]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I3943f7c0605cacf19cd51e99c0aff2c76e64f6e6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/317860
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/iwdg/stm32_iwdg.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/drivers/st/iwdg/stm32_iwdg.c b/drivers/st/iwdg/stm32_iwdg.c
+index 74451d70b..6d08cceb5 100644
+--- a/drivers/st/iwdg/stm32_iwdg.c
++++ b/drivers/st/iwdg/stm32_iwdg.c
+@@ -28,6 +28,7 @@
+ 
+ /* Registers values */
+ #define IWDG_KR_RELOAD_KEY	0xAAAA
++#define IWDG_KR_ENABLE_KEY	0xCCCC
+ 
+ struct stm32_iwdg_instance {
+ 	uintptr_t base;
+@@ -72,6 +73,20 @@ void stm32_iwdg_refresh(void)
+ 	}
+ }
+ 
++static void stm32_iwdg_start(struct stm32_iwdg_instance *iwdg)
++{
++	/* 0x00000000 is not a valid address for IWDG peripherals */
++	if (iwdg->base == 0U) {
++		panic();
++	}
++
++	clk_enable(iwdg->clock);
++
++	mmio_write_32(iwdg->base + IWDG_KR_OFFSET, IWDG_KR_ENABLE_KEY);
++
++	clk_disable(iwdg->clock);
++}
++
+ int stm32_iwdg_init(void)
+ {
+ 	int node = -1;
+@@ -149,6 +164,13 @@ int stm32_iwdg_init(void)
+ 			return -1;
+ 		}
+ #endif
++
++		if ((hw_init & IWDG_HW_ENABLED) == 0) {
++			/* Use default timeout, ignore DT's "timeout-sec" */
++			stm32_iwdg_start(iwdg);
++
++			iwdg->flags |= IWDG_HW_ENABLED;
++		}
+ 	}
+ 
+ 	VERBOSE("%u IWDG instance%s found\n", count, (count > 1U) ? "s" : "");
+-- 
+2.47.2
+

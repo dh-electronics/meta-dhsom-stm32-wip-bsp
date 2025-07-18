@@ -1,0 +1,71 @@
+From c7b2c2fb1adbd81dd300de57cdd43cf9bccf61fc Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 13 Oct 2023 14:57:13 +0200
+Subject: [PATCH 423/841] feat(stm32mp15): allow Backup SRAM access after
+ tamper
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+After a tamper occurred, even if the Backup SRAM has been erased, it is
+no more accessible. To be able to boot to eventually properly manage
+the tamper event, remove erasing signal of the tamper.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 48129f4d1267bb9d5a5ff84ab6f544f3b87b95db feat(stm32mp15): allow Backup SRAM access after tamper]
+Change-Id: I197a9b498381d809b083092a174ff87c3d97100a
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/333651
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp1/stm32mp1_def.h     |  7 +++++++
+ plat/st/stm32mp1/stm32mp1_private.c | 10 ++++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index a33406888..f8742106b 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -575,10 +575,17 @@ enum ddr_type {
+ #define TAMP_BKP_REGISTER_BASE		(TAMP_BASE + U(0x100))
+ #define TAMP_BKP_REG_CLK		RTCAPB
+ #define TAMP_CR2			U(0x4)
++#if STM32MP13
+ #define TAMP_CR2_MASK_NOER		GENMASK_32(7, 0)
++#endif
++#if STM32MP15
++#define TAMP_CR2_MASK_NOER		GENMASK_32(2, 0)
++#define TAMP_SR_MASK_ITAMPx		(BIT_32(23)|GENMASK_32(20, 16))
++#endif
+ #define TAMP_CR3			U(0x8)
+ #define TAMP_CR3_MASK_NOER		GENMASK_32(12, 0)
+ #define TAMP_SR				U(0x30)
++#define TAMP_SCR			U(0x3C)
+ #define TAMP_COUNTR			U(0x40)
+ #define TAMP_ERCFGR			U(0x54)
+ 
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index c2f81b002..2778dd47f 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -760,6 +760,16 @@ bool stm32mp_bkpram_get_access(void)
+ #else /* STM32MP15 */
+ bool stm32mp_bkpram_get_access(void)
+ {
++	/* Remove erase signal before cleaning Backup SRAM */
++	uint32_t cr2_v = mmio_read_32(TAMP_BASE + TAMP_CR2);
++	uint32_t sr_v = mmio_read_32(TAMP_BASE + TAMP_SR);
++	uint32_t erase_flag = (sr_v & (TAMP_CR2_MASK_NOER | TAMP_SR_MASK_ITAMPx)) &
++			      (((~cr2_v) & TAMP_CR2_MASK_NOER) | TAMP_SR_MASK_ITAMPx);
++
++	if (erase_flag != 0U) {
++		mmio_write_32(TAMP_BASE + TAMP_SCR, erase_flag);
++	}
++
+ 	return true;
+ }
+ #endif
+-- 
+2.47.2
+

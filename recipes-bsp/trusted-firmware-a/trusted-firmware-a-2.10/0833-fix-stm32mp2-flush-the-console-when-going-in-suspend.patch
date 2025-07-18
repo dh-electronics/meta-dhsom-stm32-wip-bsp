@@ -1,0 +1,49 @@
+From 4f5daca5c0ab739f494334fe7a751e93598997fb Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cl=C3=A9ment=20Le=20Goffic?= <clement.legoffic@foss.st.com>
+Date: Wed, 7 May 2025 15:29:03 +0200
+Subject: [PATCH 833/841] fix(stm32mp2): flush the console when going in
+ suspend
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Make sure all the console logs are outputed out of the UART fifo before
+going in suspend.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3a86721dec950c87b5050ad2c613e6131eec6541 fix(stm32mp2): flush the console when going in suspend]
+Change-Id: I211ee9e71dd6ba6ade9dbf51f5e2301de6ece8f2
+Signed-off-by: Clément Le Goffic <clement.legoffic@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/456480
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Amelie DELAUNAY <amelie.delaunay@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 64ad135c7..e4e8784af 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -14,6 +14,7 @@
+ #include <drivers/arm/gic_common.h>
+ #include <drivers/arm/gicv2.h>
+ #include <drivers/clk.h>
++#include <drivers/console.h>
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/st/bsec3_reg.h>
+ #include <drivers/st/stm32mp_clkfunc.h>
+@@ -715,6 +716,9 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 	/* Enable the Non-secure interrupt to wake up the CPU with WFI for pending interrupt */
+ 	saved_scr_el3 = read_scr_el3();
+ 	write_scr_el3(saved_scr_el3 | SCR_IRQ_BIT | SCR_FIQ_BIT);
++
++	/* Flush console if we enter in low power mode */
++	console_flush();
+ }
+ 
+ /*******************************************************************************
+-- 
+2.47.2
+

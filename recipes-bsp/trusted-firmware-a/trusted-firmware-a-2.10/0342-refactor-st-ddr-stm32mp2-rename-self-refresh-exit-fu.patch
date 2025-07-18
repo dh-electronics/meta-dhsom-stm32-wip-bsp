@@ -1,0 +1,167 @@
+From 5d358041a964ac9384f7fbc8da5faa2bce30cabd Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 24 Jul 2023 14:34:41 +0200
+Subject: [PATCH 342/841] refactor(st-ddr): stm32mp2: rename self-refresh exit
+ function
+
+Remove ddr_standby_sr_entry and simplify function dr_sr_entry()
+and manage standby as parameter when necessary.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6e5743b612cdfcea06030534a39719c282d3f769 refactor(st-ddr): stm32mp2: rename self-refresh exit function
+bcb7501e6e14a65178996d3b41c892fba9849726 refactor(st-ddr): stm32mp2: rename self-refresh exit function]
+Change-Id: Ic01f7a79e504bf5da839895bec3a9b5c77f0e287
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/320111
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr_helpers.c     | 61 ++---------------------
+ include/drivers/st/stm32mp2_ddr_helpers.h |  3 +-
+ 2 files changed, 6 insertions(+), 58 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index 16a8f0831..1528113eb 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -246,7 +246,7 @@ static int sr_ssr_set(void)
+ 	return 0;
+ }
+ 
+-static int ssr_entry(bool standby)
++static int sr_ssr_entry(bool standby)
+ {
+ 	uintptr_t ddrctrl_base = stm32mp_ddrctrl_base();
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+@@ -291,16 +291,6 @@ static int ssr_entry(bool standby)
+ 	return 0;
+ }
+ 
+-static int sr_ssr_entry(void)
+-{
+-	return ssr_entry(false);
+-}
+-
+-static int stdby_sr_ssr_entry(void)
+-{
+-	return ssr_entry(true);
+-}
+-
+ static int sr_ssr_exit(void)
+ {
+ 	uintptr_t ddrctrl_base = stm32mp_ddrctrl_base();
+@@ -359,23 +349,13 @@ static int sr_hsr_set(void)
+ 	return 0;
+ }
+ 
+-static int hsr_entry(bool standby __unused)
++static int sr_hsr_entry(void)
+ {
+ 	mmio_write_32(stm32mp_rcc_base() + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPLPEN);
+ 
+ 	return sr_entry_loop(); /* read_data should be equal to 0x223 */
+ }
+ 
+-static int sr_hsr_entry(void)
+-{
+-	return hsr_entry(false);
+-}
+-
+-static int stdby_sr_hsr_entry(void)
+-{
+-	return hsr_entry(true);
+-}
+-
+ static int sr_hsr_exit(void)
+ {
+ 	mmio_write_32(stm32mp_rcc_base() + RCC_DDRCPCFGR,
+@@ -393,7 +373,7 @@ static int sr_asr_set(void)
+ 	return 0;
+ }
+ 
+-static int asr_entry(bool standby __unused)
++static int sr_asr_entry(void)
+ {
+ 	/*
+ 	 * Automatically enter into self refresh when there is no ddr traffic
+@@ -403,16 +383,6 @@ static int asr_entry(bool standby __unused)
+ 	return sr_entry_loop();
+ }
+ 
+-static int sr_asr_entry(void)
+-{
+-	return asr_entry(false);
+-}
+-
+-static int stdby_sr_asr_entry(void)
+-{
+-	return asr_entry(true);
+-}
+-
+ static int sr_asr_exit(void)
+ {
+ 	return ddr_sr_exit_loop();
+@@ -425,13 +395,13 @@ uint32_t ddr_get_io_calibration_val(void)
+ 	return 0U;
+ }
+ 
+-int ddr_sr_entry(void)
++int ddr_sr_entry(bool standby)
+ {
+ 	int ret = -EINVAL;
+ 
+ 	switch (saved_ddr_sr_mode) {
+ 	case DDR_SSR_MODE:
+-		ret = sr_ssr_entry();
++		ret = sr_ssr_entry(standby);
+ 		break;
+ 	case DDR_HSR_MODE:
+ 		ret = sr_hsr_entry();
+@@ -467,27 +437,6 @@ int ddr_sr_exit(void)
+ 	return ret;
+ }
+ 
+-int ddr_standby_sr_entry(void)
+-{
+-	int ret = -EINVAL;
+-
+-	switch (saved_ddr_sr_mode) {
+-	case DDR_SSR_MODE:
+-		ret = stdby_sr_ssr_entry();
+-		break;
+-	case DDR_HSR_MODE:
+-		ret = stdby_sr_hsr_entry();
+-		break;
+-	case DDR_ASR_MODE:
+-		ret = stdby_sr_asr_entry();
+-		break;
+-	default:
+-		break;
+-	}
+-
+-	return ret;
+-}
+-
+ enum stm32mp2_ddr_sr_mode ddr_read_sr_mode(void)
+ {
+ 	uint32_t pwrctl = mmio_read_32(stm32mp_ddrctrl_base() + DDRCTRL_PWRCTL);
+diff --git a/include/drivers/st/stm32mp2_ddr_helpers.h b/include/drivers/st/stm32mp2_ddr_helpers.h
+index fed8fc2a6..423ea9f61 100644
+--- a/include/drivers/st/stm32mp2_ddr_helpers.h
++++ b/include/drivers/st/stm32mp2_ddr_helpers.h
+@@ -23,9 +23,8 @@ void ddr_activate_controller(struct stm32mp_ddrctl *ctl, bool sr_entry);
+ void ddr_wait_lp3_mode(bool state);
+ int ddr_sr_exit_loop(void);
+ uint32_t ddr_get_io_calibration_val(void);
+-int ddr_sr_entry(void);
++int ddr_sr_entry(bool standby);
+ int ddr_sr_exit(void);
+-int ddr_standby_sr_entry(void);
+ enum stm32mp2_ddr_sr_mode ddr_read_sr_mode(void);
+ void ddr_set_sr_mode(enum stm32mp2_ddr_sr_mode mode);
+ void ddr_save_sr_mode(void);
+-- 
+2.47.2
+

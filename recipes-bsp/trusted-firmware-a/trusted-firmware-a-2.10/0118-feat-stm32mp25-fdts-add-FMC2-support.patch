@@ -1,0 +1,135 @@
+From de0c56a555223d9500db5c152771cbd0c7164422 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 12 May 2021 18:42:31 +0200
+Subject: [PATCH 118/841] feat(stm32mp25-fdts): add FMC2 support
+
+This patch adds FMC2 support on STM32MP257.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 048025d4f92f2602ca868684f4040b88c5ba0d36 feat(stm32mp25-fdts): add FMC2 support]
+Change-Id: I16a72b4bdcb489fa72b0fcecb6f09dd32035a23d
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ fdts/stm32mp25-bl2.dtsi | 32 ++++++++++++++++++++
+ fdts/stm32mp251.dtsi    | 66 +++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 98 insertions(+)
+
+diff --git a/fdts/stm32mp25-bl2.dtsi b/fdts/stm32mp25-bl2.dtsi
+index 438a58ca8..0716b3eb7 100644
+--- a/fdts/stm32mp25-bl2.dtsi
++++ b/fdts/stm32mp25-bl2.dtsi
+@@ -2,3 +2,35 @@
+ /*
+  * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
+  */
++
++/ {
++	soc@0 {
++#if !STM32MP_RAW_NAND
++		/delete-node/ memory-controller@48200000;
++#endif
++#if !STM32MP_EMMC && !STM32MP_SDMMC
++		/delete-node/ mmc@48220000;
++		/delete-node/ mmc@48230000;
++#endif
++	};
++
++	/*
++	 * UUID's here are UUID RFC 4122 compliant meaning fieds are stored in
++	 * network order (big endian)
++	 */
++
++	st-io_policies {
++		fip-handles {
++			compatible = "st,io-fip-handle";
++			fw_cfg_uuid = "5807e16a-8459-47be-8ed5-648e8dddab0e";
++			bl31_uuid = "47d4086d-4cfe-9846-9b95-2950cbbd5a00";
++			bl32_uuid = "05d0e189-53dc-1347-8d2b-500a4b7a3e38";
++			bl32_extra1_uuid = "0b70c29b-2a5a-7840-9f65-0a5682738288";
++			bl32_extra2_uuid = "8ea87bb1-cfa2-3f4d-85fd-e7bba50220d9";
++			bl33_uuid = "d6d0eea7-fcea-d54b-9782-9934f234b6e4";
++			hw_cfg_uuid = "08b8f1d9-c9cf-9349-a962-6fbc6b7265cc";
++			tos_fw_cfg_uuid = "26257c1a-dbc6-7f47-8d96-c4c4b0248021";
++			nt_fw_cfg_uuid = "28da9815-93e8-7e44-ac66-1aaf801550f9";
++		};
++	};
++};
+diff --git a/fdts/stm32mp251.dtsi b/fdts/stm32mp251.dtsi
+index de59fd7a6..882cbbff9 100644
+--- a/fdts/stm32mp251.dtsi
++++ b/fdts/stm32mp251.dtsi
+@@ -150,6 +150,72 @@
+ 			reg = <0x44230000 0x10000>;
+ 		};
+ 
++		fmc: memory-controller@48200000 {
++			#address-cells = <2>;
++			#size-cells = <1>;
++			compatible = "st,stm32mp25-fmc2-ebi";
++			reg = <0x48200000 0x400>;
++			clocks = <&rcc CK_KER_FMC>;
++			resets = <&rcc FMC_R>;
++			status = "disabled";
++
++			ranges = <0 0 0x70000000 0x04000000>, /* EBI CS 1 */
++				 <1 0 0x74000000 0x04000000>, /* EBI CS 2 */
++				 <2 0 0x78000000 0x04000000>, /* EBI CS 3 */
++				 <3 0 0x7c000000 0x04000000>, /* EBI CS 4 */
++				 <4 0 0x48810000 0x00001000>; /* NAND */
++
++			nand-controller@4,0 {
++				#address-cells = <1>;
++				#size-cells = <0>;
++				compatible = "st,stm32mp25-fmc2-nfc";
++				reg = <4 0x0000 0x10>,
++				      <4 0x0090 0x10>,
++				      <4 0x00a0 0x10>,
++				      <4 0x0400 0x10>,
++				      <4 0x0490 0x10>,
++				      <4 0x04a0 0x10>,
++				      <4 0x0800 0x10>,
++				      <4 0x0890 0x10>,
++				      <4 0x08a0 0x10>,
++				      <4 0x0c00 0x10>,
++				      <4 0x0c90 0x10>,
++				      <4 0x0ca0 0x10>;
++				interrupts = <GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>;
++				status = "disabled";
++			};
++		};
++
++		sdmmc1: mmc@48220000 {
++			compatible = "st,stm32mp25-sdmmc2", "arm,pl18x", "arm,primecell";
++			arm,primecell-periphid = <0x00353180>;
++			reg = <0x48220000 0x400>, <0x44230400 0x8>;
++			clocks = <&rcc CK_KER_SDMMC1>;
++			clock-names = "apb_pclk";
++			resets = <&rcc SDMMC1_R>;
++			cap-sd-highspeed;
++			cap-mmc-highspeed;
++			max-frequency = <120000000>;
++			status = "disabled";
++		};
++
++		sdmmc2: mmc@48230000 {
++			compatible = "st,stm32mp25-sdmmc2", "arm,pl18x", "arm,primecell";
++			arm,primecell-periphid = <0x00353180>;
++			reg = <0x48230000 0x400>, <0x44230800 0x8>;
++			clocks = <&rcc CK_KER_SDMMC2>;
++			clock-names = "apb_pclk";
++			resets = <&rcc SDMMC2_R>;
++			cap-sd-highspeed;
++			cap-mmc-highspeed;
++			max-frequency = <120000000>;
++			status = "disabled";
++		};
++
++		/*
++		 * Break node order to solve dependency probe issue between
++		 * pinctrl and exti.
++		 */
+ 		pinctrl: pinctrl@44240000 {
+ 			#address-cells = <1>;
+ 			#size-cells = <1>;
+-- 
+2.47.2
+

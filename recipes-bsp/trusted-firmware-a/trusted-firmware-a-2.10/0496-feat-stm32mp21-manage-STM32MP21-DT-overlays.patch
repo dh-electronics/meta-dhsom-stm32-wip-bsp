@@ -1,0 +1,134 @@
+From eab446bd137551f4396424e5c85ba205e1e5d46b Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Sat, 30 Sep 2023 17:47:08 +0200
+Subject: [PATCH 496/841] feat(stm32mp21): manage STM32MP21 DT overlays
+
+Add BL2 and BL31 DT overlays for STM32MP21 and their management in
+platform.mk file.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 929d73a20afb7143ea11dd832eddf41e9df1fa82 feat(stm32mp21): manage STM32MP21 DT overlays]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I5220e5fd97355b30c27e52baaa14fc23de8138e8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/356316
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ fdts/stm32mp21-bl2.dtsi      | 65 ++++++++++++++++++++++++++++++++++++
+ fdts/stm32mp21-bl31.dtsi     | 12 +++++++
+ plat/st/stm32mp2/platform.mk |  7 +++-
+ 3 files changed, 83 insertions(+), 1 deletion(-)
+ create mode 100644 fdts/stm32mp21-bl2.dtsi
+ create mode 100644 fdts/stm32mp21-bl31.dtsi
+
+diff --git a/fdts/stm32mp21-bl2.dtsi b/fdts/stm32mp21-bl2.dtsi
+new file mode 100644
+index 000000000..325c551c3
+--- /dev/null
++++ b/fdts/stm32mp21-bl2.dtsi
+@@ -0,0 +1,65 @@
++// SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
++/*
++ * Copyright (C) 2024, STMicroelectronics - All Rights Reserved
++ */
++
++#include <platform_def.h>
++
++/ {
++	soc@0 {
++#if !STM32MP_SDMMC
++		bus@42080000 {
++			/delete-node/ mmc@48220000;
++		};
++#endif
++	};
++
++	/*
++	 * UUID's here are UUID RFC 4122 compliant meaning fieds are stored in
++	 * network order (big endian)
++	 */
++
++	st-io_policies {
++		fip-handles {
++			compatible = "st,io-fip-handle";
++#if STM32MP_DDR_FIP_IO_STORAGE
++			ddr_fw_uuid = "b11249be-92dd-4b10-867c-2c6a4b47a7fb";
++#endif
++			fw_cfg_uuid = "5807e16a-8459-47be-8ed5-648e8dddab0e";
++			bl31_uuid = "47d4086d-4cfe-9846-9b95-2950cbbd5a00";
++			bl32_uuid = "05d0e189-53dc-1347-8d2b-500a4b7a3e38";
++			bl32_extra1_uuid = "0b70c29b-2a5a-7840-9f65-0a5682738288";
++			bl32_extra2_uuid = "8ea87bb1-cfa2-3f4d-85fd-e7bba50220d9";
++			bl33_uuid = "d6d0eea7-fcea-d54b-9782-9934f234b6e4";
++			hw_cfg_uuid = "08b8f1d9-c9cf-9349-a962-6fbc6b7265cc";
++			soc_fw_cfg_uuid = "9979814b-0376-fb46-8c8e-8d267f7859e0";
++			tos_fw_cfg_uuid = "26257c1a-dbc6-7f47-8d96-c4c4b0248021";
++			nt_fw_cfg_uuid = "28da9815-93e8-7e44-ac66-1aaf801550f9";
++#if TRUSTED_BOARD_BOOT
++			stm32mp_cfg_cert_uuid = "501d8dd2-8bce-49a5-84eb-559a9f2eaeaf";
++			t_key_cert_uuid = "827ee890-f860-e411-a1b4-777a21b4f94c";
++			soc_fw_key_uuid = "8ab8becc-f960-e411-9ad0-eb4822d8dcf8";
++			tos_fw_key_cert_uuid = "9477d603-fb60-e411-85dd-b7105b8cee04";
++			nt_fw_key_cert_uuid = "8ad5832a-fb60-e411-8aaf-df30bbc49859";
++			soc_fw_content_cert_uuid = "e2b20c20-5e63-e411-9ce8-abccf92bb666";
++			tos_fw_content_cert_uuid = "a49f4411-5e63-e411-8728-3f05722af33d";
++			nt_fw_content_cert_uuid = "8ec4c1f3-5d63-e411-a7a9-87ee40b23fa7";
++#endif
++		};
++	};
++
++#if TRUSTED_BOARD_BOOT
++	tb_fw-config {
++		compatible = "arm,tb_fw";
++
++		/* Disable authentication for development */
++		disable_auth = <0x0>;
++
++		mbedtls_heap_addr = <0x0 STM32MP_MBEDTLS_HEAP_BASE>;
++		mbedtls_heap_size = <STM32MP_MBEDTLS_HEAP_SIZE>;
++	};
++
++#include "stm32mp2-cot-descriptors.dtsi"
++#endif
++
++};
+diff --git a/fdts/stm32mp21-bl31.dtsi b/fdts/stm32mp21-bl31.dtsi
+new file mode 100644
+index 000000000..4a2310375
+--- /dev/null
++++ b/fdts/stm32mp21-bl31.dtsi
+@@ -0,0 +1,12 @@
++// SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2024 - All Rights Reserved
++ */
++
++/ {
++	soc@0 {
++		bus@42080000 {
++			/delete-node/ mmc@48220000;
++		};
++	};
++};
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 93aa33f64..1aba7d0c9 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -78,9 +78,14 @@ STM32MP_DDR_FIP_IO_STORAGE	:=	0
+ endif #STM32MP_M33_TDCID
+ 
+ # Device tree
++ifeq ($(STM32MP21),1)
++BL2_DTSI			:=	stm32mp21-bl2.dtsi
++BL31_DTSI			:=	stm32mp21-bl31.dtsi
++else ifeq ($(STM32MP25),1)
+ BL2_DTSI			:=	stm32mp25-bl2.dtsi
+-FDT_SOURCES			:=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl2.dts,$(DTB_FILE_NAME)))
+ BL31_DTSI			:=	stm32mp25-bl31.dtsi
++endif
++FDT_SOURCES			:=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl2.dts,$(DTB_FILE_NAME)))
+ FDT_SOURCES			+=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl31.dts,$(DTB_FILE_NAME)))
+ 
+ ifneq (,$(wildcard fdts/$(patsubst %.dtb,%.dts,$(DTB_FILE_NAME))))
+-- 
+2.47.2
+

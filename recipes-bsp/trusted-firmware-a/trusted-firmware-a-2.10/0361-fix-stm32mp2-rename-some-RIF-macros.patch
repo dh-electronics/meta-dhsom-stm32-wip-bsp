@@ -1,0 +1,76 @@
+From 3da06c9c8415de560004eca083b31496dbce76e3 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 2 Oct 2023 17:11:13 +0200
+Subject: [PATCH 361/841] fix(stm32mp2): rename some RIF macros
+
+RIF IDs are SoC specific, specify STM32MP25_ as a prefix for ID defines.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e8d79b62cd515838f84ae7f340cb43d90966bec2 fix(stm32mp2): rename some RIF macros]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I999edb7256237b550f71f26e5220de7c69525829
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/331019
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c |  9 ++++++---
+ plat/st/stm32mp2/stm32mp2_def.h   | 14 ++++++--------
+ 2 files changed, 12 insertions(+), 11 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 9f321acd8..3c17523ea 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -305,13 +305,16 @@ skip_console_init:
+ 	/*
+ 	 * Set USB3DR Peripheriphal accesses to Secure/Privilege only
+ 	 */
+-	mmio_write_32(RIFSC_BASE + _RIFSC_RISC_SECCFGR(RISUP_USB3DR), RIFSC_USB3DR_SEC);
+-	mmio_write_32(RIFSC_BASE + _RIFSC_RISC_PRIVCFGR(RISUP_USB3DR), RIFSC_USB3DR_PRIV);
++	mmio_write_32(RIFSC_BASE + _RIFSC_RISC_SECCFGR(STM32MP25_RIFSC_USB3DR_ID),
++		     RIFSC_USB3DR_SEC);
++	mmio_write_32(RIFSC_BASE + _RIFSC_RISC_PRIVCFGR(STM32MP25_RIFSC_USB3DR_ID),
++		      RIFSC_USB3DR_PRIV);
+ 
+ 	/*
+ 	 * Apply USB boot specific configuration to RIF master USB3DR
+ 	 */
+-	mmio_write_32(RIFSC_BASE + _RIFSC_RIMC_ATTR(RIMU_USB3DR), RIFSC_USB_BOOT_USBDR_RIMC_CONF);
++	mmio_write_32(RIFSC_BASE + _RIFSC_RIMC_ATTR(STM32MP25_RIMU_USB3DR),
++		      RIFSC_USB_BOOT_USBDR_RIMC_CONF);
+ #endif /* STM32MP_USB_PROGRAMMER */
+ 
+ 	/*
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 5e38c8950..b91441788 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -504,16 +504,14 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ #define RISAF_SEED_SIZE_IN_BYTES		U(4)
+ 
+ /*******************************************************************************
+- * USB boot RIFSC specific configurations
++ * RIFSC IDs
+  ******************************************************************************/
+-#define RIMU_USB3DR			U(4)
+-#define RISUP_USB3DR			U(66)
++#define STM32MP25_RIFSC_USB3DR_ID	U(66)
+ 
+-/*
+- * Protection for USB3-IP Peripheriphal: accessible form Secure/Priv
+- */
+-#define RIFSC_USB3DR_PRIV		BIT(RISUP_USB3DR / U(32))
+-#define RIFSC_USB3DR_SEC		BIT(RISUP_USB3DR / U(32))
++#define STM32MP25_RIMU_USB3DR		U(4)
++
++#define RIFSC_USB3DR_PRIV		BIT(STM32MP25_RIFSC_USB3DR_ID / U(32))
++#define RIFSC_USB3DR_SEC		BIT(STM32MP25_RIFSC_USB3DR_ID / U(32))
+ 
+ /*
+  * USB3DR Secure/Priv Master (DMA) access
+-- 
+2.47.2
+

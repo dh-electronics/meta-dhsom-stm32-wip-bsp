@@ -1,0 +1,107 @@
+From c4617477d159261f2d1c9ce4707e96b301cbbee5 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Wed, 11 Dec 2024 16:11:40 +0100
+Subject: [PATCH 771/841] fix(st-ddr): change retention disable management
+
+DDR reset signal can have spurious behaviors because related constraints
+are no more followed. Fix the initialization sequence to restore a
+full compliance with recommendations around the retention (ordering and
+timings).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 82e0a6055af19089477d9ce512d86a540402841c fix(st-ddr): change retention disable management]
+Change-Id: I481f00e61899292b0a5abad5a0dea5a660f285b4
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/428228
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr.c         | 24 ++++++++++++++----------
+ drivers/st/ddr/stm32mp2_ddr_helpers.c |  6 +++++-
+ 2 files changed, 19 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
+index ba9a2a3cb..5d710df6f 100644
+--- a/drivers/st/ddr/stm32mp2_ddr.c
++++ b/drivers/st/ddr/stm32mp2_ddr.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2021-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2021-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -424,15 +424,6 @@ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 			panic();
+ 		}
+ 
+-		VERBOSE("disable DDR PHY retention\n");
+-		if (cid_filtering) {
+-			ddr_disable_cid_filtering();
+-		}
+-		mmio_setbits_32(priv->pwr + PWR_CR11, PWR_CR11_DDRRETDIS);
+-		if (cid_filtering) {
+-			ddr_enable_cid_filtering();
+-		}
+-
+ 		ddr_reset(priv);
+ 
+ 		ddr_sysconf_configuration(priv, config);
+@@ -452,9 +443,22 @@ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 	stm32mp_ddr_set_reg(priv, REG_PERF, &config->c_perf, ddr_registers);
+ 
+ 	if (!config->self_refresh) {
++		VERBOSE("disable DDR PHY retention\n");
++		if (cid_filtering) {
++			ddr_disable_cid_filtering();
++		}
++		mmio_setbits_32(priv->pwr + PWR_CR11, PWR_CR11_DDRRETDIS);
++		if (cid_filtering) {
++			ddr_enable_cid_filtering();
++		}
++
++		udelay(DDR_DELAY_1US);
++
+ 		/*  DDR core and PHY reset de-assert */
+ 		mmio_clrbits_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+ 
++		udelay(DDR_DELAY_1US);
++
+ 		disable_refresh(priv->ctl);
+ 	}
+ 
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index 74b6e46dc..132fee841 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2021-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2021-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -305,6 +305,8 @@ static int sr_ssr_entry(bool standby)
+ 		if (cid_filtering) {
+ 			ddr_enable_cid_filtering();
+ 		}
++
++		udelay(DDR_DELAY_1US);
+ 	}
+ 
+ 	mmio_clrsetbits_32(rcc_base + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPLPEN,
+@@ -544,6 +546,8 @@ void ddr_sub_system_clk_off(void)
+ 		ddr_enable_cid_filtering();
+ 	}
+ 
++	udelay(DDR_DELAY_1US);
++
+ 	/* Reset DDR sub system */
+ 	mmio_write_32(rcc_base + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPRST);
+ 	mmio_write_32(rcc_base + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+-- 
+2.47.2
+

@@ -1,0 +1,567 @@
+From 346d4f7d84aaf555c08dbcd4dd3da8a45fa237d6 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 21 Jun 2022 17:57:55 +0200
+Subject: [PATCH 192/841] feat(stm32mp2): add STM32MP_USB_PROGRAMMER support
+
+Add STM32MP_USB_PROGRAMMER support for stm32mp2 platform by
+compiling usb-dwc3 driver and adding the requested memory and
+USB-DFU configurations.
+
+The DFU stack is used in BL2 when STM32MP_USB_PROGRAMMER is activated
+by the STMicroelectronics tools STM32Cubeprogrammer for serial boot mode
+on USB.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3e34c7056ada8b8865a71c8664fb434114f50894 feat(stm32mp2): add STM32MP_USB_PROGRAMMER support]
+Change-Id: I0dd74152ee6e0a3a3d1332d4fb2edbae7743fcc1
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/255796
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/platform.mk        |   8 +
+ plat/st/stm32mp2/stm32mp2_def.h     |  48 +++-
+ plat/st/stm32mp2/stm32mp2_private.c |  22 ++
+ plat/st/stm32mp2/stm32mp2_usb_dfu.c | 375 ++++++++++++++++++++++++++++
+ 4 files changed, 448 insertions(+), 5 deletions(-)
+ create mode 100644 plat/st/stm32mp2/stm32mp2_usb_dfu.c
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 9a11b93c8..416617b1d 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -175,6 +175,14 @@ ifeq (${STM32MP_UART_PROGRAMMER},1)
+ BL2_SOURCES			+=	drivers/st/uart/stm32_uart.c
+ endif
+ 
++ifeq (${STM32MP_USB_PROGRAMMER},1)
++#The DFU stack uses only one end point, reduce the USB stack footprint
++$(eval $(call add_define_val,CONFIG_USBD_EP_NB,1U))
++$(eval $(call add_define,USB_CORE_AVOID_PACKET_SPLIT_MPS))
++BL2_SOURCES			+=	drivers/st/usb_dwc3/usb_dwc3.c				\
++					plat/st/stm32mp2/stm32mp2_usb_dfu.c
++endif
++
+ BL2_SOURCES			+=	drivers/st/ddr/stm32mp2_ddr.c				\
+ 					drivers/st/ddr/stm32mp2_ddr_helpers.c			\
+ 					drivers/st/ddr/stm32mp2_ram.c
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 7cb623959..ab8a43277 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -59,8 +59,30 @@
+ #define STM32MP_SYSRAM_SIZE		U(0x00040000)
+ #define SRAM1_BASE			U(0x0E040000)
+ #define SRAM1_SIZE			U(0x00020000)
++#define SRAM2_BASE			U(0x0E060000)
++#define SRAM2_SIZE			U(0x00020000)
+ #define STM32MP_BACKUP_RAM_BASE		U(0x42000000)
+ 
++#define STM32MP_SEC_SYSRAM_BASE		STM32MP_SYSRAM_BASE
++
++#if defined(IMAGE_BL2)
++#if STM32MP_USB_PROGRAMMER
++#define STM32MP_SEC_DEVICE_SYSRAM_SIZE		STM32MP_USB_DWC3_SIZE
++#define STM32MP_SEC_DEVICE_SYSRAM_BASE		(STM32MP_SYSRAM_BASE + \
++						 STM32MP_SYSRAM_SIZE - \
++						 STM32MP_SEC_DEVICE_SYSRAM_SIZE)
++
++#define STM32MP_SEC_SYSRAM_SIZE		(STM32MP_SYSRAM_SIZE - \
++					 STM32MP_SEC_DEVICE_SYSRAM_SIZE - \
++					 STM32MP_FW_CONFIG_MAX_SIZE)
++
++#define STM32MP_USB_DWC3_BASE		STM32MP_SEC_DEVICE_SYSRAM_BASE
++#define STM32MP_USB_DWC3_SIZE		PAGE_SIZE
++#else /* STM32MP_USB_PROGRAMMER */
++#define STM32MP_SEC_SYSRAM_SIZE		(STM32MP_SYSRAM_SIZE - \
++					 STM32MP_FW_CONFIG_MAX_SIZE)
++#endif /* STM32MP_USB_PROGRAMMER */
++#else /* IMAGE_BL2 */
+ #define STM32MP_NS_SYSRAM_SIZE		PAGE_SIZE
+ #define STM32MP_NS_SYSRAM_BASE		(STM32MP_SYSRAM_BASE + \
+ 					 STM32MP_SYSRAM_SIZE - \
+@@ -69,9 +91,9 @@
+ #define STM32MP_SCMI_NS_SHM_BASE	STM32MP_NS_SYSRAM_BASE
+ #define STM32MP_SCMI_NS_SHM_SIZE	STM32MP_NS_SYSRAM_SIZE
+ 
+-#define STM32MP_SEC_SYSRAM_BASE		STM32MP_SYSRAM_BASE
+ #define STM32MP_SEC_SYSRAM_SIZE		(STM32MP_SYSRAM_SIZE - \
+ 					 STM32MP_NS_SYSRAM_SIZE)
++#endif
+ 
+ /* DDR configuration */
+ #define STM32MP_DDR_BASE		U(0x80000000)
+@@ -130,7 +152,11 @@ enum ddr_type {
+  * MAX_MMAP_REGIONS is usually:
+  * BL stm32mp2_mmap size + mmap regions in *_plat_arch_setup
+  */
++#if STM32MP_USB_PROGRAMMER
++#define MAX_MMAP_REGIONS			8
++#else
+ #define MAX_MMAP_REGIONS			6
++#endif
+ 
+ /* DTB initialization value */
+ #define STM32MP_BL2_DTB_SIZE			U(0x00005000) /* 20 KB for DTB */
+@@ -150,12 +176,19 @@ enum ddr_type {
+ #define STM32MP_DDR_FW_MAX_SIZE		U(0x8800)
+ #endif
+ 
++#define STM32MP_FW_CONFIG_MAX_SIZE	PAGE_SIZE
++#if STM32MP_USB_PROGRAMMER
++#define STM32MP_FW_CONFIG_BASE		(STM32MP_SEC_SYSRAM_BASE + \
++					 STM32MP_SEC_SYSRAM_SIZE - \
++					 STM32MP_FW_CONFIG_MAX_SIZE)
++#else
+ #define STM32MP_FW_CONFIG_BASE		(STM32MP_SYSRAM_BASE + \
+ 					 STM32MP_SYSRAM_SIZE - \
+-					 PAGE_SIZE)
+-#define STM32MP_FW_CONFIG_MAX_SIZE	PAGE_SIZE
+-#define STM32MP_BL33_BASE			(STM32MP_DDR_BASE + U(0x04000000))
+-#define STM32MP_BL33_MAX_SIZE			U(0x400000)
++					 STM32MP_FW_CONFIG_MAX_SIZE)
++#endif
++
++#define STM32MP_BL33_BASE		(STM32MP_DDR_BASE + U(0x04000000))
++#define STM32MP_BL33_MAX_SIZE		U(0x400000)
+ #define STM32MP_HW_CONFIG_BASE		(STM32MP_BL33_BASE + \
+ 					STM32MP_BL33_MAX_SIZE)
+ #define STM32MP_HW_CONFIG_MAX_SIZE	U(0x20000)
+@@ -347,6 +380,11 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ }
+ #endif
+ 
++/*******************************************************************************
++ * STM32MP2 USB
++ ******************************************************************************/
++#define USB_DWC3_BASE			U(0x48300000)
++
+ /*******************************************************************************
+  * STM32MP2 DDRCTRL
+  ******************************************************************************/
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index f52133be1..55615226b 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -29,6 +29,22 @@
+ 					MT_SECURE | \
+ 					MT_EXECUTE_NEVER)
+ 
++#if STM32MP_USB_PROGRAMMER
++#define MAP_SEC_DEVICE_SYSRAM	MAP_REGION_FLAT(STM32MP_SEC_DEVICE_SYSRAM_BASE, \
++					STM32MP_SEC_DEVICE_SYSRAM_SIZE, \
++					MT_DEVICE | \
++					MT_RW | \
++					MT_SECURE | \
++					MT_EXECUTE_NEVER)
++
++#define MAP_SRAM2	MAP_REGION_FLAT(SRAM2_BASE, \
++					SRAM2_SIZE, \
++					MT_MEMORY | \
++					MT_RW | \
++					MT_SECURE | \
++					MT_EXECUTE_NEVER)
++#endif
++
+ /* Non-secure SYSRAM is used a uncached memory for SCMI message transfer */
+ #define MAP_NS_SYSRAM	MAP_REGION_FLAT(STM32MP_NS_SYSRAM_BASE, \
+ 					STM32MP_NS_SYSRAM_SIZE, \
+@@ -55,7 +71,13 @@
+ 
+ #if defined(IMAGE_BL2)
+ static const mmap_region_t stm32mp2_mmap[] = {
++#if STM32MP_USB_PROGRAMMER
++	MAP_SEC_SYSRAM,
++	MAP_SEC_DEVICE_SYSRAM,
++	MAP_SRAM2,
++#else
+ 	MAP_SYSRAM,
++#endif
+ #if STM32MP_DDR_FIP_IO_STORAGE
+ 	MAP_SRAM1,
+ #endif
+diff --git a/plat/st/stm32mp2/stm32mp2_usb_dfu.c b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
+new file mode 100644
+index 000000000..23b08c37e
+--- /dev/null
++++ b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
+@@ -0,0 +1,375 @@
++/*
++ * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <limits.h>
++#include <string.h>
++
++#include <common/debug.h>
++#include <drivers/st/bsec.h>
++#include <drivers/st/usb_dwc3.h>
++#include <drivers/usb_device.h>
++
++#include <platform_def.h>
++#include <stm32cubeprogrammer.h>
++#include <stm32mp_common.h>
++#include <usb_dfu.h>
++
++/*  String size (1 byte) + type (1 byte) + 24 UTF16 characters: 2 bytes each */
++#define SIZ_STRING_SERIAL		U(24)
++#define USB_SIZ_STRING_SERIAL		(1U + 1U + (SIZ_STRING_SERIAL * 2U))
++#define USBD_MAX_STR_DESC_SIZ		U(0x100)
++#define USBD_VID			U(0x0483)
++#define USBD_PID			U(0xDF11)
++#define USBD_LANGID_STRING		U(0x409)
++#define USBD_MANUFACTURER_STRING	"STMicroelectronics"
++#define USBD_CONFIGURATION_STRING	"DFU Config"
++#define USBD_INTERFACE_STRING		"DFU Interface"
++
++#define USB_DFU_ITF_NUM			U(3)
++
++#define USB_DFU_CONFIG_DESC_SIZ		USB_DFU_DESC_SIZ(USB_DFU_ITF_NUM)
++
++/* DFU devices */
++static struct usb_dfu_handle usb_dfu_handle;
++
++/* USB Standard Device Descriptor */
++static const uint8_t usb_stm32mp2_desc[USB_LEN_DEV_DESC] = {
++	USB_LEN_DEV_DESC,           /* bLength */
++	USB_DESC_TYPE_DEVICE,       /* bDescriptorType */
++	0x00,                       /* bcdUSB */
++	0x02,                       /* version */
++	0x00,                       /* bDeviceClass */
++	0x00,                       /* bDeviceSubClass */
++	0x00,                       /* bDeviceProtocol */
++	USB_MAX_EP0_SIZE,           /* bMaxPacketSize */
++	LOBYTE(USBD_VID),           /* idVendor */
++	HIBYTE(USBD_VID),           /* idVendor */
++	LOBYTE(USBD_PID),           /* idVendor */
++	HIBYTE(USBD_PID),           /* idVendor */
++	0x00,                       /* bcdDevice rel. 2.00 */
++	0x02,
++	USBD_IDX_MFC_STR,           /* Index of manufacturer string */
++	USBD_IDX_PRODUCT_STR,       /* Index of product string */
++	USBD_IDX_SERIAL_STR,        /* Index of serial number string */
++	USBD_MAX_NUM_CONFIGURATION  /* bNumConfigurations */
++}; /* USB_DeviceDescriptor */
++
++/* USB Standard String Descriptor */
++static const uint8_t usb_stm32mp2_lang_id_desc[USB_LEN_LANGID_STR_DESC] = {
++	USB_LEN_LANGID_STR_DESC,
++	USB_DESC_TYPE_STRING,
++	LOBYTE(USBD_LANGID_STRING),
++	HIBYTE(USBD_LANGID_STRING),
++};
++
++/* USB Standard Device Descriptor */
++static const uint8_t
++usbd_stm32mp2_qualifier_desc[USB_LEN_DEV_QUALIFIER_DESC] = {
++	USB_LEN_DEV_QUALIFIER_DESC,
++	USB_DESC_TYPE_DEVICE_QUALIFIER,
++	0x00,
++	0x02,
++	0x00,
++	0x00,
++	0x00,
++	0x40,
++	0x01,
++	0x00,
++};
++
++/* USB serial number: build dynamically */
++static uint8_t usb_stm32mp2_serial[USB_SIZ_STRING_SERIAL + 1];
++
++/* USB DFU device Configuration Descriptor */
++static const uint8_t usb_stm32mp2_config_desc[USB_DFU_CONFIG_DESC_SIZ] = {
++	0x09, /* bLength: Configuration Descriptor size */
++	USB_DESC_TYPE_CONFIGURATION, /* bDescriptorType: Configuration */
++	USB_DFU_CONFIG_DESC_SIZ, /* wTotalLength: Bytes returned */
++	0x00,
++	0x01, /* bNumInterfaces: 1 interface */
++	0x01, /* bConfigurationValue: Configuration value */
++	0x02, /* iConfiguration: Index of string descriptor for configuration */
++	0xC0, /* bmAttributes: bus powered and Supprts Remote Wakeup */
++	0x32, /* MaxPower 100 mA: this current is used for detecting Vbus */
++
++	/* Descriptor of DFU interface 0 Alternate setting 0..N */
++	USBD_DFU_IF_DESC(0),
++	USBD_DFU_IF_DESC(1),
++	USBD_DFU_IF_DESC(2),
++	/* DFU Functional Descriptor */
++	0x09, /* blength = 9 Bytes */
++	DFU_DESCRIPTOR_TYPE, /* DFU Functional Descriptor */
++	DFU_BM_ATTRIBUTE, /* bmAttribute for DFU */
++	0xFF, /* DetachTimeOut = 255 ms */
++	0x00,
++	/* WARNING: In DMA mode the multiple MPS packets feature
++	 *  is still not supported ==> In this case,
++	 *  when using DMA USBD_DFU_XFER_SIZE should be set
++	 *  to 64 in usbd_conf.h
++	 */
++	TRANSFER_SIZE_BYTES(USBD_DFU_XFER_SIZE), /* TransferSize = 1024 Byte */
++	((USB_DFU_VERSION >> 0) & 0xFF), /* bcdDFUVersion */
++	((USB_DFU_VERSION >> 8) & 0xFF)
++};
++
++const char *const if_desc_string[USB_DFU_ITF_NUM] = {
++	"@DDR FIP /0x02/1*32Ke",
++	"@FIP /0x03/1*16Me",
++	"@virtual /0xF1/1*512Ba"
++};
++
++/* Buffer to build the unicode string provided to USB device stack */
++static uint8_t usb_str_dec[USBD_MAX_STR_DESC_SIZ];
++
++/*
++ * Convert Ascii string into unicode one
++ * desc : descriptor buffer
++ * unicode : Formatted string buffer (unicode)
++ * len : descriptor length
++ */
++static void stm32mp2_get_string(const char *desc, uint8_t *unicode, uint16_t *len)
++{
++	uint8_t idx = 0U;
++
++	if (desc == NULL) {
++		return;
++	}
++
++	*len =  strlen(desc) * 2U + 2U;
++	unicode[idx++] = *len;
++	unicode[idx++] =  USB_DESC_TYPE_STRING;
++
++	while (*desc != '\0') {
++		unicode[idx++] = *desc++;
++		unicode[idx++] =  0x00U;
++	}
++}
++
++/*
++ * Create the serial number string descriptor
++ */
++static void update_serial_num_string(void)
++{
++	char serial_string[SIZ_STRING_SERIAL + 2U];
++	/* serial number is set to 0 */
++	uint32_t deviceserial[UID_WORD_NB] = {0U, 0U, 0U};
++	uint16_t length;
++
++	if (stm32_get_uid_otp(deviceserial) != 0) {
++		return;
++	}
++
++	/* build serial number with OTP value as in ROM code */
++	snprintf(serial_string, sizeof(serial_string), "%08X%08X%08X",
++		 deviceserial[0], deviceserial[1], deviceserial[2]);
++
++	length = USB_SIZ_STRING_SERIAL;
++	stm32mp2_get_string(serial_string, usb_stm32mp2_serial, &length);
++}
++
++/*
++ * Return Device Qualifier descriptor
++ * length : pointer data length
++ * return : pointer to descriptor buffer
++ */
++static uint8_t *stm32mp2_get_qualifier_desc(uint16_t *length)
++{
++	*length = sizeof(usbd_stm32mp2_qualifier_desc);
++
++	return (uint8_t *)usbd_stm32mp2_qualifier_desc;
++}
++
++/*
++ * Return configuration descriptor
++ * length : pointer data length
++ * return : pointer to descriptor buffer
++ */
++static uint8_t *stm32mp2_get_config_desc(uint16_t *length)
++{
++	*length = sizeof(usb_stm32mp2_config_desc);
++
++	return (uint8_t *)usb_stm32mp2_config_desc;
++}
++
++/*
++ * Returns the device descriptor.
++ * length: Pointer to data length variable
++ * return : Pointer to descriptor buffer
++ */
++static uint8_t *stm32mp2_device_desc(uint16_t *length)
++{
++	*length = sizeof(usb_stm32mp2_desc);
++
++	return (uint8_t *)usb_stm32mp2_desc;
++}
++
++/*
++ * Returns the LangID string descriptor.
++ * length: Pointer to data length variable
++ * return : Pointer to descriptor buffer
++ */
++static uint8_t *stm32mp2_lang_id_desc(uint16_t *length)
++{
++	*length = sizeof(usb_stm32mp2_lang_id_desc);
++
++	return (uint8_t *)usb_stm32mp2_lang_id_desc;
++}
++
++/*
++ *  Returns the product string descriptor.
++ * length: Pointer to data length variable
++ * return : Pointer to descriptor buffer
++ */
++static uint8_t *stm32mp2_product_desc(uint16_t *length)
++{
++	char name[STM32_SOC_NAME_SIZE];
++	char product[128];
++	uint32_t chip_id;
++	uint32_t chip_version;
++
++	stm32mp_get_soc_name(name);
++	chip_id = stm32mp_get_chip_dev_id();
++	chip_version = stm32mp_get_chip_version();
++
++	snprintf(product, sizeof(product),
++		 "DFU @Device ID /0x%03X, @Revision ID /0x%04X, @Name /%s,",
++		 chip_id, chip_version, name);
++
++	stm32mp2_get_string(product, usb_str_dec, length);
++
++	return usb_str_dec;
++}
++
++/*
++ * Returns the manufacturer string descriptor.
++ * length: Pointer to data length variable
++ * return : Pointer to descriptor buffer
++ */
++static uint8_t *stm32mp2_manufacturer_desc(uint16_t *length)
++{
++	stm32mp2_get_string(USBD_MANUFACTURER_STRING, usb_str_dec, length);
++
++	return usb_str_dec;
++}
++
++/*
++ * Returns the serial number string descriptor.
++ * length: Pointer to data length variable
++ * return : Pointer to descriptor buffer
++ */
++static uint8_t *stm32mp2_serial_desc(uint16_t *length)
++{
++	*length = USB_SIZ_STRING_SERIAL;
++
++	return (uint8_t *)usb_stm32mp2_serial;
++}
++
++/*
++ * Returns the configuration string descriptor.
++ * length: Pointer to data length variable
++ * return : Pointer to descriptor buffer
++ */
++static uint8_t *stm32mp2_config_desc(uint16_t *length)
++{
++	stm32mp2_get_string(USBD_CONFIGURATION_STRING, usb_str_dec, length);
++
++	return usb_str_dec;
++}
++
++/*
++ * Returns the interface string descriptor.
++ * length : Pointer to data length variable
++ * return : Pointer to descriptor buffer
++ */
++static uint8_t *stm32mp2_interface_desc(uint16_t *length)
++{
++	stm32mp2_get_string(USBD_INTERFACE_STRING, usb_str_dec, length);
++
++	return usb_str_dec;
++}
++
++/*
++ * Manages the transfer of memory interfaces string descriptors.
++ * index: descriptor index
++ * length : pointer data length
++ * return : pointer to the descriptor table or NULL if the descriptor
++ *          is not supported.
++ */
++static uint8_t *stm32mp2_get_usr_desc(uint8_t index, uint16_t *length)
++{
++	if (index >= ARRAY_SIZE(if_desc_string)) {
++		return NULL;
++	}
++
++	stm32mp2_get_string(if_desc_string[index], usb_str_dec, length);
++
++	return usb_str_dec;
++}
++
++static const struct usb_desc dfu_desc = {
++	.get_device_desc = stm32mp2_device_desc,
++	.get_lang_id_desc = stm32mp2_lang_id_desc,
++	.get_manufacturer_desc = stm32mp2_manufacturer_desc,
++	.get_product_desc = stm32mp2_product_desc,
++	.get_configuration_desc = stm32mp2_config_desc,
++	.get_serial_desc = stm32mp2_serial_desc,
++	.get_interface_desc = stm32mp2_interface_desc,
++	.get_usr_desc = stm32mp2_get_usr_desc,
++	.get_config_desc = stm32mp2_get_config_desc,
++	.get_device_qualifier_desc = stm32mp2_get_qualifier_desc,
++	/* only HS is supported, as ROM code */
++	.get_other_speed_config_desc = NULL,
++};
++
++static struct usb_handle usb_core_handle;
++static struct pcd_handle pcd_handle;
++static dwc3_handle_t dwc3_handle;
++
++struct usb_handle *usb_dfu_plat_init(void)
++{
++	/* prepare USB Driver */
++	pcd_handle.in_ep[0].maxpacket = USB_MAX_EP0_SIZE;
++	pcd_handle.out_ep[0].maxpacket = USB_MAX_EP0_SIZE;
++	usb_dwc3_init_driver(&usb_core_handle, &pcd_handle, &dwc3_handle, (void *)USB_DWC3_BASE);
++
++	/* keep the configuration from ROM code */
++	usb_core_handle.ep0_state = USBD_EP0_DATA_IN;
++	usb_core_handle.dev_state = USBD_STATE_CONFIGURED;
++
++	/* Update the serial number string descriptor from the unique ID */
++	update_serial_num_string();
++
++	/* Prepare USB DFU stack */
++	usb_dfu_register(&usb_core_handle, &usb_dfu_handle);
++
++	/* Register DFU descriptor in USB stack */
++	register_platform(&usb_core_handle, &dfu_desc);
++
++	return &usb_core_handle;
++}
++
++/* Link between USB alternate and STM32CubeProgramer phase */
++uint8_t usb_dfu_get_phase(uint8_t alt)
++{
++	uint8_t ret;
++
++	switch (alt) {
++	case 0:
++		ret = PHASE_DDR_FW;
++		break;
++	case 1:
++		ret = PHASE_SSBL;
++		break;
++	case 2:
++		ret = PHASE_CMD;
++		break;
++	default:
++		ret = PHASE_RESET;
++		break;
++	}
++
++	return ret;
++}
+-- 
+2.47.2
+

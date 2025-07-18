@@ -1,0 +1,60 @@
+From 9b4c479c848a80e6d863b37b92196b46b1fc5be9 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 1 Mar 2023 12:48:08 +0100
+Subject: [PATCH 292/841] feat(stm32mp2): remove stm32_node_hw_state
+
+Remove the optional ops get_node_hw_state, as it is not used by Linux.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git dce7c452ac5132d795051df32db9ddc2d5672f68 feat(stm32mp2): remove stm32_node_hw_state]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I3d6ce37d818c626bce92fc14e24feb7ca386b63a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/293163
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 21 ---------------------
+ 1 file changed, 21 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 881ad957a..b9f768cbb 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -225,26 +225,6 @@ static int stm32_validate_ns_entrypoint(uintptr_t entrypoint)
+ 	return PSCI_E_SUCCESS;
+ }
+ 
+-static int stm32_node_hw_state(u_register_t target_cpu,
+-			       unsigned int power_level)
+-{
+-	/*
+-	 * The format of 'power_level' is implementation-defined, but 0 must
+-	 * mean a CPU. Only allow level 0.
+-	 */
+-	if (power_level != MPIDR_AFFLVL0) {
+-		return PSCI_E_INVALID_PARAMS;
+-	}
+-
+-	/*
+-	 * From psci view the CPU 0 is always ON,
+-	 * CPU 1 can be SUSPEND or RUNNING.
+-	 * Therefore do not manage POWER OFF state and always return HW_ON.
+-	 */
+-
+-	return (int)HW_ON;
+-}
+-
+ static void stm32_get_sys_suspend_power_state(psci_power_state_t *req_state)
+ {
+ }
+@@ -265,7 +245,6 @@ static const plat_psci_ops_t stm32_psci_ops = {
+ 	.system_reset = stm32_system_reset,
+ 	.validate_power_state = stm32_validate_power_state,
+ 	.validate_ns_entrypoint = stm32_validate_ns_entrypoint,
+-	.get_node_hw_state = stm32_node_hw_state,
+ 	.get_sys_suspend_power_state = stm32_get_sys_suspend_power_state,
+ };
+ 
+-- 
+2.47.2
+

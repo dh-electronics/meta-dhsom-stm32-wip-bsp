@@ -1,0 +1,55 @@
+From 755d2843dcc0d22fef2908d55f94b16c38ab214c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 23 Feb 2024 19:33:17 +0100
+Subject: [PATCH 554/841] fix(st): allow several call of
+ stm32cubeprog_uart_load
+
+Update the function stm32cubeprog_uart_load() to skip the UART
+initialization when the function is called a second time.
+
+On STM32MP25, this function is called 2 times, first to load FIP DDR
+in small internal memory and after DDR initialization, to load FIP in
+this large external memory
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cc1610f0683725a4c0e14fe8d50311efbdb7727b fix(st): allow several call of stm32cubeprog_uart_load]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ibbb4ad44b89730d6c6101c89e56c59978d38cfed
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/362702
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/368605
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/stm32cubeprogrammer_uart.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/plat/st/common/stm32cubeprogrammer_uart.c b/plat/st/common/stm32cubeprogrammer_uart.c
+index 9573c3942..941027120 100644
+--- a/plat/st/common/stm32cubeprogrammer_uart.c
++++ b/plat/st/common/stm32cubeprogrammer_uart.c
+@@ -647,6 +647,11 @@ int stm32cubeprog_uart_load(uintptr_t instance, uint8_t phase,
+ 			    uintptr_t base, size_t len)
+ {
+ 	int ret;
++	static bool init_done;
++
++	if (init_done) {
++		goto skip_init;
++	}
+ 
+ 	if (stm32_uart_init(&handle.uart, instance, &init) != 0) {
+ 		return -EIO;
+@@ -665,5 +670,9 @@ int stm32cubeprog_uart_load(uintptr_t instance, uint8_t phase,
+ 		return ret;
+ 	}
+ 
++	init_done = true;
++
++skip_init:
++
+ 	return uart_read(phase, base, len);
+ }
+-- 
+2.47.2
+

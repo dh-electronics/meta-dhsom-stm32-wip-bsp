@@ -1,0 +1,69 @@
+From b3c9a93ca4ede689f43d2f9e8750d16f3d7db085 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 22 Nov 2023 15:48:03 +0100
+Subject: [PATCH 451/841] refactor(stm32mp2): move cache invalidation
+
+After loading an image from SD-card or eMMC, some cache lines need to be
+invalidated (2 blocks after the image size). Move this code at the
+beginning of bl2_plat_handle_post_image_load(), to avoid doing this
+twice in case of M33 TDCID, as we unmap and remap DDR from secure to
+non-secure after OP-TEE is loaded in BL32_EXTRA1_IMAGE_ID case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 78ece8619c93d987c14e5dcbb10add269671f271 refactor(stm32mp2): move cache invalidation]
+Change-Id: I4662b573c44bef49be05459097941bb59a2f3112
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/347831
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 26 +++++++++++++-------------
+ 1 file changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 64956c0f0..1d50f2299 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -469,6 +469,19 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 
+ 	assert(bl_mem_params != NULL);
+ 
++#if STM32MP_SDMMC || STM32MP_EMMC
++	/*
++	 * Invalidate remaining data read from MMC but not flushed by load_image_flush().
++	 * We take the worst case which is 2 MMC blocks.
++	 */
++	if ((image_id != FW_CONFIG_ID) &&
++	    ((bl_mem_params->image_info.h.attr & IMAGE_ATTRIB_SKIP_LOADING) == 0U)) {
++		inv_dcache_range(bl_mem_params->image_info.image_base +
++				 bl_mem_params->image_info.image_size,
++				 2U * MMC_BLOCK_SIZE);
++	}
++#endif /* STM32MP_SDMMC || STM32MP_EMMC */
++
+ 	switch (image_id) {
+ 	case FW_CONFIG_ID:
+ 		if ((stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) ||
+@@ -591,19 +604,6 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		break;
+ 	}
+ 
+-#if STM32MP_SDMMC || STM32MP_EMMC
+-	/*
+-	 * Invalidate remaining data read from MMC but not flushed by load_image_flush().
+-	 * We take the worst case which is 2 MMC blocks.
+-	 */
+-	if ((image_id != FW_CONFIG_ID) &&
+-	    ((bl_mem_params->image_info.h.attr & IMAGE_ATTRIB_SKIP_LOADING) == 0U)) {
+-		inv_dcache_range(bl_mem_params->image_info.image_base +
+-				 bl_mem_params->image_info.image_size,
+-				 2U * MMC_BLOCK_SIZE);
+-	}
+-#endif /* STM32MP_SDMMC || STM32MP_EMMC */
+-
+ 	return err;
+ }
+ 
+-- 
+2.47.2
+

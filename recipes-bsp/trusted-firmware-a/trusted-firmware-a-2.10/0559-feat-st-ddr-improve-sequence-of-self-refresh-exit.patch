@@ -1,0 +1,63 @@
+From b696441f47ea472955b6f67cbc49ca9274fbae5c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 5 Feb 2024 18:16:41 +0100
+Subject: [PATCH 559/841] feat(st-ddr): improve sequence of self-refresh exit
+
+Call the function stm32mp_board_ddr_power_init() only for the full DDR
+initialization, it is not needed for self refresh exit and that causes
+delay for supply ramp up.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c89b24fea98dacac26a6b3c7971911b3be7d4317 feat(st-ddr): improve sequence of self-refresh exit]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Id3d5892f70839f9b3ac8eea75812f0ce004bc75a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/357480
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/368604
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr.c | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
+index 024812ece..c49999249 100644
+--- a/drivers/st/ddr/stm32mp2_ddr.c
++++ b/drivers/st/ddr/stm32mp2_ddr.c
+@@ -371,18 +371,16 @@ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ {
+ 	int ret = -EINVAL;
+ 	uint32_t ddr_retdis;
++	enum ddr_type ddr_type;
+ 
+ 	if ((config->c_reg.mstr & DDRCTRL_MSTR_DDR3) != 0U) {
+-		ret = stm32mp_board_ddr_power_init(STM32MP_DDR3);
++		ddr_type = STM32MP_DDR3;
+ 	} else if ((config->c_reg.mstr & DDRCTRL_MSTR_DDR4) != 0U) {
+-		ret = stm32mp_board_ddr_power_init(STM32MP_DDR4);
++		ddr_type = STM32MP_DDR4;
+ 	} else if ((config->c_reg.mstr & DDRCTRL_MSTR_LPDDR4) != 0U) {
+-		ret = stm32mp_board_ddr_power_init(STM32MP_LPDDR4);
++		ddr_type = STM32MP_LPDDR4;
+ 	} else {
+ 		ERROR("DDR type not supported\n");
+-	}
+-
+-	if (ret != 0) {
+ 		panic();
+ 	}
+ 
+@@ -415,6 +413,11 @@ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+ 		udelay(DDR_DELAY_1US);
+ 
+ 	} else {
++		if (stm32mp_board_ddr_power_init(ddr_type) != 0) {
++			ERROR("DDR power init failed\n");
++			panic();
++		}
++
+ 		VERBOSE("disable DDR PHY retention\n");
+ 		mmio_setbits_32(priv->pwr + PWR_CR11, PWR_CR11_DDRRETDIS);
+ 
+-- 
+2.47.2
+

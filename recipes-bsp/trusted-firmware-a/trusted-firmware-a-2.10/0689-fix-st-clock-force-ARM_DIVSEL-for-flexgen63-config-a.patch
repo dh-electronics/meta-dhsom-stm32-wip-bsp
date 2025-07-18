@@ -1,0 +1,76 @@
+From 289a7d5b96675f8141dff4fb73ba753d5a88fae2 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 23 Sep 2024 11:57:29 +0200
+Subject: [PATCH 689/841] fix(st-clock): force ARM_DIVSEL for flexgen63 config
+ at 400MHz
+
+The clkext2f frequency at 400MHZ, the default flexgen63 config,
+is not supported without a divider by 2 as described in reference Manuel,
+chapter 3.3 Cortex-A35 clocking:
+
+  The clock for the Cortex-A35 subsystem can be selected among:
+  a clock from the device clock generator (aka ck_cpu1_ext2f). The maximum
+  frequency on this clock is 400 MHz with a divider by two, enabled thanks
+  to the CA35SS_SSC_CHGCLKREQ SSC register.
+
+In OpenSTLinux clock tree you assume flexgen63 = 400MHz,
+so we force divider by 2 for ck_cpu1_ext2f clock, the CA35 bypass clock
+with ARM_DIVSEL = 0.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b4b9d4b384e6d5c2e2bbc98089d5da86dde6d4a7 fix(st-clock): force ARM_DIVSEL for flexgen63 config at 400MHz]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I9d11f9316ce3a2c7280a9bb7652d241b164ce5a1
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/406272
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/clk/clk-stm32mp2.c | 20 ++++++++++++++++++--
+ 1 file changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index 70d3d70ca..23a622ad3 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -74,6 +74,8 @@ struct stm32_clk_platdata {
+ 
+ #define A35_SS_CHGCLKREQ_ARM_CHGCLKREQ		BIT(0)
+ #define A35_SS_CHGCLKREQ_ARM_CHGCLKACK		BIT(1)
++#define A35_SS_CHGCLKREQ_ARM_DIVSEL		BIT(16)
++#define A35_SS_CHGCLKREQ_ARM_DIVSELACK		BIT(17)
+ 
+ #define A35_SS_PLL_FREQ1_FBDIV_MASK		GENMASK(11, 0)
+ #define A35_SS_PLL_FREQ1_FBDIV_SHIFT		0
+@@ -1770,14 +1772,28 @@ static void stm32mp2_a35_ss_on_bypass(void)
+ 	uintptr_t a35_ss_address = A35SSC_BASE;
+ 	uintptr_t chgclkreq_reg = a35_ss_address + A35_SS_CHGCLKREQ;
+ 	uintptr_t pll_enable_reg = a35_ss_address + A35_SS_PLL_ENABLE;
++	uint32_t chgclkreq;
+ 	uint64_t timeout;
+ 
+-	if ((mmio_read_32(chgclkreq_reg) & A35_SS_CHGCLKREQ_ARM_CHGCLKACK) ==
+-	    A35_SS_CHGCLKREQ_ARM_CHGCLKACK) {
++	chgclkreq = mmio_read_32(chgclkreq_reg);
++	if ((chgclkreq & A35_SS_CHGCLKREQ_ARM_CHGCLKACK) == A35_SS_CHGCLKREQ_ARM_CHGCLKACK) {
+ 		/* Nothing to do, clock source is already set on bypass clock */
+ 		return;
+ 	}
+ 
++	/* for clkext2f frequency at 400MHZ, default flexgen63 config, divider by 2 is required */
++	if ((chgclkreq & A35_SS_CHGCLKREQ_ARM_DIVSEL) == A35_SS_CHGCLKREQ_ARM_DIVSEL) {
++		mmio_clrbits_32(chgclkreq_reg, A35_SS_CHGCLKREQ_ARM_DIVSEL);
++		timeout = timeout_init_us(CLKSRC_TIMEOUT);
++		while ((mmio_read_32(chgclkreq_reg) & A35_SS_CHGCLKREQ_ARM_DIVSELACK) ==
++		       A35_SS_CHGCLKREQ_ARM_DIVSELACK) {
++			if (timeout_elapsed(timeout)) {
++				EARLY_ERROR("Cannot set div on A35 bypass clock\n");
++				panic();
++			}
++		}
++	}
++
+ 	mmio_setbits_32(chgclkreq_reg, A35_SS_CHGCLKREQ_ARM_CHGCLKREQ);
+ 
+ 	timeout = timeout_init_us(CLKSRC_TIMEOUT);
+-- 
+2.47.2
+
