@@ -1,0 +1,38 @@
+From b26abad1754bf81f554d6a3484dd6b72553b3b69 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Thu, 29 Sep 2022 14:58:10 +0200
+Subject: [PATCH 103/140] remoteproc: stm32: set the sysfs firmware image
+ format
+
+Set the value of the firmware image format for the sysfs API depending
+on the delegation to the TEE for loading a signed firmware.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git 81b512e11d89f88813ca9da4011ccabbc8845e1b remoteproc: stm32: set the sysfs firmware image format]
+Change-Id: I55d90b7c116cfd5593698d306507b36c5f32119b
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/268346
+---
+ drivers/remoteproc/stm32_rproc.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/remoteproc/stm32_rproc.c b/drivers/remoteproc/stm32_rproc.c
+index b1615b9631bdc..7321538eb7a7f 100644
+--- a/drivers/remoteproc/stm32_rproc.c
++++ b/drivers/remoteproc/stm32_rproc.c
+@@ -1003,8 +1003,12 @@ static int stm32_rproc_probe(struct platform_device *pdev)
+ 
+ 	ddata = rproc->priv;
+ 	ddata->trproc = trproc;
+-	if (trproc)
++	if (trproc) {
+ 		trproc->rproc = rproc;
++		rproc->fw_format = RPROC_FW_TEE;
++	} else {
++		rproc->fw_format = RPROC_FW_ELF;
++	}
+ 
+ 	rproc_coredump_set_elf_info(rproc, ELFCLASS32, EM_NONE);
+ 
+-- 
+2.51.0
+

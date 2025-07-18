@@ -1,0 +1,56 @@
+From cc8480b9573e7736ba8a0d94c89b0b15687d4bdd Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Tue, 15 Apr 2025 11:40:09 +0200
+Subject: [PATCH 25/95] usb: dwc3-stm32: Activate pm_runtime before enabling it
+
+With current implementation, PM runtime enable generates a warning:
+[   19.602987] usb-stm32-dwc3 42080000.bus:usb@48300000: Enabling runtime PM for inactive device with an active children
+
+It is due to the fact that PM runtime has not been enabled before
+populating dwc3 children (which enables it).
+So fix the initialization sequence: Activate pm_runtime with
+pm_runtime_set_active(), then enable it before populating children.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git d30466e9256a0569e4823cccac1ea5696ea31ce9 usb: dwc3-stm32: Activate pm_runtime before enabling it]
+Fixes: f2c398cb189f ("usb: dwc3-stm32: Add pm_runtime support")
+Change-Id: Ieaf17565e2bb347da2a0c4f62339a6c93265ed5d
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Signed-off-by: Fabrice Gasnier <fabrice.gasnier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/451589
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/usb/dwc3/dwc3-stm32.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-stm32.c b/drivers/usb/dwc3/dwc3-stm32.c
+index 85fd649bd48fc..b5ce1cc088c3d 100644
+--- a/drivers/usb/dwc3/dwc3-stm32.c
++++ b/drivers/usb/dwc3/dwc3-stm32.c
+@@ -190,18 +190,18 @@ static int stm32_dwc3_probe(struct platform_device *pdev)
+ 		device_set_wakeup_capable(dev, true);
+ 	}
+ 
+-	/* Allocate and initialize the core */
+-	ret = devm_of_platform_populate(dev);
++	ret = pm_runtime_set_active(dev);
+ 	if (ret)
+-		return dev_err_probe(dev, ret, "failed to add dwc3 core\n");
++		return dev_err_probe(dev, ret, "Failed to activate pm runtime\n");
+ 
+ 	ret = devm_pm_runtime_enable(dev);
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "Failed to enable pm runtime\n");
+ 
+-	ret = pm_runtime_resume_and_get(dev);
++	/* Allocate and initialize the core */
++	ret = devm_of_platform_populate(dev);
+ 	if (ret)
+-		return dev_err_probe(dev, ret, "pm runtime resume failed\n");
++		return dev_err_probe(dev, ret, "failed to add dwc3 core\n");
+ 
+ 	platform_set_drvdata(pdev, dwc3_data);
+ 
+-- 
+2.51.0
+
