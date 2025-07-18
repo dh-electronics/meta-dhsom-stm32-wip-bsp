@@ -1,0 +1,57 @@
+From 4d3c061b1cd8b351ef98847765f1ee29de4bcba4 Mon Sep 17 00:00:00 2001
+From: Simeon Marijon <simeon.marijon@foss.st.com>
+Date: Mon, 9 Dec 2024 16:30:22 +0100
+Subject: [PATCH 62/65] drivers: nvmem: Support new linux syntax for nvmem
+ "fixed-layout"
+
+Linux introduce nvmem-layout. This patch allows old and new cells
+description format in u-boot.
+
+Beware, only "fixedlayout" is supported
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 321f07be43363b037d40db97730622b82f525e06 drivers: nvmem: Support new linux syntax for nvmem "fixed-layout"]
+Signed-off-by: Simeon Marijon <simeon.marijon@foss.st.com>
+Change-Id: I4b41497f0d87aef249896a3216657306a2bdd59c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/423958
+Reviewed-by: Simeon MARIJON <simeon.marijon@st.com>
+Tested-by: Simeon MARIJON <simeon.marijon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/432192
+Tested-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+---
+ drivers/misc/nvmem.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/misc/nvmem.c b/drivers/misc/nvmem.c
+index d0cb0a35b81..f83b15e5807 100644
+--- a/drivers/misc/nvmem.c
++++ b/drivers/misc/nvmem.c
+@@ -102,6 +102,7 @@ int nvmem_cell_get_by_index(struct udevice *dev, int index,
+ 	fdt_size_t size = FDT_SIZE_T_NONE;
+ 	int ret;
+ 	struct ofnode_phandle_args args;
++	ofnode parent_node;
+ 
+ 	dev_dbg(dev, "%s: index=%d\n", __func__, index);
+ 
+@@ -110,7 +111,13 @@ int nvmem_cell_get_by_index(struct udevice *dev, int index,
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = nvmem_get_device(ofnode_get_parent(args.node), cell);
++	parent_node = ofnode_get_parent(args.node);
++
++	/* Using fixed-layout add a parenting level */
++	if (ofnode_device_is_compatible(parent_node, "fixed-layout"))
++		parent_node = ofnode_get_parent(parent_node);
++
++	ret = nvmem_get_device(parent_node, cell);
+ 	if (ret)
+ 		return ret;
+ 
+-- 
+2.51.0
+

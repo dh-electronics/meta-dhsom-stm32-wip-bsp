@@ -1,0 +1,125 @@
+From 50432595a60c22eaae49814451c2990da5a80d1b Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 22 Feb 2023 15:37:52 +0100
+Subject: [PATCH 34/65] reset: remove reset_assert call in reset_release_all
+
+The API reset_release_all should only release the reset bulk resources
+and not change the reset level with de-assert.
+
+In U-Boot, it is the responsibility of the caller (each driver) to call
+reset_assert_all if the reset level need to be handle, as it is done by
+the single reset API: reset_request/reset_free.
+
+This patch avoids issue when a reset line is shared by several drivers;
+the bulk resets are requested and de-asserted in probe
+with reset_get_bulk()/reset_deassert_bulk() and the reset_release_all()
+is called in remove to release the associated resource
+but the de-assert must not be performed for shared reset.
+
+It is it the case for shared reset for generic EHCI / OHCI, the common
+reset linux is managed in Linux kernel by shared reset API
+devm_reset_control_get_shared() = performs de-assert only for the last
+users.
+
+I think it is the good time to change this behavior as the reset bulk
+API is not yet massively used in driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 1e541eaca7625a9d151ea994d670d22c3f17ab2e reset: remove reset_assert call in reset_release_all]
+Fixes: 3b9d1bdd4e5fe ("reset: add reset_release_all()")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ia77c62ce3ca45336d9126875d5bbfba74214a7b4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/293200
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Patrice CHOTARD <patrice.chotard@foss.st.com>
+---
+ drivers/reset/reset-uclass.c |  4 ----
+ include/reset.h              |  9 ++++-----
+ test/dm/reset.c              | 22 ++++++++++++++++++++++
+ 3 files changed, 26 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/reset/reset-uclass.c b/drivers/reset/reset-uclass.c
+index fe4cebf54f1..bb946fedb99 100644
+--- a/drivers/reset/reset-uclass.c
++++ b/drivers/reset/reset-uclass.c
+@@ -245,10 +245,6 @@ int reset_release_all(struct reset_ctl *reset_ctl, int count)
+ 		if (!reset_ctl[i].dev)
+ 			continue;
+ 
+-		ret = reset_assert(&reset_ctl[i]);
+-		if (ret)
+-			return ret;
+-
+ 		ret = reset_free(&reset_ctl[i]);
+ 		if (ret)
+ 			return ret;
+diff --git a/include/reset.h b/include/reset.h
+index 036a786d2ac..252eb1a1ffd 100644
+--- a/include/reset.h
++++ b/include/reset.h
+@@ -330,10 +330,10 @@ int reset_deassert_bulk(struct reset_ctl_bulk *bulk);
+ int reset_status(struct reset_ctl *reset_ctl);
+ 
+ /**
+- * reset_release_all - Assert/Free an array of previously requested resets.
++ * reset_release_all - Free an array of previously requested resets.
+  *
+  * For each reset contained in the reset array, this function will check if
+- * reset has been previously requested and then will assert and free it.
++ * reset has been previously requested and then free it.
+  *
+  * @reset_ctl:	A reset struct array that was previously successfully
+  *		requested by reset_get_by_*().
+@@ -343,12 +343,11 @@ int reset_status(struct reset_ctl *reset_ctl);
+ int reset_release_all(struct reset_ctl *reset_ctl, int count);
+ 
+ /**
+- * reset_release_bulk - Assert/Free an array of previously requested reset
++ * reset_release_bulk - Free an array of previously requested reset
+  * signals in a reset control bulk struct.
+  *
+  * For each reset contained in the reset control bulk struct, this function
+- * will check if reset has been previously requested and then will assert
+- * and free it.
++ * will check if reset has been previously requested and then will free it.
+  *
+  * @bulk:	A reset control bulk struct that was previously successfully
+  *		requested by reset_get_bulk().
+diff --git a/test/dm/reset.c b/test/dm/reset.c
+index dceb6a1dad3..91533358871 100644
+--- a/test/dm/reset.c
++++ b/test/dm/reset.c
+@@ -142,7 +142,29 @@ static int dm_test_reset_bulk(struct unit_test_state *uts)
+ 	ut_asserteq(0, sandbox_reset_query(dev_reset, TEST_RESET_ID));
+ 	ut_asserteq(0, sandbox_reset_query(dev_reset, OTHER_RESET_ID));
+ 
++	/* reset release don't change the reset level */
++	ut_asserteq(1, sandbox_reset_is_requested(dev_reset, OTHER_RESET_ID));
++	ut_asserteq(1, sandbox_reset_is_requested(dev_reset, TEST_RESET_ID));
++	ut_assertok(sandbox_reset_test_release_bulk(dev_test));
++	ut_asserteq(0, sandbox_reset_is_requested(dev_reset, OTHER_RESET_ID));
++	ut_asserteq(0, sandbox_reset_is_requested(dev_reset, TEST_RESET_ID));
++	ut_asserteq(0, sandbox_reset_query(dev_reset, TEST_RESET_ID));
++	ut_asserteq(0, sandbox_reset_query(dev_reset, OTHER_RESET_ID));
++
++	ut_assertok(sandbox_reset_test_get_bulk(dev_test));
++	ut_asserteq(0, sandbox_reset_query(dev_reset, TEST_RESET_ID));
++	ut_asserteq(0, sandbox_reset_query(dev_reset, OTHER_RESET_ID));
++
++	ut_assertok(sandbox_reset_test_assert_bulk(dev_test));
++	ut_asserteq(1, sandbox_reset_query(dev_reset, TEST_RESET_ID));
++	ut_asserteq(1, sandbox_reset_query(dev_reset, OTHER_RESET_ID));
++
++	/* reset release don't change the reset level */
++	ut_asserteq(1, sandbox_reset_is_requested(dev_reset, OTHER_RESET_ID));
++	ut_asserteq(1, sandbox_reset_is_requested(dev_reset, TEST_RESET_ID));
+ 	ut_assertok(sandbox_reset_test_release_bulk(dev_test));
++	ut_asserteq(0, sandbox_reset_is_requested(dev_reset, OTHER_RESET_ID));
++	ut_asserteq(0, sandbox_reset_is_requested(dev_reset, TEST_RESET_ID));
+ 	ut_asserteq(1, sandbox_reset_query(dev_reset, TEST_RESET_ID));
+ 	ut_asserteq(1, sandbox_reset_query(dev_reset, OTHER_RESET_ID));
+ 
+-- 
+2.51.0
+

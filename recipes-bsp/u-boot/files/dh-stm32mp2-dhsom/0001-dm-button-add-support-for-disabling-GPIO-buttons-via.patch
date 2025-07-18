@@ -1,0 +1,37 @@
+From b52829ac4ebd7d2aa54acec990bed08a66bb67f3 Mon Sep 17 00:00:00 2001
+From: Theo GOUREAU <theo.goureau-ext@st.com>
+Date: Mon, 7 Oct 2024 16:05:46 +0200
+Subject: [PATCH 01/65] dm: button: add support for disabling GPIO buttons via
+ device tree
+
+Check the 'status' property of GPIO buttons in the device tree. If the
+status is present and not 'okay', the GPIO button will not be bound.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 5d6da8a4204fd7fab23767159d1774be16c2cbfa dm: button: add support for disabling GPIO buttons via device tree]
+Change-Id: I49129deb32281d601c6a4635a2cbbfd31dde0adf
+Signed-off-by: Theo GOUREAU <theo.goureau-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/409454
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ drivers/button/button-gpio.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/button/button-gpio.c b/drivers/button/button-gpio.c
+index 31b85c8150e..3eccf4ddf78 100644
+--- a/drivers/button/button-gpio.c
++++ b/drivers/button/button-gpio.c
+@@ -90,6 +90,9 @@ static int button_gpio_bind(struct udevice *parent)
+ 		struct button_uc_plat *uc_plat;
+ 		const char *label;
+ 
++		if (!ofnode_is_enabled(node))
++			continue;
++
+ 		label = ofnode_read_string(node, "label");
+ 		if (!label) {
+ 			debug("%s: node %s has no label\n", __func__,
+-- 
+2.51.0
+
