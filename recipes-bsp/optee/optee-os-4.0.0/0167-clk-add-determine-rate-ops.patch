@@ -1,0 +1,238 @@
+From cc2a5a0b57162311e1c0a7517b5e27bb489e23e2 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Wed, 8 Dec 2021 09:03:39 +0100
+Subject: [PATCH 0167/1695] clk: add determine rate ops
+
+Determine rate ops is useful for doing a set_rate and a parent change
+at the same time.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 24d6b0cf6426a3d95730b973d17512d1e1e7b664 clk: add determine rate ops]
+Change-Id: I27c512df5ee49b31f993a8d6a19426fc8d7eaee9
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 154 ++++++++++++++++++++++++-------------
+ core/include/drivers/clk.h |  22 ++++++
+ 2 files changed, 123 insertions(+), 53 deletions(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index ca32f5b1f..ac58cc704 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -212,59 +212,6 @@ unsigned long clk_get_rate(struct clk *clk)
+ 	return rate;
+ }
+ 
+-static TEE_Result clk_set_rate_no_lock(struct clk *clk, unsigned long rate)
+-{
+-	TEE_Result res = TEE_SUCCESS;
+-	unsigned long parent_rate = 0;
+-	unsigned long new_rate = rate;
+-	struct clk *parent = clk->parent;
+-
+-	if (parent)
+-		parent_rate = parent->rate;
+-
+-	if (!parent || !(clk->flags & CLK_SET_RATE_PARENT)) {
+-		/* pass-through clock without adjustable parent */
+-		new_rate  = rate;
+-	} else {
+-		/* pass-through clock with adjustable parent */
+-		res = clk_set_rate_no_lock(parent, rate);
+-		if (res)
+-			return res;
+-		new_rate = parent->rate;
+-	}
+-
+-	if (clk->ops->set_rate) {
+-		res = clk->ops->set_rate(clk, new_rate, parent_rate);
+-		if (res)
+-			return res;
+-	}
+-
+-	clk_compute_rate_no_lock(clk);
+-
+-	return res;
+-}
+-
+-TEE_Result clk_set_rate(struct clk *clk, unsigned long rate)
+-{
+-	uint32_t exceptions = 0;
+-	TEE_Result res = TEE_ERROR_GENERIC;
+-
+-	/* bail early if nothing to do */
+-	if (rate == clk_get_rate(clk))
+-		return TEE_SUCCESS;
+-
+-	exceptions =  cpu_spin_lock_xsave(&clk_lock);
+-
+-	if (clk->flags & CLK_SET_RATE_GATE && clk_is_enabled_no_lock(clk))
+-		res = TEE_ERROR_BAD_STATE;
+-	else
+-		res = clk_set_rate_no_lock(clk, rate);
+-
+-	cpu_spin_unlock_xrestore(&clk_lock, exceptions);
+-
+-	return res;
+-}
+-
+ struct clk *clk_get_parent(struct clk *clk)
+ {
+ 	return clk->parent;
+@@ -375,6 +322,107 @@ TEE_Result clk_get_rates_steps(struct clk *clk, unsigned long *min,
+ 	return clk->ops->get_rates_steps(clk, min, max, step);
+ }
+ 
++static void clk_init_rate_req(struct clk *clk,
++			      struct clk_rate_request *req)
++{
++	struct clk *parent = clk->parent;
++
++	if (parent) {
++		req->best_parent = parent;
++		req->best_parent_rate = parent->rate;
++	} else {
++		req->best_parent = NULL;
++		req->best_parent_rate = 0;
++	}
++}
++
++static TEE_Result clk_set_rate_no_lock(struct clk *clk, unsigned long rate)
++{
++	TEE_Result res = TEE_SUCCESS;
++	unsigned long parent_rate = 0;
++	unsigned long new_rate = rate;
++	struct clk *parent = clk->parent;
++
++	if (parent)
++		parent_rate = parent->rate;
++
++	/* find the closest rate and parent clk/rate */
++	if (clk->ops->determine_rate) {
++		struct clk_rate_request req = { };
++		struct clk *old_parent = clk->parent;
++
++		req.rate = rate;
++
++		clk_init_rate_req(clk, &req);
++
++		res = clk->ops->determine_rate(clk, &req);
++		if (res)
++			return res;
++
++		parent_rate = req.best_parent_rate;
++		new_rate = req.rate;
++		parent = req.best_parent;
++
++		res = clk_set_rate_no_lock(parent, parent_rate);
++		if (res)
++			return res;
++
++		if (parent && parent != old_parent) {
++			if (parent && clk->num_parents > 1) {
++				size_t pidx = 0;
++
++				if (clk_get_parent_idx(clk, parent, &pidx))
++					return TEE_ERROR_BAD_PARAMETERS;
++
++				res = clk_set_parent_no_lock(clk, parent, pidx);
++				if (res)
++					return res;
++				clk->parent = parent;
++			}
++		}
++	} else if (!parent || !(clk->flags & CLK_SET_RATE_PARENT)) {
++		/* pass-through clock without adjustable parent */
++		new_rate  = rate;
++	} else {
++		/* pass-through clock with adjustable parent */
++		res = clk_set_rate_no_lock(parent, rate);
++		if (res)
++			return res;
++		new_rate = parent->rate;
++	}
++
++	if (clk->ops->set_rate) {
++		res = clk->ops->set_rate(clk, new_rate, parent_rate);
++		if (res)
++			return res;
++	}
++
++	clk_compute_rate_no_lock(clk);
++
++	return res;
++}
++
++TEE_Result clk_set_rate(struct clk *clk, unsigned long rate)
++{
++	uint32_t exceptions = 0;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	/* bail early if nothing to do */
++	if (rate == clk_get_rate(clk))
++		return TEE_SUCCESS;
++
++	exceptions =  cpu_spin_lock_xsave(&clk_lock);
++
++	if (clk->flags & CLK_SET_RATE_GATE && clk_is_enabled_no_lock(clk))
++		res = TEE_ERROR_BAD_STATE;
++	else
++		res = clk_set_rate_no_lock(clk, rate);
++
++	cpu_spin_unlock_xrestore(&clk_lock, exceptions);
++
++	return res;
++}
++
+ /* Return updated message buffer position of NULL on failure */
+ static __printf(3, 4) char *add_msg(char *cur, char *end, const char *fmt, ...)
+ {
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 2c1342016..3b8a5cfe2 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -46,6 +46,23 @@ struct clk {
+ 	struct clk *parents[];
+ };
+ 
++/**
++ * struct clk_rate_request
++ *
++ * @rate:		Requested clock rate. This field will be adjusted by
++ *			clock drivers according to hardware capabilities.
++ * @best_parent_rate:	The best parent rate a parent can provide to fulfill the
++ *			requested constraints.
++ * @best_parent:	The most appropriate parent clock that fulfills the
++ *			requested constraints.
++ *
++ */
++struct clk_rate_request {
++	unsigned long rate;
++	unsigned long best_parent_rate;
++	struct clk *best_parent;
++};
++
+ /**
+  * struct clk_ops
+  *
+@@ -58,6 +75,9 @@ struct clk {
+  * @get_rate: Get the clock rate
+  * @get_rates_array: Get the supported clock rates as array
+  * @get_rates_steps: Get support clock rates by min/max/step representation
++ * @determine_rate: Given a target rate as input, returns the closest rate
++ *		actually supported by the clock, and optionally the parent clock
++ *		that should be used to provide the clock rate
+  */
+ struct clk_ops {
+ 	bool (*is_enabled)(struct clk *clk);
+@@ -73,6 +93,8 @@ struct clk_ops {
+ 				      unsigned long *rates, size_t *nb_elts);
+ 	TEE_Result (*get_rates_steps)(struct clk *clk, unsigned long *min,
+ 				      unsigned long *max, unsigned long *step);
++	TEE_Result (*determine_rate)(struct clk *clk,
++				     struct clk_rate_request *req);
+ };
+ 
+ /**
+-- 
+2.47.2
+

@@ -1,0 +1,61 @@
+From e2e0422c147614f6dd35ba133c15c8ed634d9da7 Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Mon, 18 Nov 2024 18:54:44 +0100
+Subject: [PATCH 1362/1695] drivers: stm32_bsec3: force miror reload after a
+ standby
+
+Force reload after a standby because ROM code can reload
+some OTP (ex : OTP 124)
+Because of this BSEC miror in not aligned with BSEC shadow values.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 87e9573d70f7ef538015a69ce30be70ed3039b21 drivers: stm32_bsec3: force miror reload after a standby]
+Change-Id: I1f2de562e561c45e9060ac02ff3d89765da5000c
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/419354
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/stm32_bsec3.c | 11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/stm32_bsec3.c b/core/drivers/stm32_bsec3.c
+index 5d6ff85ad..eb2d936e4 100644
+--- a/core/drivers/stm32_bsec3.c
++++ b/core/drivers/stm32_bsec3.c
+@@ -1007,13 +1007,12 @@ static void stm32_bsec_shadow_load(uint32_t status)
+ 	bsec_unlock(exceptions);
+ }
+ 
+-static void stm32_bsec_shadow_init(bool force_load)
++static void stm32_bsec_shadow_init(void)
+ {
+ 	uint32_t status = bsec_get_otp_status();
+ 
+-	/* update shadow when forced or invalid */
+-	if (force_load || bsec_dev.shadow->magic != BSEC_MAGIC)
+-		stm32_bsec_shadow_load(status);
++	/* update bsec miror */
++	stm32_bsec_shadow_load(status);
+ 
+ 	/* always update status */
+ 	bsec_dev.shadow->state = init_state(status);
+@@ -1205,7 +1204,7 @@ stm32_bsec_pm(enum pm_op op, unsigned int pm_hint,
+ 		check_reset_error();
+ 
+ 		/* re initialize the shadow */
+-		stm32_bsec_shadow_init(false);
++		stm32_bsec_shadow_init();
+ 	}
+ 
+ 	return TEE_SUCCESS;
+@@ -1254,7 +1253,7 @@ static TEE_Result initialize_bsec(void)
+ 		check_reset_error();
+ 
+ 		/* initialize the shadow */
+-		stm32_bsec_shadow_init(true);
++		stm32_bsec_shadow_init();
+ 
+ 		register_pm_core_service_cb(stm32_bsec_pm, NULL, "stm32-bsec");
+ 	}
+-- 
+2.47.2
+

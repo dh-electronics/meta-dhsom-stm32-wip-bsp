@@ -1,0 +1,43 @@
+From bfefb9e7fec3e7404ac6069069e903a4e7404ac8 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 22 Jul 2024 10:32:06 +0200
+Subject: [PATCH 1255/1695] plat-stm32mp1: fix use after free in PMIC driver
+
+Fix PMIC regulator levels arrays handling that missed a pointer reset
+after the buffer is freed. At runtime, pmic_list_voltages() handler
+function uses that reference and is expected to allocate back the
+buffer in case non-secure world requests voltage enumeration for the
+related regulator.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d78f76ee9974d1f24fc10eed068129ffba745760 plat-stm32mp1: fix use after free in PMIC driver]
+Change-Id: I43af527a69468fae576d0fd88f82b1021a1c3018
+Fixes: a7990eb02b82 ("plat-stm32mp1: set voltage list at pmic driver init")
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/394481
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+index 53b2974f5..53afb2dc0 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_stpmic1.c
+@@ -611,8 +611,10 @@ static TEE_Result release_voltage_lists(void)
+ 	for (n = 0; n < ARRAY_SIZE(pmic_regulators); n++) {
+ 		struct pmic_regulator_data *priv = pmic_regulators[n].priv;
+ 
+-		if (priv && priv->voltages_level)
++		if (priv && priv->voltages_level) {
+ 			free(priv->voltages_level);
++			priv->voltages_level = NULL;
++		}
+ 	}
+ 
+ 	return TEE_SUCCESS;
+-- 
+2.47.2
+

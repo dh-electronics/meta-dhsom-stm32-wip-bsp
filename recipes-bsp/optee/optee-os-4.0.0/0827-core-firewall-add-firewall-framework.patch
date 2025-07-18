@@ -1,0 +1,687 @@
+From 46edd55b21b370dc9bd4bcfbf1026f62adb52b07 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 2 May 2024 16:51:17 +0200
+Subject: [PATCH 0827/1695] core: firewall: add firewall framework
+
+Add a generic firewall controller framework. The goal of this framework
+is to offer access control and configuration APIs, that are implemented
+in the firewall controllers drivers, to the firewall consumers. This
+framework requires an embedded device tree.
+
+A firewall controller is an access controller [1]. It should register
+itself as a provider to the framework. Firewall controllers have the
+possibility to populate their bus according to defined firewall accesses
+defined in the "access-controllers" property in each of the device's
+node.
+
+Any device that consumes one or more firewall should refer it/them in
+their "access-controllers" property. Arguments can be passed along with
+the phandle of the firewall controller(s).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 76badf6798821489414ae7cecb1adcd6ba0bd1aa core: firewall: add firewall framework]
+Link: https://patchwork.kernel.org/project/linux-media/patch/20240105130404.301172-2-gatien.chevallier@foss.st.com/ [1]
+Change-Id: Ib86da86cc2b0b7f2e172eb7cfb92ba1ebf6ee750
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[Gatien: backported from 48a1cce429b4a61f22c7f8ee892d51569d15c355]
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/383341
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/firewall/firewall.c       | 225 +++++++++++++++++++++++++
+ core/drivers/firewall/sub.mk           |   2 +
+ core/drivers/sub.mk                    |   1 +
+ core/include/drivers/firewall.h        | 110 ++++++++++++
+ core/include/drivers/firewall_device.h | 223 ++++++++++++++++++++++++
+ core/include/kernel/dt_driver.h        |   2 +
+ core/kernel/dt_driver.c                |   4 +
+ 7 files changed, 567 insertions(+)
+ create mode 100644 core/drivers/firewall/firewall.c
+ create mode 100644 core/include/drivers/firewall.h
+ create mode 100644 core/include/drivers/firewall_device.h
+
+diff --git a/core/drivers/firewall/firewall.c b/core/drivers/firewall/firewall.c
+new file mode 100644
+index 000000000..6c9ebfa62
+--- /dev/null
++++ b/core/drivers/firewall/firewall.c
+@@ -0,0 +1,225 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (C) 2024, STMicroelectronics
++ */
++
++#include <assert.h>
++#include <config.h>
++#include <drivers/firewall.h>
++#include <kernel/dt_driver.h>
++#include <kernel/panic.h>
++#include <libfdt.h>
++#include <malloc.h>
++#include <trace.h>
++
++/* The firewall framework requires device tree support */
++static_assert(IS_ENABLED(CFG_DT));
++
++static TEE_Result firewall_get(struct dt_pargs *parg, void *data,
++			       struct firewall_query **out_fw)
++{
++	struct firewall_query *fw = NULL;
++	unsigned int i = 0;
++
++	assert(parg->args_count >= 0);
++
++	fw = calloc(1, sizeof(*fw));
++	if (!fw)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	fw->ctrl = (struct firewall_controller *)data;
++	fw->arg_count = parg->args_count;
++
++	if (fw->arg_count) {
++		fw->args = calloc(fw->arg_count, sizeof(*fw->args));
++		if (!fw->args) {
++			free(fw);
++			return TEE_ERROR_OUT_OF_MEMORY;
++		}
++	}
++
++	for (i = 0; i < (unsigned int)parg->args_count; i++)
++		fw->args[i] = parg->args[i];
++
++	*out_fw = fw;
++
++	return TEE_SUCCESS;
++}
++
++/* Firewall device API */
++
++void firewall_put(struct firewall_query *fw)
++{
++	if (fw) {
++		free(fw->args);
++		free(fw);
++	}
++}
++
++TEE_Result firewall_dt_get_by_index(const void *fdt, int node, uint32_t index,
++				    struct firewall_query **out_fw)
++{
++	return dt_driver_device_from_node_idx_prop("access-controllers", fdt,
++						   node, index,
++						   DT_DRIVER_FIREWALL,
++						   out_fw);
++}
++
++TEE_Result firewall_dt_get_by_name(const void *fdt, int node, const char *name,
++				   struct firewall_query **out_fw)
++{
++	int index = 0;
++
++	index = fdt_stringlist_search(fdt, node, "access-controllers-names",
++				      name);
++	if (index == -FDT_ERR_NOTFOUND)
++		return TEE_ERROR_ITEM_NOT_FOUND;
++	else if (index < 0)
++		return TEE_ERROR_GENERIC;
++
++	return firewall_dt_get_by_index(fdt, node, index, out_fw);
++}
++
++TEE_Result firewall_set_configuration(struct firewall_query *fw)
++{
++	assert(fw && fw->ctrl && fw->ctrl->ops);
++
++	if (!fw->ctrl->ops->set_conf)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return fw->ctrl->ops->set_conf(fw);
++}
++
++TEE_Result firewall_check_access(struct firewall_query *fw)
++{
++	assert(fw && fw->ctrl && fw->ctrl->ops);
++
++	if (!fw->ctrl->ops->check_access)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return fw->ctrl->ops->check_access(fw);
++}
++
++TEE_Result firewall_acquire_access(struct firewall_query *fw)
++{
++	assert(fw && fw->ctrl && fw->ctrl->ops);
++
++	if (!fw->ctrl->ops->acquire_access)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return fw->ctrl->ops->acquire_access(fw);
++}
++
++TEE_Result firewall_check_memory_access(struct firewall_query *fw,
++					paddr_t paddr, size_t size, bool read,
++					bool write)
++{
++	assert(fw && fw->ctrl && fw->ctrl->ops);
++
++	if (!fw->ctrl->ops->check_memory_access)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return fw->ctrl->ops->check_memory_access(fw, paddr, size, read, write);
++}
++
++TEE_Result firewall_acquire_memory_access(struct firewall_query *fw,
++					  paddr_t paddr, size_t size, bool read,
++					  bool write)
++{
++	assert(fw && fw->ctrl && fw->ctrl->ops);
++
++	if (!fw->ctrl->ops->acquire_memory_access)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return fw->ctrl->ops->acquire_memory_access(fw, paddr, size, read,
++						    write);
++}
++
++void firewall_release_access(struct firewall_query *fw)
++{
++	assert(fw && fw->ctrl && fw->ctrl->ops);
++
++	if (fw->ctrl->ops->release_access)
++		fw->ctrl->ops->release_access(fw);
++}
++
++void firewall_release_memory_access(struct firewall_query *fw, paddr_t paddr,
++				    size_t size, bool read, bool write)
++{
++	assert(fw && fw->ctrl && fw->ctrl->ops);
++
++	if (fw->ctrl->ops->release_memory_access)
++		fw->ctrl->ops->release_memory_access(fw, paddr, size, read,
++						     write);
++}
++
++/* Firewall controller API */
++
++TEE_Result firewall_dt_controller_register(const void *fdt, int node,
++					   struct firewall_controller *ctrl)
++{
++	assert(ctrl);
++
++	DMSG("Registering %s firewall controller", ctrl->name);
++
++	return dt_driver_register_provider(fdt, node,
++					   (get_of_device_func)firewall_get,
++					   ctrl, DT_DRIVER_FIREWALL);
++}
++
++TEE_Result firewall_dt_probe_bus(const void *fdt, int node,
++				 struct firewall_controller *ctrl)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	struct firewall_query *fw = NULL;
++	int subnode = 0;
++
++	DMSG("Populating %s firewall bus", ctrl->name);
++
++	fdt_for_each_subnode(subnode, fdt, node) {
++		unsigned int i = 0;
++
++		if (fdt_get_status(fdt, subnode) == DT_STATUS_DISABLED)
++			continue;
++
++		DMSG("Acquiring firewall access for %s when probing bus",
++		     fdt_get_name(fdt, subnode, NULL));
++
++		do {
++			/*
++			 * The access-controllers property is mandatory for
++			 * firewall bus devices
++			 */
++			res = firewall_dt_get_by_index(fdt, subnode, i, &fw);
++			if (res == TEE_ERROR_ITEM_NOT_FOUND) {
++				/* Stop when nothing more to parse */
++				break;
++			} else if (res) {
++				EMSG("%s: Error on node %s: %#"PRIx32,
++				     ctrl->name,
++				     fdt_get_name(fdt, subnode, NULL), res);
++				panic();
++			}
++
++			res = firewall_acquire_access(fw);
++			if (res) {
++				EMSG("%s: %s not accessible: %#"PRIx32,
++				     ctrl->name,
++				     fdt_get_name(fdt, subnode, NULL), res);
++				panic();
++			}
++
++			firewall_put(fw);
++			i++;
++		} while (true);
++
++		res = dt_driver_maybe_add_probe_node(fdt, subnode);
++		if (res) {
++			EMSG("Failed on node %s with %#"PRIx32,
++			     fdt_get_name(fdt, subnode, NULL), res);
++			panic();
++		}
++	}
++
++	return TEE_SUCCESS;
++}
+diff --git a/core/drivers/firewall/sub.mk b/core/drivers/firewall/sub.mk
+index b6f7c9ced..69ceac0ee 100644
+--- a/core/drivers/firewall/sub.mk
++++ b/core/drivers/firewall/sub.mk
+@@ -6,3 +6,5 @@ srcs-$(CFG_STM32_RIFSC) += stm32_rifsc.c
+ srcs-$(CFG_STM32_RISAB) += stm32_risab.c
+ srcs-$(CFG_STM32_RISAF) += stm32_risaf.c
+ srcs-$(CFG_STM32_SERC) += stm32_serc.c
++
++srcs-$(CFG_DRIVERS_FIREWALL) += firewall.c
+diff --git a/core/drivers/sub.mk b/core/drivers/sub.mk
+index 5c2ff347d..0d6f0f96c 100644
+--- a/core/drivers/sub.mk
++++ b/core/drivers/sub.mk
+@@ -93,6 +93,7 @@ subdirs-y += firewall
+ subdirs-$(CFG_BNXT_FW) += bnxt
+ subdirs-$(CFG_DRIVERS_ADC) += adc
+ subdirs-$(CFG_DRIVERS_CLK) += clk
++subdirs-$(CFG_DRIVERS_FIREWALL) += firewall
+ subdirs-$(CFG_DRIVERS_GPIO) += gpio
+ subdirs-$(CFG_DRIVERS_I2C) += i2c
+ subdirs-$(CFG_DRIVERS_NVMEM) += nvmem
+diff --git a/core/include/drivers/firewall.h b/core/include/drivers/firewall.h
+new file mode 100644
+index 000000000..efe5c42bb
+--- /dev/null
++++ b/core/include/drivers/firewall.h
+@@ -0,0 +1,110 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (C) 2024, STMicroelectronics
++ */
++
++#ifndef __DRIVERS_FIREWALL_H
++#define __DRIVERS_FIREWALL_H
++
++#include <compiler.h>
++#include <drivers/firewall_device.h>
++#include <mm/core_memprot.h>
++#include <stdbool.h>
++#include <stddef.h>
++#include <tee_api_defines.h>
++#include <types_ext.h>
++
++struct firewall_controller_ops;
++
++/**
++ * struct firewall_controller - Firewall controller supplying services
++ *
++ * @ops: Operation handlers
++ * @name: Name of the firewall controller
++ * @base: Base address of the firewall controller
++ * @priv: Private data of the firewall controller
++ */
++struct firewall_controller {
++	const struct firewall_controller_ops *ops;
++	const char *name;
++	struct io_pa_va *base;
++	void *priv;
++};
++
++/**
++ * struct firewall_controller_ops - Firewall controller operation handlers
++ *
++ * @set_conf: Callback used to set given firewall configuration
++ * @check_access: Callback used to check access for a consumer on a resource
++ * against a firewall controller
++ * @acquire_access: Callback used to acquire access for OP-TEE on a resource
++ * against a firewall controller
++ * @release_access: Callback used to release resources taken by a consumer when
++ * the access was acquired with @acquire_access
++ * @check_memory_access: Callback used to check access for a consumer to a
++ * memory range covered by a firewall controller, for read and/or write accesses
++ * @acquire_memory_access: Callback used to acquire access for OP-TEE to a
++ * memory range covered by a firewall controller, for read and/or write accesses
++ * @release_memory_access: Callback used to release resources taken by a
++ * consumer when the memory access was acquired with @acquire_memory_access
++ */
++struct firewall_controller_ops {
++	TEE_Result (*set_conf)(struct firewall_query *conf);
++	TEE_Result (*check_access)(struct firewall_query *conf);
++	TEE_Result (*acquire_access)(struct firewall_query *conf);
++	void (*release_access)(struct firewall_query *conf);
++	TEE_Result (*check_memory_access)(struct firewall_query *fw,
++					  paddr_t paddr, size_t size,
++					  bool read, bool write);
++	TEE_Result (*acquire_memory_access)(struct firewall_query *fw,
++					    paddr_t paddr, size_t size,
++					    bool read, bool write);
++	void (*release_memory_access)(struct firewall_query *fw,
++				      paddr_t paddr, size_t size, bool read,
++				      bool write);
++};
++
++#ifdef CFG_DRIVERS_FIREWALL
++/**
++ * firewall_dt_controller_register() - Register a firewall controller to the
++ * firewall framework
++ * @fdt: FDT to work on
++ * @node: DT node of the controller
++ * @ctrl: Firewall controller to register
++ */
++TEE_Result firewall_dt_controller_register(const void *fdt, int node,
++					   struct firewall_controller *ctrl);
++
++/**
++ * firewall_dt_probe_bus() - Add bus device tree subnodes that are accessible by
++ * OP-TEE to the driver probe list. This is used at boot time only, as a sanity
++ * check between device tree and firewalls hardware configurations to prevent
++ * undesired accesses when access to a device is not authorized. This function
++ * tries to acquire access to every resource entries listed in the
++ * access-controllers property of each of the subnodes. It panics if it fails
++ * to do so.
++ *
++ * @fdt: FDT to work on
++ * @node: Firewall controller node
++ * @ctrl:Firewall controller which subnodes will be populated or not
++ */
++TEE_Result firewall_dt_probe_bus(const void *fdt, int node,
++				 struct firewall_controller *ctrl);
++
++#else /* CFG_DRIVERS_FIREWALL */
++
++static inline TEE_Result
++firewall_dt_controller_register(const void *fdt __unused, int node __unused,
++				struct firewall_controller *ctrl __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline TEE_Result
++firewall_dt_probe_bus(const void *fdt __unused, int node __unused,
++		      struct firewall_controller *ctrl __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++#endif /* CFG_DRIVERS_FIREWALL */
++#endif /* __DRIVERS_FIREWALL_H */
+diff --git a/core/include/drivers/firewall_device.h b/core/include/drivers/firewall_device.h
+new file mode 100644
+index 000000000..8ff4cfd24
+--- /dev/null
++++ b/core/include/drivers/firewall_device.h
+@@ -0,0 +1,223 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (C) 2024, STMicroelectronics
++ */
++
++#ifndef __DRIVERS_FIREWALL_DEVICE_H
++#define __DRIVERS_FIREWALL_DEVICE_H
++
++#include <stdint.h>
++#include <tee_api.h>
++#include <types_ext.h>
++#include <util.h>
++
++/* Opaque reference to firewall_controller */
++struct firewall_controller;
++
++/**
++ * struct firewall_query - Information on a device's firewall.
++ *
++ * @ctrl: Pointer referencing a firewall controller of the device. It is opaque
++ * so a device cannot manipulate the controller's ops or access the controller's
++ * data
++ * @args: Firewall arguments that are implementation dependent
++ * @arg_count: Number of arguments
++ */
++struct firewall_query {
++	struct firewall_controller *ctrl;
++	uint32_t *args;
++	size_t arg_count;
++};
++
++#ifdef CFG_DRIVERS_FIREWALL
++/**
++ * firewall_dt_get_by_index() - Get the firewall configuration associated to a
++ * given index for a device node.
++ *
++ * @fdt: FDT to work on
++ * @node: Device node to read from
++ * @index: Index of the entry in the property
++ * @out_fw: Firewall query reference
++ *
++ * Returns TEE_SUCCESS on success, TEE_ERROR_ITEM_NOT_FOUND if there's no match
++ * with a firewall controller or appropriate TEE_Result error code if an
++ * error occurred.
++ */
++TEE_Result firewall_dt_get_by_index(const void *fdt, int node,
++				    unsigned int index,
++				    struct firewall_query **out_fw);
++
++/**
++ * firewall_dt_get_by_name() - Get the firewall configuration associated to a
++ * given name for a device node.
++ *
++ * @fdt: FDT to work on
++ * @node: Device node to read from
++ * @name: Name of the firewall configuration to search for
++ * @out_fw: Firewall query reference
++ *
++ * Returns TEE_SUCCESS on success, TEE_ERROR_ITEM_NOT_FOUND if there's no match
++ * with a firewall controller or appropriate TEE_Result error code if an
++ * error occurred.
++ */
++TEE_Result firewall_dt_get_by_name(const void *fdt, int node, const char *name,
++				   struct firewall_query **out_fw);
++
++/**
++ * firewall_set_configuration() - Reconfigure the firewall controller associated
++ * to the given firewall configuration with it.
++ *
++ * @fw:	Firewall query containing the configuration to set
++ */
++TEE_Result firewall_set_configuration(struct firewall_query *fw);
++
++/**
++ * firewall_check_access() - Check if the access is authorized for a consumer
++ * and the given firewall configuration according to the settings of its
++ * firewall controller
++ *
++ * @fw:	Firewall query containing the configuration to check against its
++ * firewall controller
++ */
++TEE_Result firewall_check_access(struct firewall_query *fw);
++
++/**
++ * firewall_acquire_access() - Check if OP-TEE can access the consumer and
++ * acquire potential resources to allow the access
++ *
++ * @fw:	Firewall query containing the configuration to check against its
++ * firewall controller
++ */
++TEE_Result firewall_acquire_access(struct firewall_query *fw);
++
++/**
++ * firewall_check_memory_access() - Check if a consumer can access the memory
++ * address range, in read and/or write mode and given the firewall
++ * configuration, against a firewall controller
++ *
++ * @fw: Firewall query containing the configuration to check against its
++ * firewall controller
++ * @paddr: Physical base address of the memory range to check
++ * @size: Size of the memory range to check
++ * @read: If true, check rights for a read access
++ * @write: If true, check rights for a write access
++ */
++TEE_Result firewall_check_memory_access(struct firewall_query *fw,
++					paddr_t paddr, size_t size, bool read,
++					bool write);
++
++/**
++ * firewall_acquire_memory_access() - Request OP-TEE access, in read and/or
++ * write mode, to the given memory address range against a firewall controller
++ * and acquire potential resources to allow the access
++ *
++ * @fw: Firewall query containing the configuration to check against its
++ * firewall controller
++ * @paddr: Physical base address of the memory range to check
++ * @size: Size of the memory range to check
++ * @read: Check rights for a read access
++ * @write: Check rights for a write access
++ */
++TEE_Result firewall_acquire_memory_access(struct firewall_query *fw,
++					  paddr_t paddr, size_t size, bool read,
++					  bool write);
++
++/**
++ * firewall_release_access() - Release resources obtained by a call to
++ * firewall_acquire_access()
++ *
++ * @fw:	Firewall query containing the configuration to release
++ */
++void firewall_release_access(struct firewall_query *fw);
++
++/**
++ * firewall_release_memory_access() - Release resources obtained by a call to
++ * firewall_acquire_memory_access()
++ *
++ * @fw:	Firewall configuration to release
++ * @paddr: Physical base address of the memory range to release
++ * @size: Size of the memory range to release
++ * @read: Release rights for read accesses
++ * @write: Release rights for write accesses
++ */
++void firewall_release_memory_access(struct firewall_query *fw, paddr_t paddr,
++				    size_t size, bool read, bool write);
++
++/**
++ * firewall_put() - Release a firewall_query structure allocated by
++ * firewall_dt_get_by_index() or firewall_dt_get_by_name()
++ *
++ * @fw:	Firewall query to put
++ */
++void firewall_put(struct firewall_query *fw);
++
++#else /* CFG_DRIVERS_FIREWALL */
++
++static inline TEE_Result
++firewall_dt_get_by_index(const void *fdt __unused, int node __unused,
++			 unsigned int index __unused,
++			 struct firewall_query **out_fw __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline TEE_Result
++firewall_dt_get_by_name(const void *fdt __unused, int node __unused,
++			const char *name __unused,
++			struct firewall_query **out_fw __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline TEE_Result
++firewall_check_access(struct firewall_query *fw __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline TEE_Result
++firewall_acquire_access(struct firewall_query *fw __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline TEE_Result
++firewall_check_memory_access(struct firewall_query *fw __unused,
++			     paddr_t paddr __unused, size_t size __unused,
++			     bool read __unused, bool write __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline TEE_Result
++firewall_acquire_memory_access(struct firewall_query *fw __unused,
++			       paddr_t paddr __unused, size_t size __unused,
++			       bool read __unused, bool write __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline void
++firewall_release_access(struct firewall_query *fw __unused)
++{
++}
++
++static inline void
++firewall_release_memory_access(struct firewall_query *fw __unused,
++			       paddr_t paddr __unused, size_t size __unused,
++			       bool read __unused, bool write __unused)
++{
++}
++
++static inline TEE_Result
++firewall_set_configuration(struct firewall_query *fw __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline void firewall_put(struct firewall_query *fw __unused)
++{
++}
++
++#endif /* CFG_DRIVERS_FIREWALL */
++#endif /* __DRIVERS_FIREWALL_DEVICE_H */
+diff --git a/core/include/kernel/dt_driver.h b/core/include/kernel/dt_driver.h
+index 9eb52c2e2..113282998 100644
+--- a/core/include/kernel/dt_driver.h
++++ b/core/include/kernel/dt_driver.h
+@@ -27,6 +27,7 @@
+  * DT_DRIVER_REGULATOR Voltage regulator controller using generic DT bindings
+  * DT_DRIVER_NVMEM NVMEM controller using generic NVMEM DT bindings
+  * DT_DRIVER_ADC ADC controller using generic reset DT bindings
++ * DT_DRIVER_FIREWALL Firewall controller using generic DT bindings
+  */
+ enum dt_driver_type {
+ 	DT_DRIVER_NOTYPE,
+@@ -40,6 +41,7 @@ enum dt_driver_type {
+ 	DT_DRIVER_REGULATOR,
+ 	DT_DRIVER_NVMEM,
+ 	DT_DRIVER_ADC,
++	DT_DRIVER_FIREWALL,
+ };
+ 
+ /*
+diff --git a/core/kernel/dt_driver.c b/core/kernel/dt_driver.c
+index 42644d637..0418a8526 100644
+--- a/core/kernel/dt_driver.c
++++ b/core/kernel/dt_driver.c
+@@ -113,6 +113,7 @@ static void assert_type_is_valid(enum dt_driver_type type)
+ 	case DT_DRIVER_INTERRUPT:
+ 	case DT_DRIVER_REGULATOR:
+ 	case DT_DRIVER_NVMEM:
++	case DT_DRIVER_FIREWALL:
+ 		return;
+ 	default:
+ 		assert(0);
+@@ -202,6 +203,9 @@ int fdt_get_dt_driver_cells(const void *fdt, int nodeoffset,
+ 	case DT_DRIVER_GPIO:
+ 		cells_name = "#gpio-cells";
+ 		break;
++	case DT_DRIVER_FIREWALL:
++		cells_name = "#access-controller-cells";
++		break;
+ 	case DT_DRIVER_I2C:
+ 	case DT_DRIVER_REGULATOR:
+ 	case DT_DRIVER_NOTYPE:
+-- 
+2.47.2
+

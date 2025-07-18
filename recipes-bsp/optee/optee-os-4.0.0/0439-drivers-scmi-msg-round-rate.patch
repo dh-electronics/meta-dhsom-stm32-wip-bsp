@@ -1,0 +1,122 @@
+From 1e12b703f3a3b4afa92cd962511aee5a200da8d7 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 21 Oct 2021 17:51:33 +0200
+Subject: [PATCH 0439/1695] drivers: scmi-msg: round rate
+
+Implement SCMI Clock protocol extra message ROUND_RATE_GET.
+
+Ported from change ID tag I6b9a82c307c1cafc1fc411e01f34dfd27ee0dff0.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c2888ec4e73feff616cf507ed2ac6c667c8d0ea2 drivers: scmi-msg: round rate]
+Change-Id: I518f0bee85748072970420e17532b058c915d01a
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/scmi_server.c | 12 +++++++++
+ core/drivers/scmi-msg/clock.c             | 32 +++++++++++++++++++++++
+ core/drivers/scmi-msg/clock.h             |  1 +
+ core/include/drivers/scmi-msg.h           |  3 +++
+ 4 files changed, 48 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index 66e7fa9e3..f9e6ae67f 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -454,6 +454,18 @@ unsigned long plat_scmi_clock_get_rate(unsigned int channel_id,
+ 	return clk_get_rate(clock->clk);
+ }
+ 
++unsigned long plat_scmi_clock_round_rate(unsigned int channel_id,
++					 unsigned int scmi_id,
++					 unsigned long rate)
++{
++	struct stm32_scmi_clk *clock = find_clock(channel_id, scmi_id);
++
++	if (!clock || !stm32mp_nsec_can_access_clock(clock->clock_id))
++		return 0;
++
++	return clk_round_rate(stm32mp_rcc_clock_id_to_clk(clock->clock_id), rate);
++}
++
+ int32_t plat_scmi_clock_get_state(unsigned int channel_id, unsigned int scmi_id)
+ {
+ 	struct stm32_scmi_clk *clock = find_clock(channel_id, scmi_id);
+diff --git a/core/drivers/scmi-msg/clock.c b/core/drivers/scmi-msg/clock.c
+index 778eeddd5..0444b84c8 100644
+--- a/core/drivers/scmi-msg/clock.c
++++ b/core/drivers/scmi-msg/clock.c
+@@ -192,6 +192,37 @@ static void scmi_clock_rate_get(struct scmi_msg *msg)
+ 	scmi_write_response(msg, &return_values, sizeof(return_values));
+ }
+ 
++static void scmi_clock_round_rate_get(struct scmi_msg *msg)
++{
++	const struct scmi_clock_rate_set_a2p *in_args = (void *)msg->in;
++	unsigned long rate = 0;
++	struct scmi_clock_rate_get_p2a return_values = { };
++	unsigned int clock_id = 0;
++	uint64_t rate_64 = 0;
++
++	if (msg->in_size != sizeof(*in_args)) {
++		scmi_status_response(msg, SCMI_PROTOCOL_ERROR);
++		return;
++	}
++
++	if (in_args->clock_id >= plat_scmi_clock_count(msg->channel_id)) {
++		scmi_status_response(msg, SCMI_INVALID_PARAMETERS);
++		return;
++	}
++
++	clock_id = confine_array_index(in_args->clock_id,
++				       plat_scmi_clock_count(msg->channel_id));
++
++	rate_64 = reg_pair_to_64(in_args->rate[1], in_args->rate[0]);
++	rate = rate_64;
++
++	rate = plat_scmi_clock_round_rate(msg->channel_id, clock_id, rate);
++
++	reg_pair_from_64(rate, return_values.rate + 1, return_values.rate);
++
++	scmi_write_response(msg, &return_values, sizeof(return_values));
++}
++
+ static void scmi_clock_rate_set(struct scmi_msg *msg)
+ {
+ 	const struct scmi_clock_rate_set_a2p *in_args = (void *)msg->in;
+@@ -402,6 +433,7 @@ static const scmi_msg_handler_t scmi_clock_handler_table[] = {
+ 	[SCMI_CLOCK_RATE_GET] = scmi_clock_rate_get,
+ 	[SCMI_CLOCK_CONFIG_SET] = scmi_clock_config_set,
+ 	[SCMI_CLOCK_DUTY_CYCLE_GET] = scmi_clock_duty_cycle_get,
++	[SCMI_CLOCK_ROUND_RATE_GET] = scmi_clock_round_rate_get,
+ };
+ 
+ static bool message_id_is_supported(unsigned int message_id)
+diff --git a/core/drivers/scmi-msg/clock.h b/core/drivers/scmi-msg/clock.h
+index ad3714c78..be5468da4 100644
+--- a/core/drivers/scmi-msg/clock.h
++++ b/core/drivers/scmi-msg/clock.h
+@@ -24,6 +24,7 @@ enum scmi_clock_command_id {
+ 	SCMI_CLOCK_RATE_GET = 0x006,
+ 	SCMI_CLOCK_CONFIG_SET = 0x007,
+ 	SCMI_CLOCK_DUTY_CYCLE_GET = 0x00B,
++	SCMI_CLOCK_ROUND_RATE_GET = 0x00C,
+ };
+ 
+ /* Protocol attributes */
+diff --git a/core/include/drivers/scmi-msg.h b/core/include/drivers/scmi-msg.h
+index a921c0f7d..f6fc3c91f 100644
+--- a/core/include/drivers/scmi-msg.h
++++ b/core/include/drivers/scmi-msg.h
+@@ -257,6 +257,9 @@ int32_t plat_scmi_clock_rates_by_step(unsigned int channel_id,
+ unsigned long plat_scmi_clock_get_rate(unsigned int channel_id,
+ 				       unsigned int scmi_id);
+ 
++unsigned long plat_scmi_clock_round_rate(unsigned int channel_id,
++				       unsigned int scmi_id, unsigned long rate);
++
+ /*
+  * Set clock rate in Hertz
+  * @channel_id: SCMI channel ID
+-- 
+2.47.2
+

@@ -1,0 +1,255 @@
+From 43cac24755da1ec1391e7ae0961b52d6398aa68b Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Fri, 1 Mar 2024 14:28:53 +0100
+Subject: [PATCH 1012/1695] drivers: stm32_remoteproc: add API to get and
+ release memory access
+
+To be able to access to the memory to load the firmware images or
+to clean the memories, it is necessary first to request access to
+the firewall.
+Add get and release ops to allow PTA to request the access to
+the memories.
+For the stm32mp1 the service is ignored and will be managed in a
+separate commit.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6ea1c66efaf21221ac41986c5258dc9d69894681 drivers: stm32_remoteproc: add API to get and release memory access]
+Change-Id: If6ffc6ce09b1dc162ad428c65eb7a0c445333945
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391544
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 126 ++++++++++++++++++++-
+ core/include/drivers/stm32_remoteproc.h    |  15 +++
+ 2 files changed, 136 insertions(+), 5 deletions(-)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index c5257dd91..ff9b15802 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -50,6 +50,7 @@ struct stm32_rproc_mem {
+  * struct stm32_rproc_instance - rproc instance context
+  *
+  * @cdata:	pointer to the device compatible data
++ * @fdt:	device tree file to work on
+  * @link:	the node in the rproc_list
+  * @n_regions:	number of memory regions
+  * @regions:	memory regions used
+@@ -57,9 +58,11 @@ struct stm32_rproc_mem {
+  * @hold_boot:	remote processor hold boot control
+  * @boot_addr:	boot address
+  * @tzen:	indicate if the remote processor should enable the TrustZone
++ * @m_get_cnt:	counter used for the memory region get/release balancing
+  */
+ struct stm32_rproc_instance {
+ 	const struct stm32_rproc_compat_data *cdata;
++	const void *fdt;
+ 	SLIST_ENTRY(stm32_rproc_instance) link;
+ 	size_t n_regions;
+ 	struct stm32_rproc_mem *regions;
+@@ -68,6 +71,7 @@ struct stm32_rproc_instance {
+ 	paddr_t boot_addr;
+ 	bool tzen;
+ 	uint32_t m33_cr_right;
++	uint32_t m_get_cnt;
+ };
+ 
+ /**
+@@ -100,6 +104,88 @@ void *stm32_rproc_get(uint32_t rproc_id)
+ 	return rproc;
+ }
+ 
++#if defined(CFG_STM32MP25) || defined(CFG_STM32MP23)
++/* Re-apply default access right on the memory regions */
++static TEE_Result
++stm32_rproc_release_mems_access(struct stm32_rproc_instance *rproc)
++{
++	struct stm32_rproc_mem *mems = rproc->regions;
++	TEE_Result res = TEE_ERROR_GENERIC;
++	unsigned int i = 0;
++
++	rproc->m_get_cnt--;
++	if (rproc->m_get_cnt)
++		return TEE_SUCCESS;
++
++	for (i = 0; i < rproc->n_regions; i++) {
++		DMSG("Release access of the memory region %#"PRIxPA" size %#zx",
++		     mems[i].addr, mems[i].size);
++		res = firewall_set_memory_alternate_conf(mems[i].default_conf,
++							 mems[i].addr,
++							 mems[i].size);
++		if (res) {
++			EMSG("Failed to apply access rights on region %#"
++			     PRIxPA" size %#zx", mems[i].addr, mems[i].size);
++			return res;
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
++/* Set the firewall configuration allowing to load the remoteproc firmware */
++static TEE_Result
++stm32_rproc_get_mems_access(struct stm32_rproc_instance *rproc)
++{
++	struct stm32_rproc_mem *mems = rproc->regions;
++	TEE_Result res = TEE_ERROR_GENERIC;
++	unsigned int i = 0;
++
++	rproc->m_get_cnt++;
++	if (rproc->m_get_cnt > 1)
++		return TEE_SUCCESS;
++
++	for (i = 0; i < rproc->n_regions; i++) {
++		DMSG("Get access of the memory region %#"PRIxPA" size %#zx",
++		     mems[i].addr, mems[i].size);
++		res = firewall_set_memory_alternate_conf(mems[i].load_conf,
++							 mems[i].addr,
++							 mems[i].size);
++		if (res) {
++			EMSG("Failed to apply access rights on region %#"
++			     PRIxPA" size %#zx", mems[i].addr, mems[i].size);
++			goto err;
++		}
++	}
++
++	return TEE_SUCCESS;
++
++err:
++	if (stm32_rproc_release_mems_access(rproc) != TEE_SUCCESS)
++		panic();
++
++	return res;
++}
++#else
++/* Re-apply default access right  on the memory regions */
++static TEE_Result
++stm32_rproc_release_mems_access(struct stm32_rproc_instance *rproc __unused)
++{
++	/* To implement for the stm32mp1 */
++
++	return TEE_SUCCESS;
++}
++
++/* Get the exclusive access on the memory regions */
++static TEE_Result
++stm32_rproc_get_mems_access(struct stm32_rproc_instance *rproc __unused)
++{
++	/* To implement for the stm32mp1 */
++
++	return TEE_SUCCESS;
++}
++#endif
++
+ static TEE_Result stm32mp2_rproc_start(struct stm32_rproc_instance *rproc)
+ {
+ 	struct stm32_rproc_mem *mems = NULL;
+@@ -236,7 +322,7 @@ TEE_Result stm32_rproc_da_to_pa(uint32_t rproc_id, paddr_t da, size_t size,
+ 
+ static TEE_Result stm32_rproc_map_mem(paddr_t pa, size_t size, void **va)
+ {
+-	*va = core_mmu_add_mapping(MEM_AREA_RAM_NSEC, pa, size);
++	*va = core_mmu_add_mapping(MEM_AREA_RAM_SEC, pa, size);
+ 	if (!*va) {
+ 		EMSG("Can't map region %#"PRIxPA" size %zu", pa, size);
+ 		return TEE_ERROR_GENERIC;
+@@ -273,7 +359,7 @@ static TEE_Result stm32_rproc_unmap_mem(void *va, size_t size)
+ 	/* Flush the cache before unmapping the memory */
+ 	dcache_clean_range(va, size);
+ 
+-	if (core_mmu_remove_mapping(MEM_AREA_RAM_NSEC, va, size)) {
++	if (core_mmu_remove_mapping(MEM_AREA_RAM_SEC, va, size)) {
+ 		EMSG("Can't unmap region %p size %zu", va, size);
+ 		return TEE_ERROR_GENERIC;
+ 	}
+@@ -361,19 +447,48 @@ TEE_Result stm32_rproc_clean(uint32_t rproc_id)
+ 
+ 	if (!rproc)
+ 		return TEE_ERROR_BAD_PARAMETERS;
++
++	res = stm32_rproc_get_mems_access(rproc);
++	if (res)
++		return res;
++
+ 	mems = rproc->regions;
+ 	for (i = 0; i < rproc->n_regions; i++) {
+ 		pa = mems[i].addr;
+ 		size = mems[i].size;
+ 		res = stm32_rproc_map_mem(pa, size, &va);
+ 		if (res)
+-			return res;
++			break;
+ 		memset(va, 0, size);
+ 		res = stm32_rproc_unmap_mem(va, size);
+ 		if (res)
+-			return res;
++			break;
+ 	}
+-	return TEE_SUCCESS;
++
++	if (stm32_rproc_release_mems_access(rproc) != TEE_SUCCESS)
++		panic();
++
++	return res;
++}
++
++TEE_Result stm32_rproc_get_mem(uint32_t rproc_id)
++{
++	struct stm32_rproc_instance *rproc = stm32_rproc_get(rproc_id);
++
++	if (!rproc)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	return stm32_rproc_get_mems_access(rproc);
++}
++
++TEE_Result stm32_rproc_release_mem(uint32_t rproc_id)
++{
++	struct stm32_rproc_instance *rproc = stm32_rproc_get(rproc_id);
++
++	if (!rproc)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	return stm32_rproc_release_mems_access(rproc);
+ }
+ 
+ TEE_Result stm32_rproc_set_boot_address(uint32_t rproc_id, paddr_t address)
+@@ -553,6 +668,7 @@ static TEE_Result stm32_rproc_probe(const void *fdt, int node,
+ #endif /* defined(CFG_STM32MP25) || defined(CFG_STM32MP23) */
+ 
+ 	rproc->cdata = comp_data;
++	rproc->fdt = fdt;
+ 
+ 	if (!rproc->cdata->ns_loading) {
+ 		res = stm32_rproc_parse_mems(rproc, fdt, node);
+diff --git a/core/include/drivers/stm32_remoteproc.h b/core/include/drivers/stm32_remoteproc.h
+index 45e1e518a..df6eda311 100644
+--- a/core/include/drivers/stm32_remoteproc.h
++++ b/core/include/drivers/stm32_remoteproc.h
+@@ -89,4 +89,19 @@ TEE_Result stm32_rproc_enable_sec_boot(uint32_t rproc_id);
+  * Return TEE_SUCCESS or appropriate error.
+  */
+ TEE_Result stm32_rproc_clean(uint32_t rproc_id);
++
++/*
++ * stm32_rproc_get_mem() - get access right to memories
++ * @rproc_id	unique identifier of the remote processor
++ * Return TEE_SUCCESS or appropriate error.
++ */
++TEE_Result stm32_rproc_get_mem(uint32_t rproc_id);
++
++/*
++ * stm32_rproc_release_mem() - release access right to memories
++ * @rproc_id	unique identifier of the remote processor
++ * Return TEE_SUCCESS or appropriate error.
++ */
++TEE_Result stm32_rproc_release_mem(uint32_t rproc_id);
++
+ #endif /* __DRIVERS_STM32_REMOTEPROC_H */
+-- 
+2.47.2
+

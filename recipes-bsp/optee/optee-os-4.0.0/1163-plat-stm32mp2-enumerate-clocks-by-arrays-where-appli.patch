@@ -1,0 +1,319 @@
+From 9bacb76e9213a764a9dfdd9ffe579d78380026d3 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 16 Jul 2024 15:08:02 +0200
+Subject: [PATCH 1163/1695] plat-stm32mp2: enumerate clocks by arrays where
+ applicable
+
+Replace clock rates enumeration by step with a discrete enumeration
+where applicable to support round rate requests passed through
+SCMI describe rate commands.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a7dcce5e4212d3b6cd97d075d581ab74c895f1a3 plat-stm32mp2: enumerate clocks by arrays where applicable]
+Change-Id: Ic6cfd83c3c0ee3fe9b7804c045afdaf084d8225c
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/393548
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     | 28 +++++++
+ core/drivers/clk/clk-stm32mp21.c              | 81 ++++++++++++++++++-
+ core/drivers/clk/clk-stm32mp25.c              | 81 ++++++++++++++++++-
+ 3 files changed, 186 insertions(+), 4 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index bc2bb0462..efd00402c 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -512,7 +512,35 @@ static TEE_Result plat_scmi_clk_get_rates_steps(struct clk *clk,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result plat_scmi_clk_get_rates_array(struct clk *clk, size_t index,
++						unsigned long *rates,
++						size_t *nb_elts)
++{
++	struct stm32_scmi_clk *scmi_clk = clk->priv;
++
++	if (!nb_elts)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (scmi_clk->change_rate)
++		return clk_get_rates_array(clk->parent, index, rates, nb_elts);
++
++	if (!rates || !*nb_elts) {
++		*nb_elts = 1;
++		return TEE_SUCCESS;
++	}
++
++	if (index)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	assert(rates);
++	*rates = clk_get_rate(clk->parent);
++	*nb_elts = 1;
++
++	return TEE_SUCCESS;
++}
++
+ static const struct clk_ops plat_scmi_clk_ops = {
++	.get_rates_array = plat_scmi_clk_get_rates_array,
+ 	.get_rates_steps = plat_scmi_clk_get_rates_steps,
+ };
+ 
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index c5dde973d..9288f3408 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -17,12 +17,15 @@
+ #include <kernel/boot.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
++#include <kernel/mutex.h>
+ #include <kernel/pm.h>
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <stm32_sysconf.h>
+ #include <stm32_util.h>
++#include <string.h>
+ 
+ #include "clk-stm32-core.h"
+ 
+@@ -2647,6 +2650,9 @@ static unsigned long clk_stm32_flexgen_get_rate(struct clk *clk __unused,
+ 	return freq;
+ }
+ 
++/* Fexgen findiv (final divisor) max value */
++#define FLEXGEN_FINDIV_MAX	U(64)
++
+ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
+ 						      unsigned long prate,
+ 						      unsigned int *prediv,
+@@ -2670,8 +2676,8 @@ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
+ 
+ 		if (ratio == 0UL)
+ 			ratio = 1;
+-		else if (ratio > 64UL)
+-			ratio = 64;
++		else if (ratio > FLEXGEN_FINDIV_MAX)
++			ratio = FLEXGEN_FINDIV_MAX;
+ 
+ 		freq = UDIV_ROUND_NEAREST((uint64_t)freq, ratio);
+ 		if (freq < rate)
+@@ -2692,6 +2698,76 @@ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
+ 	return (prate / (*prediv + 1)) / (*findiv + 1);
+ }
+ 
++/*
++ * To save a bit of memory, compute flexgen clock rates array once when
++ * the flexgen clock parent clock rate is the same. If not, recompute
++ * the array. Flexgen supports up to 4 x 64 divisor combinations:
++ * 4 prediv values and 64 findiv values (from 1 to FLEXGEN_FINDIV_MAX).
++ */
++static const unsigned int flexgen_prediv[] = { 1, 2, 4, 1024 };
++static unsigned long flexgen_rates_array[FLEXGEN_FINDIV_MAX *
++					 ARRAY_SIZE(flexgen_prediv)];
++static unsigned long array_parent_rate;
++
++static void load_flexgen_rates_array(unsigned long parent_rate)
++{
++	unsigned long *rate = flexgen_rates_array;
++	uint64_t freq = 0;
++	size_t findiv = 0;
++	size_t n = 0;
++
++	assert(parent_rate);
++	if (parent_rate == array_parent_rate)
++		return;
++
++	array_parent_rate = parent_rate;
++
++	for (n = 0; n < ARRAY_SIZE(flexgen_prediv); n++) {
++		for (findiv = 1; findiv <= FLEXGEN_FINDIV_MAX; findiv++) {
++			freq = parent_rate / flexgen_prediv[n];
++			*rate = freq / findiv;
++			rate++;
++		}
++	}
++
++	qsort_ul(flexgen_rates_array, ARRAY_SIZE(flexgen_rates_array));
++}
++
++static TEE_Result clk_stm32_flexgen_rates_array(struct clk *clk,
++						size_t start_index,
++						unsigned long *rates,
++						size_t *nb_elts)
++{
++	static struct mutex mu = MUTEX_INITIALIZER;
++	uint64_t prate = clk_get_rate(clk->parent);
++
++	if (!prate)
++		return TEE_ERROR_GENERIC;
++
++	if (start_index >= ARRAY_SIZE(flexgen_rates_array) || !nb_elts)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!rates || !*nb_elts) {
++		*nb_elts = ARRAY_SIZE(flexgen_rates_array) - start_index;
++
++		return TEE_SUCCESS;
++	}
++
++	mutex_lock(&mu);
++
++	load_flexgen_rates_array(prate);
++
++	if (start_index + *nb_elts > ARRAY_SIZE(flexgen_rates_array))
++		*nb_elts = ARRAY_SIZE(flexgen_rates_array) - start_index;
++
++	memcpy(rates, flexgen_rates_array + start_index,
++	       *nb_elts * sizeof(*rates));
++
++	mutex_unlock(&mu);
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result clk_stm32_flexgen_set_rate(struct clk *clk,
+ 					     unsigned long rate,
+ 					     unsigned long parent_rate)
+@@ -2794,6 +2870,7 @@ static void __maybe_unused clk_stm32_flexgen_pm_restore(struct clk *clk)
+ static const struct clk_ops clk_stm32_flexgen_ops = {
+ 	.get_rate	= clk_stm32_flexgen_get_rate,
+ 	.set_rate	= clk_stm32_flexgen_set_rate,
++	.get_rates_array = clk_stm32_flexgen_rates_array,
+ 	.get_parent	= clk_stm32_flexgen_get_parent,
+ 	.set_parent	= clk_stm32_flexgen_set_parent,
+ 	.enable		= clk_stm32_flexgen_enable,
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 4d6937875..b2f740837 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -17,12 +17,15 @@
+ #include <kernel/boot.h>
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
++#include <kernel/mutex.h>
+ #include <kernel/pm.h>
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <stm32_sysconf.h>
+ #include <stm32_util.h>
++#include <string.h>
+ 
+ #include "clk-stm32-core.h"
+ 
+@@ -2861,6 +2864,9 @@ static unsigned long clk_stm32_flexgen_get_rate(struct clk *clk __unused,
+ 	return freq;
+ }
+ 
++/* Fexgen findiv (final divisor) max value */
++#define FLEXGEN_FINDIV_MAX	U(64)
++
+ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
+ 						      unsigned long prate,
+ 						      unsigned int *prediv,
+@@ -2884,8 +2890,8 @@ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
+ 
+ 		if (ratio == 0UL)
+ 			ratio = 1;
+-		else if (ratio > 64UL)
+-			ratio = 64;
++		else if (ratio > FLEXGEN_FINDIV_MAX)
++			ratio = FLEXGEN_FINDIV_MAX;
+ 
+ 		freq = UDIV_ROUND_NEAREST((uint64_t)freq, ratio);
+ 		if (freq < rate)
+@@ -2906,6 +2912,76 @@ static unsigned long clk_stm32_flexgen_get_round_rate(unsigned long rate,
+ 	return (prate / (*prediv + 1)) / (*findiv + 1);
+ }
+ 
++/*
++ * To save a bit of memory, compute flexgen clock rates array once when
++ * the flexgen clock parent clock rate is the same. If not, recompute
++ * the array. Flexgen supports up to 4 x 64 divisor combinations:
++ * 4 prediv values and 64 findiv values (from 1 to FLEXGEN_FINDIV_MAX).
++ */
++static const unsigned int flexgen_prediv[] = { 1, 2, 4, 1024 };
++static unsigned long flexgen_rates_array[FLEXGEN_FINDIV_MAX *
++					 ARRAY_SIZE(flexgen_prediv)];
++static unsigned long array_parent_rate;
++
++static void load_flexgen_rates_array(unsigned long parent_rate)
++{
++	unsigned long *rate = flexgen_rates_array;
++	uint64_t freq = 0;
++	size_t findiv = 0;
++	size_t n = 0;
++
++	assert(parent_rate);
++	if (parent_rate == array_parent_rate)
++		return;
++
++	array_parent_rate = parent_rate;
++
++	for (n = 0; n < ARRAY_SIZE(flexgen_prediv); n++) {
++		for (findiv = 1; findiv <= FLEXGEN_FINDIV_MAX; findiv++) {
++			freq = parent_rate / flexgen_prediv[n];
++			*rate = freq / findiv;
++			rate++;
++		}
++	}
++
++	qsort_ul(flexgen_rates_array, ARRAY_SIZE(flexgen_rates_array));
++}
++
++static TEE_Result clk_stm32_flexgen_rates_array(struct clk *clk,
++						size_t start_index,
++						unsigned long *rates,
++						size_t *nb_elts)
++{
++	static struct mutex mu = MUTEX_INITIALIZER;
++	uint64_t prate = clk_get_rate(clk->parent);
++
++	if (!prate)
++		return TEE_ERROR_GENERIC;
++
++	if (start_index >= ARRAY_SIZE(flexgen_rates_array) || !nb_elts)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!rates || !*nb_elts) {
++		*nb_elts = ARRAY_SIZE(flexgen_rates_array) - start_index;
++
++		return TEE_SUCCESS;
++	}
++
++	mutex_lock(&mu);
++
++	load_flexgen_rates_array(prate);
++
++	if (start_index + *nb_elts > ARRAY_SIZE(flexgen_rates_array))
++		*nb_elts = ARRAY_SIZE(flexgen_rates_array) - start_index;
++
++	memcpy(rates, flexgen_rates_array + start_index,
++	       *nb_elts * sizeof(*rates));
++
++	mutex_unlock(&mu);
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result clk_stm32_flexgen_set_rate(struct clk *clk,
+ 					     unsigned long rate,
+ 					     unsigned long parent_rate)
+@@ -3008,6 +3084,7 @@ static void __maybe_unused clk_stm32_flexgen_pm_restore(struct clk *clk)
+ static const struct clk_ops clk_stm32_flexgen_ops = {
+ 	.get_rate	= clk_stm32_flexgen_get_rate,
+ 	.set_rate	= clk_stm32_flexgen_set_rate,
++	.get_rates_array = clk_stm32_flexgen_rates_array,
+ 	.get_parent	= clk_stm32_flexgen_get_parent,
+ 	.set_parent	= clk_stm32_flexgen_set_parent,
+ 	.enable		= clk_stm32_flexgen_enable,
+-- 
+2.47.2
+

@@ -1,0 +1,56 @@
+From e5bbc0cfd584a998ac078f4c087ae40b43b3751e Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 19 Jul 2024 10:18:38 +0200
+Subject: [PATCH 1175/1695] drivers: stm32_gpio: check GPIO is not already
+ consumed
+
+Check that a GPIO requested by a consumer is not already consumed by
+another device.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8e88c1cadd6b53981c3037b8347825485ca48d04 drivers: stm32_gpio: check GPIO is not already consumed]
+Change-Id: Ie46d6501550b68e35365dc3f83c2e08354d4cbdb
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/394351
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/stm32_gpio.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/core/drivers/stm32_gpio.c b/core/drivers/stm32_gpio.c
+index cb10238bc..ba271f966 100644
+--- a/core/drivers/stm32_gpio.c
++++ b/core/drivers/stm32_gpio.c
+@@ -625,6 +625,7 @@ static TEE_Result stm32_gpio_get_dt(struct dt_pargs *pargs, void *data,
+ 				    struct gpio **out_gpio)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
++	struct stm32_gpio_pm_state *reg_state = NULL;
+ 	struct stm32_gpio_pm_state *state = NULL;
+ 	struct stm32_gpio_bank *bank = data;
+ 	struct gpio *gpio = NULL;
+@@ -651,6 +652,19 @@ static TEE_Result stm32_gpio_get_dt(struct dt_pargs *pargs, void *data,
+ 		return TEE_ERROR_OUT_OF_MEMORY;
+ 	}
+ 
++	SLIST_FOREACH(reg_state, &consumed_gpios_head, link) {
++		if (reg_state->gpio_pinctrl.bank == bank->bank_id &&
++		    reg_state->gpio_pinctrl.pin == gpio->pin) {
++			EMSG("node %s: GPIO %c%u is used by another device",
++			     fdt_get_name(pargs->fdt, pargs->consumer_node,
++					  NULL),
++			     bank->bank_id + 'A', gpio->pin);
++			free(state);
++			free(gpio);
++			return TEE_ERROR_GENERIC;
++		}
++	}
++
+ 	state->gpio_pinctrl.pin = gpio->pin;
+ 	state->gpio_pinctrl.bank = bank->bank_id;
+ 	SLIST_INSERT_HEAD(&consumed_gpios_head, state, link);
+-- 
+2.47.2
+

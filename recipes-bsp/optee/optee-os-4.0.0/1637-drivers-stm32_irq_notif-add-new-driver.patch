@@ -1,0 +1,179 @@
+From b6049d9210703d36b0b29dfd7f5cbc2e2949e699 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Tue, 4 Feb 2025 17:38:52 +0100
+Subject: [PATCH 1637/1695] drivers: stm32_irq_notif: add new driver
+
+Add a generic driver that acts as a secure interrupt client and
+that can notify Linux with an irq-notif.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b4233967adf22d1080ae48568ec4d61abafb4b0b drivers: stm32_irq_notif: add new driver]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Ia51e8f536a2044aa278197931a2f97427bbd4f0a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/440868
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/stm32_irq_notif.c                | 87 +++++++++++++++++++
+ core/drivers/sub.mk                           |  1 +
+ .../soc/stm32/st,stm32-irq-notifier.yaml      | 41 +++++++++
+ 3 files changed, 129 insertions(+)
+ create mode 100644 core/drivers/stm32_irq_notif.c
+ create mode 100644 documentation/devicetree/bindings/soc/stm32/st,stm32-irq-notifier.yaml
+
+diff --git a/core/drivers/stm32_irq_notif.c b/core/drivers/stm32_irq_notif.c
+new file mode 100644
+index 000000000..d85d13997
+--- /dev/null
++++ b/core/drivers/stm32_irq_notif.c
+@@ -0,0 +1,87 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2023-2025, STMicroelectronics
++ */
++
++#include <kernel/dt.h>
++#include <kernel/dt_driver.h>
++#include <kernel/interrupt.h>
++#include <kernel/notif.h>
++#include <libfdt.h>
++#include <malloc.h>
++#include <tee_api_defines.h>
++#include <tee_api_types.h>
++#include <stddef.h>
++#include <stdint.h>
++#include <trace.h>
++
++#define NOTIF_IT_VALUE_INVALID	(NOTIF_IT_VALUE_MAX + U(1))
++
++struct stm32_irq_notif_data {
++	uint32_t it_notif_id;
++};
++
++static enum itr_return stm32_irq_notif_handler(struct itr_handler *handler)
++{
++	struct stm32_irq_notif_data *priv = handler->data;
++
++	FMSG("stm32 irq notifier handler");
++
++	if (priv->it_notif_id != NOTIF_IT_VALUE_INVALID)
++		notif_send_it(priv->it_notif_id);
++
++	return ITRR_HANDLED;
++}
++
++static TEE_Result stm32_irq_notif_dt_probe(const void *fdt, int node,
++					   const void *compat __unused)
++{
++	struct stm32_irq_notif_data *priv = NULL;
++	struct itr_chip *itr_chip = NULL;
++	TEE_Result res = TEE_ERROR_GENERIC;
++	const fdt32_t *cuint = NULL;
++	size_t itr_num = 0;
++
++	res = interrupt_dt_get(fdt, node, &itr_chip, &itr_num);
++	if (res)
++		return res;
++
++	priv = calloc(1, sizeof(*priv));
++	if (!priv)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	priv->it_notif_id = NOTIF_IT_VALUE_INVALID;
++
++	cuint = fdt_getprop(fdt, node, "st,notif-it-id", NULL);
++	if (cuint)
++		priv->it_notif_id = fdt32_to_cpu(*cuint);
++
++	res = interrupt_create_handler(itr_chip, itr_num,
++				       stm32_irq_notif_handler,
++				       priv, 0, NULL);
++	if (res) {
++		free(priv);
++		return res;
++	}
++
++	interrupt_enable(itr_chip, itr_num);
++	if (fdt_getprop(fdt, node, "wakeup-source", NULL)) {
++		if (interrupt_can_set_wake(itr_chip))
++			interrupt_set_wake(itr_chip, itr_num, true);
++		else
++			DMSG("irq notifier wakeup source ignored");
++	}
++
++	return TEE_SUCCESS;
++}
++
++static const struct dt_device_match stm32_irq_notif_match_table[] = {
++	{ .compatible = "st,stm32-irq-notifier" },
++	{ }
++};
++
++DEFINE_DT_DRIVER(stm32_irq_notif) = {
++	.name = "stm32-irq-notifier",
++	.match_table = stm32_irq_notif_match_table,
++	.probe = stm32_irq_notif_dt_probe,
++};
+diff --git a/core/drivers/sub.mk b/core/drivers/sub.mk
+index 36ce83965..5c49d53ec 100644
+--- a/core/drivers/sub.mk
++++ b/core/drivers/sub.mk
+@@ -45,6 +45,7 @@ srcs-$(CFG_STM32_FMC) += stm32_fmc.c
+ srcs-$(CFG_STM32_GPIO) += stm32_gpio.c
+ srcs-$(CFG_STM32_HPDMA) += stm32_hpdma.c
+ srcs-$(CFG_STM32_HSEM) += stm32_hsem.c
++srcs-$(CFG_STM32_IRQ_NOTIF) += stm32_irq_notif.c
+ srcs-$(CFG_STM32_IWDG) += stm32_iwdg.c
+ srcs-$(CFG_STM32_IPCC) += stm32_ipcc.c
+ srcs-$(CFG_STM32_I2C) += stm32_i2c.c
+diff --git a/documentation/devicetree/bindings/soc/stm32/st,stm32-irq-notifier.yaml b/documentation/devicetree/bindings/soc/stm32/st,stm32-irq-notifier.yaml
+new file mode 100644
+index 000000000..339c84314
+--- /dev/null
++++ b/documentation/devicetree/bindings/soc/stm32/st,stm32-irq-notifier.yaml
+@@ -0,0 +1,41 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/soc/stm32/st,stm32-irq-notifier.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: STM32 irq client to notify NS
++
++maintainers:
++  - Antonio Borneo <antonio.borneo@foss.st.com>
++
++properties:
++  compatible:
++    const: "st,stm32-irq-notifier"
++
++  interrupts:
++    maxItems: 1
++    description: A single interrupt specifier
++
++  wakeup-source:
++    type: boolean
++    description: Interrupt can be used as a wakeup source
++
++  st,notif-it-id:
++    description: OPTEE notification number to send to the non-secure world.
++    $ref: /schemas/types.yaml#/definitions/uint32
++
++required:
++  - compatible
++  - interrupts
++
++additionalProperties: false
++
++examples:
++  - |
++    typec_wakeup {
++      compatible = "st,stm32-irq-notifier";
++      interrupts-extended = <&exti 59 IRQ_TYPE_EDGE_FALLING>;
++      wakeup-source;
++      st,notif-it-id = <1>;
++    };
+-- 
+2.47.2
+

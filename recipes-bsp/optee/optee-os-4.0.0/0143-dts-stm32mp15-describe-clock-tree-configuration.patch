@@ -1,0 +1,288 @@
+From 4a7d7b39a91f72ff4321230c01cd9a988b012e3a Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 20 Dec 2023 12:29:46 +0100
+Subject: [PATCH 0143/1695] dts: stm32mp15: describe clock tree configuration
+
+Add clock tree configuration data in OP-TEE rcc node.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 37a654e253ba5437c96cc5ab30b94a4a0db0d3ad dts: stm32mp15: describe clock tree configuration]
+Change-Id: Iae9d937dba1ace0d0b74284049c3c6ec7fd1fc93
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp157c-ed1.dts  | 117 +++++++++++++++++++++++++
+ core/arch/arm/dts/stm32mp15xx-dkx.dtsi | 117 +++++++++++++++++++++++++
+ 2 files changed, 234 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp157c-ed1.dts b/core/arch/arm/dts/stm32mp157c-ed1.dts
+index cee05c472..32ea78204 100644
+--- a/core/arch/arm/dts/stm32mp157c-ed1.dts
++++ b/core/arch/arm/dts/stm32mp157c-ed1.dts
+@@ -9,6 +9,7 @@
+ #include "stm32mp15xc.dtsi"
+ #include "stm32mp15-pinctrl.dtsi"
+ #include "stm32mp15xxaa-pinctrl.dtsi"
++#include <dt-bindings/clock/stm32mp1-clksrc.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/mfd/st,stpmic1.h>
+ 
+@@ -340,6 +341,122 @@
+ &rcc {
+ 	compatible = "st,stm32mp1-rcc-secure";
+ 	status = "okay";
++
++	st,clksrc = <
++		CLK_MPU_PLL1P
++		CLK_AXI_PLL2P
++		CLK_MCU_PLL3P
++		CLK_RTC_LSE
++		CLK_MCO1_DISABLED
++		CLK_MCO2_DISABLED
++		CLK_CKPER_HSE
++		CLK_FMC_ACLK
++		CLK_QSPI_ACLK
++		CLK_ETH_PLL4P
++		CLK_SDMMC12_PLL4P
++		CLK_DSI_DSIPLL
++		CLK_STGEN_HSE
++		CLK_USBPHY_HSE
++		CLK_SPI2S1_PLL3Q
++		CLK_SPI2S23_PLL3Q
++		CLK_SPI45_HSI
++		CLK_SPI6_HSI
++		CLK_I2C46_HSI
++		CLK_SDMMC3_PLL4P
++		CLK_USBO_USBPHY
++		CLK_ADC_CKPER
++		CLK_CEC_LSE
++		CLK_I2C12_HSI
++		CLK_I2C35_HSI
++		CLK_UART1_HSI
++		CLK_UART24_HSI
++		CLK_UART35_HSI
++		CLK_UART6_HSI
++		CLK_UART78_HSI
++		CLK_SPDIF_PLL4P
++		CLK_FDCAN_PLL4R
++		CLK_SAI1_PLL3Q
++		CLK_SAI2_PLL3Q
++		CLK_SAI3_PLL3Q
++		CLK_SAI4_PLL3Q
++		CLK_RNG1_CSI
++		CLK_RNG2_LSI
++		CLK_LPTIM1_PCLK1
++		CLK_LPTIM23_PCLK3
++		CLK_LPTIM45_LSE
++	>;
++
++	st,clkdiv = <
++		DIV(DIV_MPU, 1)
++		DIV(DIV_AXI, 0)
++		DIV(DIV_MCU, 0)
++		DIV(DIV_APB1, 1)
++		DIV(DIV_APB2, 1)
++		DIV(DIV_APB3, 1)
++		DIV(DIV_APB4, 1)
++		DIV(DIV_APB5, 2)
++		DIV(DIV_RTC, 23)
++		DIV(DIV_MCO1, 0)
++		DIV(DIV_MCO2, 0)
++	>;
++
++	st,pll_vco {
++		pll2_vco_1066Mhz: pll2-vco-1066Mhz {
++			src = <CLK_PLL12_HSE>;
++			divmn = <2 65>;
++			frac = <0x1400>;
++		};
++
++		pll3_vco_417Mhz: pll3-vco-417Mhz {
++			src = <CLK_PLL3_HSE>;
++			divmn = <1 33>;
++			frac = <0x1a04>;
++		};
++
++		pll4_vco_594Mhz: pll4-vco-594Mhz {
++			src = <CLK_PLL4_HSE>;
++			divmn = <3 98>;
++		};
++	};
++
++	/* VCO = 1066.0 MHz => P = 266 (AXI), Q = 533 (GPU), R = 533 (DDR) */
++	pll2: st,pll@1 {
++		compatible = "st,stm32mp1-pll";
++		reg = <1>;
++
++		st,pll = <&pll2_cfg1>;
++
++		pll2_cfg1: pll2_cfg1 {
++			st,pll_vco = <&pll2_vco_1066Mhz>;
++			st,pll_div_pqr = <1 0 0>;
++		};
++	};
++
++	/* VCO = 417.8 MHz => P = 209, Q = 24, R = 11 */
++	pll3: st,pll@2 {
++		compatible = "st,stm32mp1-pll";
++		reg = <2>;
++
++		st,pll = <&pll3_cfg1>;
++
++		pll3_cfg1: pll3_cfg1 {
++			st,pll_vco = <&pll3_vco_417Mhz>;
++			st,pll_div_pqr = <1 16 36>;
++		};
++	};
++
++	/* VCO = 594.0 MHz => P = 99, Q = 74, R = 74 */
++	pll4: st,pll@3 {
++		compatible = "st,stm32mp1-pll";
++		reg = <3>;
++
++		st,pll = <&pll4_cfg1>;
++
++		pll4_cfg1: pll4_cfg1 {
++			st,pll_vco = <&pll4_vco_594Mhz>;
++			st,pll_div_pqr = <5 7 7>;
++		};
++	};
+ };
+ 
+ &rng1 {
+diff --git a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+index 7ae62e7c0..8dbda5757 100644
+--- a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
++++ b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+@@ -4,6 +4,7 @@
+  * Author: Alexandre Torgue <alexandre.torgue@st.com> for STMicroelectronics.
+  */
+ 
++#include <dt-bindings/clock/stm32mp1-clksrc.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/mfd/st,stpmic1.h>
+ 
+@@ -492,6 +493,122 @@
+ &rcc {
+ 	compatible = "st,stm32mp1-rcc-secure";
+ 	status = "okay";
++
++	st,clksrc = <
++		CLK_MPU_PLL1P
++		CLK_AXI_PLL2P
++		CLK_MCU_PLL3P
++		CLK_RTC_LSE
++		CLK_MCO1_DISABLED
++		CLK_MCO2_DISABLED
++		CLK_CKPER_HSE
++		CLK_FMC_ACLK
++		CLK_QSPI_ACLK
++		CLK_ETH_PLL4P
++		CLK_SDMMC12_PLL4P
++		CLK_DSI_DSIPLL
++		CLK_STGEN_HSE
++		CLK_USBPHY_HSE
++		CLK_SPI2S1_PLL3Q
++		CLK_SPI2S23_PLL3Q
++		CLK_SPI45_HSI
++		CLK_SPI6_HSI
++		CLK_I2C46_HSI
++		CLK_SDMMC3_PLL4P
++		CLK_USBO_USBPHY
++		CLK_ADC_CKPER
++		CLK_CEC_LSE
++		CLK_I2C12_HSI
++		CLK_I2C35_HSI
++		CLK_UART1_HSI
++		CLK_UART24_HSI
++		CLK_UART35_HSI
++		CLK_UART6_HSI
++		CLK_UART78_HSI
++		CLK_SPDIF_PLL4P
++		CLK_FDCAN_PLL4R
++		CLK_SAI1_PLL3Q
++		CLK_SAI2_PLL3Q
++		CLK_SAI3_PLL3Q
++		CLK_SAI4_PLL3Q
++		CLK_RNG1_CSI
++		CLK_RNG2_LSI
++		CLK_LPTIM1_PCLK1
++		CLK_LPTIM23_PCLK3
++		CLK_LPTIM45_LSE
++	>;
++
++	st,clkdiv = <
++		DIV(DIV_MPU, 1)
++		DIV(DIV_AXI, 0)
++		DIV(DIV_MCU, 0)
++		DIV(DIV_APB1, 1)
++		DIV(DIV_APB2, 1)
++		DIV(DIV_APB3, 1)
++		DIV(DIV_APB4, 1)
++		DIV(DIV_APB5, 2)
++		DIV(DIV_RTC, 23)
++		DIV(DIV_MCO1, 0)
++		DIV(DIV_MCO2, 0)
++	>;
++
++	st,pll_vco {
++		pll2_vco_1066Mhz: pll2-vco-1066Mhz {
++			src = <CLK_PLL12_HSE>;
++			divmn = <2 65>;
++			frac = <0x1400>;
++		};
++
++		pll3_vco_417Mhz: pll3-vco-417Mhz {
++			src = <CLK_PLL3_HSE>;
++			divmn = <1 33>;
++			frac = <0x1a04>;
++		};
++
++		pll4_vco_594Mhz: pll4-vco-594Mhz {
++			src = <CLK_PLL4_HSE>;
++			divmn = <3 98>;
++		};
++	};
++
++	/* VCO = 1066.0 MHz => P = 266 (AXI), Q = 533 (GPU), R = 533 (DDR) */
++	pll2: st,pll@1 {
++		compatible = "st,stm32mp1-pll";
++		reg = <1>;
++
++		st,pll = <&pll2_cfg1>;
++
++		pll2_cfg1: pll2_cfg1 {
++			st,pll_vco = <&pll2_vco_1066Mhz>;
++			st,pll_div_pqr = <1 0 0>;
++		};
++	};
++
++	/* VCO = 417.8 MHz => P = 209, Q = 24, R = 11 */
++	pll3: st,pll@2 {
++		compatible = "st,stm32mp1-pll";
++		reg = <2>;
++
++		st,pll = <&pll3_cfg1>;
++
++		pll3_cfg1: pll3_cfg1 {
++			st,pll_vco = <&pll3_vco_417Mhz>;
++			st,pll_div_pqr = <1 16 36>;
++		};
++	};
++
++	/* VCO = 594.0 MHz => P = 99, Q = 74, R = 74 */
++	pll4: st,pll@3 {
++		compatible = "st,stm32mp1-pll";
++		reg = <3>;
++
++		st,pll = <&pll4_cfg1>;
++
++		pll4_cfg1: pll4_cfg1 {
++			st,pll_vco = <&pll4_vco_594Mhz>;
++			st,pll_div_pqr = <5 7 7>;
++		};
++	};
+ };
+ 
+ &rng1 {
+-- 
+2.47.2
+

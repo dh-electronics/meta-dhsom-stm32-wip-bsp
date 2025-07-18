@@ -1,0 +1,55 @@
+From a41a1f17a63727a97c23fc9cb6390729f5266fa1 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 3 Jul 2024 12:11:46 +0200
+Subject: [PATCH 0991/1695] drivers: stm32_gpio: do not change GPIO secure
+ state in dt_stm32_gpio_pinctrl()
+
+This operation shouldn't be done in a device tree parsing function
+and is useless as the application of the secure configuration already
+handles it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1f583a46b7f3d519f53337480b235397f66182e3 drivers: stm32_gpio: do not change GPIO secure state in dt_stm32_gpio_pinctrl()]
+Change-Id: I34dcb0bf0fe6f1dae53769577db349b1847f3c6d
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391138
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_gpio.c | 11 -----------
+ 1 file changed, 11 deletions(-)
+
+diff --git a/core/drivers/stm32_gpio.c b/core/drivers/stm32_gpio.c
+index 1314b2183..9cd2d0fba 100644
+--- a/core/drivers/stm32_gpio.c
++++ b/core/drivers/stm32_gpio.c
+@@ -994,14 +994,6 @@ static TEE_Result dt_stm32_gpio_bank(const void *fdt, int node,
+ 	return TEE_SUCCESS;
+ }
+ 
+-static void set_bank_gpio_non_secure(struct stm32_gpio_bank *bank)
+-{
+-	unsigned int pin = 0;
+-
+-	for (pin = 0; pin <= bank->ngpios; pin++)
+-		stm32_gpio_set_secure_cfg(bank->bank_id, pin, false);
+-}
+-
+ /* Parse a pinctrl node to register the GPIO banks it describes */
+ static TEE_Result dt_stm32_gpio_pinctrl(const void *fdt, int node,
+ 					const void *compat_data)
+@@ -1047,9 +1039,6 @@ static TEE_Result dt_stm32_gpio_pinctrl(const void *fdt, int node,
+ 				panic();
+ 
+ 			STAILQ_INSERT_TAIL(&bank_list, bank, link);
+-
+-			if (IS_ENABLED(CFG_STM32MP13))
+-				set_bank_gpio_non_secure(bank);
+ 		} else {
+ 			if (len != -FDT_ERR_NOTFOUND)
+ 				panic();
+-- 
+2.47.2
+

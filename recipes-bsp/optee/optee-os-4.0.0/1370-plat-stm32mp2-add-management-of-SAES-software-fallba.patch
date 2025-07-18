@@ -1,0 +1,45 @@
+From 6d2b54bd8aa5e47a81c1dc649ed1508023fec31f Mon Sep 17 00:00:00 2001
+From: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Date: Fri, 29 Nov 2024 15:05:26 +0100
+Subject: [PATCH 1370/1695] plat-stm32mp2: add management of SAES software
+ fallback for STM32MP2 family
+
+SAES peripheral inside STM32MP23/25 dose not support 192bits keys.
+Default enable CFG_STM32_SAES_SW_FALLBACK for those 2 SoC.
+On STM32MP21, SAES support 192 bits keys.
+Force CFG_STM32_SAES_SW_FALLBACK to n.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f46c75db01ab6a4ba268c5cd8d71e5639d67c515 plat-stm32mp2: add management of SAES software fallback for STM32MP2 family]
+Change-Id: Ie0b8a15cccb204195ea60c54c61fc03901a3d1cd
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/421691
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/conf.mk | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index 4ba38c116..00dc3bb15 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -233,6 +233,15 @@ ifeq ($(call cfg-one-enabled, CFG_STM32_CRYP CFG_STM32_HASH CFG_STM32_PKA \
+ $(call force,CFG_STM32_CRYPTO_DRIVER,y)
+ endif
+ 
++# SAES support 192bits on STM32MP21 but not on STM32MP23/25
++# Force CFG_STM32_SAES_SW_FALLBACK=n on STM32MP21
++# Default enable CFG_STM32_SAES_SW_FALLBACK on STM32MP23/25
++ifeq ($(CFG_STM32MP21),y)
++$(call force,CFG_STM32_SAES_SW_FALLBACK,n)
++else
++CFG_STM32_SAES_SW_FALLBACK ?= y
++endif
++
+ CFG_DRIVERS_REMOTEPROC ?= $(CFG_STM32MP_REMOTEPROC)
+ CFG_REMOTEPROC_PTA ?= $(CFG_STM32MP_REMOTEPROC)
+ ifeq ($(CFG_REMOTEPROC_PTA),y)
+-- 
+2.47.2
+

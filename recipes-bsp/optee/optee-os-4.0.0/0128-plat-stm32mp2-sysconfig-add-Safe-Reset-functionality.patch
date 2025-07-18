@@ -1,0 +1,63 @@
+From 66ae476cd51c916d23cab6934b03ccd68838c966 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Mon, 23 Jan 2023 09:53:09 +0100
+Subject: [PATCH 0128/1695] plat-stm32mp2: sysconfig: add Safe Reset
+ functionality
+
+Add possibility to manage safely master IP reset.
+This is managed in SYSCFG safe reset control register (SYSCFG_SAFERSTCR)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 113d18c0ec0d612bab7b4dd0145c661ac96f2af3 plat-stm32mp2: sysconfig: add Safe Reset functionality]
+Change-Id: Ia680ef3d19472e469095b57d904a367da275b2c8
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ .../arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c | 16 ++++++++++++++++
+ core/arch/arm/plat-stm32mp2/stm32_sysconf.h      |  3 +++
+ 2 files changed, 19 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
+index 3ce8aac59..e24d389a8 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
+@@ -48,6 +48,10 @@ struct io_pa_va syscfg_base[SYSCON_NB_BANKS] = {
+ #define SZ_192M					U(0x0C000000)
+ #define SZ_256M					U(0x10000000)
+ 
++/* Safe Reset register definition */
++#define SYSCFG_SAFERSTCR		SYSCON_ID(SYSCON_SYSCFG, 0x2018U)
++#define SYSCFG_SAFERSTCR_EN		BIT(0)
++
+ /*
+  * SYSCFG IO compensation register offsets (base relative)
+  */
+@@ -179,3 +183,15 @@ void stm32mp25_syscfg_set_amcr(size_t mm1_size, size_t mm2_size)
+ 
+ 	io_clrsetbits32(amcr_addr, SYSCFG_OCTOSPIAMCR_OAM_MASK, amcr);
+ }
++
++void stm32mp25_syscfg_set_safe_reset(bool status)
++{
++	vaddr_t addr = stm32mp_syscfg_base(SYSCON_SYSCFG) + SYSCFG_SAFERSTCR;
++
++	FMSG("Set safe reset to  %d", status);
++
++	if (status)
++		io_setbits32(addr, SYSCFG_SAFERSTCR_EN);
++	else
++		io_clrbits32(addr, SYSCFG_SAFERSTCR_EN);
++}
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_sysconf.h b/core/arch/arm/plat-stm32mp2/stm32_sysconf.h
+index d546c951f..1e34a0005 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_sysconf.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_sysconf.h
+@@ -59,4 +59,7 @@ TEE_Result stm32mp25_syscfg_disable_io_compensation(enum syscfg_io_ids id);
+ 
+ void stm32mp25_syscfg_set_amcr(size_t mm1_size, size_t mm2_size);
+ 
++/* Safe Reset */
++void stm32mp25_syscfg_set_safe_reset(bool status);
++
+ #endif /*__STM32_SYSCONF_H__*/
+-- 
+2.47.2
+

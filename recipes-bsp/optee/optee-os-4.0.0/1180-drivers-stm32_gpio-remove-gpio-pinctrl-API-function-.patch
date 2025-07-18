@@ -1,0 +1,129 @@
+From 0a7c7cdb1bc5b68a0ae4bd07b17822259f392be7 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 4 Jul 2024 11:10:08 +0200
+Subject: [PATCH 1180/1695] drivers: stm32_gpio: remove gpio/pinctrl API
+ function to set secure state
+
+Remove stm32_gpio_set_secure_cfg() and stm32_pinctrl_set_secure_cfg()
+functions that are no more used since the GPIO and pins secure state
+is defined by the st,protreg registers  already handled from
+get_pinctrl_from_fdt() and stm32_gpio_get_dt() callback functions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ba74ddfd46f3dd0c6592cf8ccd7f3b4ba84b7e67 drivers: stm32_gpio: remove gpio/pinctrl API function to set secure state]
+Change-Id: Icaa008f1920cfa3585307bf76896e1178ceaa93a
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391450
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_gpio.c         | 42 -------------------------------
+ core/include/drivers/stm32_gpio.h | 24 ------------------
+ 2 files changed, 66 deletions(-)
+
+diff --git a/core/drivers/stm32_gpio.c b/core/drivers/stm32_gpio.c
+index e8995a27a..de0ed4d92 100644
+--- a/core/drivers/stm32_gpio.c
++++ b/core/drivers/stm32_gpio.c
+@@ -1177,25 +1177,6 @@ static TEE_Result dt_stm32_gpio_pinctrl(const void *fdt, int node,
+ 	return TEE_SUCCESS;
+ }
+ 
+-void stm32_gpio_set_secure_cfg(unsigned int bank_id, unsigned int pin,
+-			       bool secure)
+-{
+-	struct stm32_gpio_bank *bank = stm32_gpio_get_bank(bank_id);
+-	uint32_t exceptions = 0;
+-
+-	if (clk_enable(bank->clock))
+-		panic();
+-	exceptions = cpu_spin_lock_xsave(&gpio_lock);
+-
+-	if (secure)
+-		io_setbits32(bank->base + GPIO_SECR_OFFSET, BIT(pin));
+-	else
+-		io_clrbits32(bank->base + GPIO_SECR_OFFSET, BIT(pin));
+-
+-	cpu_spin_unlock_xrestore(&gpio_lock, exceptions);
+-	clk_disable(bank->clock);
+-}
+-
+ #ifdef CFG_DRIVERS_PINCTRL
+ static TEE_Result stm32_pinctrl_conf_apply(struct pinconf *conf)
+ {
+@@ -1259,29 +1240,6 @@ out:
+ 	*count = pin_count;
+ }
+ 
+-void stm32_pinctrl_set_secure_cfg(struct pinctrl_state *pinctrl, bool secure)
+-{
+-	size_t conf_index = 0;
+-
+-	if (!pinctrl)
+-		return;
+-
+-	for (conf_index = 0; conf_index < pinctrl->conf_count; conf_index++) {
+-		struct pinconf *pinconf = pinctrl->confs[conf_index];
+-		struct stm32_pinctrl_array *ref = pinconf->priv;
+-		struct stm32_pinctrl *pc = NULL;
+-		size_t n = 0;
+-
+-		for (n = 0; n < ref->count; n++) {
+-			if (pinconf->ops != &stm32_pinctrl_ops)
+-				continue;
+-
+-			pc = ref->pinctrl + n;
+-			stm32_gpio_set_secure_cfg(pc->bank, pc->pin, secure);
+-		}
+-	}
+-}
+-
+ /* Allocate and return a pinctrl configuration from a DT reference */
+ static TEE_Result stm32_pinctrl_dt_get(struct dt_pargs *pargs,
+ 				       void *data __unused,
+diff --git a/core/include/drivers/stm32_gpio.h b/core/include/drivers/stm32_gpio.h
+index f822e6045..5d850c7c5 100644
+--- a/core/include/drivers/stm32_gpio.h
++++ b/core/include/drivers/stm32_gpio.h
+@@ -17,24 +17,6 @@ struct pinctrl_state;
+ struct stm32_pinctrl;
+ 
+ #ifdef CFG_STM32_GPIO
+-/*
+- * Configure pin muxing access permission: can be secure or not
+- *
+- * @bank: GPIO bank identifier as assigned by the platform
+- * @pin: Pin number in the GPIO bank
+- * @secure: True if pin is secure, false otherwise
+- */
+-void stm32_gpio_set_secure_cfg(unsigned int bank, unsigned int pin,
+-			       bool secure);
+-
+-/*
+- * Configure pin muxing access permission: can be secure or not
+- *
+- * @pinctrl: Pin control state where STM32_GPIO pin are to configure
+- * @secure: True if pin is secure, false otherwise
+- */
+-void stm32_pinctrl_set_secure_cfg(struct pinctrl_state *pinctrl, bool secure);
+-
+ /*
+  * Get the bank and pin indices related to a pin control state
+  * @pinctrl: Pinctrl state
+@@ -52,12 +34,6 @@ void stm32_gpio_pinctrl_bank_pin(struct pinctrl_state *pinctrl,
+  */
+ unsigned int stm32_gpio_chip_bank_id(struct gpio_chip *chip);
+ #else
+-static inline void
+-stm32_pinctrl_set_secure_cfg(struct pinctrl_state *pinctrl __unused,
+-			     bool secure __unused)
+-{
+-}
+-
+ static inline void stm32_gpio_pinctrl_bank_pin(struct pinctrl_state *p __unused,
+ 					       unsigned int *bank __unused,
+ 					       unsigned int *pin __unused,
+-- 
+2.47.2
+

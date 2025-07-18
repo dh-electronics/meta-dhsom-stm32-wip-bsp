@@ -1,0 +1,93 @@
+From c9e27254a1c0074a82a0515a541895370f818f77 Mon Sep 17 00:00:00 2001
+From: Simeon Marijon <simeon.marijon@foss.st.com>
+Date: Wed, 4 Oct 2023 17:53:34 +0200
+Subject: [PATCH 0354/1695] drivers: stm32_tamp: allow subnode to be probed
+
+TAMP peripheral includes a NVMEM block. It will be exposed using NVMEM
+framework as a subnode of tamp. Therefore we need to parse all the
+children of a "stm32-tamp" compatible node
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5e7c16a33d5d01ce6a26c50e19c7589d66f225c5 drivers: stm32_tamp: allow subnode to be probed]
+Change-Id: I57d0ef71d742754c7cfe9bce4b230cd26975d677
+Signed-off-by: Simeon Marijon <simeon.marijon@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/328923
+Reviewed-by: Simeon MARIJON <simeon.marijon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Simeon MARIJON <simeon.marijon@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_tamp.c | 33 ++++++++++++++++++++++++---------
+ 1 file changed, 24 insertions(+), 9 deletions(-)
+
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index 9ad2a54f0..9b9fae0ec 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -1615,13 +1615,14 @@ stm32_tamp_parse_active_conf(const void *fdt, int node,
+ 	return TEE_SUCCESS;
+ }
+ 
+-static
+-TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
+-				const void *fdt, int node, const void *compat)
++static TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
++				       const void *fdt, int node,
++				       const void *compat)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+-	int pinnode = -1;
+-	struct dt_node_info dt_tamp = { };
++	int pinnode = -FDT_ERR_NOTFOUND;
++	int subnode = -FDT_ERR_NOTFOUND;
++	struct dt_node_info dt_tamp = {};
+ 	bool is_tdcid = false;
+ 
+ 	fdt_fill_device_info(fdt, &dt_tamp, node);
+@@ -1658,10 +1659,14 @@ TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
+ 	if (res)
+ 		return res;
+ 
+-	fdt_for_each_subnode(pinnode, fdt, node) {
+-		res = stm32_tamp_configure_pin_from_dt(fdt, pinnode, pdata);
+-		if (res)
+-			return res;
++	fdt_for_each_subnode(subnode, fdt, node) {
++		if (fdt_getprop(fdt, subnode, "pinctrl-0", NULL)) {
++			res = stm32_tamp_configure_pin_from_dt(fdt, subnode,
++							       pdata);
++			if (res)
++				return res;
++			pinnode = subnode;
++		}
+ 	}
+ 
+ 	if (pinnode < 0 && pinnode != -FDT_ERR_NOTFOUND)
+@@ -1724,6 +1729,7 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
+ 	uint32_t __maybe_unused revision = 0;
+ 	TEE_Result res = TEE_SUCCESS;
+ 	vaddr_t base = 0;
++	int subnode = -FDT_ERR_NOTFOUND;
+ 
+ 	/* Manage dependency on RTC driver */
+ 	res = stm32_rtc_driver_is_initialized();
+@@ -1816,6 +1822,15 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
+ 
+ 	interrupt_enable(interrupt_get_main_chip(), stm32_tamp.itr->it);
+ 
++	fdt_for_each_subnode(subnode, fdt, node) {
++		res = dt_driver_maybe_add_probe_node(fdt, subnode);
++		if (res) {
++			EMSG("Failed on node %s with %#" PRIx32,
++			     fdt_get_name(fdt, subnode, NULL), res);
++			panic();
++		}
++	}
++
+ 	return TEE_SUCCESS;
+ 
+ err:
+-- 
+2.47.2
+

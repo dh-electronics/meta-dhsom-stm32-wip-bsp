@@ -1,0 +1,68 @@
+From bf36a3b43ad0a40107851edb25a297f63b5bf5a2 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 10 Dec 2021 14:39:14 +0100
+Subject: [PATCH 0181/1695] plat-stm32mp2: add rcc helper function
+
+Add dedicate include file for RCC to add helper function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 218960efb9737c5d3d209978af3a1b3f523924d3 plat-stm32mp2: add rcc helper function]
+Change-Id: I72e967e2d899e111176c230a5b17db20fd2a7c6d
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/main.c       |  7 +++++++
+ core/arch/arm/plat-stm32mp2/stm32_util.h |  1 +
+ core/include/drivers/stm32mp2_rcc_util.h | 12 ++++++++++++
+ 3 files changed, 20 insertions(+)
+ create mode 100644 core/include/drivers/stm32mp2_rcc_util.h
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index 14a97b85b..e6acc7267 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -133,6 +133,13 @@ static TEE_Result init_console_from_dt(void)
+ service_init_late(init_console_from_dt);
+ #endif /*STM32_UART*/
+ 
++vaddr_t stm32_rcc_base(void)
++{
++	static struct io_pa_va base = { .pa = RCC_BASE };
++
++	return io_pa_or_va_secure(&base, 1);
++}
++
+ void boot_primary_init_intc(void)
+ {
+ 	gic_init(GIC_BASE + GICC_OFFSET, GIC_BASE + GICD_OFFSET);
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+index 2575f0a5c..aa0e5b464 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -6,6 +6,7 @@
+ #ifndef __STM32_UTIL_H__
+ #define __STM32_UTIL_H__
+ 
++#include <drivers/stm32mp2_rcc_util.h>
+ #include <kernel/spinlock.h>
+ #include <stdint.h>
+ #include <types_ext.h>
+diff --git a/core/include/drivers/stm32mp2_rcc_util.h b/core/include/drivers/stm32mp2_rcc_util.h
+new file mode 100644
+index 000000000..f4974d9fb
+--- /dev/null
++++ b/core/include/drivers/stm32mp2_rcc_util.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ */
++
++#ifndef __DRIVERS_STM32MP2_RCC_UTIL_H__
++#define __DRIVERS_STM32MP2_RCC_UTIL_H__
++
++/* Platform util for the RCC drivers */
++vaddr_t stm32_rcc_base(void);
++
++#endif /*__DRIVERS_STM32MP2_RCC_UTIL_H__*/
+-- 
+2.47.2
+

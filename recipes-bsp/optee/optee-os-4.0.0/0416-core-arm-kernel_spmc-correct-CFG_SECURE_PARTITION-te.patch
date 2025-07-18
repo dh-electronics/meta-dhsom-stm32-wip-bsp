@@ -1,0 +1,44 @@
+From df6f2c9f201ba7f2a1942b9d0c5f7debe63facf6 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 21 Dec 2023 09:20:52 +0100
+Subject: [PATCH 0416/1695] core: arm: kernel_spmc: correct
+ CFG_SECURE_PARTITION test
+
+Replace occurrences of #if CFG_SECURE_PARTITION to a #ifdef test
+as boolean CFG_ configuration switches do not have a meaningful value.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 3f994b2d0724e19d2c8b8af25578d870e3f40011 core: arm: kernel_spmc: correct CFG_SECURE_PARTITION test]
+Change-Id: Id938fbc45ac5983a2d29bce61d58195cd737ad57
+Fixes: 4d0288475267 ("core: spmc: handle non-secure interrupts")
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from 0692d41e89a3c11c16d12d8682cf8cac8c4d7761]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/kernel/thread_spmc_a64.S | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/kernel/thread_spmc_a64.S b/core/arch/arm/kernel/thread_spmc_a64.S
+index 8ea2bce5f..46f241c9f 100644
+--- a/core/arch/arm/kernel/thread_spmc_a64.S
++++ b/core/arch/arm/kernel/thread_spmc_a64.S
+@@ -14,7 +14,7 @@
+ #include <kernel/thread.h>
+ #include <optee_ffa.h>
+ 
+-#if CFG_SECURE_PARTITION
++#ifdef CFG_SECURE_PARTITION
+ LOCAL_FUNC thread_ffa_interrupt , :
+ 	mov_imm	x0, FFA_INTERRUPT		/* FID */
+ 	/* X1: Endpoint/vCPU IDs is set by caller */
+@@ -197,7 +197,7 @@ FUNC thread_foreign_intr_exit , :
+ 	adr_l	x2, threads
+ 	madd	x2, x1, x0, x2
+ 	ldr	w1, [x2, #THREAD_CTX_TSD_RPC_TARGET_INFO]
+-#if CFG_SECURE_PARTITION
++#ifdef CFG_SECURE_PARTITION
+ 	/* load threads[w0].flags into w2 */
+ 	ldr	w2, [x2, #THREAD_CTX_FLAGS]
+ 	and     w2, w2, #THREAD_FLAGS_FFA_ONLY
+-- 
+2.47.2
+

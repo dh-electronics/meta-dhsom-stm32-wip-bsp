@@ -1,0 +1,206 @@
+From bb5bdd85df3c8f47b6543410d67020f8ccf22099 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Mon, 16 Sep 2024 11:57:51 +0200
+Subject: [PATCH 1213/1695] pta: remoteproc: Add support of the elf with
+ encryption
+
+Support of elf file with encrypted segments.
+Only the AES CBC algorithm is supported.
+
+This first implementation does not support the use of an AES key
+from a protected storage but only a test key is available using
+CFG_REMOTEPROC_ENC_TEST config.
+
+The rproc_pta_seg_info has been extended to support the decryption of
+the segment loaded in remote processor memory.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5c75f73763385d00b1ac56a2bffb4af6bdca2cef pta: remoteproc: Add support of the elf with encryption]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I5238eeaa7ceed757c7545a30b4c4d55d0c676f2b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/403801
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk  |  1 +
+ core/pta/stm32mp/remoteproc_pta.c    | 72 ++++++++++++++++++++++++++--
+ lib/libutee/include/remoteproc_pta.h | 11 ++++-
+ 3 files changed, 80 insertions(+), 4 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 3cec86417..697ea69b4 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -271,6 +271,7 @@ ifeq ($(CFG_REMOTEPROC_PTA),y)
+ CFG_IN_TREE_EARLY_TAS += remoteproc/80a4c275-0a47-4905-8285-1486a9771a08
+ # Embed public part of this key in OP-TEE OS
+ RPROC_SIGN_KEY ?= keys/default.pem
++CFG_REMOTEPROC_ENC_TEST ?= n
+ endif
+ 
+ ifneq ($(CFG_WITH_LPAE),y)
+diff --git a/core/pta/stm32mp/remoteproc_pta.c b/core/pta/stm32mp/remoteproc_pta.c
+index b65b31ec7..b9307aead 100644
+--- a/core/pta/stm32mp/remoteproc_pta.c
++++ b/core/pta/stm32mp/remoteproc_pta.c
+@@ -14,6 +14,7 @@
+ #include <kernel/user_ta.h>
+ #include <remoteproc_pta.h>
+ #include <string.h>
++#include <string_ext.h>
+ 
+ #include "rproc_pub_key.h"
+ 
+@@ -28,6 +29,17 @@
+ 	{ 0x80a4c275, 0x0a47, 0x4905, \
+ 		{ 0x82, 0x85, 0x14, 0x86, 0xa9, 0x77, 0x1a, 0x08} }
+ 
++#ifdef CFG_REMOTEPROC_ENC_TEST
++/*
++ * AES test key for decryption.
++ */
++static const uint8_t aes_zero_tst_key[TEE_AES_MAX_KEY_SIZE] = {
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
++#endif
++
+ /*
+  * Firmware states
+  * REMOTEPROC_OFF: firmware is off
+@@ -55,8 +67,9 @@ static TEE_Result rproc_pta_capabilities(uint32_t pt,
+ 	if (!stm32_rproc_get(params[0].value.a))
+ 		return TEE_ERROR_NOT_SUPPORTED;
+ 
+-	/* Support only ELF format */
+-	params[1].value.a = PTA_RPROC_HWCAP_FMT_ELF;
++	/* Support ELF format and encrypted ELF format*/
++	params[1].value.a = PTA_RPROC_HWCAP_FMT_ELF |
++			    PTA_RPROC_HWCAP_FMT_ENC_ELF;
+ 
+ 	/*
+ 	 * Due to stm32mp1 pager, secure memory is too expensive. Support hash
+@@ -68,6 +81,47 @@ static TEE_Result rproc_pta_capabilities(uint32_t pt,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result rproc_pta_decrypt_aes(uint32_t enc_algo, uint8_t *iv,
++					uint8_t *buff, size_t len)
++{
++	TEE_Result res = TEE_SUCCESS;
++	const uint8_t *key = NULL;
++	size_t key_len = 0;
++	void *ctx = NULL;
++
++#ifndef CFG_REMOTEPROC_ENC_TEST
++	/* TODO: Implement code to retrieve code from OTP or secure storage. */
++	EMSG("Decryption not supported!");
++	return TEE_ERROR_NOT_SUPPORTED;
++#else
++	key = aes_zero_tst_key;
++	key_len = TEE_AES_MAX_KEY_SIZE;
++#endif
++
++	res = crypto_cipher_alloc_ctx(&ctx, enc_algo);
++	if (res)
++		return res;
++
++	res = crypto_cipher_init(ctx, TEE_MODE_DECRYPT, key, key_len,
++				 NULL, 0, iv, TEE_AES_BLOCK_SIZE);
++	if (res)
++		goto out;
++
++	/* In-place decryption in the destination memory*/
++	res = crypto_cipher_update(ctx, TEE_MODE_DECRYPT, true, buff,
++				   len, buff);
++	if (res)
++		goto out;
++
++	crypto_cipher_final(ctx);
++out:
++	if (res)
++		memzero_explicit(buff, len);
++	crypto_cipher_free_ctx(ctx);
++
++	return res;
++}
++
+ static TEE_Result rproc_pta_load_segment(uint32_t pt,
+ 					 TEE_Param params[TEE_NUM_PARAMS])
+ {
+@@ -112,8 +166,20 @@ static TEE_Result rproc_pta_load_segment(uint32_t pt,
+ 	/* Verify that loaded segment is valid */
+ 	res = hash_sha256_check(seg_info->hash, dst, size);
+ 	if (res)
+-		memset(dst, 0, size);
++		goto clean_mem;
++
++	if (res || !seg_info->enc_algo)
++		goto unmap;
++
++	/* Decrypt the segment copied in destination memory */
++	res = rproc_pta_decrypt_aes(seg_info->enc_algo, seg_info->iv,
++				    dst, size);
++	if (res == TEE_SUCCESS)
++		goto unmap;
+ 
++clean_mem:
++	memzero_explicit(dst, size);
++unmap:
+ 	stm32_rproc_unmap(params[0].value.a, dst, size);
+ 
+ 	return res;
+diff --git a/lib/libutee/include/remoteproc_pta.h b/lib/libutee/include/remoteproc_pta.h
+index 25e6853c4..27dff6076 100644
+--- a/lib/libutee/include/remoteproc_pta.h
++++ b/lib/libutee/include/remoteproc_pta.h
+@@ -7,6 +7,7 @@
+ #define __REMOTEPROC_PTA_H
+ 
+ #include <stdint.h>
++#include <tee_api_defines.h>
+ #include <utee_defines.h>
+ #include <util.h>
+ 
+@@ -19,7 +20,8 @@
+ 		{ 0xbb, 0xe6, 0x89, 0x50, 0x35, 0x0a, 0x87, 0x44 } }
+ 
+ /* Hardware capability: firmware format */
+-#define PTA_RPROC_HWCAP_FMT_ELF	BIT32(0)
++#define PTA_RPROC_HWCAP_FMT_ELF     BIT32(0)  /* Standard ELF format  */
++#define PTA_RPROC_HWCAP_FMT_ENC_ELF BIT32(1)  /* Encrypted ELF format */
+ 
+ /* Hardware capability: image protection method */
+ /* The platform supports load of segment with hash protection */
+@@ -37,6 +39,9 @@
+ 
+ #define PTA_REMOTEPROC_MAX_HASH_SIZE	U(64)
+ 
++/* No encryption */
++#define RPROC_PTA_ENC_NONE 0
++
+ /**
+  * struct rproc_pta_key_info - public key information
+  * @algo:	Algorithm, defined by public key algorithms TEE_ALG_*
+@@ -53,10 +58,14 @@ struct rproc_pta_key_info {
+  * struct rproc_pta_seg_info -  segment info for authentication and decryption
+  * @hash_algo: Algorithm used for hash calculation
+  * @hash:      Hash associated to the program segment.
++ * @enc_algo:  Algorithm used for encryption, 0 means no encryption
++ * @iv:        Initialisation vector for segment decryption
+  */
+ struct rproc_pta_seg_info {
+ 	uint32_t hash_algo;
+ 	uint8_t hash[PTA_REMOTEPROC_MAX_HASH_SIZE];
++	uint32_t enc_algo;
++	uint8_t iv[TEE_AES_BLOCK_SIZE];
+ };
+ 
+ static inline size_t rproc_pta_keyinfo_size(struct rproc_pta_key_info *keyinf)
+-- 
+2.47.2
+

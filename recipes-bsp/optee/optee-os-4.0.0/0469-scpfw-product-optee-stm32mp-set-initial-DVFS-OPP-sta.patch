@@ -1,0 +1,49 @@
+From b48c7f17a5cbfcf1da2d71303939b8d15bbd9ca5 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 10 Apr 2024 16:53:22 +0200
+Subject: [PATCH 0469/1695] scpfw: product/optee-stm32mp*: set initial DVFS OPP
+ state
+
+Fix CPU DVFS initialization state that was no provided to SCP-firmware
+by OP-TEE prior this change.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c73aba39f8165f8d33c7ba98c6ea83ea1587a76c scpfw: product/optee-stm32mp*: set initial DVFS OPP state]
+Change-Id: I911a41b3a4b0e21edf3f14638b0092da895bf51e
+Depends-on: Ib8491426ccc54e1149940aafb7345623ea33b926
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/372834
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../SCP-firmware/product/optee-stm32mp1/fw/config_all.c          | 1 +
+ .../SCP-firmware/product/optee-stm32mp2/fw/config_all.c          | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp1/fw/config_all.c b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp1/fw/config_all.c
+index 1f9efcd7d..bbfabebb4 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp1/fw/config_all.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp1/fw/config_all.c
+@@ -737,6 +737,7 @@ static void set_resources(struct scpfw_config *cfg)
+                     dvfs_data[dvfs_index].clock_id =
+                         (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_CLOCK, clock_index);
+                     dvfs_data[dvfs_index].latency = 0; /* not set, used for async access */
++                    dvfs_data[dvfs_index].sustained_idx = perfd_cfg->initial_opp;
+                     dvfs_data[dvfs_index].opps =
+                         fwk_mm_calloc(perfd_cfg->dvfs_opp_count,
+                                       sizeof(struct mod_dvfs_opp));
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
+index bc9f980b7..a456b2370 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
+@@ -738,6 +738,7 @@ static void set_resources(struct scpfw_config *cfg)
+                     dvfs_data[dvfs_index].clock_id =
+                         (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_CLOCK, clock_index);
+                     dvfs_data[dvfs_index].latency = 0; /* not set, used for async access */
++                    dvfs_data[dvfs_index].sustained_idx = perfd_cfg->initial_opp;
+                     dvfs_data[dvfs_index].opps =
+                         fwk_mm_calloc(perfd_cfg->dvfs_opp_count,
+                                       sizeof(struct mod_dvfs_opp));
+-- 
+2.47.2
+

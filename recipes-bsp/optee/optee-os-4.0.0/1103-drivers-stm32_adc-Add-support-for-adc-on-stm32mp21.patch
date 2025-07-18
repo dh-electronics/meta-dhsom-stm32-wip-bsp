@@ -1,0 +1,78 @@
+From 465a9176ea975b3ae3f3c6df4a6674e092a4096a Mon Sep 17 00:00:00 2001
+From: Cheick Traore <cheick.traore-ext@st.com>
+Date: Mon, 2 Sep 2024 15:40:47 +0200
+Subject: [PATCH 1103/1695] drivers: stm32_adc: Add support for adc on
+ stm32mp21
+
+Add support for STM32 ADCs on stm32mp21.
+Use the same configuration as on stm32mp25 instead of the minimum
+sampling time which is has no value for vddgpu, as, it is not present on
+stm32mp21.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git de4a675fb37547e7bca1d6ef886278827a85d7cd drivers: stm32_adc: Add support for adc on stm32mp21]
+Change-Id: Ifd2eca087bc210aa961d9662e1914c7233154877
+Signed-off-by: Cheick Traore <cheick.traore-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/401508
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/adc/stm32_adc.c      | 11 +++++++++++
+ core/drivers/adc/stm32_adc_core.c |  3 +++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/core/drivers/adc/stm32_adc.c b/core/drivers/adc/stm32_adc.c
+index 55f30693b..dd78b129f 100644
+--- a/core/drivers/adc/stm32_adc.c
++++ b/core/drivers/adc/stm32_adc.c
+@@ -273,6 +273,8 @@ static const struct stm32_adc_regs stm32_adc_smp_bits[] = {
+ static const unsigned int stm32mp13_adc_min_ts[] = { 1000, 1000, 1000, 4300,
+ 						     9800, 0};
+ static_assert(ARRAY_SIZE(stm32mp13_adc_min_ts) == STM32_ADC_INT_CH_NB);
++static const unsigned int stm32mp21_adc_min_ts[] = { 34, 34, 0, 34, 34, 0 };
++static_assert(ARRAY_SIZE(stm32mp21_adc_min_ts) == STM32_ADC_INT_CH_NB);
+ static const unsigned int stm32mp25_adc_min_ts[] = { 34, 34, 0, 34, 34, 34 };
+ static_assert(ARRAY_SIZE(stm32mp25_adc_min_ts) == STM32_ADC_INT_CH_NB);
+ 
+@@ -1360,6 +1362,14 @@ static const struct stm32_adc_cfg stm32mp13_adc_cfg = {
+ 	.regs = &stm32mp13_regs,
+ };
+ 
++static const struct stm32_adc_cfg stm32mp21_adc_cfg = {
++	.max_channels = STM32MP25_ADC_CH_MAX,
++	.hw_start = stm32mp25_adc_hw_start,
++	.min_ts = stm32mp21_adc_min_ts,
++	.smp_cycles = stm32mp25_adc_smp_cycles,
++	.regs = &stm32mp25_regs,
++};
++
+ static const struct stm32_adc_cfg stm32mp25_adc_cfg = {
+ 	.max_channels = STM32MP25_ADC_CH_MAX,
+ 	.hw_start = stm32mp25_adc_hw_start,
+@@ -1370,6 +1380,7 @@ static const struct stm32_adc_cfg stm32mp25_adc_cfg = {
+ 
+ static const struct dt_device_match stm32_adc_match_table[] = {
+ 	{ .compatible = "st,stm32mp13-adc", .compat_data = &stm32mp13_adc_cfg },
++	{ .compatible = "st,stm32mp21-adc", .compat_data = &stm32mp21_adc_cfg },
+ 	{ .compatible = "st,stm32mp25-adc", .compat_data = &stm32mp25_adc_cfg },
+ 	{ }
+ };
+diff --git a/core/drivers/adc/stm32_adc_core.c b/core/drivers/adc/stm32_adc_core.c
+index 42d8c2ff0..0479806ef 100644
+--- a/core/drivers/adc/stm32_adc_core.c
++++ b/core/drivers/adc/stm32_adc_core.c
+@@ -444,6 +444,9 @@ static const struct dt_device_match stm32_adc_core_match_table[] = {
+ 	{ .compatible = "st,stm32mp13-adc-core",
+ 	  .compat_data =  &stm32mp13_adc_core_cfg
+ 	},
++	{ .compatible = "st,stm32mp21-adc-core",
++	  .compat_data =  &stm32mp25_adc_core_cfg
++	},
+ 	{ .compatible = "st,stm32mp25-adc-core",
+ 	  .compat_data =  &stm32mp25_adc_core_cfg
+ 	},
+-- 
+2.47.2
+

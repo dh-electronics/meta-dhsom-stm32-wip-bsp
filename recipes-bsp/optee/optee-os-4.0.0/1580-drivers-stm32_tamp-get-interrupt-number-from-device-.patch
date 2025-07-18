@@ -1,0 +1,121 @@
+From c0f0140c94bd20e719e0f3d9a5117ed39ce836e6 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Mon, 27 Jan 2025 14:49:46 +0100
+Subject: [PATCH 1580/1695] drivers: stm32_tamp: get interrupt number from
+ device tree
+
+Drop the default interrupt main chip.
+
+While there, fix the exit path on probe deferred.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d6db110f2bae1527e5b70fb7cae571527bf9d8f5 drivers: stm32_tamp: get interrupt number from device tree]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Ia9ce0e65543db92a0bbfe709f8a3030cc7229c7a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434926
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/stm32_tamp.c         | 26 ++++++++++++++++----------
+ core/include/drivers/stm32_tamp.h |  1 -
+ 2 files changed, 16 insertions(+), 11 deletions(-)
+
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index c15601ea8..591cbb59d 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -1938,8 +1938,7 @@ static TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
+ 	fdt_fill_device_info(fdt, &dt_tamp, node);
+ 
+ 	if (dt_tamp.reg == DT_INFO_INVALID_REG ||
+-	    dt_tamp.reg_size == DT_INFO_INVALID_REG_SIZE ||
+-	    dt_tamp.interrupt == DT_INFO_INVALID_INTERRUPT) {
++	    dt_tamp.reg_size == DT_INFO_INVALID_REG_SIZE) {
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 	}
+ 
+@@ -1951,7 +1950,6 @@ static TEE_Result stm32_tamp_parse_fdt(struct stm32_tamp_platdata *pdata,
+ 			return res;
+ 	}
+ 
+-	pdata->it = dt_tamp.interrupt;
+ 	pdata->base.pa = dt_tamp.reg;
+ 	io_pa_or_va_secure(&pdata->base, dt_tamp.reg_size);
+ 
+@@ -2033,6 +2031,8 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
+ 	TEE_Result res = TEE_SUCCESS;
+ 	vaddr_t base = 0;
+ 	int subnode = -FDT_ERR_NOTFOUND;
++	struct itr_chip *chip = NULL;
++	size_t it_num = DT_INFO_INVALID_INTERRUPT;
+ 
+ 	/* Manage dependency on RNG driver */
+ 	res = dt_driver_get_crypto();
+@@ -2044,6 +2044,10 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
+ 	if (res)
+ 		return res;
+ 
++	res = interrupt_dt_get_by_index(fdt, node, 0, &chip, &it_num);
++	if (res)
++		return res;
++
+ 	res = stm32_tamp_parse_fdt(&stm32_tamp.pdata, fdt, node, compat_data);
+ 	if (res)
+ 		return res;
+@@ -2118,11 +2122,9 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
+ 			goto err;
+ 	}
+ 
+-	res = interrupt_alloc_add_handler(interrupt_get_main_chip(),
+-					  stm32_tamp.pdata.it,
+-					  stm32_tamp_it_handler,
+-					  ITRF_TRIGGER_LEVEL, NULL,
+-					  &stm32_tamp.itr);
++	res = interrupt_create_handler(chip, it_num, stm32_tamp_it_handler,
++				       NULL, ITRF_TRIGGER_LEVEL,
++				       &stm32_tamp.itr);
+ 	if (res)
+ 		goto err;
+ 
+@@ -2136,7 +2138,7 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
+ 			DMSG("TAMP event are not configured as wakeup source");
+ 	}
+ 
+-	interrupt_enable(interrupt_get_main_chip(), stm32_tamp.itr->it);
++	interrupt_enable(chip, it_num);
+ 
+ 	res = stm32_configure_tamp(fdt, node);
+ 	if (res)
+@@ -2164,11 +2166,15 @@ err:
+ 		free(stm32_tamp.pdata.conf_data->access_mask);
+ 	}
+ 
+-	if (stm32_tamp.itr)
++	if (stm32_tamp.itr) {
++		interrupt_disable(chip, it_num);
+ 		interrupt_remove_free_handler(stm32_tamp.itr);
++	}
+ 
+ 	free(stm32_tamp.pdata.bkpregs_conf);
+ 
++	clk_disable(stm32_tamp.pdata.clock);
++
+ 	return res;
+ }
+ 
+diff --git a/core/include/drivers/stm32_tamp.h b/core/include/drivers/stm32_tamp.h
+index e00446cfc..5c60a0b72 100644
+--- a/core/include/drivers/stm32_tamp.h
++++ b/core/include/drivers/stm32_tamp.h
+@@ -119,7 +119,6 @@ struct stm32_tamp_platdata {
+ 	struct rif_conf_data *conf_data;
+ 	struct stm32_bkpregs_conf *bkpregs_conf;
+ 	struct stm32_exti_pdata *exti;
+-	int it;
+ 	unsigned int nb_resources;
+ 	uint32_t passive_conf;
+ 	uint32_t active_conf;
+-- 
+2.47.2
+

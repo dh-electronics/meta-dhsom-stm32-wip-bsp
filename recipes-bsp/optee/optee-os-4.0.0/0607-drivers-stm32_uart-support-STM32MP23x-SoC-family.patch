@@ -1,0 +1,67 @@
+From a198f779b70f9c70890370d89ee06662cc9dc43c Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 16 Feb 2024 15:58:29 +0100
+Subject: [PATCH 0607/1695] drivers: stm32_uart: support STM32MP23x SoC family
+
+Add support for STM32MP23 SoC family.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 4615b8044092dadfc55b4f4db2e6f0e0b4d558c7 drivers: stm32_uart: support STM32MP23x SoC family]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I72c2871b3fa054271dde15148685fb9645d34392
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/360739
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/stm32_uart.c | 20 ++++++++++----------
+ 1 file changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/core/drivers/stm32_uart.c b/core/drivers/stm32_uart.c
+index 4a7675962..50479f5f4 100644
+--- a/core/drivers/stm32_uart.c
++++ b/core/drivers/stm32_uart.c
+@@ -111,29 +111,29 @@ void stm32_uart_init(struct stm32_uart_pdata *pd, vaddr_t base)
+ 
+ static void register_secure_uart(struct stm32_uart_pdata *pd)
+ {
+-#ifndef CFG_STM32MP25
++#if !(defined(CFG_STM32MP15) || defined(CFG_STM32MP13))
++	stm32_pinctrl_set_secure_cfg(pd->pinctrl, true);
++	if (pd->pinctrl_sleep)
++		stm32_pinctrl_set_secure_cfg(pd->pinctrl, true);
++#else
+ 	stm32mp_register_secure_periph_iomem(pd->base.pa);
+ 	stm32mp_register_secure_pinctrl(pd->pinctrl);
+ 	if (pd->pinctrl_sleep)
+ 		stm32mp_register_secure_pinctrl(pd->pinctrl_sleep);
+-#else
+-	stm32_pinctrl_set_secure_cfg(pd->pinctrl, true);
+-	if (pd->pinctrl_sleep)
+-		stm32_pinctrl_set_secure_cfg(pd->pinctrl, true);
+ #endif
+ }
+ 
+ static void register_non_secure_uart(struct stm32_uart_pdata *pd)
+ {
+-#ifndef CFG_STM32MP25
++#if !(defined(CFG_STM32MP15) || defined(CFG_STM32MP13))
++	stm32_pinctrl_set_secure_cfg(pd->pinctrl, false);
++	if (pd->pinctrl_sleep)
++		stm32_pinctrl_set_secure_cfg(pd->pinctrl, false);
++#else
+ 	stm32mp_register_non_secure_periph_iomem(pd->base.pa);
+ 	stm32mp_register_non_secure_pinctrl(pd->pinctrl);
+ 	if (pd->pinctrl_sleep)
+ 		stm32mp_register_non_secure_pinctrl(pd->pinctrl_sleep);
+-#else
+-	stm32_pinctrl_set_secure_cfg(pd->pinctrl, false);
+-	if (pd->pinctrl_sleep)
+-		stm32_pinctrl_set_secure_cfg(pd->pinctrl, false);
+ #endif
+ 
+ }
+-- 
+2.47.2
+

@@ -1,0 +1,166 @@
+From c20f71f6e15b7963f5916585a23f2bbf47ce733b Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 9 Jul 2024 14:12:28 +0200
+Subject: [PATCH 1167/1695] core: kernel: dt_driver: fix nodes reference passed
+ in dt_pargs
+
+Correct the DT node references passed in struct dt_pargs. Field
+phandle_node is expected to be the node offset of the provider driver
+but dt_driver_device_from_node_idx_prop_phandle() implementation passes
+node offset -1, dt_driver_device_from_parent() passes the consumer
+node offset and dt_driver_device_from_node_idx_prop() may pass the
+phandle node offset from a previous index in the parsed DT node property.
+
+Fix that by adding field consumer_node to reference the node offset of
+the consumer device and fixing phandle_node where applicable and
+update atmel_i2c and stm32_i2c drivers to get the I2C device address
+from the consumer_node field instead of the phandle_node that is now
+fixed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git be06f7e1b869de4645a93c1b1665bebd1a521c4e core: kernel: dt_driver: fix nodes reference passed in dt_pargs]
+Change-Id: I7e9c3c2e91806b87415f403453e42965db6e5dbf
+[etienne: ported upstream f4cc581bb1d5c86cef52ef112165ee25490382c6]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/391454
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/i2c/atmel_i2c.c    |  2 +-
+ core/drivers/stm32_i2c.c        |  2 +-
+ core/include/kernel/dt_driver.h |  2 ++
+ core/kernel/dt_driver.c         | 22 +++++++++++++++-------
+ 4 files changed, 19 insertions(+), 9 deletions(-)
+
+diff --git a/core/drivers/i2c/atmel_i2c.c b/core/drivers/i2c/atmel_i2c.c
+index df44f3120..f7b74ae62 100644
+--- a/core/drivers/i2c/atmel_i2c.c
++++ b/core/drivers/i2c/atmel_i2c.c
+@@ -284,7 +284,7 @@ static TEE_Result atmel_i2c_get_dt_i2c(struct dt_pargs *args, void *data,
+ 	struct i2c_dev *i2c_dev = NULL;
+ 	struct i2c_ctrl *i2c_ctrl = data;
+ 
+-	i2c_dev = i2c_create_dev(i2c_ctrl, args->fdt, args->phandle_node);
++	i2c_dev = i2c_create_dev(i2c_ctrl, args->fdt, args->consumer_node);
+ 	if (!i2c_dev)
+ 		return TEE_ERROR_OUT_OF_MEMORY;
+ 
+diff --git a/core/drivers/stm32_i2c.c b/core/drivers/stm32_i2c.c
+index c74d80126..edeeb5f45 100644
+--- a/core/drivers/stm32_i2c.c
++++ b/core/drivers/stm32_i2c.c
+@@ -1620,7 +1620,7 @@ static TEE_Result stm32_get_i2c_dev(struct dt_pargs *args, void *data,
+ 	struct stm32_i2c_dev *stm32_i2c_dev = NULL;
+ 	paddr_t addr = 0;
+ 
+-	addr = fdt_reg_base_address(args->fdt, args->phandle_node);
++	addr = fdt_reg_base_address(args->fdt, args->consumer_node);
+ 	if (addr == DT_INFO_INVALID_REG) {
+ 		DMSG("Can't get device I2C address");
+ 		return TEE_ERROR_GENERIC;
+diff --git a/core/include/kernel/dt_driver.h b/core/include/kernel/dt_driver.h
+index d622c1ac9..f61c3f9cd 100644
+--- a/core/include/kernel/dt_driver.h
++++ b/core/include/kernel/dt_driver.h
+@@ -91,12 +91,14 @@ struct dt_driver_provider;
+  * struct dt_pargs - Devicetree phandle arguments
+  * @fdt: Device-tree to work on
+  * @phandle_node: Node pointed by the specifier phandle
++ * @consumer_node: Node of the consumer requesting this device
+  * @args_count: Count of cells for the device
+  * @args: Device consumer specifiers
+  */
+ struct dt_pargs {
+ 	const void *fdt;
+ 	int phandle_node;
++	int consumer_node;
+ 	int args_count;
+ 	uint32_t args[];
+ };
+diff --git a/core/kernel/dt_driver.c b/core/kernel/dt_driver.c
+index e5ef2438e..603680f87 100644
+--- a/core/kernel/dt_driver.c
++++ b/core/kernel/dt_driver.c
+@@ -261,7 +261,7 @@ dt_driver_get_provider_by_phandle(uint32_t phandle, enum dt_driver_type type)
+ static TEE_Result device_from_provider_prop(struct dt_driver_provider *prv,
+ 					    const void *fdt, int phandle_node,
+ 					    const uint32_t *prop,
+-					    void *device_ref)
++					    void *device_ref, int consumer_node)
+ {
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	struct dt_pargs *pargs = NULL;
+@@ -275,6 +275,7 @@ static TEE_Result device_from_provider_prop(struct dt_driver_provider *prv,
+ 	pargs->fdt = fdt;
+ 	pargs->phandle_node = phandle_node;
+ 	pargs->args_count = prv->provider_cells;
++	pargs->consumer_node = consumer_node;
+ 	for (n = 0; n < prv->provider_cells; n++)
+ 		pargs->args[n] = fdt32_to_cpu(prop[n]);
+ 
+@@ -304,8 +305,8 @@ TEE_Result dt_driver_device_from_parent(const void *fdt, int nodeoffset,
+ 		return TEE_ERROR_DEFER_DRIVER_INIT;
+ 	}
+ 
+-	return device_from_provider_prop(prv, fdt, nodeoffset, NULL,
+-					 device_ref);
++	return device_from_provider_prop(prv, fdt, parent, NULL, device_ref,
++					 nodeoffset);
+ }
+ 
+ TEE_Result dt_driver_device_from_node_idx_prop_phandle(const char *prop_name,
+@@ -317,8 +318,8 @@ TEE_Result dt_driver_device_from_node_idx_prop_phandle(const char *prop_name,
+ 						       void *device_ref)
+ {
+ 	int len = 0;
++	int phandle_node = -1;
+ 	const uint32_t *prop = NULL;
+-	int phandle_node_unused = -1;
+ 	struct dt_driver_provider *prv = NULL;
+ 
+ 	prop = fdt_getprop(fdt, nodeoffs, prop_name, &len);
+@@ -341,8 +342,11 @@ TEE_Result dt_driver_device_from_node_idx_prop_phandle(const char *prop_name,
+ 	if ((prop_index + 1) * sizeof(*prop) > (size_t)len)
+ 		return TEE_ERROR_ITEM_NOT_FOUND;
+ 
+-	return device_from_provider_prop(prv, fdt, phandle_node_unused,
+-					 prop + prop_index, device_ref);
++	phandle_node = fdt_node_offset_by_phandle(fdt, phandle);
++
++	return device_from_provider_prop(prv, fdt, phandle_node,
++					 prop + prop_index, device_ref,
++					 nodeoffs);
+ }
+ 
+ TEE_Result dt_driver_device_from_node_idx_prop(const char *prop_name,
+@@ -358,6 +362,7 @@ TEE_Result dt_driver_device_from_node_idx_prop(const char *prop_name,
+ 	int phandle_node = -1;
+ 	uint32_t phandle = 0;
+ 	const uint32_t *prop = NULL;
++	int consumer_node = nodeoffset;
+ 	struct dt_driver_provider *prv = NULL;
+ 
+ 	prop = fdt_getprop(fdt, nodeoffset, prop_name, &len);
+@@ -396,6 +401,8 @@ TEE_Result dt_driver_device_from_node_idx_prop(const char *prop_name,
+ 			prv = dt_driver_get_provider_by_node(nodeoffset, type);
+ 		} else {
+ 			prv = dt_driver_get_provider_by_phandle(phandle, type);
++			if (prv)
++				phandle_node = prv->nodeoffset;
+ 		}
+ 
+ 		if (prv) {
+@@ -437,7 +444,8 @@ TEE_Result dt_driver_device_from_node_idx_prop(const char *prop_name,
+ 		idx32++;
+ 
+ 		return device_from_provider_prop(prv, fdt, phandle_node,
+-						 prop + idx32, device_ref);
++						 prop + idx32, device_ref,
++						 consumer_node);
+ 	}
+ 
+ 	return TEE_ERROR_ITEM_NOT_FOUND;
+-- 
+2.47.2
+

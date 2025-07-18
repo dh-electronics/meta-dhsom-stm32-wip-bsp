@@ -1,0 +1,145 @@
+From f60e6071781dba033def0bb1ff76a205707db334 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 13 Jun 2024 16:23:37 +0200
+Subject: [PATCH 0949/1695] core: firewall: add memory range firewall
+ controller ops
+
+Add ops for checking/setting firewall configurations on memory ranges.
+It should be used when interacting with firewalls that protect
+memory address ranges.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 14d266205af8c5d584d6036cc872148977becc30 core: firewall: add memory range firewall controller ops]
+Change-Id: I455504148bae3eef3e7ea3f48df0848ade53553c
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/389860
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/firewall/firewall.c       | 29 +++++++++++++++++++++
+ core/include/drivers/firewall.h        |  4 +++
+ core/include/drivers/firewall_device.h | 36 ++++++++++++++++++++++++++
+ 3 files changed, 69 insertions(+)
+
+diff --git a/core/drivers/firewall/firewall.c b/core/drivers/firewall/firewall.c
+index 3f0c03e97..565f1a40a 100644
+--- a/core/drivers/firewall/firewall.c
++++ b/core/drivers/firewall/firewall.c
+@@ -187,6 +187,35 @@ TEE_Result firewall_set_alternate_conf(struct firewall_alt_conf *conf)
+ 	return TEE_SUCCESS;
+ }
+ 
++TEE_Result firewall_set_memory_configuration(struct firewall_query *fw,
++					     paddr_t paddr, size_t size)
++{
++	assert(fw && fw->ctrl && fw->ctrl->ops);
++
++	if (!fw->ctrl->ops->set_memory_conf)
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	return fw->ctrl->ops->set_memory_conf(fw, paddr, size);
++}
++
++TEE_Result firewall_set_memory_alternate_conf(struct firewall_alt_conf *conf,
++					      paddr_t paddr, size_t size)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	size_t i = 0;
++
++	assert(conf);
++
++	for (i = 0; i < conf->nb_queries; i++) {
++		res = firewall_set_memory_configuration(conf->queries[i], paddr,
++							size);
++		if (res)
++			return res;
++	}
++
++	return TEE_SUCCESS;
++}
++
+ TEE_Result firewall_check_access(struct firewall_query *fw)
+ {
+ 	assert(fw && fw->ctrl && fw->ctrl->ops);
+diff --git a/core/include/drivers/firewall.h b/core/include/drivers/firewall.h
+index efe5c42bb..85c988b41 100644
+--- a/core/include/drivers/firewall.h
++++ b/core/include/drivers/firewall.h
+@@ -47,6 +47,8 @@ struct firewall_controller {
+  * memory range covered by a firewall controller, for read and/or write accesses
+  * @release_memory_access: Callback used to release resources taken by a
+  * consumer when the memory access was acquired with @acquire_memory_access
++ * @set_memory_conf: Callback used to set given firewall configuration for a
++ * memory range covered by a firewall controller
+  */
+ struct firewall_controller_ops {
+ 	TEE_Result (*set_conf)(struct firewall_query *conf);
+@@ -62,6 +64,8 @@ struct firewall_controller_ops {
+ 	void (*release_memory_access)(struct firewall_query *fw,
+ 				      paddr_t paddr, size_t size, bool read,
+ 				      bool write);
++	TEE_Result (*set_memory_conf)(struct firewall_query *fw, paddr_t paddr,
++				      size_t size);
+ };
+ 
+ #ifdef CFG_DRIVERS_FIREWALL
+diff --git a/core/include/drivers/firewall_device.h b/core/include/drivers/firewall_device.h
+index 13a05ca99..9af8a7283 100644
+--- a/core/include/drivers/firewall_device.h
++++ b/core/include/drivers/firewall_device.h
+@@ -180,6 +180,28 @@ void firewall_release_access(struct firewall_query *fw);
+ void firewall_release_memory_access(struct firewall_query *fw, paddr_t paddr,
+ 				    size_t size, bool read, bool write);
+ 
++/**
++ * firewall_set_memory_configuration() - Reconfigure a memory range with
++ * the given firewall configuration
++ *
++ * @fw: Firewall query containing the configuration to set
++ * @paddr: Physical base address of the memory range
++ * @size: Size of the memory range
++ */
++TEE_Result firewall_set_memory_configuration(struct firewall_query *fw,
++					     paddr_t paddr, size_t size);
++
++/**
++ * firewall_set_memory_alternate_conf() - Set an alternate firewall
++ * configuration on a given memory range.
++ *
++ * @conf: Pointer to the alternate configuration to set
++ * @paddr: Physical base address of the memory range
++ * @size: Size of the memory range
++ */
++TEE_Result firewall_set_memory_alternate_conf(struct firewall_alt_conf *conf,
++					      paddr_t paddr, size_t size);
++
+ /**
+  * firewall_put() - Release a firewall_query structure allocated by
+  * firewall_dt_get_by_index() or firewall_dt_get_by_name()
+@@ -274,6 +296,20 @@ firewall_set_alternate_conf(struct firewall_alt_conf *conf __unused)
+ 	return TEE_ERROR_NOT_IMPLEMENTED;
+ }
+ 
++static inline TEE_Result
++firewall_set_memory_configuration(struct firewall_query *fw __unused,
++				  paddr_t paddr __unused, size_t size __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
++static inline TEE_Result
++firewall_set_memory_alternate_conf(struct firewall_alt_conf *conf __unused,
++				   paddr_t paddr __unused, size_t size __unused)
++{
++	return TEE_ERROR_NOT_IMPLEMENTED;
++}
++
+ static inline void firewall_put(struct firewall_query *fw __unused)
+ {
+ }
+-- 
+2.47.2
+

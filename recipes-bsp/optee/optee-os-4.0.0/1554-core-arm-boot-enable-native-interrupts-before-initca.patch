@@ -1,0 +1,74 @@
+From a3420aefb1d34f9c018783949d977c42d175b85e Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 5 Feb 2025 17:53:43 +0100
+Subject: [PATCH 1554/1695] core: arm: boot: enable native interrupts before
+ initcalls
+
+Enable native interrupts on Arm architectures when executing
+initcalls (early,service,driver,final). This change allows drivers
+to leverage interrupts during OP-TEE core initialization, as for example
+detecting a firewall access violation when it occurs. Before this change,
+OP-TEE needed to complete its initialization and return the secure
+monitor for secure interrupts to be handled.
+
+This change only affects When CFG_NS_VIRTUALIZATION is disabled. When
+that configuration is enabled, initcalls are split between finalcalls
+called from CPU primary (boot_init_primary_late(), interrupts masked),
+preinitcalls called from fastcall entry to create non-secure VM guest
+(interrupts masked) and initcalls called from standard entry (interrupts
+unmasked). In this configuration, finalcalls and preinitcalls are
+executed using the temporary stack hence native interrupt cannot be
+unmasked since these are using the temporary stack on native interrupt
+entry.
+
+Change is ported from P-R https://github.com/OP-TEE/optee_os/pull/7262
+and a fixup commit from P-R https://github.com/OP-TEE/optee_os/pull/7233.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6dddded90196425721fe21e30c96cc41a6b0cbb1 core: arm: boot: enable native interrupts before initcalls]
+Change-Id: Ia13f15eab6b3656356aa2f9ab4ab4a956aa3987a
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434745
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Michel JAOUEN <michel.jaouen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Michel JAOUEN <michel.jaouen@st.com>
+---
+ core/arch/arm/kernel/boot.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/core/arch/arm/kernel/boot.c b/core/arch/arm/kernel/boot.c
+index 3034bd8bd..7150b01dd 100644
+--- a/core/arch/arm/kernel/boot.c
++++ b/core/arch/arm/kernel/boot.c
+@@ -1237,10 +1237,26 @@ void __weak boot_init_primary_late(unsigned long fdt,
+ 		IMSG("Initializing virtualization support");
+ 		core_mmu_init_virtualization();
+ 	} else {
++		/*
++		 * Unmask native interrupts during driver initcalls.
++		 *
++		 * NS-virtualization still uses the temporary stack also
++		 * used for exception handling so it must still have native
++		 * interrupts masked.
++		 */
++		thread_set_exceptions(thread_get_exceptions() &
++				      ~THREAD_EXCP_NATIVE_INTR);
+ 		init_tee_runtime();
+ 	}
++
+ 	call_finalcalls();
++
+ 	IMSG("Primary CPU switching to normal world boot");
++
++	/* Mask native interrupts before switching to the normal world */
++	if (!IS_ENABLED(CFG_NS_VIRTUALIZATION))
++		thread_set_exceptions(thread_get_exceptions() |
++				      THREAD_EXCP_NATIVE_INTR);
+ }
+ 
+ static void init_secondary_helper(unsigned long nsec_entry)
+-- 
+2.47.2
+

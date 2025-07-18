@@ -1,0 +1,127 @@
+From 0958c20d76e7d61dae13bfb8d706a1a3de268ee6 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Thu, 17 Mar 2022 15:53:58 +0100
+Subject: [PATCH 0123/1695] plat-stm32mp2: Add stm32mp25 sysconfig driver
+
+Driver to manage system configuration (sysconf) registers
+the sysconf are identified by an ID to be able to be adapted for DT.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d97de82b1b21bcd3ada4de7f999c29f5c04e52c6 plat-stm32mp2: Add stm32mp25 sysconfig driver]
+Change-Id: Id06545ac07c690fb3c9f50a19f9ee3ef3643255a
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+---
+ .../plat-stm32mp2/drivers/stm32mp25_syscfg.c  | 40 +++++++++++++++++
+ core/arch/arm/plat-stm32mp2/drivers/sub.mk    |  1 +
+ core/arch/arm/plat-stm32mp2/stm32_sysconf.h   | 45 +++++++++++++++++++
+ 3 files changed, 86 insertions(+)
+ create mode 100644 core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
+ create mode 100644 core/arch/arm/plat-stm32mp2/drivers/sub.mk
+ create mode 100644 core/arch/arm/plat-stm32mp2/stm32_sysconf.h
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
+new file mode 100644
+index 000000000..71e24ab58
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
+@@ -0,0 +1,40 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2022, STMicroelectronics
++ */
++
++#include <initcall.h>
++#include <io.h>
++#include <mm/core_memprot.h>
++#include <stdbool.h>
++#include <stm32_sysconf.h>
++#include <stm32_util.h>
++#include <types_ext.h>
++
++#define SYSCON_OFFSET(id)   ((id) & GENMASK_32(15, 0))
++#define SYSCON_BANK(id)     (((id) & GENMASK_32(31, 16)) >> 16)
++
++struct io_pa_va syscfg_base[SYSCON_NB_BANKS] = {
++	{ .pa = A35SSC_BASE }
++};
++
++static vaddr_t stm32mp_syscfg_base(uint32_t id)
++{
++	uint32_t bank = SYSCON_BANK(id);
++
++	assert(bank < SYSCON_NB_BANKS);
++
++	return io_pa_or_va_secure(&syscfg_base[bank], 1);
++}
++
++void stm32mp_syscfg_write(uint32_t id, uint32_t value, uint32_t bitmsk)
++{
++	vaddr_t syconf_base = stm32mp_syscfg_base(id);
++
++	io_mask32(syconf_base + SYSCON_OFFSET(id), value, bitmsk);
++}
++
++uint32_t stm32mp_syscfg_read(uint32_t id)
++{
++	return io_read32(stm32mp_syscfg_base(id) + SYSCON_OFFSET(id));
++}
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/sub.mk b/core/arch/arm/plat-stm32mp2/drivers/sub.mk
+new file mode 100644
+index 000000000..016dfe9a2
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/drivers/sub.mk
+@@ -0,0 +1 @@
++srcs-y += stm32mp25_syscfg.c
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_sysconf.h b/core/arch/arm/plat-stm32mp2/stm32_sysconf.h
+new file mode 100644
+index 000000000..109db3467
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/stm32_sysconf.h
+@@ -0,0 +1,45 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2022, STMicroelectronics
++ */
++
++#ifndef __STM32_SYSCONF_H__
++#define __STM32_SYSCONF_H__
++
++#include <assert.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <types_ext.h>
++
++/* syscon banks */
++enum syscon_banks {
++	SYSCON_A35SSC,
++	SYSCON_NB_BANKS
++};
++
++#define SYSCON_ID(bank, offset) (((bank) << 16) | \
++				((offset) & GENMASK_32(15, 0)))
++
++/*
++ * A35SSC register offsets (base relative)
++ */
++#define A35SSC_M33CFG_ACCESS_CR  SYSCON_ID(SYSCON_A35SSC, 0x2088U)
++#define A35SSC_M33_TZEN_CR       SYSCON_ID(SYSCON_A35SSC, 0x20A0U)
++#define A35SSC_M33_INITSVTOR_CR  SYSCON_ID(SYSCON_A35SSC, 0x20A4U)
++#define A35SSC_M33_INITNSVTOR_CR SYSCON_ID(SYSCON_A35SSC, 0x20A8U)
++
++/*
++ * A35SSC M33CFG_ACCESS_CR register
++ */
++#define A35SSC_M33_TZEN_CR_M33CFG_SEC          BIT(0)
++#define A35SSC_M33_TZEN_CR_M33CFG_PRIV         BIT(1)
++
++/*
++ * A35SSC M33_TZEN_CR register
++ */
++#define A35SSC_M33_TZEN_CR_CFG_SECEXT          BIT(0)
++
++void stm32mp_syscfg_write(uint32_t id, uint32_t value, uint32_t bitmsk);
++uint32_t stm32mp_syscfg_read(uint32_t id);
++
++#endif /*__STM32_SYSCONF_H__*/
+-- 
+2.47.2
+

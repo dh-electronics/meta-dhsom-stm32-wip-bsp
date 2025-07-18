@@ -1,0 +1,58 @@
+From 61cea97e59b7434fa1e7280be46aac82e6719dd6 Mon Sep 17 00:00:00 2001
+From: Simeon Marijon <simeon.marijon@foss.st.com>
+Date: Thu, 21 Sep 2023 09:35:30 +0200
+Subject: [PATCH 0509/1695] dts: stm32: add nvram (NVMEM) node under tamp in
+ stm32mp131.dtsi
+
+Backup Registers nvram will be accessed using the NVMEM framework
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f7baf7a35c2c88765c3f97fa944d1190467f0bd9 dts: stm32: add nvram (NVMEM) node under tamp in stm32mp131.dtsi]
+Change-Id: I64735244ed492cf4a7e6de6a51e6142bbd28d37c
+Signed-off-by: Simeon Marijon <simeon.marijon@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/328926
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Simeon MARIJON <simeon.marijon@st.com>
+Reviewed-by: Simeon MARIJON <simeon.marijon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/351774
+---
+ core/arch/arm/dts/stm32mp131.dtsi | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp131.dtsi b/core/arch/arm/dts/stm32mp131.dtsi
+index 6800c5f17..f22f1962e 100644
+--- a/core/arch/arm/dts/stm32mp131.dtsi
++++ b/core/arch/arm/dts/stm32mp131.dtsi
+@@ -356,6 +356,27 @@
+ 			#size-cells = <1>;
+ 			interrupts = <GIC_SPI 128 IRQ_TYPE_LEVEL_HIGH>;
+ 			clocks = <&rcc RTCAPB>;
++			ranges;
++
++			nvram: nvram@5c00a100 {
++				compatible = "st,stm32mp15-tamp-nvram";
++				#address-cells = <1>;
++				#size-cells = <1>;
++				reg = <0x5c00a100 0x80>;
++
++				saes_secret_key: tamp-bkp@0 {
++					/* see saes secret key feature */
++					reg = <0x0 0x20>;
++				};
++				boot_mode: tamp-bkp@78 {
++					/* see boot mode selection feature */
++					reg = <0x78 0x4>;
++				};
++				boot_counter: tamp-bkp@7c {
++					/* see boot counter feature */
++					reg = <0x7c 0x4>;
++				};
++			};
+ 		};
+ 
+ 		pinctrl: pin-controller@50002000 {
+-- 
+2.47.2
+

@@ -1,0 +1,121 @@
+From e89cd32765d7b1787a30f1989ebd584eba6b9318 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 5 Dec 2023 17:17:51 +0100
+Subject: [PATCH 0171/1695] drivers: clk: add functions to save/restore clock
+ context
+
+In power saving mode we lose context of the clock registers,
+and also they need to be restored once coming back.
+Hence the addition of functions to save/restore clock context.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 309c01dc3d247172040d69f18767544f3ac6020d drivers: clk: add functions to save/restore clock context]
+Change-Id: Icfaf31b67d49885c5a26e46e09f61728222f8564
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 32 ++++++++++++++++++++++++++++++--
+ core/include/drivers/clk.h | 21 ++++++++++++++++++++-
+ 2 files changed, 50 insertions(+), 3 deletions(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index 6fab9f519..1212d5693 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -17,7 +17,7 @@
+ /* Global clock tree lock */
+ static unsigned int clk_lock = SPINLOCK_UNLOCK;
+ 
+-#ifdef CFG_DRIVERS_CLK_PRINT_TREE
++#if defined(CFG_DRIVERS_CLK_PRINT_TREE)
+ static SLIST_HEAD(, clk) clock_list = SLIST_HEAD_INITIALIZER(clock_list);
+ #endif
+ 
+@@ -108,7 +108,7 @@ TEE_Result clk_register(struct clk *clk)
+ 	clk_init_parent(clk);
+ 	clk_compute_rate_no_lock(clk);
+ 
+-#ifdef CFG_DRIVERS_CLK_PRINT_TREE
++#if defined(CFG_DRIVERS_CLK_PRINT_TREE)
+ 	SLIST_INSERT_HEAD(&clock_list, clk, link);
+ #endif
+ 
+@@ -622,3 +622,31 @@ void clk_print_tree(void)
+ 		print_tree();
+ 	}
+ }
++
++TEE_Result clk_save_context(void)
++{
++	struct clk *clk = NULL;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	SLIST_FOREACH(clk, &clock_list, link) {
++		if (clk->ops && clk->ops->save_context) {
++			res = clk->ops->save_context(clk);
++			if (res) {
++				EMSG("Failed to save context of %s", clk->name);
++				return res;
++			}
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
++void clk_restore_context(void)
++{
++	struct clk *clk = NULL;
++
++	SLIST_FOREACH(clk, &clock_list, link) {
++		if (clk->ops && clk->ops->restore_context)
++			clk->ops->restore_context(clk);
++	}
++}
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 2ab9a0144..bf62a9cb5 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -41,7 +41,7 @@ struct clk {
+ 	unsigned long rate;
+ 	unsigned int flags;
+ 	struct refcount enabled_count;
+-#ifdef CFG_DRIVERS_CLK_PRINT_TREE
++#if defined(CFG_DRIVERS_CLK_PRINT_TREE)
+ 	SLIST_ENTRY(clk) link;
+ #endif
+ 	size_t num_parents;
+@@ -114,6 +114,8 @@ struct clk_ops {
+ 	unsigned long (*round_rate)(struct clk *clk,
+ 				    unsigned long rate,
+ 				    unsigned long parent_rate);
++	TEE_Result (*save_context)(struct clk *clk);
++	void (*restore_context)(struct clk *clk);
+ };
+ 
+ /**
+@@ -276,6 +278,23 @@ TEE_Result clk_get_duty_cycle(struct clk *clk, struct clk_duty *duty);
+  */
+ unsigned long clk_round_rate(struct clk *clk, unsigned long rate);
+ 
++/**
++ * clk_save_context - save clock context for poweroff
++ *
++ * Saves the context of the clock register for powerstates in which the
++ * contents of the registers will be lost. Occurs deep within the suspend
++ * code.
++ */
++TEE_Result clk_save_context(void);
++
++/**
++ * clk_restore_context - restore clock context after poweroff
++ *
++ * Restore the saved clock context upon resume.
++ *
++ */
++void clk_restore_context(void);
++
+ /* Print current clock tree summary to output console with debug trace level */
+ #ifdef CFG_DRIVERS_CLK
+ void clk_print_tree(void);
+-- 
+2.47.2
+

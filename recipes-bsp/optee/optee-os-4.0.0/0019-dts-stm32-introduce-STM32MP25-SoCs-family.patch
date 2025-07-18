@@ -1,0 +1,643 @@
+From 2fd8f65e7359baa97c987a4ee98260a9b489a2ee Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 30 Oct 2023 14:26:35 +0100
+Subject: [PATCH 0019/1695] dts: stm32: introduce STM32MP25 SoCs family
+
+STM32MP25 family is composed of 4 SoCs defined as following:
+
+-STM32MP251: common part composed of 1*cortex-A35, common peripherals
+like SDMMC, UART, SPI, I2C, PCIe, USB3, parallel and DSI display,
+1*ETH ...
+
+-STM32MP253: STM32MP251 + 1*cortex-A35 (dual CPU), a second ETH, CAN-FD
+ and LVDS display.
+
+-STM32MP255: STM32MP253 + GPU/AI and video encode/decode.
+-STM32MP257: STM32MP255 + ETH TSN switch (2+1 ports).
+
+A second diversity layer exists for security features/ A35 frequency:
+-STM32MP25xY, "Y" gives information:
+ -Y = A means A35@1.2GHz + no cryp IP and no secure boot.
+ -Y = C means A35@1.2GHz + cryp IP and secure boot.
+ -Y = D means A35@1.5GHz + no cryp IP and no secure boot.
+ -Y = F means A35@1.5GHz + cryp IP and secure boot.
+
+Available packages are:
+
+STM32MP25xAI: 18*18/FCBGA 172 ios
+STM32MP25xAK: 14*14/FCBGA 144 ios
+STM32MP25xAL: 10*10/TFBGA 144 ios
+
+More information available at:
+Link: https://www.st.com/content/st_com/en/campaigns/microprocessor-stm32mp2.html [1]
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 05cb58db67968de071371f60448e41c28d98ef21 dts: stm32: introduce STM32MP25 SoCs family]
+Change-Id: Ifc17c388ca08b899c835a4f172338f68bd73ee6f
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Signed-off-by: Alexandre Torgue <alexandre.torgue@foss.st.com>
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+[etienne: cherry-picked from 8854076aa7b630011d558ddbc0f1ad65d2b1a4e6]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp25-pinctrl.dtsi     |   7 +
+ core/arch/arm/dts/stm32mp251.dtsi            | 240 +++++++++++++++++++
+ core/arch/arm/dts/stm32mp253.dtsi            |  17 ++
+ core/arch/arm/dts/stm32mp255.dtsi            |   9 +
+ core/arch/arm/dts/stm32mp257.dtsi            |   9 +
+ core/arch/arm/dts/stm32mp25xc.dtsi           |   8 +
+ core/arch/arm/dts/stm32mp25xf.dtsi           |   8 +
+ core/arch/arm/dts/stm32mp25xxai-pinctrl.dtsi |  81 +++++++
+ core/arch/arm/dts/stm32mp25xxak-pinctrl.dtsi |  69 ++++++
+ core/arch/arm/dts/stm32mp25xxal-pinctrl.dtsi |  69 ++++++
+ 10 files changed, 517 insertions(+)
+ create mode 100644 core/arch/arm/dts/stm32mp25-pinctrl.dtsi
+ create mode 100644 core/arch/arm/dts/stm32mp251.dtsi
+ create mode 100644 core/arch/arm/dts/stm32mp253.dtsi
+ create mode 100644 core/arch/arm/dts/stm32mp255.dtsi
+ create mode 100644 core/arch/arm/dts/stm32mp257.dtsi
+ create mode 100644 core/arch/arm/dts/stm32mp25xc.dtsi
+ create mode 100644 core/arch/arm/dts/stm32mp25xf.dtsi
+ create mode 100644 core/arch/arm/dts/stm32mp25xxai-pinctrl.dtsi
+ create mode 100644 core/arch/arm/dts/stm32mp25xxak-pinctrl.dtsi
+ create mode 100644 core/arch/arm/dts/stm32mp25xxal-pinctrl.dtsi
+
+diff --git a/core/arch/arm/dts/stm32mp25-pinctrl.dtsi b/core/arch/arm/dts/stm32mp25-pinctrl.dtsi
+new file mode 100644
+index 000000000..5bd27767f
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp25-pinctrl.dtsi
+@@ -0,0 +1,7 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++#include <dt-bindings/pinctrl/stm32-pinfunc.h>
++
+diff --git a/core/arch/arm/dts/stm32mp251.dtsi b/core/arch/arm/dts/stm32mp251.dtsi
+new file mode 100644
+index 000000000..27e9043f0
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp251.dtsi
+@@ -0,0 +1,240 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++
++#include <dt-bindings/interrupt-controller/arm-gic.h>
++
++/ {
++	#address-cells = <2>;
++	#size-cells = <2>;
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		cpu0: cpu@0 {
++			compatible = "arm,cortex-a35";
++			device_type = "cpu";
++			reg = <0>;
++			enable-method = "psci";
++		};
++	};
++
++	psci {
++		compatible = "arm,psci-1.0";
++		method = "smc";
++	};
++
++	intc: interrupt-controller@4ac00000 {
++		compatible = "arm,cortex-a7-gic";
++		#interrupt-cells = <3>;
++		interrupt-controller;
++		reg = <0x0 0x4ac10000 0x0 0x1000>,
++		      <0x0 0x4ac20000 0x0 0x2000>,
++		      <0x0 0x4ac40000 0x0 0x2000>,
++		      <0x0 0x4ac60000 0x0 0x2000>;
++		#address-cells = <1>;
++	};
++
++	clocks {
++		clk_hse: clk-hse {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <24000000>;
++		};
++
++		clk_hsi: clk-hsi {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <64000000>;
++		};
++
++		clk_lse: clk-lse {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <32768>;
++		};
++
++		clk_lsi: clk-lsi {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <32000>;
++		};
++
++		clk_msi: clk-msi {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <4000000>;
++		};
++
++		clk_i2sin: clk-i2sin {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <0>;
++		};
++
++		clk_rcbsec: clk-rcbsec {
++			#clock-cells = <0>;
++			compatible = "fixed-clock";
++			clock-frequency = <64000000>;
++		};
++	};
++
++	soc@0 {
++		compatible = "simple-bus";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		interrupt-parent = <&intc>;
++		ranges = <0x0 0x0 0x0 0x80000000>;
++
++		rifsc: rifsc@42080000 {
++			reg = <0x42080000 0x1000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			usart2: serial@400e0000 {
++				reg = <0x400e0000 0x400>;
++				status = "disabled";
++			};
++		};
++
++		pinctrl: pinctrl@44240000 {
++			#address-cells = <1>;
++			#size-cells = <1>;
++			compatible = "st,stm32mp257-pinctrl";
++			ranges = <0 0x44240000 0xa0400>;
++			pins-are-numbered;
++
++			gpioa: gpio@44240000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x0 0x400>;
++				st,bank-name = "GPIOA";
++				status = "disabled";
++			};
++
++			gpiob: gpio@44250000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x10000 0x400>;
++				st,bank-name = "GPIOB";
++				status = "disabled";
++			};
++
++			gpioc: gpio@44260000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x20000 0x400>;
++				st,bank-name = "GPIOC";
++				status = "disabled";
++			};
++
++			gpiod: gpio@44270000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x30000 0x400>;
++				st,bank-name = "GPIOD";
++				status = "disabled";
++			};
++
++			gpioe: gpio@44280000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x40000 0x400>;
++				st,bank-name = "GPIOE";
++				status = "disabled";
++			};
++
++			gpiof: gpio@44290000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x50000 0x400>;
++				st,bank-name = "GPIOF";
++				status = "disabled";
++			};
++
++			gpiog: gpio@442a0000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x60000 0x400>;
++				st,bank-name = "GPIOG";
++				status = "disabled";
++			};
++
++			gpioh: gpio@442b0000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x70000 0x400>;
++				st,bank-name = "GPIOH";
++				status = "disabled";
++			};
++
++			gpioi: gpio@442c0000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x80000 0x400>;
++				st,bank-name = "GPIOI";
++				status = "disabled";
++			};
++
++			gpioj: gpio@442d0000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0x90000 0x400>;
++				st,bank-name = "GPIOJ";
++				status = "disabled";
++			};
++
++			gpiok: gpio@442e0000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0xa0000 0x400>;
++				st,bank-name = "GPIOK";
++				status = "disabled";
++			};
++		};
++
++		pinctrl_z: pinctrl-z@46200000 {
++			#address-cells = <1>;
++			#size-cells = <1>;
++			compatible = "st,stm32mp257-z-pinctrl";
++			ranges = <0 0x46200000 0x400>;
++			pins-are-numbered;
++
++			gpioz: gpio@46200000 {
++				gpio-controller;
++				#gpio-cells = <2>;
++				interrupt-controller;
++				#interrupt-cells = <2>;
++				reg = <0 0x400>;
++				st,bank-name = "GPIOZ";
++				st,bank-ioport = <11>;
++				status = "disabled";
++			};
++		};
++	};
++};
+diff --git a/core/arch/arm/dts/stm32mp253.dtsi b/core/arch/arm/dts/stm32mp253.dtsi
+new file mode 100644
+index 000000000..93b7ab8db
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp253.dtsi
+@@ -0,0 +1,17 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++#include "stm32mp251.dtsi"
++
++/ {
++	cpus {
++		cpu1: cpu@1 {
++			compatible = "arm,cortex-a35";
++			device_type = "cpu";
++			reg = <1>;
++			enable-method = "psci";
++		};
++	};
++};
+diff --git a/core/arch/arm/dts/stm32mp255.dtsi b/core/arch/arm/dts/stm32mp255.dtsi
+new file mode 100644
+index 000000000..e6fa59621
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp255.dtsi
+@@ -0,0 +1,9 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++#include "stm32mp253.dtsi"
++
++/ {
++};
+diff --git a/core/arch/arm/dts/stm32mp257.dtsi b/core/arch/arm/dts/stm32mp257.dtsi
+new file mode 100644
+index 000000000..5c5000d3d
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp257.dtsi
+@@ -0,0 +1,9 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++#include "stm32mp255.dtsi"
++
++/ {
++};
+diff --git a/core/arch/arm/dts/stm32mp25xc.dtsi b/core/arch/arm/dts/stm32mp25xc.dtsi
+new file mode 100644
+index 000000000..5e83a6926
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp25xc.dtsi
+@@ -0,0 +1,8 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++
++/ {
++};
+diff --git a/core/arch/arm/dts/stm32mp25xf.dtsi b/core/arch/arm/dts/stm32mp25xf.dtsi
+new file mode 100644
+index 000000000..5e83a6926
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp25xf.dtsi
+@@ -0,0 +1,8 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++
++/ {
++};
+diff --git a/core/arch/arm/dts/stm32mp25xxai-pinctrl.dtsi b/core/arch/arm/dts/stm32mp25xxai-pinctrl.dtsi
+new file mode 100644
+index 000000000..4fb892011
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp25xxai-pinctrl.dtsi
+@@ -0,0 +1,81 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++
++&pinctrl {
++	gpioa: gpio@44240000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 0 16>;
++	};
++
++	gpiob: gpio@44250000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 16 16>;
++	};
++
++	gpioc: gpio@44260000 {
++		status = "okay";
++		ngpios = <14>;
++		gpio-ranges = <&pinctrl 0 32 14>;
++	};
++
++	gpiod: gpio@44270000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 48 16>;
++	};
++
++	gpioe: gpio@44280000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 64 16>;
++	};
++
++	gpiof: gpio@44290000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 80 16>;
++	};
++
++	gpiog: gpio@442a0000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 96 16>;
++	};
++
++	gpioh: gpio@442b0000 {
++		status = "okay";
++		ngpios = <12>;
++		gpio-ranges = <&pinctrl 2 114 12>;
++	};
++
++	gpioi: gpio@442c0000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 128 16>;
++	};
++
++	gpioj: gpio@442d0000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 144 16>;
++	};
++
++	gpiok: gpio@442e0000 {
++		status = "okay";
++		ngpios = <8>;
++		gpio-ranges = <&pinctrl 0 160 8>;
++	};
++};
++
++&pinctrl_z {
++	gpioz: gpio@46200000 {
++		status = "okay";
++		ngpios = <10>;
++		gpio-ranges = <&pinctrl_z 0 400 10>;
++	};
++};
+diff --git a/core/arch/arm/dts/stm32mp25xxak-pinctrl.dtsi b/core/arch/arm/dts/stm32mp25xxak-pinctrl.dtsi
+new file mode 100644
+index 000000000..b758b2cee
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp25xxak-pinctrl.dtsi
+@@ -0,0 +1,69 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++
++&pinctrl {
++	gpioa: gpio@44240000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 0 16>;
++	};
++
++	gpiob: gpio@44250000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 16 16>;
++	};
++
++	gpioc: gpio@44260000 {
++		status = "okay";
++		ngpios = <14>;
++		gpio-ranges = <&pinctrl 0 32 14>;
++	};
++
++	gpiod: gpio@44270000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 48 16>;
++	};
++
++	gpioe: gpio@44280000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 64 16>;
++	};
++
++	gpiof: gpio@44290000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 80 16>;
++	};
++
++	gpiog: gpio@442a0000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 96 16>;
++	};
++
++	gpioh: gpio@442b0000 {
++		status = "okay";
++		ngpios = <12>;
++		gpio-ranges = <&pinctrl 2 114 12>;
++	};
++
++	gpioi: gpio@442c0000 {
++		status = "okay";
++		ngpios = <12>;
++		gpio-ranges = <&pinctrl 0 128 12>;
++	};
++};
++
++&pinctrl_z {
++	gpioz: gpio@46200000 {
++		status = "okay";
++		ngpios = <10>;
++		gpio-ranges = <&pinctrl_z 0 400 10>;
++	};
++};
+diff --git a/core/arch/arm/dts/stm32mp25xxal-pinctrl.dtsi b/core/arch/arm/dts/stm32mp25xxal-pinctrl.dtsi
+new file mode 100644
+index 000000000..b758b2cee
+--- /dev/null
++++ b/core/arch/arm/dts/stm32mp25xxal-pinctrl.dtsi
+@@ -0,0 +1,69 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2023 - All Rights Reserved
++ * Author: Alexandre Torgue <alexandre.torgue@foss.st.com> for STMicroelectronics.
++ */
++
++&pinctrl {
++	gpioa: gpio@44240000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 0 16>;
++	};
++
++	gpiob: gpio@44250000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 16 16>;
++	};
++
++	gpioc: gpio@44260000 {
++		status = "okay";
++		ngpios = <14>;
++		gpio-ranges = <&pinctrl 0 32 14>;
++	};
++
++	gpiod: gpio@44270000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 48 16>;
++	};
++
++	gpioe: gpio@44280000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 64 16>;
++	};
++
++	gpiof: gpio@44290000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 80 16>;
++	};
++
++	gpiog: gpio@442a0000 {
++		status = "okay";
++		ngpios = <16>;
++		gpio-ranges = <&pinctrl 0 96 16>;
++	};
++
++	gpioh: gpio@442b0000 {
++		status = "okay";
++		ngpios = <12>;
++		gpio-ranges = <&pinctrl 2 114 12>;
++	};
++
++	gpioi: gpio@442c0000 {
++		status = "okay";
++		ngpios = <12>;
++		gpio-ranges = <&pinctrl 0 128 12>;
++	};
++};
++
++&pinctrl_z {
++	gpioz: gpio@46200000 {
++		status = "okay";
++		ngpios = <10>;
++		gpio-ranges = <&pinctrl_z 0 400 10>;
++	};
++};
+-- 
+2.47.2
+

@@ -1,0 +1,49 @@
+From 9c3189ebce6e7ac1c0fb194025e9a3dbf7caa8c5 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 30 Nov 2023 15:59:35 +0100
+Subject: [PATCH 0092/1695] drivers: regulator: supported voltage consider
+ levels bounds
+
+Assert regulator_supported_voltages() provides a list that takes into
+account the min/max voltage levels possibly set from the secure DT.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 76ca45f7ab1b53978c0f484b9a0e6562ed67a74d drivers: regulator: supported voltage consider levels bounds]
+Change-Id: I3a7b50dcf15283a1933150bf33939feb0b0b28e8
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from af5b9881111c129396d68bdb54e1476e9f3f3d02]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/regulator/regulator.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/regulator/regulator.c b/core/drivers/regulator/regulator.c
+index 4d0a0a77e..469191306 100644
+--- a/core/drivers/regulator/regulator.c
++++ b/core/drivers/regulator/regulator.c
+@@ -223,14 +223,19 @@ TEE_Result regulator_supported_voltages(struct regulator *regulator,
+ 
+ 		res = regulator->ops->supported_voltages(regulator, desc,
+ 							 levels);
+-		if (res == TEE_SUCCESS)
+-			return TEE_SUCCESS;
+ 		if (res != TEE_ERROR_NOT_SUPPORTED)
+ 			return res;
++	} else {
++		*desc = &regulator->voltages_fallback.desc;
++		*levels = regulator->voltages_fallback.levels;
+ 	}
+ 
+-	*desc = &regulator->voltages_fallback.desc;
+-	*levels = regulator->voltages_fallback.levels;
++	assert(((*desc)->type == VOLTAGE_TYPE_FULL_LIST &&
++		(*levels)[0] >= regulator->min_uv && (*desc)->num_levels &&
++		(*levels)[(*desc)->num_levels - 1] <= regulator->max_uv) ||
++	       ((*desc)->type == VOLTAGE_TYPE_INCREMENT &&
++		(*levels)[0] >= regulator->min_uv &&
++		(*levels)[1] <= regulator->max_uv));
+ 
+ 	return TEE_SUCCESS;
+ }
+-- 
+2.47.2
+

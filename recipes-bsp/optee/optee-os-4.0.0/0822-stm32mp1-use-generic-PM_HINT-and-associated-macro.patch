@@ -1,0 +1,186 @@
+From fa8338cef1c3f42701cbf67055a387fd0220739f Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 14 May 2024 15:24:49 +0200
+Subject: [PATCH 0822/1695] stm32mp1: use generic PM_HINT and associated macro
+
+Update stm32mp1 low power function to handle the generic
+PM_HINT_.*_STATE and macros PM_HINT_IS_STATE() PM_HINT_PLATFORM_STATE()
+for STM32MP13 and STM32MP15 with STPMIC1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 60621b6b6a1ddfc16edf0d620727d6e45f1aa4f6 stm32mp1: use generic PM_HINT and associated macro]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: If1f765386dd0370fffbb6e6581721cd402280fea
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/358953
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/plat-stm32mp1/pm/context.c   | 38 ++++++++++++++++++++--
+ core/arch/arm/plat-stm32mp1/pm/context.h   |  2 +-
+ core/arch/arm/plat-stm32mp1/pm/low_power.c |  2 +-
+ core/arch/arm/plat-stm32mp1/pm/psci.c      |  3 --
+ core/drivers/clk/clk-stm32mp13.c           |  2 +-
+ core/drivers/stm32_exti.c                  |  3 +-
+ core/drivers/stm32_gpio.c                  |  3 +-
+ 7 files changed, 40 insertions(+), 13 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.c b/core/arch/arm/plat-stm32mp1/pm/context.c
+index a28d9389a..878a40a05 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/context.c
++++ b/core/arch/arm/plat-stm32mp1/pm/context.c
+@@ -522,6 +522,35 @@ static void gate_pm_context_clocks(bool enable)
+ 	}
+ }
+ 
++static uint32_t get_pm_hint(unsigned int soc_mode)
++{
++	uint32_t pm_hint = 0U;
++
++	assert(soc_mode < STM32_PM_MAX_SOC_MODE);
++
++	switch (soc_mode) {
++	case STM32_PM_CSLEEP_RUN:
++	case STM32_PM_CSTOP_ALLOW_STOP:
++	case STM32_PM_CSTOP_ALLOW_LP_STOP:
++	case STM32_PM_CSTOP_ALLOW_LPLV_STOP:
++	case STM32_PM_CSTOP_ALLOW_LPLV_STOP2:
++		pm_hint = PM_HINT_CLOCK_STATE;
++		break;
++
++	default:
++	case STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR:
++	case STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF:
++	case STM32_PM_SHUTDOWN:
++		pm_hint = PM_HINT_CONTEXT_STATE;
++		break;
++	};
++
++	pm_hint |= ((soc_mode << PM_HINT_PLATFORM_STATE_SHIFT) &
++		    PM_HINT_PLATFORM_STATE_MASK);
++
++	return pm_hint;
++}
++
+ /*
+  * Context (TEE RAM content + peripherals) must be restored
+  * only if system may reach STANDBY state.
+@@ -532,7 +561,7 @@ TEE_Result stm32mp_pm_save_context(unsigned int soc_mode)
+ 
+ 	save_time();
+ 
+-	res = pm_change_state(PM_OP_SUSPEND, soc_mode);
++	res = pm_change_state(PM_OP_SUSPEND, get_pm_hint(soc_mode));
+ 	if (res)
+ 		return res;
+ 
+@@ -565,14 +594,17 @@ void stm32mp_pm_restore_context(unsigned int soc_mode)
+ 		stm32mp1_clk_restore_context_for_stop();
+ #endif
+ 
+-	if (pm_change_state(PM_OP_RESUME, 0))
++	if (pm_change_state(PM_OP_RESUME, get_pm_hint(soc_mode)))
+ 		panic();
+ 
+ 	restore_time();
+ }
+ 
+-void stm32mp_pm_shutdown_context(void)
++void stm32mp_pm_shutdown_context(unsigned int soc_mode)
+ {
++	if (pm_change_state(PM_OP_SUSPEND, get_pm_hint(soc_mode)))
++		panic();
++
+ 	gate_pm_context_clocks(true);
+ 	load_earlyboot_pm_mailbox();
+ 	enable_pm_mailbox(0);
+diff --git a/core/arch/arm/plat-stm32mp1/pm/context.h b/core/arch/arm/plat-stm32mp1/pm/context.h
+index a71ac95ec..8fc34af94 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/context.h
++++ b/core/arch/arm/plat-stm32mp1/pm/context.h
+@@ -83,7 +83,7 @@ void stm32mp_cpu_reset_state(void);
+ 
+ TEE_Result stm32mp_pm_save_context(unsigned int soc_mode);
+ void stm32mp_pm_restore_context(unsigned int soc_mode);
+-void stm32mp_pm_shutdown_context(void);
++void stm32mp_pm_shutdown_context(unsigned int soc_mode);
+ void stm32mp_pm_wipe_context(void);
+ 
+ #ifndef CFG_STM32MP1_OPTEE_IN_SYSRAM
+diff --git a/core/arch/arm/plat-stm32mp1/pm/low_power.c b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+index eb616effc..78d976f50 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/low_power.c
++++ b/core/arch/arm/plat-stm32mp1/pm/low_power.c
+@@ -363,6 +363,7 @@ void __noreturn stm32_enter_cstop_shutdown(uint32_t mode)
+ 				    TARGET_CPU1_GIC_MASK);
+ 	}
+ #endif
++	stm32mp_pm_shutdown_context(mode);
+ 
+ 	switch (mode) {
+ 	case STM32_PM_SHUTDOWN:
+@@ -374,7 +375,6 @@ void __noreturn stm32_enter_cstop_shutdown(uint32_t mode)
+ 		}
+ 		break;
+ 	case STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF:
+-		stm32mp_pm_shutdown_context();
+ 		stm32_enter_cstop(mode);
+ 		dsb();
+ 		isb();
+diff --git a/core/arch/arm/plat-stm32mp1/pm/psci.c b/core/arch/arm/plat-stm32mp1/pm/psci.c
+index b02b0aa65..38513fd88 100644
+--- a/core/arch/arm/plat-stm32mp1/pm/psci.c
++++ b/core/arch/arm/plat-stm32mp1/pm/psci.c
+@@ -399,9 +399,6 @@ void __noreturn psci_system_off(void)
+ 
+ 	DMSG("core %u", get_core_pos());
+ 
+-	if (pm_change_state(PM_OP_SUSPEND, soc_mode))
+-		panic();
+-
+ 	stm32_enter_cstop_shutdown(soc_mode);
+ }
+ 
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index 635f54d45..bf3a5f7ee 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -3348,7 +3348,7 @@ static TEE_Result stm32_clock_pm(enum pm_op op, unsigned int pm_hint,
+ 	static int standby_prepared;
+ 
+ 	if (op == PM_OP_SUSPEND) {
+-		if (pm_hint == STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR) {
++		if (PM_HINT_IS_STATE(pm_hint, CONTEXT)) {
+ 			stm32_clock_suspend();
+ 			standby_prepared = 1;
+ 		} else {
+diff --git a/core/drivers/stm32_exti.c b/core/drivers/stm32_exti.c
+index 400c1c75d..cc616cf4b 100644
+--- a/core/drivers/stm32_exti.c
++++ b/core/drivers/stm32_exti.c
+@@ -488,8 +488,7 @@ stm32_exti_pm(enum pm_op op, unsigned int pm_hint,
+ {
+ 	struct stm32_exti_pdata *exti = NULL;
+ 
+-	if (!IS_ENABLED(CFG_STM32MP13) && !IS_ENABLED(CFG_STM32MP15) &&
+-	    !PM_HINT_IS_STATE(pm_hint, CONTEXT))
++	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
+ 		return TEE_SUCCESS;
+ 
+ 	SLIST_FOREACH(exti, &stm32_exti_list, link) {
+diff --git a/core/drivers/stm32_gpio.c b/core/drivers/stm32_gpio.c
+index 50adcb3ac..53d518229 100644
+--- a/core/drivers/stm32_gpio.c
++++ b/core/drivers/stm32_gpio.c
+@@ -1294,8 +1294,7 @@ stm32_gpio_sec_config_pm(enum pm_op op, unsigned int pm_hint,
+ {
+ 	TEE_Result ret = TEE_ERROR_GENERIC;
+ 
+-	if (!IS_ENABLED(CFG_STM32MP13) && !IS_ENABLED(CFG_STM32MP15) &&
+-	    pm_hint != PM_HINT_CONTEXT_STATE)
++	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
+ 		return TEE_SUCCESS;
+ 
+ 	if (op == PM_OP_RESUME)
+-- 
+2.47.2
+

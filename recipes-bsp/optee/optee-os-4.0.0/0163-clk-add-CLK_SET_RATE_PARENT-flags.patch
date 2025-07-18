@@ -1,0 +1,88 @@
+From 384b06c2f9c907375ab3ba8b71fd052f7191bd9f Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 7 Dec 2021 15:24:11 +0100
+Subject: [PATCH 0163/1695] clk: add CLK_SET_RATE_PARENT flags
+
+Add CLK_SET_RATE_PARENT flags to propagate rate change up one level.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 79591a69e1e58bb053200ce8cf78afd1f09132fb clk: add CLK_SET_RATE_PARENT flags]
+Change-Id: I3dcf67f5a37e342ff158482b779efb6361468aaf
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk.c     | 34 +++++++++++++++++++++++++---------
+ core/include/drivers/clk.h |  1 +
+ 2 files changed, 26 insertions(+), 9 deletions(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index 3617f18ed..2ad6ddcc8 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -214,19 +214,34 @@ unsigned long clk_get_rate(struct clk *clk)
+ 
+ static TEE_Result clk_set_rate_no_lock(struct clk *clk, unsigned long rate)
+ {
+-	TEE_Result res = TEE_ERROR_GENERIC;
++	TEE_Result res = TEE_SUCCESS;
+ 	unsigned long parent_rate = 0;
++	unsigned long new_rate = rate;
++	struct clk *parent = clk->parent;
+ 
+-	if (clk->parent)
+-		parent_rate = clk_get_rate(clk->parent);
++	if (parent)
++		parent_rate = parent->rate;
+ 
+-	res = clk->ops->set_rate(clk, rate, parent_rate);
+-	if (res)
+-		return res;
++	if (!parent || !(clk->flags & CLK_SET_RATE_PARENT)) {
++		/* pass-through clock without adjustable parent */
++		new_rate  = rate;
++	} else {
++		/* pass-through clock with adjustable parent */
++		res = clk_set_rate_no_lock(parent, rate);
++		if (res)
++			return res;
++		new_rate = parent->rate;
++	}
++
++	if (clk->ops->set_rate) {
++		res = clk->ops->set_rate(clk, new_rate, parent_rate);
++		if (res)
++			return res;
++	}
+ 
+ 	clk_compute_rate_no_lock(clk);
+ 
+-	return TEE_SUCCESS;
++	return res;
+ }
+ 
+ TEE_Result clk_set_rate(struct clk *clk, unsigned long rate)
+@@ -234,8 +249,9 @@ TEE_Result clk_set_rate(struct clk *clk, unsigned long rate)
+ 	uint32_t exceptions = 0;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+-	if (!clk->ops->set_rate)
+-		return TEE_ERROR_NOT_SUPPORTED;
++	/* bail early if nothing to do */
++	if (rate == clk_get_rate(clk))
++		return TEE_SUCCESS;
+ 
+ 	exceptions =  cpu_spin_lock_xsave(&clk_lock);
+ 
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 154b3b061..7422df4b7 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -15,6 +15,7 @@
+ #define CLK_SET_RATE_GATE	BIT(0) /* must be gated across rate change */
+ #define CLK_SET_PARENT_GATE	BIT(1) /* must be gated across re-parent */
+ #define CLK_OPS_PARENT_ENABLE	BIT(2) /* parent need enable during re-parent */
++#define CLK_SET_RATE_PARENT	BIT(3) /* propagate rate change up one level */
+ 
+ /**
+  * struct clk - Clock structure
+-- 
+2.47.2
+

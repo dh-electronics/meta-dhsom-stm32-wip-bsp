@@ -1,0 +1,75 @@
+From 95a9bebb514a89e424c4910bc7d019d69736b247 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 22 Oct 2024 17:46:20 +0200
+Subject: [PATCH 1447/1695] plat-stm32mp1: move sanity of RCC secure state
+ against BSEC state
+
+Move verification of Secure Closed state STM32MP1 device (read from
+BSEC OTP fuses) against RCC secure hardening configuration from
+shared_resource.c driver to main.c. This change prepares the
+removal of shared_resource.c driver that is no longer needed since
+integration of the firewall framework.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2c3f3bd2528dbb5311a0ea97a450bcf28c6a57f3 plat-stm32mp1: move sanity of RCC secure state against BSEC state]
+Change-Id: I41eaaa7f10de7f899c9892745efdf4b6c7be5c69
+Link: https://github.com/OP-TEE/optee_os/commit/db3e6bf9b7f48545c0c7107690f34854acb371bd)
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/413514
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c             | 10 ++++++++++
+ core/arch/arm/plat-stm32mp1/shared_resources.c |  7 -------
+ 2 files changed, 10 insertions(+), 7 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index bfe132ecd..f10256547 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -393,6 +393,7 @@ static TEE_Result init_stm32mp1_drivers(void)
+ {
+ 	struct dt_driver_provider *prov = NULL;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
++	uint32_t __maybe_unused state = 0;
+ 	uint32_t query_arg[1] = { };
+ 	struct firewall_query firewall = {
+ 		.args = query_arg,
+@@ -432,6 +433,15 @@ static TEE_Result init_stm32mp1_drivers(void)
+ 	/* Configure SRAMx secure hardening */
+ 	configure_srams(prov);
+ 
++#ifdef CFG_STM32MP15
++	/* Device in Secure Closed state require RCC secure hardening */
++	if (stm32_bsec_get_state(&state))
++		panic();
++
++	if (state == BSEC_STATE_SEC_CLOSED && !stm32_rcc_is_secure())
++		panic("Closed device mandates secure RCC");
++#endif
++
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/core/arch/arm/plat-stm32mp1/shared_resources.c b/core/arch/arm/plat-stm32mp1/shared_resources.c
+index b1d4951bf..8ebb93387 100644
+--- a/core/arch/arm/plat-stm32mp1/shared_resources.c
++++ b/core/arch/arm/plat-stm32mp1/shared_resources.c
+@@ -601,13 +601,6 @@ static void check_rcc_secure_configuration(void)
+ 	enum stm32mp_shres id = STM32MP1_SHRES_COUNT;
+ 	bool need_secure = false;
+ 	bool need_mckprot = false;
+-	uint32_t state = 0;
+-
+-	if (stm32_bsec_get_state(&state))
+-		panic();
+-
+-	if (state == BSEC_STATE_SEC_CLOSED && !secure)
+-		panic("Closed device mandates secure RCC");
+ 
+ 	for (id = 0; id < STM32MP1_SHRES_COUNT; id++) {
+ 		if  (shres_state[id] != SHRES_SECURE)
+-- 
+2.47.2
+
