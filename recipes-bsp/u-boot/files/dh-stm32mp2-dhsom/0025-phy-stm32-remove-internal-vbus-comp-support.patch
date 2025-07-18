@@ -1,0 +1,80 @@
+From 30f321cad3e0e89cf6cd5c0438d171a9bb8dd963 Mon Sep 17 00:00:00 2001
+From: Rahul Kumar <rahul.kumar05@st.com>
+Date: Wed, 14 Aug 2024 13:30:06 +0530
+Subject: [PATCH 25/39] phy: stm32: remove internal vbus comp support
+
+Internal_vbus_comp support has been removed in mp25
+and mp21.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 3403ffe2ae4a3d762078aa894f1c8df9eeb33a62 phy: stm32: remove internal vbus comp support]
+Change-Id: I6d37f5829ddc48c81c0536f17411fbc10a78be0e
+Signed-off-by: Rahul Kumar <rahul.kumar05@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/398368
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Ram DAYAL <ram.dayal@st.com>
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Ram DAYAL <ram.dayal@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/phy/phy-stm32-usb2phy.c | 19 ++-----------------
+ 1 file changed, 2 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/phy/phy-stm32-usb2phy.c b/drivers/phy/phy-stm32-usb2phy.c
+index 54a2065455f..4fc6c7eefae 100644
+--- a/drivers/phy/phy-stm32-usb2phy.c
++++ b/drivers/phy/phy-stm32-usb2phy.c
+@@ -85,7 +85,6 @@ struct stm32_usb2phy {
+ 	struct udevice *vdd33;
+ 	struct udevice *vdda18;
+ 	uint init;
+-	bool internal_vbus_comp;
+ 	const struct stm32mp2_usb2phy_hw_data *hw_data;
+ };
+ 
+@@ -336,7 +335,7 @@ static int stm32_usb2phy_set_mode(struct phy *phy, enum phy_mode mode, int submo
+ 			 * are turned off, there is some internal error inside the usb3dr-ctrl
+ 			 * while running in usb3-speed
+ 			 */
+-			if (!phy_dev->internal_vbus_comp && submode == USB_ROLE_NONE) {
++			if (submode == USB_ROLE_NONE) {
+ 				ret = regmap_update_bits(phy_dev->regmap,
+ 							 phy_data->cr_offset,
+ 							 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK |
+@@ -366,19 +365,11 @@ static int stm32_usb2phy_set_mode(struct phy *phy, enum phy_mode mode, int submo
+ 		 * VBUS is not present then usb-ctrl puts PHY in suspend and inturn
+ 		 * PHY turns off clocks to ctrl which makes the device-mode init fail
+ 		 */
+-		if (phy_data->valid_mode == USB2_MODE_OTG)
++		if (phy_data->valid_mode == USB2_MODE_OTG) {
+ 			ret = regmap_update_bits(phy_dev->regmap,
+ 						 phy_data->cr_offset,
+ 						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK,
+ 						 0);
+-		else if (phy_dev->internal_vbus_comp) {
+-			ret = regmap_update_bits(phy_dev->regmap,
+-						 phy_data->cr_offset,
+-						 SYSCFG_USB2PHY2CR_USB2PHY2CMN_MASK |
+-						 SYSCFG_USB2PHY2CR_VBUSVALID_MASK |
+-						 SYSCFG_USB2PHY2CR_VBUSVLDEXTSEL_MASK |
+-						 SYSCFG_USB2PHY2CR_VBUSVLDEXT_MASK,
+-						 0);
+ 		} else {
+ 			if (submode == USB_ROLE_NONE) {
+ 				ret = regmap_update_bits(phy_dev->regmap,
+@@ -642,12 +633,6 @@ static int stm32_usb2phy_probe(struct udevice *dev)
+ 		return -EINVAL;
+ 	}
+ 
+-	if (phy_dev->hw_data->valid_mode != USB2_MODE_HOST_ONLY) {
+-		phy_dev->internal_vbus_comp = ofnode_read_bool(node, "st,internal-vbus-comp");
+-		dev_dbg(dev, "Using usb2phy %s VBUS Comparator\n",
+-			phy_dev->internal_vbus_comp ? "Internal" : "External");
+-	}
+-
+ 	/* Configure phy tuning */
+ 	ret = stm32_usb2phy_tuning(dev, node);
+ 	if (ret) {
+-- 
+2.53.0
+

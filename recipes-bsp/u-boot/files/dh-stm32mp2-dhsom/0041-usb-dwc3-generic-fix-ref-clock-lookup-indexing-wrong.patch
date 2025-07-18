@@ -1,0 +1,197 @@
+From 762ec34940663339b17003e6dac4227852b7d770 Mon Sep 17 00:00:00 2001
+From: Stefan Eichenberger <stefan.eichenberger@toradex.com>
+Date: Fri, 25 Sep 2026 11:11:44 +0200
+Subject: [PATCH 41/43] usb: dwc3-generic: fix ref clock lookup indexing wrong
+ clk_bulk array
+
+On Verdin iMX95, with a USB hub permanently attached to the DWC3 host
+port the hub itself enumerates fine but a USB stick plugged into it
+fails intermittently:
+
+  Verdin iMX95 # usb start
+  starting USB...
+  USB XHCI 1.10
+  Device not responding to set address.
+
+        USB device not accepting new address (error=80000000)
+  Bus usb@4c100000: 2 USB Device(s) found
+         scanning usb for storage devices... 0 Storage Device(s) found
+  Verdin iMX95 # usb reset
+  resetting USB...
+  USB XHCI 1.10
+  WARN endpoint is halted
+  WARN endpoint is halted
+  unable to get device descriptor (error=-22)
+
+Commit c6583354b7c1 ("usb: dwc3: Look up reference clock DT phandle in
+both controller DT nodes") added a fallback that searches the DWC3 child
+node's "clock-names" for "ref"/"ref_clk" when it isn't found on the
+parent glue node, but always resolves the found index against
+glue->clks, a clk_bulk populated only from the parent glue node's own
+clock-names list. This is wrong since the child node's clock-names list
+is not guaranteed to be in the same order as the parent's, and indeed on
+Verdin iMX95 the child node has a different order than the parent node.
+
+Fix it by looking the reference clock up by name with clk_get_by_name(),
+trying the dwc3 device and then its parent glue device, so the clock is
+always resolved through the device that owns the node its name was found
+in. Also enable the clock before use and fail the probe if that does
+not work, and disable it again on the probe error paths and in
+dwc3_generic_remove() to keep the enable balanced.
+
+Because of moving to clk_get_by_name() for receiving the reference
+clock, also ensure that the parent driver is a DWC3 glue driver before
+looking up the reference clock, since the parent could be a bus or root
+device with unrelated clocks.
+
+Upstream-Status: Backport [84de44e5e71e849a0c3ae983510f292cb8cafa69]
+Fixes: c6583354b7c1 ("usb: dwc3: Look up reference clock DT phandle in both controller DT nodes")
+Signed-off-by: Stefan Eichenberger <stefan.eichenberger@toradex.com>
+Tested-by: Tom Hsieh <Tom.Hsieh@advantech.com>
+Reviewed-by: Marek Vasut <marek.vasut+usb@mailbox.org>
+---
+ drivers/usb/dwc3/dwc3-generic.c | 69 +++++++++++++++++++++++----------
+ 1 file changed, 49 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-generic.c b/drivers/usb/dwc3/dwc3-generic.c
+index e099e1a3184..0f2f8b32f85 100644
+--- a/drivers/usb/dwc3/dwc3-generic.c
++++ b/drivers/usb/dwc3/dwc3-generic.c
+@@ -16,6 +16,7 @@
+ #include <dm/lists.h>
+ #include <linux/bitfield.h>
+ #include <linux/delay.h>
++#include <linux/string.h>
+ #include <linux/usb/gadget.h>
+ #include <power/regulator.h>
+ #include <regmap.h>
+@@ -37,6 +38,7 @@ struct dwc3_generic_priv {
+ 	struct dwc3 dwc3;
+ 	struct phy_bulk phys;
+ 	struct gpio_desc *ulpi_reset;
++	struct clk ref_clk;
+ };
+ 
+ struct dwc3_generic_host_priv {
+@@ -53,8 +55,7 @@ static int dwc3_generic_probe(struct udevice *dev,
+ 	struct dwc3_generic_plat *plat = dev_get_plat(dev);
+ 	struct dwc3 *dwc3 = &priv->dwc3;
+ 	struct dwc3_glue_data *glue = dev_get_plat(dev->parent);
+-	int __maybe_unused index;
+-	ofnode __maybe_unused node;
++	struct clk __maybe_unused clk;
+ 
+ 	dwc3->dev = dev;
+ 	dwc3->maximum_speed = plat->maximum_speed;
+@@ -69,22 +70,39 @@ static int dwc3_generic_probe(struct udevice *dev,
+ 	 * - in top level generic node, with no subnode (i.MX8MQ)
+ 	 * - in generic subnode, with other clock in top level node (i.MX8MP)
+ 	 * - in both top level node and generic subnode (Rockchip)
+-	 * Cover all the possibilities here by looking into both nodes, start
+-	 * with the top level node as that seems to be used in majority of DTs
+-	 * to reference the clock.
++	 * Cover all the possibilities here by looking into both nodes, the
++	 * generic node first and the top level glue node second. The clock
++	 * must be looked up on the device that owns the node it is described
++	 * in, the clock-names lists of the two nodes are unrelated (e.g. on
++	 * i.MX95 the glue node has "hsio", "suspend" while the generic
++	 * subnode has "bus_early", "ref", "suspend").
+ 	 */
+-	node = dev_ofnode(dev->parent);
+-	index = ofnode_stringlist_search(node, "clock-names", "ref");
+-	if (index < 0)
+-		index = ofnode_stringlist_search(node, "clock-names", "ref_clk");
+-	if (index < 0) {
+-		node = dev_ofnode(dev);
+-		index = ofnode_stringlist_search(node, "clock-names", "ref");
+-		if (index < 0)
+-			index = ofnode_stringlist_search(node, "clock-names", "ref_clk");
++	rc = clk_get_by_name(dev, "ref", &clk);
++	if (rc)
++		rc = clk_get_by_name(dev, "ref_clk", &clk);
++	/*
++	 * Only fall back to the parent node's clocks if the parent is a
++	 * dwc3 glue wrapper. When the generic node is a top level node,
++	 * the parent is not the glue device but a bus or the root device,
++	 * and its clocks are unrelated to the controller.
++	 */
++	if (rc && dev->parent && dev->parent->driver &&
++	    strstr(dev->parent->driver->name, "dwc3")) {
++		rc = clk_get_by_name(dev->parent, "ref", &clk);
++		if (rc)
++			rc = clk_get_by_name(dev->parent, "ref_clk", &clk);
++	}
++	if (!rc) {
++		priv->ref_clk = clk;
++
++		rc = clk_enable(&priv->ref_clk);
++		if (rc) {
++			dev_err(dev, "failed to enable ref clock: %d\n", rc);
++			return rc;
++		}
++
++		dwc3->ref_clk = &priv->ref_clk;
+ 	}
+-	if (index >= 0)
+-		dwc3->ref_clk = &glue->clks.clks[index];
+ #endif
+ 
+ 	/*
+@@ -98,7 +116,7 @@ static int dwc3_generic_probe(struct udevice *dev,
+ 
+ 	rc = dwc3_setup_phy(dev, &priv->phys);
+ 	if (rc && rc != -ENOTSUPP)
+-		return rc;
++		goto err_clk;
+ 
+ 	if (CONFIG_IS_ENABLED(DM_GPIO) &&
+ 	    device_is_compatible(dev->parent, "xlnx,zynqmp-dwc3")) {
+@@ -109,13 +127,13 @@ static int dwc3_generic_probe(struct udevice *dev,
+ 			/* Toggle ulpi to reset the phy. */
+ 			rc = dm_gpio_set_value(priv->ulpi_reset, 1);
+ 			if (rc)
+-				return rc;
++				goto err_clk;
+ 
+ 			mdelay(5);
+ 
+ 			rc = dm_gpio_set_value(priv->ulpi_reset, 0);
+ 			if (rc)
+-				return rc;
++				goto err_clk;
+ 
+ 			mdelay(5);
+ 		}
+@@ -130,10 +148,16 @@ static int dwc3_generic_probe(struct udevice *dev,
+ 	rc =  dwc3_init(dwc3);
+ 	if (rc) {
+ 		unmap_physmem(priv->base, MAP_NOCACHE);
+-		return rc;
++		goto err_clk;
+ 	}
+ 
+ 	return 0;
++
++err_clk:
++	if (dwc3->ref_clk)
++		clk_disable(dwc3->ref_clk);
++
++	return rc;
+ }
+ 
+ static int dwc3_generic_remove(struct udevice *dev,
+@@ -151,6 +175,11 @@ static int dwc3_generic_remove(struct udevice *dev,
+ 
+ 	dwc3_remove(dwc3);
+ 	dwc3_shutdown_phy(dev, &priv->phys);
++
++	/* Balance the clk_enable() from dwc3_generic_probe() */
++	if (dwc3->ref_clk)
++		clk_disable(dwc3->ref_clk);
++
+ 	unmap_physmem(dwc3->regs, MAP_NOCACHE);
+ 
+ 	return 0;
+-- 
+2.53.0
+

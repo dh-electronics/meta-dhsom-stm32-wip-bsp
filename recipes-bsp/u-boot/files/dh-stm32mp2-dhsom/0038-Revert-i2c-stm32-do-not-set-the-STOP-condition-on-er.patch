@@ -1,0 +1,37 @@
+From 40f7aabeb21e843fb09810ae350f869fe0c48524 Mon Sep 17 00:00:00 2001
+From: Patrice Chotard <patrice.chotard@foss.st.com>
+Date: Thu, 27 Oct 2022 15:38:18 +0200
+Subject: [PATCH 38/39] Revert "i2c: stm32: do not set the STOP condition on
+ error"
+
+This reverts commit 648aff43b8396a9ed2da8db784a73508b452d19f.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 334bf09722354e5d29e476f1e4737663cae886a5 Revert "i2c: stm32: do not set the STOP condition on error"]
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Change-Id: Ibfc70f4e170e6da4afe93ed45f77198fbca00aec
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/276365
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/i2c/stm32f7_i2c.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/i2c/stm32f7_i2c.c b/drivers/i2c/stm32f7_i2c.c
+index b78405f322d..a0bc4db3e43 100644
+--- a/drivers/i2c/stm32f7_i2c.c
++++ b/drivers/i2c/stm32f7_i2c.c
+@@ -488,9 +488,9 @@ static int stm32_i2c_message_xfer(struct stm32_i2c_priv *i2c_priv,
+ 		}
+ 	}
+ 
+-	/* End of transfer, send stop condition if appropriate */
+-	if (!ret && !(status & (STM32_I2C_ISR_NACKF | STM32_I2C_ISR_ERRORS)))
+-		setbits_le32(&regs->cr2, STM32_I2C_CR2_STOP);
++	/* End of transfer, send stop condition */
++	mask = STM32_I2C_CR2_STOP;
++	setbits_le32(&regs->cr2, mask);
+ 
+ 	return stm32_i2c_check_end_of_message(i2c_priv);
+ }
+-- 
+2.53.0
+

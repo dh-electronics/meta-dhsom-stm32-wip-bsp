@@ -1,0 +1,73 @@
+From 680609993da60aa132c643f4e0f9574c0192f571 Mon Sep 17 00:00:00 2001
+From: Marek Vasut <marex@nabladev.com>
+Date: Thu, 29 Oct 2026 05:31:13 +0100
+Subject: [PATCH 43/43] usb: dwc3-generic: Always bind clock and reset to
+ parent device
+
+In case a DT subnode describes the controller clocks and resets, make
+sure that both the clocks and resets are bound to the parent device.
+
+This fixes an object lifetime issue, where both reset_get_bulk() and
+clk_get_bulk() internally call devm_kcalloc(dev, ...). In case the
+udevice *dev passed into either function is that of a subnode instead
+of the parent node, then the managed memory is also bound to the
+subnode device instead of the parent device.
+
+This triggers a problem in case the controller operates in peripheral
+mode, where the peripheral is bound and unbound to the controller. If
+the peripheral is unbound, which happens when DFU or FSG exits, then
+the device managed memory bound to the subnode is free()d, and that
+also frees the memory that was obtained in reset_get_bulk() and
+clk_get_bulk() calls in case they were invoked with subnode device.
+If anything rewrites that free()d memory and the controller driver
+is then removed, bad things happen.
+
+Example, enable CONFIG_DM_DEVICE_REMOVE=y , start 'ums 0 mmc N' ,
+exit UMS, boot Linux kernel. U-Boot will most likely crash in
+dwc3_glue_remove() due to invocation of reset_release_bulk() or
+clk_release_bulk() which will attempt to use already free()d memory.
+
+Fix this by always binding both bulk clocks and resets to the parent
+device.
+
+Upstream-Status: Submitted [https://lore.kernel.org/u-boot/20261029045837.813288-1-marex@nabladev.com/]
+Signed-off-by: Marek Vasut <marex@nabladev.com>
+---
+ drivers/usb/dwc3/dwc3-generic.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-generic.c b/drivers/usb/dwc3/dwc3-generic.c
+index a093bef4dfa..d7ae76f08ac 100644
+--- a/drivers/usb/dwc3/dwc3-generic.c
++++ b/drivers/usb/dwc3/dwc3-generic.c
+@@ -732,6 +732,7 @@ int dwc3_glue_probe(struct udevice *dev)
+ 	struct dwc3_glue_ops *ops = (struct dwc3_glue_ops *)dev_get_driver_data(dev);
+ 	struct dwc3_glue_data *glue = dev_get_plat(dev);
+ 	struct udevice *child = NULL;
++	ofnode node = dev_ofnode(dev);
+ 	int index = 0;
+ 	int ret;
+ 	struct phy phy;
+@@ -767,13 +768,17 @@ int dwc3_glue_probe(struct udevice *dev)
+ 		return 0;
+ 
+ 	if (glue->clks.count == 0) {
+-		ret = dwc3_glue_clk_init(child, glue);
++		dev_set_ofnode(dev, dev_ofnode(child));
++		ret = dwc3_glue_clk_init(dev, glue);
++		dev_set_ofnode(dev, node);
+ 		if (ret)
+ 			return ret;
+ 	}
+ 
+ 	if (glue->resets.count == 0) {
+-		ret = dwc3_glue_reset_init(child, glue);
++		dev_set_ofnode(dev, dev_ofnode(child));
++		ret = dwc3_glue_reset_init(dev, glue);
++		dev_set_ofnode(dev, node);
+ 		if (ret)
+ 			return ret;
+ 	}
+-- 
+2.53.0
+

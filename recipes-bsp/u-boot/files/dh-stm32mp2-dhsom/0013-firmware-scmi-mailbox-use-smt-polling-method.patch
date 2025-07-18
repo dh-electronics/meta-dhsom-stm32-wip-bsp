@@ -1,0 +1,45 @@
+From f36549068d8732b3562871cde6dcc33439768ca8 Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Wed, 26 Mar 2025 16:44:24 +0100
+Subject: [PATCH 13/39] firmware: scmi: mailbox: use smt polling method
+
+Since u-boot does not support interrupt, use smt polling method to
+wait for req completion
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 836813869429f555c93161b53fbb389405a9d862 firmware: scmi: mailbox: use smt polling method]
+Change-Id: Ic132a1918659bef8e182d3e20ba9027a3d3a49ad
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/446889
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/firmware/scmi/mailbox_agent.c | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/firmware/scmi/mailbox_agent.c b/drivers/firmware/scmi/mailbox_agent.c
+index cda94565de5..4afac78b65b 100644
+--- a/drivers/firmware/scmi/mailbox_agent.c
++++ b/drivers/firmware/scmi/mailbox_agent.c
+@@ -56,15 +56,13 @@ static int scmi_mbox_process_msg(struct udevice *dev,
+ 		goto out;
+ 	}
+ 
++	ret = scmi_wait_resp_from_smt(dev, &chan->smt, msg, chan->timeout_us);
+ 	/* Receive the response */
+-	ret = mbox_recv(&chan->mbox, chan->smt.buf, chan->timeout_us);
+-	if (ret) {
++	if (ret == -ETIMEDOUT) {
+ 		dev_err(dev, "Response failed: %d, abort\n", ret);
+ 		goto out;
+ 	}
+ 
+-	ret = scmi_read_resp_from_smt(dev, &chan->smt, msg);
+-
+ out:
+ 	scmi_clear_smt_channel(&chan->smt);
+ 
+-- 
+2.53.0
+

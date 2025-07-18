@@ -1,0 +1,55 @@
+From 218cf00aabfb72d78915821d04a111da7cadfa69 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 6 Jun 2022 10:14:30 +0200
+Subject: [PATCH 08/39] stm32mp: update stm32_smc function to be compatible
+ with aarch64
+
+This patch avoids compilation warning on aarch64 platform.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 30a29461817c1251c1c849e24453045bb682c505 stm32mp: update stm32_smc function to be compatible with aarch64]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I5aeb4b5cfe1d13632f44876ea6ec6c752c1b88d6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/255184
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+---
+ arch/arm/mach-stm32mp/include/mach/stm32mp1_smc.h | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm/mach-stm32mp/include/mach/stm32mp1_smc.h b/arch/arm/mach-stm32mp/include/mach/stm32mp1_smc.h
+index 1b2bba3d34c..26aa2e1ccb4 100644
+--- a/arch/arm/mach-stm32mp/include/mach/stm32mp1_smc.h
++++ b/arch/arm/mach-stm32mp/include/mach/stm32mp1_smc.h
+@@ -40,14 +40,16 @@
+ 	stm32_smc(svc, op, data1, data2, NULL)
+ 
+ #ifdef CONFIG_ARM_SMCCC
+-static inline u32 stm32_smc(u32 svc, u8 op, u32 data1, u32 data2, u32 *result)
++static inline u32 stm32_smc(unsigned long svc, unsigned long op,
++			    unsigned long data1, unsigned long data2,
++			    u32 *result)
+ {
+ 	struct arm_smccc_res res;
+ 
+ 	arm_smccc_smc(svc, op, data1, data2, 0, 0, 0, 0, &res);
+ 
+ 	if (res.a0) {
+-		pr_err("%s: Failed to exec svc=%x op=%x in secure mode (err = %ld)\n",
++		pr_err("%s: Failed to exec svc=%lx op=%lx in secure mode (err = %ld)\n",
+ 		       __func__, svc, op, res.a0);
+ 		return -EINVAL;
+ 	}
+@@ -57,7 +59,9 @@ static inline u32 stm32_smc(u32 svc, u8 op, u32 data1, u32 data2, u32 *result)
+ 	return 0;
+ }
+ #else
+-static inline u32 stm32_smc(u32 svc, u8 op, u32 data1, u32 data2, u32 *result)
++static inline u32 stm32_smc(unsigned long svc, unsigned long op,
++			    unsigned long data1, unsigned long data2,
++			    u32 *result)
+ {
+ 	return 0;
+ }
+-- 
+2.53.0
+
