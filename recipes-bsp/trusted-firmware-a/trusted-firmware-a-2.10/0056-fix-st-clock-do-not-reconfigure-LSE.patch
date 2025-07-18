@@ -1,0 +1,51 @@
+From 242f98ad0e6420f130395bd361eaf1c03b1f3221 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 21 Mar 2022 11:39:33 +0100
+Subject: [PATCH 056/954] fix(st-clock): do not reconfigure LSE
+
+If LSE oscillator is already ON, which is the case when returning from
+low-power state or if we are on VBAT, it mustn't be reconfigured.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git fb3a9d29d692ee45bfd13464ee81d676bae1d0a2 fix(st-clock): do not reconfigure LSE]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ie75f2b0b42aeb3d95e2266e1fca811a2f2b3e29f
+---
+ drivers/st/clk/clk-stm32mp13.c | 5 +++++
+ drivers/st/clk/stm32mp1_clk.c  | 5 +++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/drivers/st/clk/clk-stm32mp13.c b/drivers/st/clk/clk-stm32mp13.c
+index 01d1764002..9b11688b84 100644
+--- a/drivers/st/clk/clk-stm32mp13.c
++++ b/drivers/st/clk/clk-stm32mp13.c
+@@ -1007,6 +1007,11 @@ static void stm32_enable_oscillator_lse(struct stm32_clk_priv *priv)
+ 		return;
+ 	}
+ 
++	/* Do not reconfigure LSE if already enabled */
++	if (_clk_stm32_gate_is_enabled(priv, osc_data->gate_id)) {
++		return;
++	}
++
+ 	clk_oscillator_set_bypass(priv, _CK_LSE, digbyp, bypass);
+ 
+ 	clk_oscillator_set_drive(priv, _CK_LSE, drive);
+diff --git a/drivers/st/clk/stm32mp1_clk.c b/drivers/st/clk/stm32mp1_clk.c
+index 29165922a6..443af4ef86 100644
+--- a/drivers/st/clk/stm32mp1_clk.c
++++ b/drivers/st/clk/stm32mp1_clk.c
+@@ -1327,6 +1327,11 @@ static void stm32mp1_lse_enable(bool bypass, bool digbyp, uint32_t lsedrv)
+ 	uint32_t value;
+ 	uintptr_t rcc_base = stm32mp_rcc_base();
+ 
++	/* Do not reconfigure LSE if it is already ON */
++	if ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_LSEON) == RCC_BDCR_LSEON) {
++		return;
++	}
++
+ 	if (digbyp) {
+ 		mmio_setbits_32(rcc_base + RCC_BDCR, RCC_BDCR_DIGBYP);
+ 	}
+-- 
+2.53.0
+

@@ -1,0 +1,48 @@
+From f649bc3d4fee71b38e29d36ee53e1a49c0b7184e Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 28 Feb 2023 16:07:24 +0100
+Subject: [PATCH 290/954] feat(stm32mp2): add support for Cortex-A35 cluster
+ reset
+
+Add reset reason caused by A35 processor reset with flags
+RCC_C1BOOTRSTSCLRR_C1RSTF.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cf9f0e460e92ef758bbc461ed6e4305b14a125d2 feat(stm32mp2): add support for Cortex-A35 cluster reset]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: If687d555bc4dfffbfff24249817d1edc2f893657
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/293161
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 0af9988d1e..a90f3526b7 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -113,7 +113,7 @@ static void print_reset_reason(void)
+ 	}
+ 
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_C1P1RSTF) != 0U) {
+-		INFO("  A35 processor 1 reset\n");
++		INFO("  A35 processor core 1 reset\n");
+ 		return;
+ 	}
+ 
+@@ -127,6 +127,11 @@ static void print_reset_reason(void)
+ 		return;
+ 	}
+ 
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_C1RSTF) != 0U) {
++		INFO("  A35 processor reset\n");
++		return;
++	}
++
+ 	ERROR("  Unidentified reset reason\n");
+ }
+ 
+-- 
+2.53.0
+

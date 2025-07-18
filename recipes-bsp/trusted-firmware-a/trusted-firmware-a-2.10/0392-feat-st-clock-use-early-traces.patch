@@ -1,0 +1,251 @@
+From 179ab54be34cc167ded5e339faaf35b20eeaa6ec Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 2 Nov 2023 15:33:28 +0100
+Subject: [PATCH 392/954] feat(st-clock): use early traces
+
+Replace trace macros with their corresponding EARLY_* macros.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4c3cf11ecf98c17f2af74c5e89b83297014944a1 feat(st-clock): use early traces]
+Change-Id: I39b163964fa3129be38e58352b5dee9b4081675b
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/338369
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/clk/clk-stm32mp13.c |  8 ++++----
+ drivers/st/clk/stm32mp1_clk.c  | 26 +++++++++++++-------------
+ drivers/st/clk/stm32mp2_clk.c  | 25 +++++++++++++------------
+ 3 files changed, 30 insertions(+), 29 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32mp13.c b/drivers/st/clk/clk-stm32mp13.c
+index d0dca0762b..daf6a3802d 100644
+--- a/drivers/st/clk/clk-stm32mp13.c
++++ b/drivers/st/clk/clk-stm32mp13.c
+@@ -974,8 +974,8 @@ static int stm32mp1_set_hsidiv(uint8_t hsidiv)
+ 	timeout = timeout_init_us(HSIDIV_TIMEOUT);
+ 	while ((mmio_read_32(address) & RCC_OCRDYR_HSIDIVRDY) == 0U) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("HSIDIV failed @ 0x%lx: 0x%x\n",
+-			      address, mmio_read_32(address));
++			EARLY_ERROR("HSIDIV failed @ 0x%lx: 0x%x\n",
++				    address, mmio_read_32(address));
+ 			return -ETIMEDOUT;
+ 		}
+ 	}
+@@ -997,7 +997,7 @@ static int stm32mp1_hsidiv(unsigned long hsifreq)
+ 	}
+ 
+ 	if (hsidiv == 4U) {
+-		ERROR("Invalid clk-hsi frequency\n");
++		EARLY_ERROR("Invalid clk-hsi frequency\n");
+ 		return -EINVAL;
+ 	}
+ 
+@@ -1239,7 +1239,7 @@ static void clk_stm32_pll_config_vco(struct stm32_clk_priv *priv,
+ 	uint32_t value = 0;
+ 
+ 	if (clk_stm32_pll_compute_cfgr1(priv, pll, vco, &value) != 0) {
+-		ERROR("Invalid Vref clock !\n");
++		EARLY_ERROR("Invalid Vref clock !\n");
+ 		panic();
+ 	}
+ 
+diff --git a/drivers/st/clk/stm32mp1_clk.c b/drivers/st/clk/stm32mp1_clk.c
+index 9a84cebb74..46b26aa392 100644
+--- a/drivers/st/clk/stm32mp1_clk.c
++++ b/drivers/st/clk/stm32mp1_clk.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2018-2022, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2018-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+  */
+@@ -1616,7 +1616,7 @@ static void stm32mp1_lse_enable(bool bypass, bool digbyp, uint32_t lsedrv)
+ static void stm32mp1_lse_wait(void)
+ {
+ 	if (stm32mp1_osc_wait(true, RCC_BDCR, RCC_BDCR_LSERDY) != 0) {
+-		VERBOSE("%s: failed\n", __func__);
++		EARLY_ERROR("%s: failed\n", __func__);
+ 	}
+ }
+ 
+@@ -1625,7 +1625,7 @@ static void stm32mp1_lsi_set(bool enable)
+ 	stm32mp1_ls_osc_set(enable, RCC_RDLSICR, RCC_RDLSICR_LSION);
+ 
+ 	if (stm32mp1_osc_wait(enable, RCC_RDLSICR, RCC_RDLSICR_LSIRDY) != 0) {
+-		VERBOSE("%s: failed\n", __func__);
++		EARLY_ERROR("%s: failed\n", __func__);
+ 	}
+ }
+ 
+@@ -1643,7 +1643,7 @@ static void stm32mp1_hse_enable(bool bypass, bool digbyp, bool css)
+ 
+ 	stm32mp1_hs_ocs_set(true, RCC_OCENR_HSEON);
+ 	if (stm32mp1_osc_wait(true, RCC_OCRDYR, RCC_OCRDYR_HSERDY) != 0) {
+-		VERBOSE("%s: failed\n", __func__);
++		EARLY_ERROR("%s: failed\n", __func__);
+ 	}
+ 
+ 	if (css) {
+@@ -1662,7 +1662,7 @@ static void stm32mp1_csi_set(bool enable)
+ {
+ 	stm32mp1_hs_ocs_set(enable, RCC_OCENR_CSION);
+ 	if (stm32mp1_osc_wait(enable, RCC_OCRDYR, RCC_OCRDYR_CSIRDY) != 0) {
+-		VERBOSE("%s: failed\n", __func__);
++		EARLY_ERROR("%s: failed\n", __func__);
+ 	}
+ }
+ 
+@@ -1670,7 +1670,7 @@ static void stm32mp1_hsi_set(bool enable)
+ {
+ 	stm32mp1_hs_ocs_set(enable, RCC_OCENR_HSION);
+ 	if (stm32mp1_osc_wait(enable, RCC_OCRDYR, RCC_OCRDYR_HSIRDY) != 0) {
+-		VERBOSE("%s: failed\n", __func__);
++		EARLY_ERROR("%s: failed\n", __func__);
+ 	}
+ }
+ 
+@@ -1710,7 +1710,7 @@ static int stm32mp1_hsidiv(unsigned long hsifreq)
+ 	}
+ 
+ 	if (hsidiv == 4U) {
+-		ERROR("Invalid clk-hsi frequency\n");
++		EARLY_ERROR("Invalid clk-hsi frequency\n");
+ 		return -1;
+ 	}
+ 
+@@ -1812,8 +1812,8 @@ static int stm32mp1_pll_output(enum stm32mp1_pll_id pll_id, uint32_t output)
+ 	/* Wait PLL lock */
+ 	while ((mmio_read_32(pllxcr) & RCC_PLLNCR_PLLRDY) == 0U) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("PLL%u start failed @ 0x%lx: 0x%x\n",
+-			      pll_id, pllxcr, mmio_read_32(pllxcr));
++			EARLY_ERROR("PLL%u start failed @ 0x%lx: 0x%x\n",
++				    pll_id, pllxcr, mmio_read_32(pllxcr));
+ 			return -ETIMEDOUT;
+ 		}
+ 	}
+@@ -1841,8 +1841,8 @@ static int stm32mp1_pll_stop(enum stm32mp1_pll_id pll_id)
+ 	/* Wait PLL stopped */
+ 	while ((mmio_read_32(pllxcr) & RCC_PLLNCR_PLLRDY) != 0U) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("PLL%u stop failed @ 0x%lx: 0x%x\n",
+-			      pll_id, pllxcr, mmio_read_32(pllxcr));
++			EARLY_ERROR("PLL%u stop failed @ 0x%lx: 0x%x\n",
++				    pll_id, pllxcr, mmio_read_32(pllxcr));
+ 			return -ETIMEDOUT;
+ 		}
+ 	}
+@@ -2376,8 +2376,8 @@ int stm32mp1_clk_init(uint32_t pll1_freq_khz)
+ 			       usbreg_mask;
+ 		usbreg_bootrom &= usbreg_mask;
+ 		if (usbreg_bootrom != usbreg_value) {
+-			VERBOSE("forbidden new USB clk path\n");
+-			VERBOSE("vs bootrom on USB boot\n");
++			EARLY_ERROR("forbidden new USB clk path\n");
++			EARLY_ERROR("vs bootrom on USB boot\n");
+ 			return -FDT_ERR_BADVALUE;
+ 		}
+ 	}
+diff --git a/drivers/st/clk/stm32mp2_clk.c b/drivers/st/clk/stm32mp2_clk.c
+index d2c4050cda..0d130ae39b 100644
+--- a/drivers/st/clk/stm32mp2_clk.c
++++ b/drivers/st/clk/stm32mp2_clk.c
+@@ -1341,7 +1341,7 @@ static void stm32mp2_a35_ss_on_hsi(void)
+ 	while ((mmio_read_32(chgclkreq_reg) & A35_SS_CHGCLKREQ_ARM_CHGCLKACK) !=
+ 	       A35_SS_CHGCLKREQ_ARM_CHGCLKACK) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("Cannot switch A35 to bypass clock\n");
++			EARLY_ERROR("Cannot switch A35 to bypass clock\n");
+ 			panic();
+ 		}
+ 	}
+@@ -1390,8 +1390,8 @@ static int stm32mp2_a35_pll1_start(void)
+ 	/* Wait PLL lock */
+ 	while ((mmio_read_32(pll_enable_reg) & A35_SS_PLL_ENABLE_LOCKP) == 0U) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("PLL1 start failed @ 0x%lx: 0x%x\n",
+-			      pll_enable_reg, mmio_read_32(pll_enable_reg));
++			EARLY_ERROR("PLL1 start failed @ 0x%lx: 0x%x\n",
++				    pll_enable_reg, mmio_read_32(pll_enable_reg));
+ 			return -ETIMEDOUT;
+ 		}
+ 	}
+@@ -1406,8 +1406,8 @@ static int stm32mp2_a35_pll1_start(void)
+ 	timeout = timeout_init_us(CLKSRC_TIMEOUT);
+ 	while ((mmio_read_32(chgclkreq_reg) & A35_SS_CHGCLKREQ_ARM_CHGCLKACK) != 0U) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("CA35SS switch to PLL1 failed @ 0x%lx: 0x%x\n",
+-			      chgclkreq_reg, mmio_read_32(chgclkreq_reg));
++			EARLY_ERROR("CA35SS switch to PLL1 failed @ 0x%lx: 0x%x\n",
++				    chgclkreq_reg, mmio_read_32(chgclkreq_reg));
+ 			return -ETIMEDOUT;
+ 		}
+ 	}
+@@ -1579,7 +1579,7 @@ static int _clk_stm32_pll1_init(struct stm32_clk_priv *priv, int pll_idx,
+ 	 * always be less than 1.2 GHz
+ 	 */
+ 	if (refclk < PLL_REFCLK_MIN) {
+-		ERROR("%s: %d\n", __func__, __LINE__);
++		EARLY_ERROR("%s: %d\n", __func__, __LINE__);
+ 		panic();
+ 	}
+ 
+@@ -1603,7 +1603,7 @@ static int clk_stm32_pll_wait_mux_ready(struct stm32_clk_priv *priv,
+ 	while ((mmio_read_32(pllxcfgr1) & RCC_PLLxCFGR1_CKREFST) !=
+ 	       RCC_PLLxCFGR1_CKREFST) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("PLL%d ref clock not started\n", pll->clk_id);
++			EARLY_ERROR("PLL%d ref clock not started\n", pll->clk_id);
+ 			return -ETIMEDOUT;
+ 		}
+ 	}
+@@ -1704,7 +1704,7 @@ static int wait_predivsr(uint16_t channel)
+ 	timeout = timeout_init_us(CLKDIV_TIMEOUT);
+ 	while ((mmio_read_32(previvsr) & channel_bit) != 0U) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("Pre divider status: %x\n",
++			EARLY_ERROR("Pre divider status: %x\n",
+ 			      mmio_read_32(previvsr));
+ 			return -ETIMEDOUT;
+ 		}
+@@ -1732,7 +1732,7 @@ static int wait_findivsr(uint16_t channel)
+ 	timeout = timeout_init_us(CLKDIV_TIMEOUT);
+ 	while ((mmio_read_32(finvivsr) & channel_bit) != 0U) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("Final divider status: %x\n",
++			EARLY_ERROR("Final divider status: %x\n",
+ 			      mmio_read_32(finvivsr));
+ 			return -ETIMEDOUT;
+ 		}
+@@ -1751,7 +1751,7 @@ static int wait_xbar_sts(uint16_t channel)
+ 	timeout = timeout_init_us(CLKDIV_TIMEOUT);
+ 	while ((mmio_read_32(xbar_cfgr) & RCC_XBAR0CFGR_XBAR0STS) != 0U) {
+ 		if (timeout_elapsed(timeout)) {
+-			ERROR("XBAR%uCFGR: %x\n", channel,
++			EARLY_ERROR("XBAR%uCFGR: %x\n", channel,
+ 			      mmio_read_32(xbar_cfgr));
+ 			return -ETIMEDOUT;
+ 		}
+@@ -1913,7 +1913,8 @@ static void stm32_enable_oscillator_msi(struct stm32_clk_priv *priv)
+ 
+ 	err = clk_stm32_osc_msi_set_rate(priv, _CK_MSI, osci->freq, 0);
+ 	if (err != 0) {
+-		ERROR("Invalid rate %lu MHz for MSI ! (4 or 16 only)\n", osci->freq / 1000000U);
++		EARLY_ERROR("Invalid rate %lu MHz for MSI ! (4 or 16 only)\n",
++			    osci->freq / 1000000U);
+ 		panic();
+ 	}
+ 
+@@ -1999,7 +2000,7 @@ static int stm32_clk_configure(struct stm32_clk_priv *priv, uint32_t val)
+ 		break;
+ 
+ 	default:
+-		ERROR("%s: cmd unknown ! : 0x%x\n", __func__, val);
++		EARLY_ERROR("%s: cmd unknown ! : 0x%x\n", __func__, val);
+ 		break;
+ 	}
+ 
+-- 
+2.53.0
+

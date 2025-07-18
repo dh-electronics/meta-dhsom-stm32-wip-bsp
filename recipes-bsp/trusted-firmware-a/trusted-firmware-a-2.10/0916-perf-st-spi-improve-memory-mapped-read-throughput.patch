@@ -1,0 +1,69 @@
+From 4e06b6cfc0e333834ca896cf7566dc3cebaa0268 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Thu, 19 Sep 2024 11:07:42 +0200
+Subject: [PATCH 916/954] perf(st-spi): improve memory mapped read throughput
+
+Improve memory mapped read throughput by reading 8-bytes per 8-bytes
+instead of reading byte per byte.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3cf546af88a537b27bf91160d02d9257a21fbb18 perf(st-spi): improve memory mapped read throughput
+b6123cb1e9430cc59213c4eba367fabb7dddab76 perf(st-spi): improve memory mapped read throughput]
+Change-Id: I82160aa97a499dd91c647263ead3a1301f23b660
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/479643
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/st/spi/stm32_ospi.c | 32 +++++++++++++++++++++++++-------
+ 1 file changed, 25 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index cbb84aad33..b7d731244b 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -249,13 +249,31 @@ static int stm32_ospi_poll(uint8_t *buf, uint32_t nbytes, bool read)
+ static int stm32_ospi_mm(uint8_t *buf, uint32_t nbytes, size_t addr)
+ {
+ 	uintptr_t from = stm32_ospi.mm_base + addr;
+-
+-	while (nbytes >= sizeof(uint8_t)) {
+-		*buf = mmio_read_8(from);
+-		buf += sizeof(uint8_t);
+-		from += sizeof(uint8_t);
+-		nbytes -= sizeof(uint8_t);
+-		dmbsy();
++	uint8_t *buff = buf;
++	uint64_t length = nbytes;
++	uint64_t tmp;
++	uint64_t i = 0U;
++
++	while ((length != 0U) && ((from & (sizeof(uint64_t) - UL(1))) != 0U)) {
++		buff[i] = mmio_read_8(from);
++		i++;
++		from++;
++		length--;
++	}
++
++	while (length >= sizeof(uint64_t)) {
++		tmp = mmio_read_64(from);
++		(void)memcpy((void *)&buff[i], (const void *)&tmp, sizeof(uint64_t));
++		i += sizeof(uint64_t);
++		from += sizeof(uint64_t);
++		length -= sizeof(uint64_t);
++	}
++
++	while (length != 0U) {
++		buff[i] = mmio_read_8(from);
++		i++;
++		from++;
++		length--;
+ 	}
+ 
+ 	return 0;
+-- 
+2.53.0
+

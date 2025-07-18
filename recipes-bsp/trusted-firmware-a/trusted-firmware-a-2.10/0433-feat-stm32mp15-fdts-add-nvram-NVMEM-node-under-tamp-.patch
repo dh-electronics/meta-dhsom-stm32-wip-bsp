@@ -1,0 +1,86 @@
+From 2fb7c1adb2c89f3cbb6792278744d4b5208b097c Mon Sep 17 00:00:00 2001
+From: Simeon Marijon <simeon.marijon@foss.st.com>
+Date: Mon, 11 Dec 2023 13:02:28 +0100
+Subject: [PATCH 433/954] feat(stm32mp15-fdts): add nvram (NVMEM) node under
+ tamp in stm32mp151.dtsi
+
+Backup Registers nvram will be accessed using the NVMEM framework.
+
+We also remove the suppression of the TAMP Peripheral in
+stm32mp15-bl2.dtsi. We need the tamp node so, do not remove it
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8dd8ed98f2c4bc2387bf2d96f8d77cf0225967b0 feat(stm32mp15-fdts): add nvram (NVMEM) node under tamp in stm32mp151.dtsi]
+Signed-off-by: Simeon Marijon <simeon.marijon@foss.st.com>
+Change-Id: I2a3d66fe977351bb37592112baa390c9e6719c3b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/343947
+Reviewed-by: Simeon MARIJON <simeon.marijon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Simeon MARIJON <simeon.marijon@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ fdts/stm32mp15-bl2.dtsi |  1 -
+ fdts/stm32mp151.dtsi    | 33 +++++++++++++++++++++++++++++++--
+ 2 files changed, 31 insertions(+), 3 deletions(-)
+
+diff --git a/fdts/stm32mp15-bl2.dtsi b/fdts/stm32mp15-bl2.dtsi
+index 18a4ba9323..2ca8e34d7e 100644
+--- a/fdts/stm32mp15-bl2.dtsi
++++ b/fdts/stm32mp15-bl2.dtsi
+@@ -45,7 +45,6 @@
+ 		/delete-node/ rtc@5c004000;
+ 		/delete-node/ etzpc@5c007000;
+ 		/delete-node/ stgen@5c008000;
+-		/delete-node/ tamp@5c00a000;
+ 	};
+ 
+ 	/*
+diff --git a/fdts/stm32mp151.dtsi b/fdts/stm32mp151.dtsi
+index c3a30761ce..0e8eeb70ad 100644
+--- a/fdts/stm32mp151.dtsi
++++ b/fdts/stm32mp151.dtsi
+@@ -524,9 +524,38 @@
+ 
+ 		tamp: tamp@5c00a000 {
+ 			compatible = "st,stm32-tamp", "syscon", "simple-mfd";
++			#address-cells = <1>;
++			#size-cells = <1>;
+ 			reg = <0x5c00a000 0x400>;
+-			secure-interrupts = <GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>;
+-			clocks = <&rcc RTCAPB>;
++			ranges;
++
++			nvram: nvram@5c00a100 {
++				compatible = "st,stm32mp15-tamp-nvram";
++				#address-cells = <1>;
++				#size-cells = <1>;
++				reg = <0x5c00a100 0x80>;
++
++				magic_number: tamp-bkp@10 {
++					/* see ddr and cpu wake up management feature */
++					reg = <0x10 0x4>;
++				};
++
++				branch_address: tamp-bkp@14 {
++					/* see ddr and cpu wake up management feature */
++					reg = <0x14 0x4>;
++				};
++
++				fwu_info: tamp-bkp@28 {
++					/* see firmware update info feature */
++					reg = <0x28 0x4>;
++				};
++
++				boot_mode: tamp-bkp@50 {
++					/* see boot mode selection feature */
++					reg = <0x50 0x4>;
++				};
++
++			};
+ 		};
+ 
+ 		/*
+-- 
+2.53.0
+

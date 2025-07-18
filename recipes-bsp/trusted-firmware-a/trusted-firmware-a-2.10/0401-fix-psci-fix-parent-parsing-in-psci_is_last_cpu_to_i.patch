@@ -1,0 +1,43 @@
+From 030409bc43b2cbf681c1956602762a6bb2762a22 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 17 Oct 2023 20:17:58 +0200
+Subject: [PATCH 401/954] fix(psci): fix parent parsing in
+ psci_is_last_cpu_to_idle_at_pwrlvl
+
+The current loop has no effect as it uses a fixed parameter = my_idx
+and returns the FIRST parent of CPU.
+
+This update allows to parse the PSCI topology tree to find
+the parent at parent level of the CPU identified by my_idx.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 751cc38369fe822cc3c3000b3760d3d22e1553b3 fix(psci): fix parent parsing in psci_is_last_cpu_to_idle_at_pwrlvl
+0c448484af2647279420611c758f21a35479170a fix(psci): fix parent parsing in psci_is_last_cpu_to_idle_at_pwrlvl]
+Fixes: 110569d745db ("feat(psci): add support for OS-initiated mode")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Icd7da0bc58200b307c80e18d8d3a9302ac25365b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/334407
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ lib/psci/psci_common.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/lib/psci/psci_common.c b/lib/psci/psci_common.c
+index c6f6a37a48..6c722e0a50 100644
+--- a/lib/psci/psci_common.c
++++ b/lib/psci/psci_common.c
+@@ -179,9 +179,10 @@ static bool psci_is_last_cpu_to_idle_at_pwrlvl(unsigned int end_pwrlvl)
+ 	}
+ 
+ 	my_idx = plat_my_core_pos();
++	parent_idx = my_idx;
+ 
+ 	for (lvl = PSCI_CPU_PWR_LVL; lvl <= end_pwrlvl; lvl++) {
+-		parent_idx = psci_cpu_pd_nodes[my_idx].parent_node;
++		parent_idx = psci_cpu_pd_nodes[parent_idx].parent_node;
+ 	}
+ 
+ 	cpu_start_idx = psci_non_cpu_pd_nodes[parent_idx].cpu_start_idx;
+-- 
+2.53.0
+

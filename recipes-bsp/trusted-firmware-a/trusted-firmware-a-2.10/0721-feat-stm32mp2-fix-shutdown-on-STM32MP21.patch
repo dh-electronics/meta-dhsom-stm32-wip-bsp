@@ -1,0 +1,101 @@
+From cc3cffe0c97cb581e91eaf52323e9faf0da9cd57 Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@foss.st.com>
+Date: Tue, 15 Oct 2024 17:38:42 +0200
+Subject: [PATCH 721/954] feat(stm32mp2): fix shutdown on STM32MP21
+
+Fix shutdown on STM32MP21:
+- EXTI2 base address is different from STM32MP25
+- Add clear cache before disabling the DDR.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ad4fc5e180af2e3d4845f9fd66f59bb7516164e2 feat(stm32mp2): fix shutdown on STM32MP21]
+Change-Id: I939392a7686fdbaa9342f05f76f513aab0c20076
+Signed-off-by: Pascal Paillet <p.paillet@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/411628
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+Tested-by: Pascal PAILLET <p.paillet@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ include/drivers/st/stm32mp21_pwr.h | 1 -
+ plat/st/stm32mp2/stm32mp2_def.h    | 8 ++++++++
+ plat/st/stm32mp2/stm32mp2_pm.c     | 6 ++++++
+ 3 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/include/drivers/st/stm32mp21_pwr.h b/include/drivers/st/stm32mp21_pwr.h
+index 26fe609232..4535a1098c 100644
+--- a/include/drivers/st/stm32mp21_pwr.h
++++ b/include/drivers/st/stm32mp21_pwr.h
+@@ -12,7 +12,6 @@
+ #define PWR_CR1					U(0x00)
+ #define PWR_CR2					U(0x04)
+ #define PWR_CR3					U(0x08)
+-#define PWR_CR4					U(0x0C)
+ #define PWR_CR7					U(0x18)
+ #define PWR_CR8					U(0x1C)
+ #define PWR_CR9					U(0x20)
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index aee989db1a..024718f4fb 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -353,17 +353,25 @@ enum ddr_type {
+ /*******************************************************************************
+  * STM32MP2 EXTI2
+  ******************************************************************************/
++#if !STM32MP21
+ #define STM32MP_EXTI2_BASE		U(0x46230000)
++#else
++#define STM32MP_EXTI2_BASE		U(0x442D0000)
++#endif /* !STM32MP21 */
+ 
+ #define EXTI2_C1IMR1			U(0x80)
+ #define EXTI2_C1IMR2			U(0x90)
++#if !STM32MP21
+ #define EXTI2_C1IMR3			U(0xA0)
++#endif /* !STM32MP21 */
+ #define EXTI2_C2IMR1			U(0xC0)
+ #define EXTI2_C2IMR2			U(0xD0)
++#if !STM32MP21
+ #define EXTI2_C2IMR3			U(0xE0)
+ #define EXTI2_C3IMR1			U(0x100)
+ #define EXTI2_C3IMR2			U(0x110)
+ #define EXTI2_C3IMR3			U(0x120)
++#endif /* !STM32MP21 */
+ 
+ /*******************************************************************************
+  * STM32MP2 GPIO
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index c8a78205d4..748c120dc6 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -935,6 +935,8 @@ static void __dead2 stm32_system_off(void)
+ 		}
+ 	}
+ 
++	dcsw_op_all(DCCISW);
++
+ 	/* Force DDR off */
+ 	ddr_sub_system_clk_off();
+ 
+@@ -961,13 +963,17 @@ static void __dead2 stm32_system_off(void)
+ 	/* Deactivate all WakeUp except WKUP pins */
+ 	mmio_write_32(exti2_base + EXTI2_C1IMR1, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C1IMR2, 0U);
++#if !STM32MP21
+ 	mmio_write_32(exti2_base + EXTI2_C1IMR3, 0U);
++#endif /* !STM32MP21 */
+ 	mmio_write_32(exti2_base + EXTI2_C2IMR1, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C2IMR2, 0U);
++#if !STM32MP21
+ 	mmio_write_32(exti2_base + EXTI2_C2IMR3, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C3IMR1, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C3IMR2, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C3IMR3, 0U);
++#endif /* !STM32MP21 */
+ 
+ 	/* Disable STATE_RUNNING state for this core */
+ 	stm32mp_state_set(core_id, STATE_RUNNING, false);
+-- 
+2.53.0
+

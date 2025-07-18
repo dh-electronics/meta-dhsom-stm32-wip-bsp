@@ -1,0 +1,200 @@
+From 0d84198e6c26759368e6083011f7f74817585da5 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Thu, 13 Jul 2023 15:39:24 +0200
+Subject: [PATCH 332/954] feat(st-spi): allow to sample later the data
+
+Allow the data to be sampled later in order to consider
+the external signal delays.
+The calibration is done with and without TCR_SSHIFT and the best
+configuration found is applied.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 25e508c066daa0a251c86a6546c60b8272f8895e feat(st-spi): allow to sample later the data]
+Change-Id: Ie0e6f096e6cb6be98b866808de6b514c009c34d4
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/319453
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/spi/stm32_ospi.c                 | 44 +++++++++++++++++++--
+ plat/st/stm32mp2/include/stm32mp2_private.h |  4 +-
+ plat/st/stm32mp2/stm32mp2_syscfg.c          | 43 +++++++++++++++++++-
+ 3 files changed, 85 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index 09d8331614..d57a0f58d9 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -439,7 +439,12 @@ static int stm32_ospi_readid(void)
+ 
+ static int stm32_ospi_calibration(unsigned int freq)
+ {
++	uint32_t dlyb_cr;
++	uint8_t window_len_tcr0 = 0;
++	uint8_t window_len_tcr1 = 0;
+ 	int ret;
++	int ret_tcr0;
++	int ret_tcr1;
+ 
+ 	/*
+ 	 * Set memory device at low frequency (50 MHz) and sent
+@@ -467,13 +472,42 @@ static int stm32_ospi_calibration(unsigned int freq)
+ 	}
+ 
+ 	/* Perform only RX TAP selection */
+-	ret = stm32mp2_syscfg_dlyb_find_tap(stm32_ospi.bank, stm32_ospi_readid,
+-					    true);
++	ret_tcr0 = stm32mp2_syscfg_dlyb_find_tap(stm32_ospi.bank,
++						 stm32_ospi_readid,
++						 true, &window_len_tcr0);
++	if (ret_tcr0 == 0) {
++		stm32mp2_syscfg_dlyb_get_cr(stm32_ospi.bank, &dlyb_cr);
++	}
++
++	stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++
++	ret = stm32mp2_syscfg_dlyb_init(stm32_ospi.bank, false, 0);
+ 	if (ret != 0) {
++		return ret;
++	}
++
++	mmio_setbits_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_SSHIFT);
++
++	ret_tcr1 = stm32mp2_syscfg_dlyb_find_tap(stm32_ospi.bank,
++						 stm32_ospi_readid,
++						 true, &window_len_tcr1);
++	if ((ret_tcr0 != 0) && (ret_tcr1 != 0)) {
+ 		WARN("Calibration phase failed\n");
++
++		return ret_tcr0;
+ 	}
+ 
+-	return ret;
++	if (window_len_tcr0 >= window_len_tcr1) {
++		mmio_clrbits_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_SSHIFT);
++		stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++
++		ret = stm32mp2_syscfg_dlyb_set_cr(stm32_ospi.bank, dlyb_cr);
++		if (ret != 0) {
++			return ret;
++		}
++	}
++
++	return 0;
+ }
+ 
+ static int stm32_ospi_claim_bus(unsigned int cs)
+@@ -501,6 +535,7 @@ static int stm32_ospi_claim_bus(unsigned int cs)
+ 					(prescaler + 1);
+ 
+ 		stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++		mmio_clrbits_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_SSHIFT);
+ 		calibration_done = true;
+ 
+ 		/* Calibration needed above 50 MHz */
+@@ -510,6 +545,8 @@ static int stm32_ospi_claim_bus(unsigned int cs)
+ 				     _DLYB_FREQ_50MHZ);
+ 
+ 				stm32mp2_syscfg_dlyb_stop(stm32_ospi.bank);
++				mmio_clrbits_32(ospi_base() + _OSPI_TCR,
++						_OSPI_TCR_SSHIFT);
+ 
+ 				return stm32_ospi_set_speed(_DLYB_FREQ_50MHZ);
+ 			}
+@@ -706,7 +743,6 @@ int stm32_ospi_init(void)
+ 		}
+ 	}
+ 
+-	mmio_write_32(ospi_base() + _OSPI_TCR, _OSPI_TCR_SSHIFT);
+ 	mmio_write_32(ospi_base() + _OSPI_DCR1, _OSPI_DCR1_DEVSIZE);
+ 
+ 	return spi_mem_init_slave(fdt, ospi_node, &stm32_ospi_bus_ops);
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index 790479a516..d891d331a6 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -18,7 +18,9 @@ size_t stm32mp2_syscfg_get_mm_size(uint8_t bank);
+ int stm32mp2_syscfg_dlyb_init(uint8_t bank, bool bypass_mode,
+ 			      uint16_t period_ps);
+ int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+-				  bool rx_only);
++				  bool rx_only, uint8_t *window_len);
++int stm32mp2_syscfg_dlyb_set_cr(uint8_t bank, uint32_t dlyb_cr);
++void stm32mp2_syscfg_dlyb_get_cr(uint8_t bank, uint32_t *dlyb_cr);
+ void stm32mp2_syscfg_dlyb_stop(uint8_t bank);
+ 
+ /* IO compensation identifiers */
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index 497fb6b35a..c8d3805834 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -227,7 +227,7 @@ void stm32mp2_syscfg_dlyb_stop(uint8_t bank)
+ }
+ 
+ int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+-				  bool rx_only)
++				  bool rx_only, uint8_t *window_len)
+ {
+ 	struct syscfg_tap_window rx_tap_w[SYSCFG_DLYBOS_TAPSEL_NB];
+ 	int ret;
+@@ -304,6 +304,7 @@ int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+ 		}
+ 
+ 		rx_tap = rx_window_end - rx_window_len / 2U;
++		*window_len = rx_window_len;
+ 		VERBOSE("%s: RX_TAP_SEL set to %d\n", __func__, rx_tap);
+ 
+ 		return stm32_syscfg_dlyb_set_tap(bank, rx_tap, true);
+@@ -343,6 +344,46 @@ int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+ 	return stm32_syscfg_dlyb_set_tap(bank, best_tx_tap, false);
+ }
+ 
++int stm32mp2_syscfg_dlyb_set_cr(uint8_t bank, uint32_t dlyb_cr)
++{
++	bool bypass_mode = false;
++	uint16_t period_ps;
++	uint8_t rx_tap;
++	uint8_t tx_tap;
++	int ret;
++
++	period_ps = (dlyb_cr & SYSCFG_DLYBOS_BYP_CMD_MASK) >>
++		    SYSCFG_DLYBOS_BYP_CMD_SHIFT;
++	if ((dlyb_cr & SYSCFG_DLYBOS_BYP_EN) != 0U) {
++		bypass_mode = true;
++	}
++
++	ret = stm32mp2_syscfg_dlyb_init(bank, bypass_mode, period_ps);
++	if (ret != 0) {
++		return ret;
++	}
++
++	/* restore Rx and TX tap */
++	rx_tap = (dlyb_cr & SYSCFG_DLYBOS_CR_RXTAPSEL_MASK) >>
++		 SYSCFG_DLYBOS_CR_RXTAPSEL_SHIFT;
++	ret = stm32_syscfg_dlyb_set_tap(bank, rx_tap, true);
++	if (ret != 0) {
++		return ret;
++	}
++
++	tx_tap = (dlyb_cr & SYSCFG_DLYBOS_CR_TXTAPSEL_MASK) >>
++		 SYSCFG_DLYBOS_CR_TXTAPSEL_SHIFT;
++
++	return stm32_syscfg_dlyb_set_tap(bank, tx_tap, false);
++}
++
++void stm32mp2_syscfg_dlyb_get_cr(uint8_t bank, uint32_t *dlyb_cr)
++{
++	uintptr_t cr = SYSCFG_BASE + syscfg_dlybos_cr_offset[bank];
++
++	*dlyb_cr = mmio_read_32(cr);
++}
++
+ /* ½ memory clock period in pico second */
+ static const uint16_t syscfg_dlybos_cmd_delay_ps[SYSCFG_DLYBOS_CMD_NB] = {
+ 2816U, 4672U, 6272U, 7872U, 9472U, 11104U, 12704U, 14304U,
+-- 
+2.53.0
+

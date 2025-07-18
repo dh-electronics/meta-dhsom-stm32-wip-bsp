@@ -1,0 +1,69 @@
+From cae2d24ebb798803601e638ecdae7e1a785a8c76 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Fri, 2 Sep 2022 16:46:30 +0200
+Subject: [PATCH 212/954] fix(st-ddr): add dynamic pllbypass DDRDBG
+ configuration
+
+Ensure sub-system consistency by synchronizing the DDRDBG pclk bypass
+enabling with phyinit user input basic related parameter.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3d3840d4e5650853c321d74a5ce727944b288ef6 fix(st-ddr): add dynamic pllbypass DDRDBG configuration]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I25db505326d4bd087117a89940c8749502415420
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/264899
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h        | 1 +
+ drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c | 5 +++++
+ drivers/st/ddr/stm32mp2_ddr.c                              | 4 +++-
+ 3 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h
+index edf1dea3a8..97603e1bbc 100644
+--- a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h
++++ b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit.h
+@@ -26,6 +26,7 @@ extern pmu_smb_ddr_1d_t shdw_ddr_1d[NB_PS];
+ int ddrphy_phyinit_softsetmb(int ps, char *field, int value);
+ void ddrphy_phyinit_initstruct(void);
+ void *ddrphy_phyinit_get_user_input_basic_base(void);
++int ddrphy_phyinit_get_user_input_basic_pllbypass_0(void);
+ void *ddrphy_phyinit_get_user_input_advanced_base(void);
+ void *ddrphy_phyinit_get_user_input_mode_register_base(void);
+ void *ddrphy_phyinit_get_user_input_swizzle_base(void);
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c
+index a63e1d0285..72179a9b30 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_initstruct.c
+@@ -15,6 +15,11 @@ void *ddrphy_phyinit_get_user_input_basic_base(void)
+ 	return (void *)&userinputbasic;
+ }
+ 
++int ddrphy_phyinit_get_user_input_basic_pllbypass_0(void)
++{
++	return userinputbasic.pllbypass[0];
++}
++
+ void *ddrphy_phyinit_get_user_input_advanced_base(void)
+ {
+ 	return (void *)&userinputadvanced;
+diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
+index 7f17fd907e..3cbc7233c9 100644
+--- a/drivers/st/ddr/stm32mp2_ddr.c
++++ b/drivers/st/ddr/stm32mp2_ddr.c
+@@ -245,7 +245,9 @@ static void ddr_sysconf_configuration(struct stm32mp_ddr_priv *priv)
+ {
+ 	mmio_write_32(stm32_ddrdbg_get_base() + DDRDBG_LP_DISABLE,
+ 		      DDRDBG_LP_DISABLE_LPI_XPI_DISABLE | DDRDBG_LP_DISABLE_LPI_DDRC_DISABLE);
+-	mmio_write_32(stm32_ddrdbg_get_base() + DDRDBG_BYPASS_PCLKEN, 0U);
++
++	mmio_write_32(stm32_ddrdbg_get_base() + DDRDBG_BYPASS_PCLKEN,
++		      (uint32_t)ddrphy_phyinit_get_user_input_basic_pllbypass_0());
+ 
+ 	mmio_write_32(priv->rcc + RCC_DDRPHYCCFGR, RCC_DDRPHYCCFGR_DDRPHYCEN);
+ 	mmio_write_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+-- 
+2.53.0
+

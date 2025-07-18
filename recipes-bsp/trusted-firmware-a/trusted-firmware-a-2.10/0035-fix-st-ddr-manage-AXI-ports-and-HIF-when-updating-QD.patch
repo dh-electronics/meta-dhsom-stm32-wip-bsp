@@ -1,0 +1,102 @@
+From 1447e0cd40f694910cd02c744ebbff23c73c3c7f Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 10 May 2022 11:37:53 +0200
+Subject: [PATCH 035/954] fix(st-ddr): manage AXI ports and HIF when updating
+ QD3 registers
+
+Quasi-dynamic group 3 (QD3) registers are updated when DDR
+is not completely initialized, i.e. when AXI ports are not enabled and
+possibly when host interface (HIF) is not enabled too.
+In that case, a specific mechanism is necessary to restore the same
+conditions as before accessing QD3 registers.
+Static functions have been added to get AXI ports and HIF states and
+are used to determine the needed conditions to set/unset.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 137b5b64086729e42e8d3db7e06677e329bf7067 fix(st-ddr): manage AXI ports and HIF when updating QD3 registers]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I820c7fc04981dbd978696b5c00e75820aa392907
+---
+ drivers/st/ddr/stm32mp_ddr.c | 39 +++++++++++++++++++++++++++++++-----
+ 1 file changed, 34 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp_ddr.c b/drivers/st/ddr/stm32mp_ddr.c
+index d961c9f24c..3d0a2ed190 100644
+--- a/drivers/st/ddr/stm32mp_ddr.c
++++ b/drivers/st/ddr/stm32mp_ddr.c
+@@ -15,6 +15,9 @@
+ 
+ #define INVALID_OFFSET	0xFFU
+ 
++static bool axi_port_reenable_request;
++static bool host_interface_reenable_request;
++
+ static uintptr_t get_base_addr(const struct stm32mp_ddr_priv *priv, enum stm32mp_ddr_base_type base)
+ {
+ 	if (base == DDRPHY_BASE) {
+@@ -130,6 +133,11 @@ int stm32mp_ddr_disable_axi_port(struct stm32mp_ddrctl *ctl)
+ 	return 0;
+ }
+ 
++static bool ddr_is_axi_port_enabled(struct stm32mp_ddrctl *ctl)
++{
++	return (mmio_read_32((uintptr_t)&ctl->pctrl_0) & DDRCTRL_PCTRL_N_PORT_EN) != 0U;
++}
++
+ void stm32mp_ddr_enable_host_interface(struct stm32mp_ddrctl *ctl)
+ {
+ 	mmio_clrbits_32((uintptr_t)&ctl->dbg1, DDRCTRL_DBG1_DIS_HIF);
+@@ -172,6 +180,11 @@ void stm32mp_ddr_disable_host_interface(struct stm32mp_ddrctl *ctl)
+ 		  DDRCTRL_DBG_Q_AND_DATA_PIPELINE_EMPTY) || (count < 2));
+ }
+ 
++static bool ddr_is_host_interface_enabled(struct stm32mp_ddrctl *ctl)
++{
++	return (mmio_read_32((uintptr_t)&ctl->dbg1) & DDRCTRL_DBG1_DIS_HIF) == 0U;
++}
++
+ int stm32mp_ddr_sw_selfref_entry(struct stm32mp_ddrctl *ctl)
+ {
+ 	uint64_t timeout;
+@@ -215,18 +228,34 @@ void stm32mp_ddr_sw_selfref_exit(struct stm32mp_ddrctl *ctl)
+ 
+ void stm32mp_ddr_set_qd3_update_conditions(struct stm32mp_ddrctl *ctl)
+ {
+-	if (stm32mp_ddr_disable_axi_port(ctl) != 0) {
+-		panic();
++	if (ddr_is_axi_port_enabled(ctl)) {
++		if (stm32mp_ddr_disable_axi_port(ctl) != 0) {
++			panic();
++		}
++		axi_port_reenable_request = true;
++	}
++
++	if (ddr_is_host_interface_enabled(ctl)) {
++		stm32mp_ddr_disable_host_interface(ctl);
++		host_interface_reenable_request = true;
+ 	}
+-	stm32mp_ddr_disable_host_interface(ctl);
++
+ 	stm32mp_ddr_start_sw_done(ctl);
+ }
+ 
+ void stm32mp_ddr_unset_qd3_update_conditions(struct stm32mp_ddrctl *ctl)
+ {
+ 	stm32mp_ddr_wait_sw_done_ack(ctl);
+-	stm32mp_ddr_enable_host_interface(ctl);
+-	stm32mp_ddr_enable_axi_port(ctl);
++
++	if (host_interface_reenable_request) {
++		stm32mp_ddr_enable_host_interface(ctl);
++		host_interface_reenable_request = false;
++	}
++
++	if (axi_port_reenable_request) {
++		stm32mp_ddr_enable_axi_port(ctl);
++		axi_port_reenable_request = false;
++	}
+ }
+ 
+ void stm32mp_ddr_wait_refresh_update_done_ack(struct stm32mp_ddrctl *ctl)
+-- 
+2.53.0
+

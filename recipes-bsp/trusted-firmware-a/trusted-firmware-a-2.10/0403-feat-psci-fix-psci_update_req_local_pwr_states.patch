@@ -1,0 +1,48 @@
+From 22c212c8a416388a3bf955e1e3deeb076403527c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 6 Nov 2023 17:29:16 +0100
+Subject: [PATCH 403/954] feat(psci): fix psci_update_req_local_pwr_states
+
+Side effect for commit "feat(stm32mp2): add function
+plat_get_target_pwr_state" for STM32MP25 and perhaps also of commit
+"feat(psci): add PLAT_MIN_SUSPEND_PWR_LVL".
+
+I expect the state of the local power domain to reflect
+exactly the requested power domain and before this patch
+it is limited by the parameter "end_pwrlvl" = the targeted power level
+(i.e. the first no "RUN" power level)
+
+Probably not upstream-able as that impact other platforms
+which use generic plat_get_target_pwr_state().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e24a2f41d1b6c430aea3c4b26d45df42a5155df8 feat(psci): fix psci_update_req_local_pwr_states]
+Change-Id: Ib4869c79ce8244508615ee027d28e910f5430d99
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/338037
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ lib/psci/psci_common.c | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/lib/psci/psci_common.c b/lib/psci/psci_common.c
+index 6c722e0a50..36e58f02e9 100644
+--- a/lib/psci/psci_common.c
++++ b/lib/psci/psci_common.c
+@@ -346,11 +346,8 @@ void psci_update_req_local_pwr_states(unsigned int end_pwrlvl,
+ 		prev[lvl - 1U] = *psci_get_req_local_pwr_states(lvl, cpu_idx);
+ 
+ 		/* Update the new requested local power state */
+-		if (lvl <= end_pwrlvl) {
+-			req_state = state_info->pwr_domain_state[lvl];
+-		} else {
+-			req_state = state_info->pwr_domain_state[end_pwrlvl];
+-		}
++		req_state = state_info->pwr_domain_state[lvl];
++
+ 		psci_set_req_local_pwr_state(lvl, cpu_idx, req_state);
+ 	}
+ }
+-- 
+2.53.0
+

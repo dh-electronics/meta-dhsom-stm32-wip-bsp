@@ -1,0 +1,93 @@
+From 9267eb16dcd685926418605d12a5fde57f023718 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 11 Jan 2024 18:08:02 +0100
+Subject: [PATCH 455/954] feat(stm32mp2): add intrusion alert upon tamper event
+ detected
+
+If, upon TF-A BL2 boot, a tamper event is detected, display an intrusion
+alert featuring the associated tamper event.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 95ccc63f9b57b7bfb3f982c114035450f8647462 feat(stm32mp2): add intrusion alert upon tamper event detected]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Id9ca9c6c538b79fd9322457b8a5dd103bdeeeaf0
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/350805
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 22 ++++++++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_def.h   | 16 +++++++++-------
+ 2 files changed, 31 insertions(+), 7 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index e62958c5f3..4fcd235055 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -249,6 +249,26 @@ static void reset_backup_domain(void)
+ #endif
+ }
+ 
++static void stm32_tamp_check_tamper_event(void)
++{
++	uint32_t sr = mmio_read_32(TAMP_SR);
++
++	if (sr != 0U) {
++		ERROR("\n");
++		while (sr != 0U) {
++			unsigned int bit_off = __builtin_ctz(sr);
++			bool is_internal = bit_off >= TAMP_SR_INT_SHIFT;
++
++			ERROR("** INTRUSION ALERT: %s TAMPER %u DETECTED **\n",
++			      is_internal ? "INTERNAL" : "EXTERNAL",
++			      is_internal ? (bit_off - TAMP_SR_INT_SHIFT + 1U) : (bit_off + 1U));
++
++			sr &= ~BIT(bit_off);
++		}
++		ERROR("\n");
++	}
++}
++
+ void bl2_el3_plat_arch_setup(void)
+ {
+ 	const char *board_model;
+@@ -327,6 +347,8 @@ void bl2_el3_plat_arch_setup(void)
+ 	}
+ 
+ skip_console_init:
++	stm32_tamp_check_tamper_event();
++
+ #if !TRUSTED_BOARD_BOOT
+ 	if (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) {
+ 		/* Closed chip mandates authentication */
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index d00d309993..555a92a577 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -432,13 +432,15 @@ enum ddr_type {
+ /*******************************************************************************
+  * STM32MP2 TAMP
+  ******************************************************************************/
+-#define PLAT_MAX_TAMP_INT			U(5)
+-#define PLAT_MAX_TAMP_EXT			U(3)
+-#define TAMP_BASE				U(0x46010000)
+-#define TAMP_SMCR				(TAMP_BASE + U(0x20))
+-#define TAMP_BKP_REG_CLK			CK_BUS_RTC
+-#define TAMP_BKP_SEC_NUMBER			U(10)
+-#define TAMP_COUNTR				U(0x40)
++#define PLAT_MAX_TAMP_INT		U(5)
++#define PLAT_MAX_TAMP_EXT		U(3)
++#define TAMP_BASE			U(0x46010000)
++#define TAMP_SMCR			(TAMP_BASE + U(0x20))
++#define TAMP_SR				(TAMP_BASE + U(0x30))
++#define TAMP_SR_INT_SHIFT		U(16)
++#define TAMP_BKP_REG_CLK		CK_BUS_RTC
++#define TAMP_BKP_SEC_NUMBER		U(10)
++#define TAMP_COUNTR			U(0x40)
+ 
+ /*******************************************************************************
+  * STM32MP2 USB
+-- 
+2.53.0
+

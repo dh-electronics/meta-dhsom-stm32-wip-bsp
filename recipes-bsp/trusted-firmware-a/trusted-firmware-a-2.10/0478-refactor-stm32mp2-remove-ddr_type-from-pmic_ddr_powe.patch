@@ -1,0 +1,54 @@
+From b20491b7f2664d2e8c570dc10c28aad91a45f7b0 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 17 Jan 2024 17:41:06 +0100
+Subject: [PATCH 478/954] refactor(stm32mp2): remove ddr_type from
+ pmic_ddr_power_init
+
+The ddr_type parameter is not used in pmic_ddr_power_init(), as this DDR
+type is managed through compilation flag. While at it add a debug trace
+in stm32mp_board_ddr_power_init().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d69b4c4e9e7e3dafdb53d9b3f55fc70f7ce25308 refactor(stm32mp2): remove ddr_type from pmic_ddr_power_init]
+Change-Id: I7169e0e3ecd8bfdb554e2b1befcdd2a44843ab14
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/352184
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/plat_ddr.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/plat_ddr.c b/plat/st/stm32mp2/plat_ddr.c
+index 87cd12d32a..004a5554c7 100644
+--- a/plat/st/stm32mp2/plat_ddr.c
++++ b/plat/st/stm32mp2/plat_ddr.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2023-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -14,7 +14,7 @@
+ 
+ #include <platform_def.h>
+ 
+-static int pmic_ddr_power_init(enum ddr_type ddr_type)
++static int pmic_ddr_power_init(void)
+ {
+ #if STM32MP_DDR4_TYPE
+ 	int status;
+@@ -149,7 +149,8 @@ static int pmic_ddr_power_init(enum ddr_type ddr_type)
+ int stm32mp_board_ddr_power_init(enum ddr_type ddr_type)
+ {
+ 	if (dt_pmic_status() > 0) {
+-		return pmic_ddr_power_init(ddr_type);
++		VERBOSE("PMIC DDR power init, ddr_type = %u\n", ddr_type);
++		return pmic_ddr_power_init();
+ 	}
+ 
+ 	return 0;
+-- 
+2.53.0
+

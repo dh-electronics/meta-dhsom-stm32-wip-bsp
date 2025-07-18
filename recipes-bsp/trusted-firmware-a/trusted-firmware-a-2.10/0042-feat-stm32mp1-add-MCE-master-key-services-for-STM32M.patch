@@ -1,0 +1,98 @@
+From 7b2b94b8ddc84645ae18a7b3f6691397d6407a8c Mon Sep 17 00:00:00 2001
+From: Sebastien Pasdeloup <sebastien.pasdeloup-ext@st.com>
+Date: Fri, 18 Dec 2020 15:40:26 +0100
+Subject: [PATCH 042/954] feat(stm32mp1): add MCE master key services for
+ STM32MP13
+
+Add save and restore services to manage MCE master key during power
+sequences. Dedicated space is added to backup structure.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 56ccc5640669ee4aa38670d27a933095a38b75cb feat(stm32mp1): add MCE master key services for STM32MP13]
+Change-Id: I07300ab3144ad0788fa8a6a620c440000406793b
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com
+---
+ plat/st/stm32mp1/include/stm32mp1_context.h |  4 +++
+ plat/st/stm32mp1/stm32mp1_context.c         | 40 ++++++++++++++++++---
+ 2 files changed, 39 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/stm32mp1/include/stm32mp1_context.h b/plat/st/stm32mp1/include/stm32mp1_context.h
+index 666a01717e..68bc3d3191 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_context.h
++++ b/plat/st/stm32mp1/include/stm32mp1_context.h
+@@ -16,5 +16,9 @@ uint32_t stm32_get_zdata_from_context(void);
+ bool stm32_pm_context_is_valid(void);
+ void stm32_restore_ddr_training_area(void);
+ uint32_t stm32_pm_get_optee_ep(void);
++#if STM32MP13
++void stm32mp1_pm_save_mce_mkey_in_context(uint8_t *data);
++void stm32mp1_pm_get_mce_mkey_from_context(uint8_t *data);
++#endif
+ 
+ #endif /* STM32MP1_CONTEXT_H */
+diff --git a/plat/st/stm32mp1/stm32mp1_context.c b/plat/st/stm32mp1/stm32mp1_context.c
+index ef80ea4d24..ce4bdc9475 100644
+--- a/plat/st/stm32mp1/stm32mp1_context.c
++++ b/plat/st/stm32mp1/stm32mp1_context.c
+@@ -27,13 +27,11 @@
+  * Context provides magic, resume entry, zq0cr0 zdata and DDR training buffer.
+  *
+  * MAILBOX_MAGIC_V2:
+- * Context provides magic, resume entry, zq0cr0 zdata, DDR training buffer
+- * and PLL1 dual OPP settings structure (86 bytes).
++ * Context provides V1 content and PLL1 dual OPP settings structure (86 bytes).
+  *
+  * MAILBOX_MAGIC_V3:
+- * Context provides magic, resume entry, zq0cr0 zdata, DDR training buffer
+- * and PLL1 dual OPP settings structure, low power entry point, BL2 code start, end and BL2_END
+- * (102 bytes).
++ * Context provides V2 content, low power entry point, BL2 code start, end and
++ * BL2_END (102 bytes). And, only for STM32MP13, adds MCE master key (16 bytes).
+  */
+ #define MAILBOX_MAGIC_V1		(0x0001U << 16U)
+ #define MAILBOX_MAGIC_V2		(0x0002U << 16U)
+@@ -63,6 +61,9 @@ struct backup_data_s {
+ 	uint32_t bl2_code_base;
+ 	uint32_t bl2_code_end;
+ 	uint32_t bl2_end;
++#if STM32MP13
++	uint8_t mce_mkey[MCE_KEY_SIZE_IN_BYTES];
++#endif
+ };
+ 
+ uint32_t stm32_pm_get_optee_ep(void)
+@@ -185,3 +186,32 @@ void stm32_restore_ddr_training_area(void)
+ 
+ 	clk_disable(BKPSRAM);
+ }
++
++#if STM32MP13
++void stm32mp1_pm_save_mce_mkey_in_context(uint8_t *data)
++{
++	struct backup_data_s *backup_data;
++
++	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
++
++	clk_enable(BKPSRAM);
++
++	memcpy(backup_data->mce_mkey, data, MCE_KEY_SIZE_IN_BYTES);
++
++	clk_disable(BKPSRAM);
++}
++
++void stm32mp1_pm_get_mce_mkey_from_context(uint8_t *data)
++{
++	struct backup_data_s *backup_data;
++
++	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
++
++	clk_enable(BKPSRAM);
++
++	memcpy(data, backup_data->mce_mkey, MCE_KEY_SIZE_IN_BYTES);
++
++	clk_disable(BKPSRAM);
++}
++
++#endif
+-- 
+2.53.0
+

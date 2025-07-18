@@ -1,0 +1,195 @@
+From d115f495936d5827e65b35f2d63c6f9edd47fe3e Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Fri, 5 Dec 2025 15:43:43 +0100
+Subject: [PATCH 943/954] feat(stm32mp1): add PSCI OSI low-power request
+
+We add two flags:
+ - STM32_PM_CPU_STANDBY_FLAG to direct the secondary CPU to a WFI loop.
+ - STM32_PM_CARE_OTHER_CPU_STATE_FLAG to make sure the secondary CPU is
+blocked in its WFI loop when the primary CPU disabled the DDR.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git bae7d90fd93e81828b1fd799c2381ecb31328832 feat(stm32mp1): add PSCI OSI low-power request]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: Ie7041281345b40e02fb769bd739db40e718eba9c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/515703
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ .../stm32mp1/include/stm32mp1_critic_power.h  |  4 +-
+ plat/st/stm32mp1/stm32mp1_critic_power.c      | 97 ++++++++++++++++++-
+ .../stm32mp1/stm32mp1_critic_power_wrapper.S  |  4 +
+ 3 files changed, 102 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp1/include/stm32mp1_critic_power.h b/plat/st/stm32mp1/include/stm32mp1_critic_power.h
+index 0ce8733e4f..f86ff9ffcf 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_critic_power.h
++++ b/plat/st/stm32mp1/include/stm32mp1_critic_power.h
+@@ -7,9 +7,9 @@
+ #ifndef STM32MP1_CRITIC_POWER_H
+ #define STM32MP1_CRITIC_POWER_H
+ 
+-extern void stm32_pwr_down_wfi_wrapper(bool is_cstop, uint32_t mode);
++extern int stm32_pwr_down_wfi_wrapper(bool is_cstop, uint32_t mode);
+ extern void stm32_pwr_back_from_stop2(void);
+-void stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode);
++int stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode);
+ void stm32_pwr_call_optee_ep(void);
+ void stm32_pwr_cstop_critic_exit(void);
+ 
+diff --git a/plat/st/stm32mp1/stm32mp1_critic_power.c b/plat/st/stm32mp1/stm32mp1_critic_power.c
+index 524bcb12cc..2621d15695 100644
+--- a/plat/st/stm32mp1/stm32mp1_critic_power.c
++++ b/plat/st/stm32mp1/stm32mp1_critic_power.c
+@@ -13,11 +13,15 @@
+ #include <drivers/st/stm32mp_pmic.h>
+ #include <drivers/st/stm32mp1_ddr_helpers.h>
+ #include <dt-bindings/power/stm32mp1-power.h>
++#include <errno.h>
++#include <plat/common/platform.h>
+ 
+ #include <platform_def.h>
+ #include <stm32mp1_context.h>
+ #include <stm32mp1_critic_power.h>
+ 
++#define STM32_PM_CPU_STANDBY_FLAG		BIT_32(31)
++#define STM32_PM_CARE_OTHER_CPU_STATE_FLAG	BIT_32(30)
+ #define STM32_PM_SOC_MODE_MASK			GENMASK_32(7, 0)
+ 
+ static void cstop_critic_enter(uint32_t mode)
+@@ -72,10 +76,92 @@ void stm32_pwr_cstop_critic_exit(void)
+ 	}
+ }
+ 
+-void stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode)
++enum cstop_state_id {
++	STATE_NONE = 0,
++	STATE_AUTO_CSTOP_ENTRY
++};
++
++static volatile enum cstop_state_id cstop_cpux_state[2];
++static volatile enum cstop_state_id cstop_enter;
++
++static inline unsigned int stm32_get_pos_other(void) {
++	return plat_my_core_pos() == 1 ? 0 : 1;
++}
++
++/*
++ * Use Peterson's algorithm to implement sort of
++ * spinlock without MMU and CPU cache enabled.
++ */
++static volatile bool flag[2] = {false, false};
++static volatile unsigned int turn;
++
++static void stm32mp1_power_lock(void) {
++	unsigned int pos = plat_my_core_pos();
++	unsigned int other_pos = stm32_get_pos_other();
++
++	flag[pos] = true;
++	turn = other_pos;
++
++	while (flag[other_pos] && turn == other_pos);
++}
++
++static void stm32mp1_power_unlock(void) {
++	unsigned int pos = plat_my_core_pos();
++
++	flag[pos] = false;
++}
++
++static void stm32_cpu_standby(void) {
++	unsigned int pos = plat_my_core_pos();
++
++	stm32mp1_power_lock();
++	cstop_cpux_state[pos] = STATE_AUTO_CSTOP_ENTRY;
++	stm32mp1_power_unlock();
++
++	/*
++	 * Enter standby state.
++	 * Synchronize on memory accesses and instruction flow before the WFI
++	 * instruction.
++	 */
++	do {
++		dsb();
++		isb();
++		wfi();
++	} while (!read_isr());
++
++	stm32mp1_power_lock();
++
++	cstop_cpux_state[pos] = STATE_NONE;
++
++	stm32mp1_power_unlock();
++
++	while (cstop_enter != STATE_NONE)
++		wfe();
++};
++
++int stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode)
+ {
+ 	uint32_t soc_mode = mode & STM32_PM_SOC_MODE_MASK;
+ 
++	if (mode & STM32_PM_CPU_STANDBY_FLAG) {
++		stm32_cpu_standby();
++		return 0;
++	}
++
++	if (mode & STM32_PM_CARE_OTHER_CPU_STATE_FLAG) {
++		unsigned int other_pos = stm32_get_pos_other();
++
++		stm32mp1_power_lock();
++
++		if (cstop_cpux_state[other_pos] != STATE_AUTO_CSTOP_ENTRY) {
++			stm32mp1_power_unlock();
++			return -EPERM;
++		}
++
++		cstop_enter = STATE_AUTO_CSTOP_ENTRY;
++		stm32mp1_power_unlock();
++	}
++
+ 	if (soc_mode == (uint32_t)STM32_PM_CSTOP_ALLOW_LPLV_STOP2) {
+ #if STM32MP15
+ 		ERROR("LPLV-Stop2 mode not supported\n");
+@@ -113,6 +199,15 @@ void stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode)
+ 	if (is_cstop) {
+ 		stm32_pwr_cstop_critic_exit();
+ 	}
++
++	if (mode & STM32_PM_CARE_OTHER_CPU_STATE_FLAG) {
++		stm32mp1_power_lock();
++		cstop_enter = STATE_NONE;
++		stm32mp1_power_unlock();
++		sev();
++	}
++
++	return 0;
+ }
+ 
+ #if STM32MP13
+diff --git a/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S b/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+index d22d4b9cd3..35a85c3099 100644
+--- a/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
++++ b/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+@@ -78,6 +78,8 @@ func stm32_pwr_down_wfi_wrapper
+ 
+ 	bl	stm32_pwr_down_wfi_load
+ 
++	mov	r4, r0
++
+ 	# Load CPU_ID in r2 and WORD_SIZE in r3
+ 	bl	plat_my_core_pos
+ 	mov	r2, r0
+@@ -100,6 +102,8 @@ func stm32_pwr_down_wfi_wrapper
+ 	ldr	r0, [r1]
+ 	stcopr	r0, MVBAR
+ 
++	mov	r0, r4
++
+ 	# Synchronize on memory access and instruction
+ 	# after resetting stack/IT handler
+ 	dsb
+-- 
+2.53.0
+

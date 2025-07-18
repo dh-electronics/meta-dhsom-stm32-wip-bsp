@@ -1,0 +1,59 @@
+From 448856414720597538f95a216ef1bbfe12a357b1 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 20 Apr 2022 11:28:55 +0200
+Subject: [PATCH 161/954] refactor(mtd): update NOR bank management
+
+All the quad or octal SPI NOR memories do not support bank selection.
+Warn the user in case of the memory exceeds 16 MB and the read opcode
+address is set to 3 bytes and the bank selection flag has not been set.
+
+This patch enables the bank selection flag on MP1 board.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 47237b8173a035a4e2782186890a4267500af9bd refactor(mtd): update NOR bank management]
+Change-Id: Id3004ccc865b7888b891140da2c0335eb1dbbc16
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/248751
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/mtd/nor/spi_nor.c               | 9 +++++++--
+ plat/st/stm32mp1/stm32mp1_boot_device.c | 1 +
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/mtd/nor/spi_nor.c b/drivers/mtd/nor/spi_nor.c
+index 477e5e5b71..c271fafeb6 100644
+--- a/drivers/mtd/nor/spi_nor.c
++++ b/drivers/mtd/nor/spi_nor.c
+@@ -341,8 +341,13 @@ int spi_nor_init(unsigned long long *size, unsigned int *erase_size)
+ 
+ 	assert(nor_dev.size != 0U);
+ 
+-	if (nor_dev.size > BANK_SIZE) {
+-		nor_dev.flags |= SPI_NOR_USE_BANK;
++	if ((nor_dev.size > BANK_SIZE) &&
++	    (nor_dev.read_op.addr.nbytes == 3U) &&
++	    ((nor_dev.flags & SPI_NOR_USE_BANK) == 0U)) {
++		WARN("%s: Only the first 16 MB of the memory are available. Please,\n", __func__);
++		WARN("%s: enable SPI_NOR_USE_BANK flag in plat_get_nor_data function\n", __func__);
++		WARN("%s: if the memory supports bank selection or use 4-bytes\n", __func__);
++		WARN("%s: address commands if the memory supports these commands.\n", __func__);
+ 	}
+ 
+ 	*size = nor_dev.size;
+diff --git a/plat/st/stm32mp1/stm32mp1_boot_device.c b/plat/st/stm32mp1/stm32mp1_boot_device.c
+index 3a8a27ac91..1995fbb102 100644
+--- a/plat/st/stm32mp1/stm32mp1_boot_device.c
++++ b/plat/st/stm32mp1/stm32mp1_boot_device.c
+@@ -193,6 +193,7 @@ int plat_get_spi_nand_data(struct spinand_device *device)
+ int plat_get_nor_data(struct nor_device *device)
+ {
+ 	device->size = SZ_64M;
++	device->flags |= SPI_NOR_USE_BANK;
+ 
+ 	zeromem(&device->read_op, sizeof(struct spi_mem_op));
+ 	device->read_op.cmd.opcode = SPI_NOR_OP_READ_1_1_4;
+-- 
+2.53.0
+

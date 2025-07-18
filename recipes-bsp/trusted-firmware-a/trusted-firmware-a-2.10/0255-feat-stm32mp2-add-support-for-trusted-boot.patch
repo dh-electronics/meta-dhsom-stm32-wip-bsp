@@ -1,0 +1,150 @@
+From f7c4f3d32f2037bf3ba9c20cfedd3d41b21fbca7 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 18 Jan 2023 14:00:17 +0100
+Subject: [PATCH 255/954] feat(stm32mp2): add support for trusted boot
+
+Add the required defines and compilation flags to manage trusted boot
+(TRUSTED_BOARD_BOOT) for STM32MP2. The size of BL2 and its DT are
+increased. Add traces in bl2_el3_plat_arch_setup(), as for STM32MP1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2a8a10904f47ab176b5999d465ff9d1e3a3338e7 feat(stm32mp2): add support for trusted boot]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Idd7db7bed6762fe2a619141e9945c4b199d9ded5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/283466
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 13 +++++++++++++
+ plat/st/stm32mp2/platform.mk      | 29 +++++++++++++++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_def.h   |  4 ++--
+ 3 files changed, 44 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index cabefedf8c..4889944753 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -236,7 +236,20 @@ void bl2_el3_plat_arch_setup(void)
+ 
+ 	print_reset_reason();
+ 
++	if (boot_context->auth_status != BOOT_API_CTX_AUTH_NO) {
++		NOTICE("Bootrom authentication %s\n",
++		       (boot_context->auth_status == BOOT_API_CTX_AUTH_FAILED) ?
++		       "failed" : "succeeded");
++	}
++
+ skip_console_init:
++#if !TRUSTED_BOARD_BOOT
++	if (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) {
++		/* Closed chip mandates authentication */
++		ERROR("Secure chip: TRUSTED_BOARD_BOOT must be enabled\n");
++		panic();
++	}
++#endif
+ 
+ 	if (fixed_regulator_register() != 0) {
+ 		panic();
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index b09b0ef28f..ebf65c7a16 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -15,10 +15,22 @@ DTB_FILE_NAME			?=	stm32mp257f-ev1.dtb
+ 
+ STM32MP25			:=	1
+ 
++# Will use SRAM2 as mbedtls heap
++STM32MP_USE_EXTERNAL_HEAP :=	1
++
++ifeq (${TRUSTED_BOARD_BOOT},1)
++# PKA algo to include
++PKA_USE_NIST_P256	:=	1
++PKA_USE_BRAINPOOL_P256T1:=	1
++endif
++
+ # STM32 image header version v2.2
+ STM32_HEADER_VERSION_MAJOR	:=	2
+ STM32_HEADER_VERSION_MINOR	:=	2
+ 
++PKA_USE_NIST_P256	?=	0
++PKA_USE_BRAINPOOL_P256T1 ?=	0
++
+ # Number of TF-A copies in the device
+ STM32_TF_A_COPIES		:=	2
+ 
+@@ -89,15 +101,24 @@ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+ # Add the FW_DDR to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_IMG,STM32MP_DDR_FW,--ddr-fw))
+ endif
++ifeq ($(GENERATE_COT),1)
++STM32MP_CFG_CERT	:=	$(BUILD_PLAT)/stm32mp_cfg_cert.crt
++# Add the STM32MP_CFG_CERT to FIP and specify the same to certtool
++$(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_CFG_CERT},--stm32mp-cfg-cert))
++endif
+ 
+ # Enable flags for C files
+ $(eval $(call assert_booleans,\
+ 	$(sort \
++		PKA_USE_BRAINPOOL_P256T1 \
++		PKA_USE_NIST_P256 \
++		STM32MP_CRYPTO_ROM_LIB \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
+ 		STM32MP_DDR_FIP_IO_STORAGE \
+ 		STM32MP_DDR3_TYPE \
+ 		STM32MP_DDR4_TYPE \
+ 		STM32MP_LPDDR4_TYPE \
++		STM32MP_USE_EXTERNAL_HEAP \
+ 		STM32MP25 \
+ )))
+ 
+@@ -112,17 +133,21 @@ $(eval $(call assert_numerics,\
+ $(eval $(call add_defines,\
+ 	$(sort \
+ 		DWL_BUFFER_BASE \
++		PKA_USE_BRAINPOOL_P256T1 \
++		PKA_USE_NIST_P256 \
+ 		PLAT_DEF_FIP_UUID \
+ 		PLAT_PARTITION_MAX_ENTRIES \
+ 		PLAT_TBBR_IMG_DEF \
+ 		STM32_HASH_VER \
+ 		STM32_RNG_VER \
+ 		STM32_TF_A_COPIES \
++		STM32MP_CRYPTO_ROM_LIB \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
+ 		STM32MP_DDR_FIP_IO_STORAGE \
+ 		STM32MP_DDR3_TYPE \
+ 		STM32MP_DDR4_TYPE \
+ 		STM32MP_LPDDR4_TYPE \
++		STM32MP_USE_EXTERNAL_HEAP \
+ 		STM32MP25 \
+ )))
+ 
+@@ -159,6 +184,10 @@ BL2_SOURCES			+=	drivers/st/crypto/stm32_hash.c				\
+ 
+ BL2_SOURCES		+=	drivers/st/rif/stm32mp2_risaf.c
+ 
++ifeq (${TRUSTED_BOARD_BOOT},1)
++BL2_SOURCES		+=	drivers/st/crypto/stm32_pka.c
++BL2_SOURCES		+=	drivers/st/crypto/stm32_saes.c
++endif
+ 
+ ifneq ($(filter 1,${STM32MP_EMMC} ${STM32MP_SDMMC}),)
+ BL2_SOURCES			+=	drivers/st/mmc/stm32_sdmmc2.c
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 1b1dfc37a3..cee86b64f1 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -143,8 +143,8 @@ enum ddr_type {
+ 
+ #define STM32MP_BL31_SIZE		U(0x0001C000)	/* 112 KB for BL31 */
+ 
+-#define STM32MP_BL2_RO_SIZE		U(0x00013000)	/* 76 KB */
+-#define STM32MP_BL2_SIZE		U(0x00027000)	/* 156 KB for BL2 */
++#define STM32MP_BL2_RO_SIZE		U(0x00017000)	/* 76 KB */
++#define STM32MP_BL2_SIZE		U(0x00029000)	/* 164 KB for BL2 */
+ #define STM32MP_BL2_BASE		(STM32MP_SEC_SYSRAM_BASE + \
+ 					 STM32MP_SEC_SYSRAM_SIZE - \
+ 					 STM32MP_BL2_SIZE)
+-- 
+2.53.0
+

@@ -1,0 +1,128 @@
+From 8e0f0c1c5ed1562b9e56e31ae499a81ffb076bb8 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 31 Aug 2022 11:49:01 +0200
+Subject: [PATCH 077/954] feat(st): skip storage init after standby if possible
+
+To gain time when returning from standby mode, we can skip storage init
+and avoid reloading the binaries from it. It is possible only if OP-TEE
+is used as BL32. And for MP13 we need to reload DDRMCE confgs from
+BackupRAM.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git af02a4a1819e5518befb9fb060eb1bd127f47369 feat(st): skip storage init after standby if possible]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I01db5ac6ace1778882cd5bfef680bd0ca8dd4c38
+---
+ plat/st/common/bl2_io_storage.c   |  6 +++++-
+ plat/st/stm32mp1/bl2_plat_setup.c | 36 +++++++++++++++++++------------
+ 2 files changed, 27 insertions(+), 15 deletions(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 528ba30a6e..a9a7d4d203 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -480,6 +480,10 @@ int bl2_plat_handle_pre_image_load(unsigned int image_id)
+ 	static bool gpt_init_done __maybe_unused;
+ 	uint16_t boot_itf = stm32mp_get_boot_itf_selected();
+ 
++	if (stm32mp_skip_boot_device_after_standby()) {
++		return 0;
++	}
++
+ 	switch (boot_itf) {
+ #if STM32MP_SDMMC || STM32MP_EMMC
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_EMMC:
+@@ -854,6 +858,6 @@ int plat_fwu_set_metadata_image_source(unsigned int image_id,
+ 
+ bool plat_fwu_is_enabled(void)
+ {
+-	return true;
++	return !stm32mp_skip_boot_device_after_standby();
+ }
+ #endif /* PSA_FWU_SUPPORT */
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 84ecf4937c..4e25931c5f 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -411,7 +411,15 @@ skip_console_init:
+ 
+ 	fconf_populate("TB_FW", STM32MP_DTB_BASE);
+ 
+-	stm32mp_io_setup();
++	if (stm32mp_skip_boot_device_after_standby()) {
++		bl_mem_params_node_t *bl_mem_params = get_bl_mem_params_node(FW_CONFIG_ID);
++
++		assert(bl_mem_params != NULL);
++
++		bl_mem_params->image_info.h.attr |= IMAGE_ATTRIB_SKIP_LOADING;
++	} else {
++		stm32mp_io_setup();
++	}
+ }
+ 
+ #if STM32MP13
+@@ -423,6 +431,7 @@ static void prepare_encryption(void)
+ 
+ 	if (stm32mp1_is_wakeup_from_standby()) {
+ 		stm32mp1_pm_get_mce_mkey_from_context(mkey);
++		stm32_mce_reload_configuration();
+ 	} else {
+ 		/* Generate MCE master key from RNG */
+ 		if (stm32_rng_read(mkey, MCE_KEY_SIZE_IN_BYTES) != 0) {
+@@ -473,6 +482,10 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			prepare_encryption();
+ 		}
+ #endif
++		if (stm32mp_skip_boot_device_after_standby()) {
++			return 0;
++		}
++
+ 		/* Set global DTB info for fixed fw_config information */
+ 		set_config_info(STM32MP_FW_CONFIG_BASE, ~0UL, STM32MP_FW_CONFIG_MAX_SIZE,
+ 				FW_CONFIG_ID);
+@@ -549,27 +562,20 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		break;
+ 
+ 	case BL32_IMAGE_ID:
+-#if STM32MP13
+-		if (wakeup_ddr_sr) {
++		if (wakeup_ddr_sr && stm32mp_skip_boot_device_after_standby()) {
+ 			bl_mem_params->ep_info.pc = stm32_pm_get_optee_ep();
++			if (stm32mp1_addr_inside_backupsram(bl_mem_params->ep_info.pc)) {
++				clk_enable(BKPSRAM);
++			}
+ 			break;
+ 		}
+-#endif
++
+ 		if (optee_header_is_valid(bl_mem_params->image_info.image_base)) {
+ 			image_info_t *paged_image_info = NULL;
+ 
+ 			/* BL32 is OP-TEE header */
+ 			bl_mem_params->ep_info.pc = bl_mem_params->image_info.image_base;
+ 
+-			if (wakeup_ddr_sr) {
+-				bl_mem_params->ep_info.pc = stm32_pm_get_optee_ep();
+-				if (stm32mp1_addr_inside_backupsram(bl_mem_params->ep_info.pc)) {
+-					clk_enable(BKPSRAM);
+-				}
+-
+-				break;
+-			}
+-
+ 			pager_mem_params = get_bl_mem_params_node(BL32_EXTRA1_IMAGE_ID);
+ 			assert(pager_mem_params != NULL);
+ 
+@@ -615,7 +621,9 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		assert(bl32_mem_params != NULL);
+ 		bl32_mem_params->ep_info.lr_svc = bl_mem_params->ep_info.pc;
+ #if PSA_FWU_SUPPORT
+-		stm32mp1_fwu_set_boot_idx();
++		if (plat_fwu_is_enabled()) {
++			stm32mp1_fwu_set_boot_idx();
++		}
+ #endif /* PSA_FWU_SUPPORT */
+ 		break;
+ 
+-- 
+2.53.0
+

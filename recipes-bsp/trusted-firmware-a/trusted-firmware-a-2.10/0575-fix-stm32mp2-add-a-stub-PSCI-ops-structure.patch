@@ -1,0 +1,51 @@
+From 462864efe14130b5842d293a035be01db03c29c4 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 29 Mar 2024 15:00:55 +0100
+Subject: [PATCH 575/954] fix(stm32mp2): add a stub PSCI ops structure
+
+In case TF-A BL31 is built for serial boot, the power part has been
+removed. But the PSCI init function is still executed, and it needs
+a psci_ops structure. An empty one is created to be able to boot.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a7ab0735eeaddf734c99f9792088c0c338467e8b fix(stm32mp2): add a stub PSCI ops structure]
+Change-Id: I1c89566bba3b735011891c8b49bd566fde74abdf
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/370258
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/372656
+---
+ plat/st/stm32mp2/bl31_plat_setup.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index f546598af5..4d010e5f74 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -162,6 +162,8 @@ entry_point_info_t *bl31_plat_get_next_image_ep_info(unsigned int type)
+ }
+ 
+ #if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++static const plat_psci_ops_t null_psci_ops;
++
+ /* Stub PSCI platform functions */
+ plat_local_state_t plat_get_target_pwr_state(unsigned int lvl,
+ 					     const plat_local_state_t *states,
+@@ -173,6 +175,7 @@ plat_local_state_t plat_get_target_pwr_state(unsigned int lvl,
+ int plat_setup_psci_ops(uintptr_t sec_entrypoint,
+ 			const plat_psci_ops_t **psci_ops)
+ {
++	*psci_ops = &null_psci_ops;
+ 	return 0;
+ }
+ #endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+-- 
+2.53.0
+

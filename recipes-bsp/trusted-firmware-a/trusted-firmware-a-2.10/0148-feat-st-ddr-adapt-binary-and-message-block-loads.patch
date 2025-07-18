@@ -1,0 +1,266 @@
+From 7ac099f8b99917b285bf9f159b770c52f7c02ce6 Mon Sep 17 00:00:00 2001
+From: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Date: Wed, 15 Dec 2021 17:32:08 +0100
+Subject: [PATCH 148/954] feat(st-ddr): adapt binary and message block loads
+
+Copy IMEM/DMEM binaries to DDRPHYC using MMIO functions.
+Force 16-bit alignment for message block structure and create
+a specific dwc_ddrphy_phyinit_WriteOutMsgBlk() function to copy
+its content.
+Hard-code binary sizes for each DDR type.
+Add binary offset in source memory on platform side.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2c8e040ec3cb2cc1bc8b9439acaa8cc1b7596637 feat(st-ddr): adapt binary and message block loads]
+Change-Id: I6a820d01b8302ae40ead24054eba350a12f33ebb
+Signed-off-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ .../firmware/include/mnpmusrammsgblock_ddr3.h |  2 +-
+ .../firmware/include/mnpmusrammsgblock_ddr4.h |  2 +-
+ .../include/mnpmusrammsgblock_lpddr4.h        |  2 +-
+ .../include/ddrphy_phyinit_usercustom.h       | 19 +++++++--
+ .../phyinit/src/ddrphy_phyinit_d_loadimem.c   | 19 ++-------
+ .../phyinit/src/ddrphy_phyinit_f_loaddmem.c   | 26 +++++--------
+ .../phyinit/src/ddrphy_phyinit_writeoutmem.c  | 39 +++++++++++++++----
+ plat/st/stm32mp2/stm32mp2_def.h               |  2 +
+ 8 files changed, 64 insertions(+), 47 deletions(-)
+
+diff --git a/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_ddr3.h b/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_ddr3.h
+index e72e039d6e..cfcac3626e 100644
+--- a/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_ddr3.h
++++ b/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_ddr3.h
+@@ -994,6 +994,6 @@ typedef struct _pmu_smb_ddr_1d_t {
+ 	uint8_t reserveda1;		/* Byte offset 0xa1, CSR Addr 0x54050, Direction=N/A */
+ 	uint8_t reserveda2;		/* Byte offset 0xa2, CSR Addr 0x54051, Direction=N/A */
+ 	uint8_t reserveda3;		/* Byte offset 0xa3, CSR Addr 0x54051, Direction=N/A */
+-} __attribute__ ((packed)) pmu_smb_ddr_1d_t;
++} __attribute__ ((packed)) __attribute__ ((aligned(2))) pmu_smb_ddr_1d_t;
+ 
+ #endif /* MNPMUSRAMMSGBLOCK_DDR3_H */
+diff --git a/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_ddr4.h b/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_ddr4.h
+index c2138a3492..4a6391b564 100644
+--- a/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_ddr4.h
++++ b/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_ddr4.h
+@@ -2269,6 +2269,6 @@ typedef struct _pmu_smb_ddr_1d_t {
+ 					 *   0x1 = Do not reset DRAM during devinit
+ 					 *   0x0 = Reset DRAM during devinit
+ 					 */
+-} __attribute__ ((packed)) pmu_smb_ddr_1d_t;
++} __attribute__ ((packed)) __attribute__ ((aligned(2))) pmu_smb_ddr_1d_t;
+ 
+ #endif /* MNPMUSRAMMSGBLOCK_DDR4_H */
+diff --git a/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_lpddr4.h b/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_lpddr4.h
+index 6863e1cc48..1d46a04393 100644
+--- a/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_lpddr4.h
++++ b/drivers/st/ddr/phy/firmware/include/mnpmusrammsgblock_lpddr4.h
+@@ -962,6 +962,6 @@ typedef struct _pmu_smb_ddr_1d_t {
+ 	uint8_t reserved87;		/* Byte offset 0x87, CSR Addr 0x54043, Direction=N/A */
+ 	uint8_t reserved88;		/* Byte offset 0x88, CSR Addr 0x54044, Direction=N/A */
+ 	uint8_t reserved89;		/* Byte offset 0x89, CSR Addr 0x54044, Direction=N/A */
+-} __attribute__ ((packed)) pmu_smb_ddr_1d_t;
++} __attribute__ ((packed)) __attribute__ ((aligned(2))) pmu_smb_ddr_1d_t;
+ 
+ #endif /* MNPMUSRAMMSGBLOCK_LPDDR4_H */
+diff --git a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h
+index e10011f7f6..4f6829e236 100644
+--- a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h
++++ b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h
+@@ -48,9 +48,19 @@
+ #define DMEM_INCV_FILENAME	FW_FILES_LOC "/lpddr4/lpddr4_pmu_train_dmem.incv"
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 
+-#define IMEM_SIZE		16384
+-#define DMEM_SIZE		8192
+-#define DMEM_ST_ADDR		0x54000
++#if STM32MP_DDR3_TYPE
++#define IMEM_SIZE			0x4b94
++#define DMEM_SIZE			0x6c8
++#elif STM32MP_DDR4_TYPE
++#define IMEM_SIZE			0x6ac8
++#define DMEM_SIZE			0x6cc
++#elif STM32MP_LPDDR4_TYPE
++#define IMEM_SIZE			0x7ec6
++#define DMEM_SIZE			0x67c
++#endif
++#define IMEM_ST_ADDR			0x50000
++#define DMEM_ST_ADDR			0x54000
++#define DMEM_BIN_OFFSET			0x200
+ 
+ /*
+  * -------------------------------------------------------------
+@@ -153,7 +163,8 @@ void ddrphy_phyinit_storemsgblk(void *msgblkptr, int sizeofmsgblk, int mem[]);
+ void ddrphy_phyinit_calcmb(void);
+ int ddrphy_phyinit_storeincvfile(char *incv_file_name, int mem[],
+ 				 return_offset_lastaddr_t return_type);
+-void ddrphy_phyinit_writeoutmem(int mem[], int mem_offset, int mem_size);
++void ddrphy_phyinit_writeoutmem(uint32_t *mem, int mem_offset, int mem_size);
++void ddrphy_phyinit_writeoutmsgblk(uint16_t *mem, int mem_offset, int mem_size);
+ int ddrphy_phyinit_isdbytedisabled(int dbytenumber);
+ int ddrphy_phyinit_trackreg(uint32_t adr);
+ int ddrphy_phyinit_reginterface(reginstr myreginstr, uint32_t adr, uint16_t dat);
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_d_loadimem.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_d_loadimem.c
+index ab68e1803f..fc6a34ff68 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_d_loadimem.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_d_loadimem.c
+@@ -32,31 +32,18 @@
+ void ddrphy_phyinit_d_loadimem(void)
+ {
+ 	uint16_t memresetl;
+-	int addr, mem_offset = 0;
+-	int mem[IMEM_SIZE];
+-	/* return_offset_lastaddr_t return_type = return_offset; */
++	uint32_t *ptr32;
+ 
+ 	VERBOSE("%s Start\n", __func__);
+ 
+ 	/*
+ 	 * Set memresetl to avoid glitch on BP_MemReset_L during training
+ 	 */
+-
+ 	memresetl = CSR_PROTECTMEMRESET_MASK;
+ 	mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (TMASTER | CSR_MEMRESETL_ADDR)), memresetl);
+ 
+-	/* initialize the dmem structure */
+-	for (addr = 0; addr < IMEM_SIZE; addr++) {
+-		mem[addr] = 0;
+-	}
+-
+-	/* Read the IMEM INCV file into the array */
+-	/* mem_offset = ddrphy_phyinit_storeincvfile(IMEM_INCV_FILENAME, mem, return_type); */
+-
+-	/* Write local imem array */
+-	ddrphy_phyinit_writeoutmem(mem, mem_offset, IMEM_SIZE);
+-
+-	/*VERBOSE("%s WriteImem: COMPLETED\n", __func__); */
++	ptr32 = (uint32_t *)(STM32MP_DDR_FW_BASE + STM32MP_DDR_FW_IMEM_OFFSET);
++	ddrphy_phyinit_writeoutmem(ptr32, IMEM_ST_ADDR, IMEM_SIZE);
+ 
+ 	VERBOSE("%s End\n", __func__);
+ }
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c
+index 11b9420952..005d9e15a1 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c
+@@ -11,6 +11,8 @@
+ 
+ #include <ddrphy_phyinit.h>
+ 
++#include <platform_def.h>
++
+ /*
+  * This function loads the training firmware DMEM image and write the
+  * Message Block parameters for the training firmware into the SRAM.
+@@ -26,11 +28,9 @@
+ void ddrphy_phyinit_f_loaddmem(int pstate)
+ {
+ 	pmu_smb_ddr_1d_t *msgblkptr;
+-	int addr;
+-	int mem_offset = 0;
+ 	int sizeofmsgblk;
+-	int mem[DMEM_SIZE];
+-	/* return_offset_lastaddr_t return_type = return_lastaddr; */
++	uint16_t *ptr16;
++	uint32_t *ptr32;
+ 
+ 	VERBOSE("%s Start (pstate=%d)\n", __func__, pstate);
+ 
+@@ -56,22 +56,14 @@ void ddrphy_phyinit_f_loaddmem(int pstate)
+ 	}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 
+-	/* initialize the dmem structure */
+-	for (addr = 0; addr < DMEM_SIZE; addr++) {
+-		mem[addr] = 0;
+-	}
+-
+-	/* mem_offset = ddrphy_phyinit_storeincvfile(DMEM_INCV_FILENAME, mem, return_type); */
+ 	sizeofmsgblk = sizeof(mb_ddr_1d[pstate]);
+-	ddrphy_phyinit_storemsgblk(&(mb_ddr_1d[pstate]), sizeofmsgblk, mem);
+ 
+-	/* Write local dmem array */
+-	if (0 == (mem_offset % 1)) {
+-		/*Always write an even number of words so no 32bit quantity is uninitialized */
+-		mem_offset++;
+-	}
++	ptr16 = (uint16_t *)msgblkptr;
++	ddrphy_phyinit_writeoutmsgblk(ptr16, DMEM_ST_ADDR, sizeofmsgblk);
+ 
+-	ddrphy_phyinit_writeoutmem(mem, DMEM_ST_ADDR, (mem_offset - DMEM_ST_ADDR));
++	ptr32 = (uint32_t *)(STM32MP_DDR_FW_BASE + STM32MP_DDR_FW_DMEM_OFFSET);
++	ddrphy_phyinit_writeoutmem(ptr32, DMEM_ST_ADDR + DMEM_BIN_OFFSET,
++				   DMEM_SIZE - STM32MP_DDR_FW_DMEM_OFFSET);
+ 
+ 	VERBOSE("%s End\n", __func__);
+ }
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_writeoutmem.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_writeoutmem.c
+index 32dcc79763..84837f3556 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_writeoutmem.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_writeoutmem.c
+@@ -25,7 +25,7 @@
+  * @param[in] mem_size size of the memroy (in mem array index)
+  * @returns void
+  */
+-void ddrphy_phyinit_writeoutmem(int mem[], int mem_offset, int mem_size)
++void ddrphy_phyinit_writeoutmem(uint32_t *mem, int mem_offset, int mem_size)
+ {
+ 	int index;
+ 
+@@ -36,12 +36,37 @@ void ddrphy_phyinit_writeoutmem(int mem[], int mem_offset, int mem_size)
+ 	mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (TAPBONLY | CSR_MICROCONTMUXSEL_ADDR)), 0x0U);
+ 
+ 	for (index = 0; index < (int)(mem_size / sizeof(uint32_t)); index++) {
+-		/*
+-		 * routine call option
+-		 *   VERBOSE("WriteOutMem: Attempting Write: Adr:0x%x Dat: 0x%x\n",
+-		 *   index + mem_offset,mem[index]);
+-		 */
+-		mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * index + mem_offset), mem[index]);
++		uint32_t data = mem[index];
++
++		mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * ((index * 2) + mem_offset)),
++			     data & 0xFFFFU);
++		mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * ((index * 2) + 1 + mem_offset)),
++			     (data >> 16) & 0xFFFFU);
++	}
++
++	/*
++	 * 2. Isolate the APB access from the internal CSRs by setting the MicroContMuxSel CSR to 1.
++	 *    This allows the firmware unrestricted access to the configuration CSRs.
++	 */
++	mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (TAPBONLY | CSR_MICROCONTMUXSEL_ADDR)), 0x1U);
++}
++
++/*
++ * Similar function for message block
++ */
++void ddrphy_phyinit_writeoutmsgblk(uint16_t *mem, int mem_offset, int mem_size)
++{
++	int index;
++
++	/*
++	 * 1. Enable access to the internal CSRs by setting the MicroContMuxSel CSR to 0.
++	 *    This allows the memory controller unrestricted access to the configuration CSRs.
++	 */
++	mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (TAPBONLY | CSR_MICROCONTMUXSEL_ADDR)), 0x0U);
++
++
++	for (index = 0; index < (int)(mem_size / sizeof(uint16_t)); index++) {
++		mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (index + mem_offset)), mem[index]);
+ 	}
+ 
+ 	/*
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index b42964a31f..b527d99988 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -144,6 +144,8 @@ enum ddr_type {
+ 
+ #if STM32MP_DDR_FIP_IO_STORAGE
+ #define STM32MP_DDR_FW_BASE		SRAM1_BASE
++#define STM32MP_DDR_FW_DMEM_OFFSET	U(0x400)
++#define STM32MP_DDR_FW_IMEM_OFFSET	U(0x800)
+ #define STM32MP_DDR_FW_MAX_SIZE		U(0x8800)
+ #endif
+ 
+-- 
+2.53.0
+

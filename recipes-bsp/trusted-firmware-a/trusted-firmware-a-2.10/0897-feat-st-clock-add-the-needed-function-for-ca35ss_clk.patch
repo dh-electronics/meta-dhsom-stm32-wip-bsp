@@ -1,0 +1,72 @@
+From 2399b57e8c0b2e6db6bf79833ef3256404348e16 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 15 Jul 2025 14:10:47 +0200
+Subject: [PATCH 897/954] feat(st-clock): add the needed function for
+ ca35ss_clk_svc
+
+Add stm32mp2_pll1_check_rate() to check the supported rate of PLL1 after
+stm32mp2_pll1_init().
+
+And add support of the value 0 for parameter of stm32mp2_pll1_set_rate()
+to force bypass, need to deactivate PLL1 before to change VDDCPU voltage.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git bda475e650b62e28fe47fae8aa13410daa2d5248 feat(st-clock): add the needed function for ca35ss_clk_svc]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I36efeed4e4b076d8315e59137bd1a3130432e628
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/475534
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/clk/clk-stm32mp2.c     | 18 ++++++++++++++++++
+ include/drivers/st/stm32mp2_clk.h |  1 +
+ 2 files changed, 19 insertions(+)
+
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index dc76239d41..9c93db578e 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -2992,11 +2992,29 @@ uint64_t stm32mp2_pll1_recalc_rate()
+ 	return clk_stm32_pll1_recalc_rate(NULL, 0, pll1_cfgs.prate);
+ }
+ 
++int32_t stm32mp2_pll1_check_rate(uint64_t rate)
++{
++	int32_t cfg_idx;
++
++	for (cfg_idx = 0; cfg_idx < pll1_cfgs.pll1_cfg_nb; cfg_idx++) {
++		if (pll1_cfgs.rates[cfg_idx] == rate) {
++			return 0;
++		}
++	}
++
++	return -EINVAL;
++}
++
+ int32_t stm32mp2_pll1_set_rate(uint64_t rate)
+ {
+ 	int32_t cfg_idx;
+ 	int32_t err;
+ 
++	if (rate == 0U) {
++		stm32mp2_a35_ss_on_bypass();
++		return 0;
++	}
++
+ 	/* Find cfg_idx */
+ 	for (cfg_idx = 0; cfg_idx < pll1_cfgs.pll1_cfg_nb; cfg_idx++) {
+ 		if (pll1_cfgs.rates[cfg_idx] == rate) {
+diff --git a/include/drivers/st/stm32mp2_clk.h b/include/drivers/st/stm32mp2_clk.h
+index 74cc2d1af9..b4e31ff1fe 100644
+--- a/include/drivers/st/stm32mp2_clk.h
++++ b/include/drivers/st/stm32mp2_clk.h
+@@ -43,6 +43,7 @@ int stm32mp2_pll1_disable(void);
+ int stm32mp2_pll1_enable(void);
+ 
+ int32_t stm32mp2_pll1_init();
++int32_t stm32mp2_pll1_check_rate(uint64_t rate);
+ int32_t stm32mp2_pll1_set_rate(uint64_t rate);
+ uint64_t stm32mp2_pll1_recalc_rate();
+ 
+-- 
+2.53.0
+

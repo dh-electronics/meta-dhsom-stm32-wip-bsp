@@ -1,0 +1,69 @@
+From ebb3578a8ba790f283de27fae57873eaa8214001 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Mon, 17 May 2021 11:29:22 +0200
+Subject: [PATCH 116/954] feat(st-fmc): make the reset optional
+
+This patch adds the possibility to boot without resetting FMC2 IP.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1d778df6de4ab24df164bca1fca8d2558e5fd9ce feat(st-fmc): make the reset optional]
+Change-Id: I0ef44f9e4b9f590ffa77d4a17217199d34ee11ac
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ drivers/st/fmc/stm32_fmc2_nand.c | 23 +++++++++++++----------
+ 1 file changed, 13 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/st/fmc/stm32_fmc2_nand.c b/drivers/st/fmc/stm32_fmc2_nand.c
+index 9bdc854789..4f4c8280c2 100644
+--- a/drivers/st/fmc/stm32_fmc2_nand.c
++++ b/drivers/st/fmc/stm32_fmc2_nand.c
+@@ -148,7 +148,6 @@ struct stm32_fmc2_nfc {
+ 	uintptr_t reg_base;
+ 	struct stm32_fmc2_cs_reg cs[MAX_CS];
+ 	unsigned long clock_id;
+-	unsigned int reset_id;
+ 	uint8_t cs_sel;
+ };
+ 
+@@ -814,12 +813,11 @@ int stm32_fmc2_init(void)
+ 
+ 	stm32_fmc2.reg_base = info.base;
+ 
+-	if ((info.clock < 0) || (info.reset < 0)) {
++	if (info.clock < 0) {
+ 		return -FDT_ERR_BADVALUE;
+ 	}
+ 
+ 	stm32_fmc2.clock_id = (unsigned long)info.clock;
+-	stm32_fmc2.reset_id = (unsigned int)info.reset;
+ 
+ 	cuint = fdt_getprop(fdt, fmc_ebi_node, "ranges", NULL);
+ 	if (cuint == NULL) {
+@@ -912,13 +910,18 @@ int stm32_fmc2_init(void)
+ 	clk_enable(stm32_fmc2.clock_id);
+ 
+ 	/* Reset IP */
+-	ret = stm32mp_reset_assert(stm32_fmc2.reset_id, TIMEOUT_US_1_MS);
+-	if (ret != 0) {
+-		panic();
+-	}
+-	ret = stm32mp_reset_deassert(stm32_fmc2.reset_id, TIMEOUT_US_1_MS);
+-	if (ret != 0) {
+-		panic();
++	if (info.reset >= 0) {
++		unsigned int reset_id = (unsigned int)info.reset;
++
++		ret = stm32mp_reset_assert(reset_id, TIMEOUT_US_1_MS);
++		if (ret != 0) {
++			panic();
++		}
++
++		ret = stm32mp_reset_deassert(reset_id, TIMEOUT_US_1_MS);
++		if (ret != 0) {
++			panic();
++		}
+ 	}
+ 
+ 	/* Setup default IP registers */
+-- 
+2.53.0
+

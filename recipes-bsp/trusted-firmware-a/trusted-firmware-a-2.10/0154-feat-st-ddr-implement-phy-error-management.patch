@@ -1,0 +1,1326 @@
+From 9f0388a96fdb4937c5fda36a98b1e018dfae8f44 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Wed, 30 Mar 2022 17:19:20 +0200
+Subject: [PATCH 154/954] feat(st-ddr): implement phy error management
+
+Implement a consistent error management mechanism within DDR PHY driver.
+Each function with error cases returns 0 on success, and a negative value
+else. Convert all untracked error cases to negative code returns.
+
+Update some prototypes to allow code transmission, or to combine value and
+error transmissions. Keep error message display.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b0c8a86974d86bf600d14492ce4571091e11a849 feat(st-ddr): implement phy error management]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I97fffd482c374534ad59c732fdb3e6ef7d59f7be
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/246287
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../include/ddrphy_phyinit_usercustom.h       |  12 +-
+ .../src/ddrphy_phyinit_c_initphyconfig.c      |  57 +++-
+ .../phy/phyinit/src/ddrphy_phyinit_calcmb.c   | 125 ++++++--
+ .../phyinit/src/ddrphy_phyinit_f_loaddmem.c   |   9 +-
+ .../phy/phyinit/src/ddrphy_phyinit_g_execfw.c |  13 +-
+ .../phyinit/src/ddrphy_phyinit_mapdrvstren.c  |   4 +-
+ .../phyinit/src/ddrphy_phyinit_reginterface.c |  52 ++-
+ .../src/ddrphy_phyinit_restore_sequence.c     |   6 +-
+ .../phy/phyinit/src/ddrphy_phyinit_sequence.c |  38 ++-
+ .../ddrphy_phyinit_usercustom_g_waitfwdone.c  |  87 ++++-
+ .../ddrphy_phyinit_usercustom_saveretregs.c   | 303 ++++++++++++++----
+ 11 files changed, 540 insertions(+), 166 deletions(-)
+
+diff --git a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h
+index 0e4626b58a..b4c659e202 100644
+--- a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h
++++ b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h
+@@ -150,17 +150,17 @@ extern int ardptrinitval[NB_PS];
+  */
+ int ddrphy_phyinit_sequence(bool skip_training, bool reten);
+ int ddrphy_phyinit_restore_sequence(void);
+-void ddrphy_phyinit_c_initphyconfig(void);
++int ddrphy_phyinit_c_initphyconfig(void);
+ void ddrphy_phyinit_d_loadimem(void);
+ void ddrphy_phyinit_progcsrskiptrain(bool skip_training);
+-void ddrphy_phyinit_f_loaddmem(int pstate);
+-void ddrphy_phyinit_g_execfw(void);
++int ddrphy_phyinit_f_loaddmem(int pstate);
++int ddrphy_phyinit_g_execfw(void);
+ void ddrphy_phyinit_h_readmsgblock(void);
+ void ddrphy_phyinit_i_loadpieimage(bool skip_training);
+ void ddrphy_phyinit_loadpieprodcode(void);
+ int ddrphy_phyinit_mapdrvstren(int drvstren_ohm, enum drvtype targetcsr);
+ void ddrphy_phyinit_storemsgblk(void *msgblkptr, int sizeofmsgblk, int mem[]);
+-void ddrphy_phyinit_calcmb(void);
++int ddrphy_phyinit_calcmb(void);
+ int ddrphy_phyinit_storeincvfile(char *incv_file_name, int mem[],
+ 				 return_offset_lastaddr_t return_type);
+ void ddrphy_phyinit_writeoutmem(uint32_t *mem, int mem_offset, int mem_size);
+@@ -174,10 +174,10 @@ extern void ddrphy_phyinit_usercustom_b_startclockresetphy(void);
+ extern void ddrphy_phyinit_usercustom_custompretrain(void);
+ extern void ddrphy_phyinit_usercustom_customposttrain(void);
+ extern int ddrphy_phyinit_usercustom_e_setdficlk(int dfi_frequency);
+-extern void ddrphy_phyinit_usercustom_g_waitfwdone(void);
++extern int ddrphy_phyinit_usercustom_g_waitfwdone(void);
+ extern void ddrphy_phyinit_usercustom_h_readmsgblock(void);
+ extern void ddrphy_phyinit_usercustom_j_entermissionmode(void);
+-extern void ddrphy_phyinit_usercustom_saveretregs(void);
++extern int ddrphy_phyinit_usercustom_saveretregs(void);
+ 
+ #include <ddrphy_csr_all_cdefines.h>
+ 
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
+index 176d5bbe71..34fa094e93 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
+@@ -432,8 +432,9 @@ static void procodttimectl_program(int *twotckrxdqspre)
+  * - Dependencies:
+  *   - user_input_basic.dramtype
+  *   - user_input_advanced.odtimpedance
++ * \return 0 on success.
+  */
+-static void txodtdrvstren_program(void)
++static int txodtdrvstren_program(void)
+ {
+ 	int pstate;
+ 
+@@ -449,9 +450,16 @@ static void txodtdrvstren_program(void)
+ 		odtstrenp_state = ddrphy_phyinit_mapdrvstren(
+ 							(int)userinputadvanced.odtimpedance[pstate],
+ 							odtstrenp);
++		if (odtstrenp_state < 0) {
++			return odtstrenp_state;
++		}
++
+ 		odtstrenn_state = ddrphy_phyinit_mapdrvstren(
+ 							(int)userinputadvanced.odtimpedance[pstate],
+ 							odtstrenn);
++		if (odtstrenn_state < 0) {
++			return odtstrenn_state;
++		}
+ 
+ 		txodtdrvstren = (uint16_t)((odtstrenn_state << CSR_ODTSTRENN_LSB) |
+ 					   odtstrenp_state);
+@@ -473,6 +481,8 @@ static void txodtdrvstren_program(void)
+ 			}
+ 		}
+ 	}
++
++	return 0;
+ }
+ 
+ /*
+@@ -483,8 +493,9 @@ static void txodtdrvstren_program(void)
+  * - Dependencies:
+  *   - user_input_basic.dramtype
+  *   - user_input_advanced.tximpedance
++ * \return 0 on success.
+  */
+-static void tximpedancectrl1_program(void)
++static int tximpedancectrl1_program(void)
+ {
+ 	int pstate;
+ 
+@@ -500,9 +511,16 @@ static void tximpedancectrl1_program(void)
+ 		drvstrenfsdqp_state = ddrphy_phyinit_mapdrvstren(
+ 							(int)userinputadvanced.tximpedance[pstate],
+ 							drvstrenfsdqp);
++		if (drvstrenfsdqp_state < 0) {
++			return drvstrenfsdqp_state;
++		}
++
+ 		drvstrenfsdqn_state = ddrphy_phyinit_mapdrvstren(
+ 							(int)userinputadvanced.tximpedance[pstate],
+ 							drvstrenfsdqn);
++		if (drvstrenfsdqn_state < 0) {
++			return drvstrenfsdqn_state;
++		}
+ 
+ 		tximpedancectrl1 = (uint16_t)((drvstrenfsdqn_state << CSR_DRVSTRENFSDQN_LSB) |
+ 					      (drvstrenfsdqp_state << CSR_DRVSTRENFSDQP_LSB));
+@@ -524,6 +542,8 @@ static void tximpedancectrl1_program(void)
+ 			}
+ 		}
+ 	}
++
++	return 0;
+ }
+ 
+ /*
+@@ -534,8 +554,9 @@ static void tximpedancectrl1_program(void)
+  * - Dependencies:
+  *   - user_input_basic.dramtype
+  *   - user_input_advanced.atximpedance
++ * \return 0 on success.
+  */
+-static void atximpedance_program(void)
++static int atximpedance_program(void)
+ {
+ 	int adrvstrenn_state;
+ 	int adrvstrenp_state;
+@@ -544,8 +565,15 @@ static void atximpedance_program(void)
+ 
+ 	adrvstrenp_state = ddrphy_phyinit_mapdrvstren((int)userinputadvanced.atximpedance,
+ 						      adrvstrenp);
++	if (adrvstrenp_state < 0) {
++		return adrvstrenp_state;
++	}
++
+ 	adrvstrenn_state = ddrphy_phyinit_mapdrvstren((int)userinputadvanced.atximpedance,
+ 						      adrvstrenn);
++	if (adrvstrenn_state < 0) {
++		return adrvstrenn_state;
++	}
+ 
+ 	atximpedance = (uint16_t)((adrvstrenn_state << CSR_ADRVSTRENN_LSB) |
+ 				  (adrvstrenp_state << CSR_ADRVSTRENP_LSB));
+@@ -558,6 +586,8 @@ static void atximpedance_program(void)
+ 							      CSR_ATXIMPEDANCE_ADDR)),
+ 			      atximpedance);
+ 	}
++
++	return 0;
+ }
+ 
+ /*
+@@ -1199,11 +1229,12 @@ static void aforcetricont_acx4anibdis_program(void)
+  * ddrphy_phyinit_usercustom_custompretrain().  Please see
+  * ddrphy_phyinit_struct.h for PhyInit data structure definition.
+  *
+- * \return void
++ * \return 0 on success.
+  */
+-void ddrphy_phyinit_c_initphyconfig(void)
++int ddrphy_phyinit_c_initphyconfig(void)
+ {
+ 	int twotckrxdqspre[NB_PS] = { };
++	int ret;
+ 
+ 	/*
+ 	 * Step (C) Initialize PHY Configuration
+@@ -1233,11 +1264,20 @@ void ddrphy_phyinit_c_initphyconfig(void)
+ 
+ 	procodttimectl_program(twotckrxdqspre);
+ 
+-	txodtdrvstren_program();
++	ret = txodtdrvstren_program();
++	if (ret != 0) {
++		return ret;
++	}
+ 
+-	tximpedancectrl1_program();
++	ret = tximpedancectrl1_program();
++	if (ret != 0) {
++		return ret;
++	}
+ 
+-	atximpedance_program();
++	ret = atximpedance_program();
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	dfimode_program();
+ 
+@@ -1283,4 +1323,5 @@ void ddrphy_phyinit_c_initphyconfig(void)
+ 
+ 	VERBOSE("%s End\n", __func__);
+ 
++	return 0;
+ }
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
+index f4d743f34a..708021596d 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
+@@ -36,9 +36,9 @@
+  *  - phycfg (DDR3/DDR4)
+  *  - x16present (DDR4)
+  *
+- * \return void
++ * \return 0 on success.
+  */
+-void ddrphy_phyinit_calcmb(void)
++int ddrphy_phyinit_calcmb(void)
+ {
+ 	int myps = 0;
+ 	int nad0 = userinputbasic.numactivedbytedfi0;
+@@ -55,15 +55,18 @@ void ddrphy_phyinit_calcmb(void)
+ 	if (nad0 <= 0 || nad1 < 0 || userinputbasic.numdbyte <= 0) {
+ 		ERROR("%s numactivedbytedfi0, numactivedbytedfi0, NumByte out of range.\n",
+ 		      __func__);
++		return -1;
+ 	}
+ 
+ 	if ((nad0 + nad1) > userinputbasic.numdbyte) {
+ 		ERROR("%s numactivedbytedfi0+numactivedbytedfi1 is larger than numdbyteDfi0\n",
+ 		      __func__);
++		return -1;
+ 	}
+ 
+ 	if (userinputbasic.dfi1exists == 0 && nad1 != 0) {
+ 		ERROR("%s dfi1exists==0 but numdbyteDfi0 != 0\n", __func__);
++		return -1;
+ 	}
+ 
+ #if STM32MP_DDR4_TYPE
+@@ -78,6 +81,7 @@ void ddrphy_phyinit_calcmb(void)
+ 	for (myps = 0; myps < userinputbasic.numpstates; myps++) {
+ 		uint16_t disableddbyte __unused;
+ 		int dbyte __unused;
++		int ret;
+ 
+ #if STM32MP_DDR4_TYPE
+ 		if (mr4 != 0x0) {
+@@ -85,33 +89,69 @@ void ddrphy_phyinit_calcmb(void)
+ 			ERROR("Memory controller may set CAL mode after PHY has entered mission\n");
+ 			ERROR("mode. Please check value programmed in mb_ddr_1d[*].mr4\n");
+ 			ERROR("and unset A8:6\n");
++			return -1;
+ 		}
+ #endif /* STM32MP_DDR4_TYPE */
+ 
+ #if STM32MP_DDR3_TYPE
+ 		if (userinputbasic.dimmtype == NODIMM) {
+-			ddrphy_phyinit_softsetmb(myps,"dramtype",0x1);
++			ret = ddrphy_phyinit_softsetmb(myps,"dramtype",0x1);
++			if (ret != 0) {
++				return ret;
++			}
+ 		}
+ #elif STM32MP_DDR4_TYPE
+ 		if (userinputbasic.dimmtype == NODIMM) {
+-			ddrphy_phyinit_softsetmb(myps,"dramtype",0x2);
++			ret = ddrphy_phyinit_softsetmb(myps,"dramtype",0x2);
++			if (ret != 0) {
++				return ret;
++			}
+ 		}
+ #endif /* STM32MP_DDR4_TYPE */
+ 
+-		ddrphy_phyinit_softsetmb(myps, "pstate", myps);
+-		ddrphy_phyinit_softsetmb(myps, "dramfreq", userinputbasic.frequency[myps] * 2);
+-		ddrphy_phyinit_softsetmb(myps, "pllbypassen", userinputbasic.pllbypass[myps]);
++		ret = ddrphy_phyinit_softsetmb(myps, "pstate", myps);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_softsetmb(myps, "dramfreq",
++					       userinputbasic.frequency[myps] * 2);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_softsetmb(myps, "pllbypassen", userinputbasic.pllbypass[myps]);
++		if (ret != 0) {
++			return ret;
++		}
+ 
+ 		if (userinputbasic.dfifreqratio[myps] == 1) {
+-			ddrphy_phyinit_softsetmb(myps, "dfifreqratio", 0x2);
++			ret = ddrphy_phyinit_softsetmb(myps, "dfifreqratio", 0x2);
++			if (ret != 0) {
++				return ret;
++			}
+ 		}
+ 
+-		ddrphy_phyinit_softsetmb(myps, "phyodtimpedance", 0);
+-		ddrphy_phyinit_softsetmb(myps, "phydrvimpedance", 0);
+-		ddrphy_phyinit_softsetmb(myps, "bpznresval", 0);
++		ret = ddrphy_phyinit_softsetmb(myps, "phyodtimpedance", 0);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_softsetmb(myps, "phydrvimpedance", 0);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_softsetmb(myps, "bpznresval", 0);
++		if (ret != 0) {
++			return ret;
++		}
+ 
+ #if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+-		ddrphy_phyinit_softsetmb(myps,"enableddqs",nad0 * 8);
++		ret = ddrphy_phyinit_softsetmb(myps,"enableddqs",nad0 * 8);
++		if (ret != 0) {
++			return ret;
++		}
+ 
+ 		disableddbyte = 0x0U;
+ 
+@@ -119,25 +159,60 @@ void ddrphy_phyinit_calcmb(void)
+ 			disableddbyte |= (ddrphy_phyinit_isdbytedisabled(dbyte) ?
+ 									(0x1U << dbyte) : 0x0U);
+ 		}
+-		ddrphy_phyinit_softsetmb(myps, "disableddbyte", disableddbyte);
++
++		ret = ddrphy_phyinit_softsetmb(myps, "disableddbyte", disableddbyte);
++		if (ret != 0) {
++			return ret;
++		}
++
+ #if STM32MP_DDR3_TYPE
+-		ddrphy_phyinit_softsetmb(myps, "phycfg", userinputadvanced.is2ttiming[myps]);
++		ret = ddrphy_phyinit_softsetmb(myps, "phycfg", userinputadvanced.is2ttiming[myps]);
++		if (ret != 0) {
++			return ret;
++		}
+ #else
+-		ddrphy_phyinit_softsetmb(myps, "phycfg", (mb_ddr_1d[myps].mr3 & 0x8U) ?
+-							0 : userinputadvanced.is2ttiming[myps]);
+-		ddrphy_phyinit_softsetmb(myps, "x16present",
+-					 (0x10 == userinputbasic.dramdatawidth) ?
+-								mb_ddr_1d[myps].cspresent : 0x0);
++		ret = ddrphy_phyinit_softsetmb(myps, "phycfg",
++					       (mb_ddr_1d[myps].mr3 & 0x8U) ?
++					       0 : userinputadvanced.is2ttiming[myps]);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_softsetmb(myps, "x16present",
++					       (0x10 == userinputbasic.dramdatawidth) ?
++					       mb_ddr_1d[myps].cspresent : 0x0);
++		if (ret != 0) {
++			return ret;
++		}
+ #endif /* STM32MP_DDR3_TYPE */
+ #elif STM32MP_LPDDR4_TYPE
+-		ddrphy_phyinit_softsetmb(myps, "enableddqscha", nad0 * 8);
+-		ddrphy_phyinit_softsetmb(myps, "cspresentcha", (2 == userinputbasic.numrank_dfi0) ?
+-								0x3 : userinputbasic.numrank_dfi0);
+-		ddrphy_phyinit_softsetmb(myps, "enableddqschb", nad1 * 8);
+-		ddrphy_phyinit_softsetmb(myps, "cspresentchb", (2 == userinputbasic.numrank_dfi1) ?
+-								0x3 : userinputbasic.numrank_dfi1);
++		ret = ddrphy_phyinit_softsetmb(myps, "enableddqscha", nad0 * 8);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_softsetmb(myps, "cspresentcha",
++					       (2 == userinputbasic.numrank_dfi0) ?
++					       0x3 : userinputbasic.numrank_dfi0);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_softsetmb(myps, "enableddqschb", nad1 * 8);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_softsetmb(myps, "cspresentchb",
++					       (2 == userinputbasic.numrank_dfi1) ?
++					       0x3 : userinputbasic.numrank_dfi1);
++		if (ret != 0) {
++			return ret;
++		}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 	} /* myps */
+ 
+ 	VERBOSE("%s End\n", __func__);
++
++	return 0;
+ }
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c
+index 005d9e15a1..2709c9d8dd 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c
+@@ -23,9 +23,9 @@
+  * DMEM incv file provided in the training firmware package.
+  * -# Write the Firmware Message Block with the required contents detailing the training parameters.
+  *
+- * \return void
++ * \return 0 on success.
+  */
+-void ddrphy_phyinit_f_loaddmem(int pstate)
++int ddrphy_phyinit_f_loaddmem(int pstate)
+ {
+ 	pmu_smb_ddr_1d_t *msgblkptr;
+ 	int sizeofmsgblk;
+@@ -42,17 +42,20 @@ void ddrphy_phyinit_f_loaddmem(int pstate)
+ 	if ((msgblkptr->enableddqs > 8 * (userinputbasic.numactivedbytedfi0)) ||
+ 	    (msgblkptr->enableddqs <= 0)) {
+ 		ERROR("%s enableddqs is Zero or greater than NumActiveDbytes for Dfi0\n",__func__);
++		return -1;
+ 	}
+ #elif STM32MP_LPDDR4_TYPE
+ 	if (msgblkptr->enableddqscha % 16 != 0 || msgblkptr->enableddqschb % 16 != 0) {
+ 		ERROR("%s Lp3/Lp4 - Number of Dq's Enabled per Channel much be multipe of 16\n",
+ 		      __func__);
++		return -1;
+ 	}
+ 
+ 	if ((msgblkptr->enableddqscha > 8 * (userinputbasic.numactivedbytedfi0)) ||
+ 	    (msgblkptr->enableddqschb > 8 * (userinputbasic.numactivedbytedfi1)) ||
+ 	    (msgblkptr->enableddqscha == 0 && msgblkptr->enableddqschb == 0)) {
+ 		ERROR("%s EnabledDqsChA/B are not set correctly./1\n", __func__);
++		return -1;
+ 	}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 
+@@ -66,4 +69,6 @@ void ddrphy_phyinit_f_loaddmem(int pstate)
+ 				   DMEM_SIZE - STM32MP_DDR_FW_DMEM_OFFSET);
+ 
+ 	VERBOSE("%s End\n", __func__);
++
++	return 0;
+ }
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_g_execfw.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_g_execfw.c
+index 90799164fb..53f411d9ee 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_g_execfw.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_g_execfw.c
+@@ -27,10 +27,12 @@
+  * ddrphy_phyinit_usercustom_g_waitfwdone() function.
+  * -# Halt the microcontroller.
+  *
+- * \return void
++ * \return 0 on success.
+  */
+-void ddrphy_phyinit_g_execfw(void)
++int ddrphy_phyinit_g_execfw(void)
+ {
++	int ret;
++
+ 	VERBOSE("%s Start\n", __func__);
+ 
+ 	/*
+@@ -53,11 +55,16 @@ void ddrphy_phyinit_g_execfw(void)
+ 	 * 3. Wait for the training firmware to complete by following the procedure in
+ 	 * "uCtrl Initialization and Mailbox Messaging".
+ 	 */
+-	ddrphy_phyinit_usercustom_g_waitfwdone();
++	ret = ddrphy_phyinit_usercustom_g_waitfwdone();
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	/* 4. Halt the microcontroller */
+ 	mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (TAPBONLY | CSR_MICRORESET_ADDR)),
+ 		      CSR_STALLTOMICRO_MASK);
+ 
+ 	VERBOSE("%s End\n", __func__);
++
++	return 0;
+ }
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_mapdrvstren.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_mapdrvstren.c
+index 555b102660..4f0074bb5d 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_mapdrvstren.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_mapdrvstren.c
+@@ -28,10 +28,12 @@
+  *   - odtstrenn
+  *   - adrvstrenp
+  *   - adrvstrenn
++ *
++ * \return >=0 value on success, else negative.
+  */
+ int ddrphy_phyinit_mapdrvstren(int drvstren_ohm, enum drvtype targetcsr)
+ {
+-	int stren_setting;
++	int stren_setting = -1;
+ 
+ 	if ((targetcsr == drvstrenfsdqp) || (targetcsr == drvstrenfsdqn)) {
+ 		/* drvstrenfsdqp or drvstrenfsdqn */
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
+index 785d91c3a8..dc33b5edf7 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
+@@ -53,41 +53,37 @@ static int tracken = 1;        /* Enabled tracking of registers */
+  * ddrphy_phyinit_reginterface starttrack, stoptrack instructions. By
+  * default tracking is always turned on.
+  *
+- * \return 0: not tracked 1: tracked
++ * \return 0 on success.
+  */
+ int ddrphy_phyinit_trackreg(uint32_t adr)
+ {
+ 	int regindx = 0;
+-	int foundreg = 0;
+ 
+-	/* return if tracking is disabled */
++	/* Return if tracking is disabled */
+ 	if (tracken == 0) {
+ 		return 0;
+ 	}
+ 
+-	/* search register array the address, */
++	/* Search register address within the array */
+ 	for (regindx = 0; regindx < numregsaved; regindx++) {
+ 		if (retreglist[regindx].address == adr) {
+-			foundreg = 1;
+-			return 1;
+-		}
+-	}
+-
+-	if (!foundreg && tracken) { /* register not found, so add it. */
+-		if (numregsaved > MAX_NUM_RET_REGS) {
+-			ERROR("[ddrphy_phyinit_reginterface:ddrphy_phyinit_trackreg]\n");
+-			ERROR("Max Number of Restore Registers reached: %d.\n", numregsaved);
+-			ERROR("Please recompile PhyInit with larger MAX_NUM_RET_REG value.\n");
++			/* Register found */
+ 			return 0;
+ 		}
++	}
+ 
+-		retreglist[regindx].address = adr;
+-		numregsaved++;
+-		return 1;
+-	} else {
+-		/* should never get here. */
+-		return 0;
++	/* Register not found, so add it. */
++	if (numregsaved > MAX_NUM_RET_REGS) {
++		ERROR("[ddrphy_phyinit_reginterface:ddrphy_phyinit_trackreg]\n");
++		ERROR("Max Number of Restore Registers reached: %d.\n", numregsaved);
++		ERROR("Please recompile PhyInit with larger MAX_NUM_RET_REG value.\n");
++		return -1;
+ 	}
++
++	retreglist[regindx].address = adr;
++	numregsaved++;
++
++	return 0;
+ }
+ 
+ /*
+@@ -119,7 +115,7 @@ int ddrphy_phyinit_trackreg(uint32_t adr)
+  *   ddrphy_phyinit_reginterface(saveregs,0,0);
+  *   ddrphy_phyinit_reginterface(restoreregs,0,0);
+  *  \endcode
+- * \return 1 on success.
++ * \return 0 on success.
+  */
+ int ddrphy_phyinit_reginterface(reginstr myreginstr, uint32_t adr, uint16_t dat)
+ {
+@@ -138,7 +134,7 @@ int ddrphy_phyinit_reginterface(reginstr myreginstr, uint32_t adr, uint16_t dat)
+ 			retreglist[regindx].value = data;
+ 		}
+ 
+-		return 1;
++		return 0;
+ 	} else if (myreginstr == restoreregs) {
+ 		int regindx;
+ 
+@@ -151,21 +147,21 @@ int ddrphy_phyinit_reginterface(reginstr myreginstr, uint32_t adr, uint16_t dat)
+ 				      retreglist[regindx].value);
+ 		}
+ 
+-		return 1;
++		return 0;
+ 	} else if (myreginstr == starttrack) { /* Enable tracking */
+ 		tracken = 1;
+-		return 1;
++		return 0;
+ 	} else if (myreginstr == stoptrack) { /* Disable tracking */
+ 		tracken = 0;
+-		return 1;
++		return 0;
+ 	} else if (myreginstr == dumpregs) { /* Dump restore state to file. */
+ 		/* TBD */
+-		return 1;
++		return 0;
+ 	} else if (myreginstr == importregs) { /* import register state from file. */
+ 		/* TBD */
+-		return 1;
++		return 0;
+ 	} else {
+ 		/* future instructions. */
+-		return 0;
++		return -1;
+ 	}
+ }
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_restore_sequence.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_restore_sequence.c
+index d2ab1013f8..e59ab54804 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_restore_sequence.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_restore_sequence.c
+@@ -21,6 +21,7 @@
+  */
+ int ddrphy_phyinit_restore_sequence(void)
+ {
++	int ret;
+ 
+ 	VERBOSE("%s Start\n", __func__);
+ 
+@@ -57,7 +58,10 @@ int ddrphy_phyinit_restore_sequence(void)
+ 	mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (TMASTER | CSR_CALZAP_ADDR)), 0x1U);
+ 
+ 	/* -# Issue register writes to restore registers values. */
+-	ddrphy_phyinit_reginterface(restoreregs, 0, 0);
++	ret = ddrphy_phyinit_reginterface(restoreregs, 0, 0);
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	/*
+ 	 * -# Write the UcclkHclkEnables CSR to disable the appropriate clocks after all reads done.
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_sequence.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_sequence.c
+index 4a84a3ccdc..620245c7ac 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_sequence.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_sequence.c
+@@ -19,6 +19,8 @@
+  */
+ int ddrphy_phyinit_sequence(bool skip_training, bool reten)
+ {
++	int ret;
++
+ 	/* Check user input pstate number consistency vs. SW capabilities */
+ 	if (userinputbasic.numpstates > NB_PS) {
+ 		return -1;
+@@ -33,7 +35,10 @@ int ddrphy_phyinit_sequence(bool skip_training, bool reten)
+ 	ddrphy_phyinit_initstruct();
+ 
+ 	/* Re-calculate Firmware Message Block input based on final user input */
+-	ddrphy_phyinit_calcmb();
++	ret = ddrphy_phyinit_calcmb();
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	/* (A) Bring up VDD, VDDQ, and VAA */
+ 	/* ddrphy_phyinit_usercustom_a_bringuppower(); */
+@@ -42,8 +47,10 @@ int ddrphy_phyinit_sequence(bool skip_training, bool reten)
+ 	/* ddrphy_phyinit_usercustom_b_startclockresetphy(); */
+ 
+ 	/* (C) Initialize PHY Configuration */
+-	ddrphy_phyinit_c_initphyconfig();
+-
++	ret = ddrphy_phyinit_c_initphyconfig();
++	if (ret != 0) {
++		return ret;
++	}
+ 	/*
+ 	 * Customize any register write desired; This can include any CSR not covered by PhyInit
+ 	 * or user wish to override values calculated in step_C
+@@ -51,7 +58,10 @@ int ddrphy_phyinit_sequence(bool skip_training, bool reten)
+ 	ddrphy_phyinit_usercustom_custompretrain();
+ 
+ 	/* Stop retention register tracking for training firmware related registers */
+-	ddrphy_phyinit_reginterface(stoptrack, 0, 0);
++	ret = ddrphy_phyinit_reginterface(stoptrack, 0, 0);
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	if (runtimeconfig.skip_train) {
+ 		/* Skip running training firmware entirely */
+@@ -77,10 +87,16 @@ int ddrphy_phyinit_sequence(bool skip_training, bool reten)
+ 			 */
+ 
+ 			/* (F) Write the Message Block parameters for the training firmware */
+-			ddrphy_phyinit_f_loaddmem(pstate);
++			ret = ddrphy_phyinit_f_loaddmem(pstate);
++			if (ret != 0) {
++				return ret;
++			}
+ 
+ 			/* (G) Execute the Training Firmware */
+-			ddrphy_phyinit_g_execfw();
++			ret = ddrphy_phyinit_g_execfw();
++			if (ret != 0) {
++				return ret;
++			}
+ 
+ 			/* (H) Read the Message Block results */
+ 			ddrphy_phyinit_h_readmsgblock();
+@@ -88,7 +104,10 @@ int ddrphy_phyinit_sequence(bool skip_training, bool reten)
+ 	}
+ 
+ 	/* Start retention register tracking for training firmware related registers */
+-	ddrphy_phyinit_reginterface(starttrack, 0, 0);
++	ret = ddrphy_phyinit_reginterface(starttrack, 0, 0);
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	/* (I) Load PHY Init Engine Image */
+ 	ddrphy_phyinit_i_loadpieimage(runtimeconfig.skip_train);
+@@ -101,7 +120,10 @@ int ddrphy_phyinit_sequence(bool skip_training, bool reten)
+ 
+ 	if (reten) {
+ 		/* Save value of tracked registers for retention restore sequence. */
+-		ddrphy_phyinit_usercustom_saveretregs();
++		ret = ddrphy_phyinit_usercustom_saveretregs();
++		if (ret != 0) {
++			return ret;
++		}
+ 
+ 		runtimeconfig.reten = reten;
+ 	}
+diff --git a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c
+index b75bc7b237..d095efab7d 100644
+--- a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c
++++ b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c
+@@ -18,54 +18,83 @@
+ 
+ #define PHYINIT_DELAY_1US		1U
+ #define PHYINIT_DELAY_10US		10U
++#define PHYINIT_TIMEOUT_US_1S		1000000U
+ 
+-static void wait_uctwriteprotshadow(bool state)
++static int wait_uctwriteprotshadow(bool state)
+ {
++	uint64_t timeout;
+ 	uint16_t read_data;
+ 	uint16_t value = state ? BIT(0) : 0U;
+ 
++	timeout = timeout_init_us(PHYINIT_TIMEOUT_US_1S);
++
+ 	do {
+ 		read_data = mmio_read_16((uintptr_t)(DDRPHYC_BASE +
+ 						     (4 * (TAPBONLY | CSR_UCTSHADOWREGS_ADDR))));
+ 		udelay(PHYINIT_DELAY_1US);
++		if (timeout_elapsed(timeout)) {
++			return -1;
++		}
+ 	} while ((read_data & BIT(0)) != value);
++
++	return 0;
+ }
+ 
+-static void ack_message_receipt(void)
++static int ack_message_receipt(void)
+ {
++	int ret;
++
+ 	/* Acknowledge the receipt of the message */
+ 	mmio_write_16((uintptr_t)(DDRPHYC_BASE + (4 * (TAPBONLY | CSR_DCTWRITEPROT_ADDR))), 0U);
+ 
+ 	udelay(PHYINIT_DELAY_1US);
+ 
+-	wait_uctwriteprotshadow(true);
++	ret = wait_uctwriteprotshadow(true);
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	/* Complete the 4-phase protocol */
+ 	mmio_write_16((uintptr_t)(DDRPHYC_BASE + (4 * (TAPBONLY | CSR_DCTWRITEPROT_ADDR))), 1U);
+ 
+ 	udelay(PHYINIT_DELAY_1US);
++
++	return 0;
+ }
+ 
+-static int get_major_message(void)
++static int get_major_message(int *msg)
+ {
+ 	int message_number;
++	int ret;
+ 
+-	wait_uctwriteprotshadow(false);
++	ret = wait_uctwriteprotshadow(false);
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	message_number = mmio_read_16((uintptr_t)(DDRPHYC_BASE +
+ 						  (4 * (TAPBONLY | CSR_UCTWRITEONLYSHADOW_ADDR))));
+ 
+-	ack_message_receipt();
++	ret = ack_message_receipt();
++	if (ret != 0) {
++		return ret;
++	}
+ 
+-	return message_number;
++	*msg = message_number;
++
++	return 0;
+ }
+ 
+-static int get_streaming_message(void)
++static int get_streaming_message(int *msg)
+ {
+ 	int stream_word_lower_part;
+ 	int stream_word_upper_part;
++	int ret;
+ 
+-	wait_uctwriteprotshadow(false);
++	ret = wait_uctwriteprotshadow(false);
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	stream_word_lower_part = mmio_read_16((uintptr_t)(DDRPHYC_BASE +
+ 							  (4 * (TAPBONLY |
+@@ -75,9 +104,14 @@ static int get_streaming_message(void)
+ 							  (4 * (TAPBONLY |
+ 								CSR_UCTDATWRITEONLYSHADOW_ADDR))));
+ 
+-	ack_message_receipt();
++	ret = ack_message_receipt();
++	if (ret != 0) {
++		return ret;
++	}
++
++	*msg = stream_word_lower_part | (stream_word_upper_part << 16);
+ 
+-	return stream_word_lower_part | (stream_word_upper_part << 16);
++	return 0;
+ }
+ 
+ /*
+@@ -97,25 +131,41 @@ static int get_streaming_message(void)
+  * The user can choose to leave this function as is, or implement mechanism to
+  * trigger mailbox poling event in simulation.
+  *
+- * \return void
++ * \return 0 on success.
+  */
+-void ddrphy_phyinit_usercustom_g_waitfwdone(void)
++int ddrphy_phyinit_usercustom_g_waitfwdone(void)
+ {
+ 	int fw_major_message;
++	int ret;
+ 
+ 	VERBOSE("%s Start\n", __func__);
+ 
+ 	do {
+-		fw_major_message = get_major_message();
++		ret = get_major_message(&fw_major_message);
++		if (ret != 0) {
++			return ret;
++		}
++
+ 		VERBOSE("fw_major_message = %x\n", (unsigned int)fw_major_message);
+ 
+ 		if (fw_major_message == FW_MAJ_MSG_START_STREAMING) {
+ 			int i;
+-			int read_data = get_streaming_message();
+-			int stream_len = read_data & 0xFFFF;
++			int read_data;
++			int stream_len;
++
++			ret = get_streaming_message(&read_data);
++			if (ret != 0) {
++				return ret;
++			}
++
++			stream_len = read_data & 0xFFFF;
+ 
+ 			for (i = 0; i < stream_len; i++) {
+-				read_data = get_streaming_message();
++				ret = get_streaming_message(&read_data);
++				if (ret != 0) {
++					return ret;
++				}
++
+ 				VERBOSE("streaming message = %x\n", (unsigned int)read_data);
+ 			}
+ 		}
+@@ -126,7 +176,10 @@ void ddrphy_phyinit_usercustom_g_waitfwdone(void)
+ 
+ 	if (fw_major_message == FW_MAJ_MSG_TRAINING_FAILED) {
+ 		ERROR("%s Training has failed.\n", __func__);
++		return -1;
+ 	}
+ 
+ 	VERBOSE("%s End\n", __func__);
++
++	return 0;
+ }
+diff --git a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
+index 411767abaf..0da09435b5 100644
+--- a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
++++ b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
+@@ -37,10 +37,22 @@
+  * also saved in addition to registers written by PhyInit during PHY
+  * initialization.
+  *
+- * \returns \c void
++ * \return 0 on success.
+  */
+-void ddrphy_phyinit_usercustom_saveretregs(void)
++int ddrphy_phyinit_usercustom_saveretregs(void)
+ {
++	int pstate = 0;
++	int anib;
++	int byte;
++	int nibble;
++	int lane;
++	int p_addr;
++	int c_addr;
++	int u_addr;
++	int b_addr;
++	int r_addr;
++	int ret;
++
+ 	VERBOSE("%s Start\n", __func__);
+ 
+ 	/* In short the implementation of this function performs tasks: */
+@@ -58,133 +70,287 @@ void ddrphy_phyinit_usercustom_saveretregs(void)
+ 	 */
+ 
+ 	/* 95% of users should not require to change the code below */
+-	int pstate = 0;
+-	int anib;
+-	int byte;
+-	int nibble;
+-	int lane;
+-	int p_addr;
+-	int c_addr;
+-	int u_addr;
+-	int b_addr;
+-	int r_addr;
+ 
+-	ddrphy_phyinit_trackreg(TMASTER | CSR_PLLCTRL3_ADDR);
++	ret = ddrphy_phyinit_trackreg(TMASTER | CSR_PLLCTRL3_ADDR);
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	/* Non-PState Dbyte Registers */
+ 	for (byte = 0; byte < userinputbasic.numdbyte; byte++) {
+ 		c_addr = byte << 12;
++
+ 		for (lane = 0; lane <= R_MAX; lane++) {
+ 			r_addr = lane << 8;
+-			ddrphy_phyinit_trackreg(TDBYTE | c_addr | r_addr | CSR_RXPBDLYTG0_ADDR);
++
++			ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | r_addr |
++						      CSR_RXPBDLYTG0_ADDR);
++			if (ret != 0) {
++				return ret;
++			}
+ #if STM32MP_LPDDR4_TYPE
+-			ddrphy_phyinit_trackreg(TDBYTE | c_addr | r_addr | CSR_RXPBDLYTG1_ADDR);
++			ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | r_addr |
++						      CSR_RXPBDLYTG1_ADDR);
++			if (ret != 0) {
++				return ret;
++			}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 		} /* r_addr */
+ 
+ #if STM32MP_LPDDR4_TYPE
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_PPTCTLSTATIC_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_TRAININGINCDECDTSMEN_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_TSMBYTE0_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ0LNSEL_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ1LNSEL_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ2LNSEL_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ3LNSEL_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ4LNSEL_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ5LNSEL_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ6LNSEL_ADDR);
+-		ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ7LNSEL_ADDR);
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_PPTCTLSTATIC_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_TRAININGINCDECDTSMEN_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_TSMBYTE0_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ0LNSEL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ1LNSEL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ2LNSEL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ3LNSEL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ4LNSEL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ5LNSEL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ6LNSEL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(TDBYTE | c_addr | CSR_DQ7LNSEL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 	} /* c_addr */
+ 
+ 	/* PState variable registers */
+ 	for (pstate = 0; pstate < userinputbasic.numpstates; pstate++) {
+ 		p_addr = pstate << 20;
+-		ddrphy_phyinit_trackreg(p_addr | TMASTER | CSR_VREFINGLOBAL_ADDR);
++
++		ret = ddrphy_phyinit_trackreg(p_addr | TMASTER | CSR_VREFINGLOBAL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
+ 
+ 		/* Anig Registers */
+ 		for (anib = 0; anib < userinputbasic.numanib; anib++) {
+ 			c_addr = anib << 12;
+-			ddrphy_phyinit_trackreg(p_addr | TANIB | c_addr | CSR_ATXDLY_ADDR);
++
++			ret = ddrphy_phyinit_trackreg(p_addr | TANIB | c_addr | CSR_ATXDLY_ADDR);
++			if (ret != 0) {
++				return ret;
++			}
+ 		}
+ 
+ 		/* Dbyte Registers */
+ 		for (byte = 0; byte < userinputbasic.numdbyte; byte++) {
+ 			c_addr = byte << 12;
+-			ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | CSR_DFIMRL_ADDR);
++
++			ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | CSR_DFIMRL_ADDR);
++			if (ret != 0) {
++				return ret;
++			}
++
+ 			for (nibble = 0; nibble <= B_MAX; nibble++) {
+ 				b_addr = nibble << 8;
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | b_addr |
+-							CSR_DQDQSRCVCNTRL_ADDR);
++
++				ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | b_addr |
++							      CSR_DQDQSRCVCNTRL_ADDR);
++				if (ret != 0) {
++					return ret;
++				}
+ 			}
+ 
+ 			for (nibble = 0; nibble < 2; nibble++) {
+ 				u_addr = nibble << 8;
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_RXENDLYTG0_ADDR);
++
++				ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
++							      CSR_RXENDLYTG0_ADDR);
++				if (ret != 0) {
++					return ret;
++				}
+ #if STM32MP_LPDDR4_TYPE
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_RXENDLYTG1_ADDR);
++				ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
++							      CSR_RXENDLYTG1_ADDR);
++				if (ret != 0) {
++					return ret;
++				}
+ #endif /* STM32MP_LPDDR4_TYPE */
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_TXDQSDLYTG0_ADDR);
++				ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
++							      CSR_TXDQSDLYTG0_ADDR);
++				if (ret != 0) {
++					return ret;
++				}
+ #if STM32MP_LPDDR4_TYPE
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_TXDQSDLYTG1_ADDR);
++				ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
++							      CSR_TXDQSDLYTG1_ADDR);
++				if (ret != 0) {
++					return ret;
++				}
+ #endif /* STM32MP_LPDDR4_TYPE */
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_RXCLKDLYTG0_ADDR);
++				ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
++							      CSR_RXCLKDLYTG0_ADDR);
++				if (ret != 0) {
++					return ret;
++				}
+ #if STM32MP_LPDDR4_TYPE
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_RXCLKDLYTG1_ADDR);
++				ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
++							      CSR_RXCLKDLYTG1_ADDR);
++				if (ret != 0) {
++					return ret;
++				}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 			} /* nibble */
+ 
+ 			for (lane = R_MIN; lane <= R_MAX; lane++) {
+ 				r_addr = lane << 8;
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | r_addr |
+-							CSR_TXDQDLYTG0_ADDR);
++
++				ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | r_addr |
++							      CSR_TXDQDLYTG0_ADDR);
++				if (ret != 0) {
++					return ret;
++				}
+ #if STM32MP_LPDDR4_TYPE
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | r_addr |
+-							CSR_TXDQDLYTG1_ADDR);
++				ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | r_addr |
++							      CSR_TXDQDLYTG1_ADDR);
++				if (ret != 0) {
++					return ret;
++				}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 			} /* r_addr */
+ 
+ #if STM32MP_LPDDR4_TYPE
+-			ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr |
++			ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr |
+ 						CSR_PPTDQSCNTINVTRNTG0_ADDR);
+-			ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr |
++			if (ret != 0) {
++				return ret;
++			}
++			ret = ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr |
+ 						CSR_PPTDQSCNTINVTRNTG1_ADDR);
++			if (ret != 0) {
++				return ret;
++			}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 		} /* c_addr */
+ 
+ 		/* PIE Registers */
+-		ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR1_ADDR);
+-		ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR2_ADDR);
+-		ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR3_ADDR);
+-		ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR4_ADDR);
+-		ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR5_ADDR);
+-		ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR6_ADDR);
+-		ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR7_ADDR);
+-		ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR8_ADDR);
++		ret = ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR1_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR2_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR3_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR4_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR5_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR6_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR7_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(p_addr | TINITENG | CSR_SEQ0BGPR8_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
+ 
+ 		/* Master Registers */
+-		ddrphy_phyinit_trackreg(p_addr | TMASTER | CSR_DLLGAINCTL_ADDR);
+-		ddrphy_phyinit_trackreg(p_addr | TMASTER | CSR_DLLLOCKPARAM_ADDR);
++		ret = ddrphy_phyinit_trackreg(p_addr | TMASTER | CSR_DLLGAINCTL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
++
++		ret = ddrphy_phyinit_trackreg(p_addr | TMASTER | CSR_DLLLOCKPARAM_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
+ #if STM32MP_LPDDR4_TYPE
+-		ddrphy_phyinit_trackreg(p_addr | TMASTER | CSR_HWTMRL_ADDR);
++		ret = ddrphy_phyinit_trackreg(p_addr | TMASTER | CSR_HWTMRL_ADDR);
++		if (ret != 0) {
++			return ret;
++		}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 	} /* p_addr */
+ 
+ 	/* Master Registers */
+-	ddrphy_phyinit_trackreg(TMASTER | CSR_HWTCAMODE_ADDR);
++	ret = ddrphy_phyinit_trackreg(TMASTER | CSR_HWTCAMODE_ADDR);
++	if (ret != 0) {
++		return ret;
++	}
++
+ #if STM32MP_LPDDR4_TYPE
+-	ddrphy_phyinit_trackreg(TMASTER | CSR_HWTLPCSENA_ADDR);
+-	ddrphy_phyinit_trackreg(TMASTER | CSR_HWTLPCSENB_ADDR);
++	ret = ddrphy_phyinit_trackreg(TMASTER | CSR_HWTLPCSENA_ADDR);
++	if (ret != 0) {
++		return ret;
++	}
++
++	ret = ddrphy_phyinit_trackreg(TMASTER | CSR_HWTLPCSENB_ADDR);
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	/* ACSM registers */
+-	ddrphy_phyinit_trackreg(TACSM | CSR_ACSMCTRL13_ADDR);
+-	ddrphy_phyinit_trackreg(TACSM | CSR_ACSMCTRL23_ADDR);
++	ret = ddrphy_phyinit_trackreg(TACSM | CSR_ACSMCTRL13_ADDR);
++	if (ret != 0) {
++		return ret;
++	}
++
++	ret = ddrphy_phyinit_trackreg(TACSM | CSR_ACSMCTRL23_ADDR);
++	if (ret != 0) {
++		return ret;
++	}
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 
+ 	/*
+@@ -219,7 +385,10 @@ void ddrphy_phyinit_usercustom_saveretregs(void)
+ 	 * --------------------------------------------------------------------------
+ 	 */
+ 
+-	ddrphy_phyinit_reginterface(saveregs, 0, 0);
++	ret = ddrphy_phyinit_reginterface(saveregs, 0, 0);
++	if (ret != 0) {
++		return ret;
++	}
+ 
+ 	/*
+ 	 * --------------------------------------------------------------------------
+@@ -241,5 +410,5 @@ void ddrphy_phyinit_usercustom_saveretregs(void)
+ 
+ 	VERBOSE("%s End\n", __func__);
+ 
+-	return;
++	return 0;
+ }
+-- 
+2.53.0
+

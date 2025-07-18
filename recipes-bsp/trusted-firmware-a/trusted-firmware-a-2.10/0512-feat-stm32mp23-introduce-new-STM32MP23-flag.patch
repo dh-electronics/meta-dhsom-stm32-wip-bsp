@@ -1,0 +1,214 @@
+From 5c3e94a522096cbc007d3a1f8f1401301cbeca9b Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Fri, 2 Feb 2024 18:53:58 +0100
+Subject: [PATCH 512/954] feat(stm32mp23): introduce new STM32MP23 flag
+
+To be able to distinguish features between all STM32MP2 variants.
+A new compilation flag (STM32MP23) is introduced.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5294447677f78af1751abca238de961905f09b32 feat(stm32mp23): introduce new STM32MP23 flag]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Ia530a23c2a3bb89d0c81fce98a4f56947f4daac8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/357543
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ docs/plat/st/stm32mp2.rst               |  2 ++
+ drivers/st/fmc/stm32_fmc2_nand.c        | 10 +++++-----
+ drivers/st/mmc/stm32_sdmmc2.c           |  2 +-
+ plat/st/common/bl2_io_storage.c         |  6 +++---
+ plat/st/common/include/stm32mp_common.h |  2 +-
+ plat/st/common/stm32mp_common.c         |  2 +-
+ plat/st/stm32mp2/platform.mk            | 15 +++++++++++++++
+ 7 files changed, 28 insertions(+), 11 deletions(-)
+
+diff --git a/docs/plat/st/stm32mp2.rst b/docs/plat/st/stm32mp2.rst
+index 67b4ae7e8c..ef0f03eb72 100644
+--- a/docs/plat/st/stm32mp2.rst
++++ b/docs/plat/st/stm32mp2.rst
+@@ -107,6 +107,8 @@ Dedicated STM32MP2 build flags:
+   | Default: 0
+ - | ``STM32MP21``: to select STM32MP21 variant configuration.
+   | Default: 0
++- | ``STM32MP23``: to select STM32MP23 variant configuration.
++  | Default: 0
+ - | ``STM32MP25``: to select STM32MP25 variant configuration.
+   | Default: 1
+ 
+diff --git a/drivers/st/fmc/stm32_fmc2_nand.c b/drivers/st/fmc/stm32_fmc2_nand.c
+index 1ca9c9c1b9..6ba68f622d 100644
+--- a/drivers/st/fmc/stm32_fmc2_nand.c
++++ b/drivers/st/fmc/stm32_fmc2_nand.c
+@@ -31,7 +31,7 @@
+ #define DT_FMC2_NFC_COMPAT		"st,stm32mp1-fmc2-nfc"
+ #define MAX_CS				2U
+ #endif
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ #define DT_FMC2_EBI_COMPAT		"st,stm32mp25-fmc2-ebi"
+ #define DT_FMC2_NFC_COMPAT		"st,stm32mp25-fmc2-nfc"
+ #define MAX_CS				4U
+@@ -687,7 +687,7 @@ static void stm32_fmc2_write_data(struct nand_device *nand,
+ 	}
+ }
+ 
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ static int stm32_fmc2_check_rif(unsigned int resource)
+ {
+ 	uint32_t cidcfgr;
+@@ -775,7 +775,7 @@ static void stm32_fmc2_ctrl_init(void)
+ #if STM32MP13 || STM32MP15
+ 	mmio_setbits_32(fmc2_base() + FMC2_BCR1, FMC2_BCR1_FMC2EN);
+ #endif
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ 	if ((mmio_read_32(fmc2_base() + FMC2_SR) & FMC2_SR_ISOST) != 0U) {
+ 		/* FMC2 is disabled */
+ 		if (stm32_fmc2_check_rif(FMC2_RESOURCE_CFGR) == 0) {
+@@ -1007,7 +1007,7 @@ int stm32_fmc2_init(void)
+ 	clk_enable(stm32_fmc2.clock_id);
+ 
+ 	/* Reset IP */
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ 	if ((info.reset >= 0) &&
+ 	    (stm32_fmc2_check_rif(FMC2_RESOURCE_CFGR) != -EACCES)) {
+ #else
+@@ -1026,7 +1026,7 @@ int stm32_fmc2_init(void)
+ 		}
+ 	}
+ 
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ 	/* Check if FMC2 NAND controller can be used */
+ 	if (stm32_fmc2_check_rif(FMC2_RESOURCE_NAND) == 0) {
+ 		/* Secure the FMC2 NAND controller */
+diff --git a/drivers/st/mmc/stm32_sdmmc2.c b/drivers/st/mmc/stm32_sdmmc2.c
+index 973b9ed7b4..dfb501a38d 100644
+--- a/drivers/st/mmc/stm32_sdmmc2.c
++++ b/drivers/st/mmc/stm32_sdmmc2.c
+@@ -132,7 +132,7 @@
+ #if STM32MP13 || STM32MP15
+ #define SDMMC_FIFO_SIZE			64U
+ #endif
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ #define SDMMC_FIFO_SIZE			1024U
+ #endif
+ 
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index f41168034f..78c70faaf7 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -33,7 +33,7 @@
+ #if STM32MP13 || STM32MP15
+ #include <drivers/st/stm32_qspi.h>
+ #endif
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ #include <drivers/st/stm32_ospi.h>
+ #endif
+ #include <drivers/st/stm32_sdmmc2.h>
+@@ -326,7 +326,7 @@ static void boot_spi_nor(boot_api_context_t *boot_context)
+ #if STM32MP13 || STM32MP15
+ 	io_result = stm32_qspi_init();
+ #endif
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ 	io_result = stm32_ospi_init();
+ #endif
+ 
+@@ -372,7 +372,7 @@ static void boot_spi_nand(boot_api_context_t *boot_context)
+ #if STM32MP13 || STM32MP15
+ 	io_result = stm32_qspi_init();
+ #endif
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ 	io_result = stm32_ospi_init();
+ #endif
+ 	assert(io_result == 0);
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 80a8a46ce5..71015b5658 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -183,7 +183,7 @@ int stm32_get_magic_number_cell(struct nvmem_cell *magic_number);
+ int stm32_get_core1_branch_address_cell(struct nvmem_cell *core1_branch_address);
+ #endif
+ 
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ int stm32_get_stop2_entrypoint_cell(struct nvmem_cell *stop2_entrypoint);
+ #endif
+ 
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 8f822dfa43..0f8283ef69 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -572,7 +572,7 @@ int stm32_get_boot_mode_cell(struct nvmem_cell *boot_mode)
+ 	return 0;
+ }
+ 
+-#if STM32MP21 || STM32MP25
++#if STM32MP21 || STM32MP23 || STM32MP25
+ int stm32_get_stop2_entrypoint_cell(struct nvmem_cell *stop2_entrypoint)
+ {
+ 	static bool initialized = false;
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index b602e238c9..3a9d0e43cc 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -31,20 +31,33 @@ GICV2_INTR_NUM			:=	416
+ DTB_FILE_NAME			?=	stm32mp257f-ev1.dtb
+ 
+ STM32MP21			?=	0
++STM32MP23			?=	0
+ STM32MP25			?=	1
+ STM32MP_M33_TDCID		?=	0
+ 
+ ifeq ($(STM32MP21),1)
+ STM32MP21			:=	1
++STM32MP23			:=	0
++STM32MP25			:=	0
++else ifeq ($(STM32MP23),1)
++STM32MP21			:=	0
++STM32MP23			:=	1
+ STM32MP25			:=	0
+ else ifeq ($(STM32MP25),1)
+ STM32MP21			:=	0
++STM32MP23			:=	0
+ STM32MP25			:=	1
+ else ifneq ($(findstring stm32mp21,$(DTB_FILE_NAME)),)
+ STM32MP21			:=	1
++STM32MP23			:=	0
++STM32MP25			:=	0
++else ifneq ($(findstring stm32mp23,$(DTB_FILE_NAME)),)
++STM32MP21			:=	0
++STM32MP23			:=	1
+ STM32MP25			:=	0
+ else ifneq ($(findstring stm32mp25,$(DTB_FILE_NAME)),)
+ STM32MP21			:=	0
++STM32MP23			:=	0
+ STM32MP25			:=	1
+ endif
+ 
+@@ -162,6 +175,7 @@ $(eval $(call assert_booleans,\
+ 		STM32MP_M33_TDCID \
+ 		STM32MP_USE_EXTERNAL_HEAP \
+ 		STM32MP21 \
++		STM32MP23 \
+ 		STM32MP25 \
+ )))
+ 
+@@ -193,6 +207,7 @@ $(eval $(call add_defines,\
+ 		STM32MP_M33_TDCID \
+ 		STM32MP_USE_EXTERNAL_HEAP \
+ 		STM32MP21 \
++		STM32MP23 \
+ 		STM32MP25 \
+ )))
+ 
+-- 
+2.53.0
+

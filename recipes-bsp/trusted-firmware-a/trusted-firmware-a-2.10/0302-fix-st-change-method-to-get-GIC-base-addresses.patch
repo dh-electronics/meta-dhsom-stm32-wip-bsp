@@ -1,0 +1,64 @@
+From 086b8ec8e7ef4d08bac478e1614772c2e2aeee1c Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 16 May 2023 17:23:02 +0200
+Subject: [PATCH 302/954] fix(st): change method to get GIC base addresses
+
+GIC DT node structure depends on system architecture, notably around
+"reg" property. A generic way to retrieve base address is needed, to
+make further adaptations easier.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e721645dac164f6a0310fe384a590c788e90092b fix(st): change method to get GIC base addresses]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Ibb47864bd5e8a76a48b9346fdcf87d31281517ce
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/307452
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/stm32mp_gic.c | 10 ++++------
+ 1 file changed, 4 insertions(+), 6 deletions(-)
+
+diff --git a/plat/st/common/stm32mp_gic.c b/plat/st/common/stm32mp_gic.c
+index 0578de306d..196a97b94c 100644
+--- a/plat/st/common/stm32mp_gic.c
++++ b/plat/st/common/stm32mp_gic.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2016-2023, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2016-2023, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -45,25 +45,23 @@ void stm32mp_gic_init(void)
+ 	int node;
+ 	void *fdt;
+ 	const fdt32_t *cuint;
+-	struct dt_node_info dt_gic;
+ 
+ 	if (fdt_get_address(&fdt) == 0) {
+ 		panic();
+ 	}
+ 
+-	node = dt_get_node(&dt_gic, -1, "arm,cortex-a7-gic");
++	node = fdt_node_offset_by_compatible(fdt, -1, "arm,cortex-a7-gic");
+ 	if (node < 0) {
+ 		panic();
+ 	}
+ 
+-	platform_gic_data.gicd_base = dt_gic.base;
+-
+ 	cuint = fdt_getprop(fdt, node, "reg", NULL);
+ 	if (cuint == NULL) {
+ 		panic();
+ 	}
+ 
+-	platform_gic_data.gicc_base = fdt32_to_cpu(*(cuint + 2));
++	platform_gic_data.gicd_base = fdt32_to_cpu(cuint[0]);
++	platform_gic_data.gicc_base = fdt32_to_cpu(cuint[2]);
+ 
+ 	cuint = fdt_getprop(fdt, node, "#interrupt-cells", NULL);
+ 	if (cuint == NULL) {
+-- 
+2.53.0
+

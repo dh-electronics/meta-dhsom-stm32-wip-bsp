@@ -1,0 +1,126 @@
+From fb2ebf3707c7f41749ced1ed0f88e48cd8a7e7f4 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 16 Nov 2023 11:32:54 +0100
+Subject: [PATCH 414/954] feat(stm32mp2): verify power mode for suspend request
+
+Verify the activated interrupts on EXTI1 in
+stm32_get_sys_suspend_power_state() to select the possible low power mode.
+- LPLV-STOP2 if PVM or PVD interruption is activated
+- LP-STOP2 if any other interruption is activated, except the PWR WKUP
+  interruptions with direct wakeup capabability
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ba261773ac4c2573daf0c19c0d53999876b8c406 feat(stm32mp2): verify power mode for suspend request]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I3c70e0c029f008757a6e96e0bd4ec0d494cee659
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/332147
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/include/platform_def.h |  1 +
+ plat/st/stm32mp2/stm32mp2_def.h         | 22 ++++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_pm.c          | 31 ++++++++++++++++++++-----
+ 3 files changed, 48 insertions(+), 6 deletions(-)
+
+diff --git a/plat/st/stm32mp2/include/platform_def.h b/plat/st/stm32mp2/include/platform_def.h
+index 3c0ff97464..fb23155902 100644
+--- a/plat/st/stm32mp2/include/platform_def.h
++++ b/plat/st/stm32mp2/include/platform_def.h
+@@ -34,6 +34,7 @@
+ #define PLATFORM_MAX_CPUS_PER_CLUSTER	U(2)
+ 
+ #define PLAT_MAX_PWR_LVL		U(4)
++#define PLAT_MIN_SUSPEND_PWR_LVL	U(2)
+ #define PLAT_NUM_PWR_DOMAINS		U(6)
+ 
+ /* Local power state for power domains in Run state. */
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 476fd160ee..a29df0454f 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -241,6 +241,28 @@ enum ddr_type {
+  ******************************************************************************/
+ #define PWR_BASE				U(0x44210000)
+ 
++/*******************************************************************************
++ * STM32MP2 EXTI1
++ ******************************************************************************/
++#define STM32MP_EXTI1_BASE		U(0x44220000)
++
++/* EXTI1 CPU1 wake-up with interrupt mask register */
++#define EXTI1_C1IMR1			U(0x80)
++#define EXTI1_C1IMR2			U(0x90)
++#define EXTI1_C1IMR3			U(0xA0)
++
++#define EXTI1_C1IMR1_PVD		BIT(16)
++#define EXTI1_C1IMR1_PVM		BIT(17)
++
++#define EXTI1_C1IMR2_WKUP1		BIT(52 - 32)
++#define EXTI1_C1IMR2_WKUP2		BIT(53 - 32)
++#define EXTI1_C1IMR2_WKUP3		BIT(54 - 32)
++#define EXTI1_C1IMR2_WKUP4		BIT(55 - 32)
++#define EXTI1_C1IMR2_WKUP5		BIT(56 - 32)
++#define EXTI1_C1IMR2_WKUP6		BIT(57 - 32)
++
++#define EXTI1_C1IMR2_WKUP_MASK		GENMASK_32(57 - 32, 52 - 32)
++
+ /*******************************************************************************
+  * STM32MP2 GPIO
+  ******************************************************************************/
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 8effc7ce59..848a48855d 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -754,17 +754,36 @@ plat_local_state_t plat_get_target_pwr_state(unsigned int lvl,
+ static void stm32_get_sys_suspend_power_state(psci_power_state_t *req_state)
+ {
+ 	unsigned int state_id;
++	unsigned int pwr_state, max_pwr_state = PWRSTATE_STANDBY;
+ 	unsigned int i;
++	uintptr_t exti_base = STM32MP_EXTI1_BASE;
++	uint32_t c1imr1 = mmio_read_32(exti_base + EXTI1_C1IMR1);
++	uint32_t c1imr2 = mmio_read_32(exti_base + EXTI1_C1IMR2);
++	uint32_t c1imr3 = mmio_read_32(exti_base + EXTI1_C1IMR3);
+ 
+-	/* Search the max supported modes */
++	/* Verify the max level supported according to the activated EXTI1 */
++	if ((c1imr1 & (EXTI1_C1IMR1_PVD | EXTI1_C1IMR1_PVM)) != 0U) {
++		max_pwr_state = PWRSTATE_LPLV_STOP2;
++		VERBOSE("%s: max_pwr_state = PWRSTATE_LPLV_STOP2 C1IMR1=%x\n", __func__, c1imr1);
++	}
++
++	/* Wake-up pin are connected directly to PWR */
++	if (((c1imr1 & ~(EXTI1_C1IMR1_PVD | EXTI1_C1IMR1_PVM)) != 0U) ||
++	    ((c1imr2 & ~EXTI1_C1IMR2_WKUP_MASK) != 0U) || (c1imr3 != 0U)) {
++		max_pwr_state = PWRSTATE_LP_STOP2;
++		VERBOSE("%s: max_pwr_state = PWRSTATE_LP_STOP2, C1IMR1=%x, C1IMR2=%x, C1IMR3=%x\n",
++			__func__, c1imr1, c1imr2, c1imr3);
++	}
++
++	/* Search the max supported POWERDOWN modes  <= max_pwr_state */
+ 	for (i = ARRAY_SIZE(stm32mp_supported_pwr_states) - 1U; i > 0U; i--) {
+-		if ((stm32mp_supported_pwr_states[i] != 0U) &&
+-		    (psci_get_pstate_type(stm32mp_supported_pwr_states[i]) ==
+-		     PSTATE_TYPE_POWERDOWN)) {
++		pwr_state = stm32mp_supported_pwr_states[i];
++		if ((pwr_state != 0U) && (pwr_state <= max_pwr_state) &&
++		    (psci_get_pstate_type(pwr_state) == PSTATE_TYPE_POWERDOWN)) {
+ 			break;
+ 		}
+ 	}
+-	state_id = psci_get_pstate_id(stm32mp_supported_pwr_states[i]);
++	state_id = psci_get_pstate_id(pwr_state);
+ 
+ 	/* Parse the State ID and populate the state info parameter */
+ 	for (i = 0U; i <= PLAT_MAX_PWR_LVL; i++) {
+@@ -844,7 +863,7 @@ static int stm32_parse_domain_idle_state(void)
+ 
+ 		domain_idle_states[i++] = power_state;
+ 
+-		/* check array size */
++		/* Check array size */
+ 		if (i > ARRAY_SIZE(domain_idle_states)) {
+ 			return -E2BIG;
+ 		}
+-- 
+2.53.0
+

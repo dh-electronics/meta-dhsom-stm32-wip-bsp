@@ -1,0 +1,88 @@
+From 322dc7fb775da9ffc341bb9c3904e8ef416eae7c Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 18 Jan 2023 14:21:00 +0100
+Subject: [PATCH 246/954] feat(stm32mp2): map SRAM2 for MbedTLS heap
+
+MbedTLS heap won't feat in SYSRAM when enabling TRUSTED_BOARD_BOOT.
+It is then put in SRAM2. This memory has to be mapped in BL2, and
+have the correct permissions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 28f996718440cd95b3e5e450ecbd6dde6db71fce feat(stm32mp2): map SRAM2 for MbedTLS heap]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ie8a8b442743011c2413b618c80a687e7afb97423
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/285740
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c   | 4 +++-
+ plat/st/stm32mp2/stm32mp2_private.c | 6 ++++--
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index a9ceaead49..cabefedf8c 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -256,7 +256,7 @@ skip_console_init:
+ 	 */
+ 	mmio_write_32(RISAB3_BASE + RISAB_CR, RISAB_CR_SRWIAD);
+ #endif
+-#if STM32MP_USB_PROGRAMMER
++#if STM32MP_USB_PROGRAMMER || TRUSTED_BOARD_BOOT
+ 	/* Enabling SRAM2 clock is not needed as it is a critical clock */
+ 	/*
+ 	 * RISAB4 setup (dedicated for SRAM2)
+@@ -267,6 +267,7 @@ skip_console_init:
+ 	 */
+ 	mmio_write_32(RISAB4_BASE + RISAB_CR, RISAB_CR_SRWIAD);
+ 
++#if STM32MP_USB_PROGRAMMER
+ 	/*
+ 	 * Set USB3DR Peripheriphal accesses to Secure/Privilege only
+ 	 */
+@@ -278,6 +279,7 @@ skip_console_init:
+ 	 */
+ 	mmio_write_32(RIFSC_BASE + _RIFSC_RIMC_ATTR(RIMU_USB3DR), RIFSC_USB_BOOT_USBDR_RIMC_CONF);
+ #endif /* STM32MP_USB_PROGRAMMER */
++#endif /* STM32MP_USB_PROGRAMMER || TRUSTED_BOARD_BOOT */
+ 
+ 	if (stm32mp2_pwr_init_io_domains() != 0) {
+ 		panic();
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 2a523e9662..5f3f6dce7d 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -44,6 +44,7 @@
+ 					MT_RW | \
+ 					MT_SECURE | \
+ 					MT_EXECUTE_NEVER)
++#endif
+ 
+ #define MAP_SRAM2	MAP_REGION_FLAT(SRAM2_BASE, \
+ 					SRAM2_SIZE, \
+@@ -51,7 +52,6 @@
+ 					MT_RW | \
+ 					MT_SECURE | \
+ 					MT_EXECUTE_NEVER)
+-#endif
+ 
+ /* Non-secure SYSRAM is used a uncached memory for SCMI message transfer */
+ #define MAP_NS_SYSRAM	MAP_REGION_FLAT(STM32MP_NS_SYSRAM_BASE, \
+@@ -80,11 +80,13 @@ static const mmap_region_t stm32mp2_mmap[] = {
+ #if STM32MP_USB_PROGRAMMER
+ 	MAP_SEC_SYSRAM,
+ 	MAP_SEC_DEVICE_SYSRAM,
+-	MAP_SRAM2,
+ #else
+ 	MAP_SYSRAM,
+ #endif
+ 	MAP_SRAM1,
++#if STM32MP_USB_PROGRAMMER || TRUSTED_BOARD_BOOT
++	MAP_SRAM2,
++#endif
+ 	MAP_DEVICE,
+ 	{0}
+ };
+-- 
+2.53.0
+

@@ -1,0 +1,115 @@
+From 683b7dd9063be8a24b8e89a0f77378671f849e4d Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 28 Feb 2023 15:57:51 +0100
+Subject: [PATCH 291/954] feat(stm32mp2): add stm32mp_gic_cpuif_enable/disable
+
+Add function to enable and disable GIC dispatcher when it is necessary
+in pm functions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 2142ebff7cf4d576023704eaa92ee5d32b9034d7 feat(stm32mp2): add stm32mp_gic_cpuif_enable/disable]
+Change-Id: I2fe22b3728577d3fc1292e7db7afe7183aa3fc9a
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/293162
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/include/stm32mp_common.h |  2 ++
+ plat/st/common/stm32mp_gic.c            | 12 +++++++++++-
+ plat/st/stm32mp1/stm32mp1_pm.c          |  1 +
+ plat/st/stm32mp2/stm32mp2_pm.c          |  9 ++++++---
+ 4 files changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 8e7c1ca73d..09907d35ac 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -44,6 +44,8 @@ uintptr_t stm32mp_pwr_base(void);
+ /* Return the base address of the RCC peripheral */
+ uintptr_t stm32mp_rcc_base(void);
+ 
++void stm32mp_gic_cpuif_enable(void);
++void stm32mp_gic_cpuif_disable(void);
+ void stm32mp_gic_pcpu_init(void);
+ void stm32mp_gic_init(void);
+ 
+diff --git a/plat/st/common/stm32mp_gic.c b/plat/st/common/stm32mp_gic.c
+index d02b635a89..0578de306d 100644
+--- a/plat/st/common/stm32mp_gic.c
++++ b/plat/st/common/stm32mp_gic.c
+@@ -81,11 +81,21 @@ void stm32mp_gic_init(void)
+ 	gicv2_distif_init();
+ 
+ 	stm32mp_gic_pcpu_init();
++	gicv2_cpuif_enable();
++}
++
++void stm32mp_gic_cpuif_enable(void)
++{
++	gicv2_cpuif_enable();
++}
++
++void stm32mp_gic_cpuif_disable(void)
++{
++	gicv2_cpuif_disable();
+ }
+ 
+ void stm32mp_gic_pcpu_init(void)
+ {
+ 	gicv2_pcpu_distif_init();
+ 	gicv2_set_pe_target_mask(plat_my_core_pos());
+-	gicv2_cpuif_enable();
+ }
+diff --git a/plat/st/stm32mp1/stm32mp1_pm.c b/plat/st/stm32mp1/stm32mp1_pm.c
+index ff2218fd31..620dde1b0d 100644
+--- a/plat/st/stm32mp1/stm32mp1_pm.c
++++ b/plat/st/stm32mp1/stm32mp1_pm.c
+@@ -119,6 +119,7 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ static void stm32_pwr_domain_on_finish(const psci_power_state_t *target_state)
+ {
+ 	stm32mp_gic_pcpu_init();
++	stm32mp_gic_cpuif_enable();
+ 
+ 	write_cntfrq_el0(cntfrq_core0);
+ }
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 45e5f7d6dd..881ad957a2 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -88,12 +88,14 @@ static int stm32_pwr_domain_on(u_register_t mpidr)
+ 
+ static void stm32_pwr_domain_off(const psci_power_state_t *target_state)
+ {
+-	/* Nothing to do */
++	/* Prevent interrupts from spuriously waking up this cpu */
++	stm32mp_gic_cpuif_disable();
+ }
+ 
+ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ {
+-	/* Nothing to do, power domain is not disabled */
++	/* Prevent interrupts from spuriously waking up this cpu */
++	stm32mp_gic_cpuif_disable();
+ }
+ 
+ /*******************************************************************************
+@@ -118,6 +120,7 @@ static void stm32_pwr_domain_on_finish(const psci_power_state_t *target_state)
+ 	}
+ 
+ 	stm32mp_gic_pcpu_init();
++	stm32mp_gic_cpuif_enable();
+ }
+ 
+ /*******************************************************************************
+@@ -128,7 +131,7 @@ static void stm32_pwr_domain_on_finish(const psci_power_state_t *target_state)
+ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 					    *target_state)
+ {
+-	/* Nothing to do, power domain is not disabled */
++	stm32mp_gic_cpuif_enable();
+ }
+ 
+ static void __dead2 stm32_pwr_domain_pwr_down_wfi(const psci_power_state_t
+-- 
+2.53.0
+

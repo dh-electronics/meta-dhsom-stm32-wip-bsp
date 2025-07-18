@@ -1,0 +1,159 @@
+From 63ba02b39b28189c5aec8e1f638144c7d0e3e911 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 20 Jun 2023 18:46:41 +0200
+Subject: [PATCH 318/954] feat(st-clock): add stm32mp2 pll1 functions for
+ stm32mp2 low power
+
+Add the functions stm32mp2_pll1_enable() and stm32mp2_pll1_disable(),
+required by BL31 low power function to manage STOP2 modes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ddaae63ccc8e5356af51bbba4c3d150beec0b918 feat(st-clock): add stm32mp2 pll1 functions for stm32mp2 low power]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/316622
+Change-Id: I05ac50c6f7b6012d9a5ee3ca406266a45b421a62
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/392690
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/clk/stm32mp2_clk.c     | 78 +++++++++++++++++++++++++------
+ include/drivers/st/stm32mp2_clk.h |  2 +
+ 2 files changed, 65 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/st/clk/stm32mp2_clk.c b/drivers/st/clk/stm32mp2_clk.c
+index f0c339b6b9..f950bd8e75 100644
+--- a/drivers/st/clk/stm32mp2_clk.c
++++ b/drivers/st/clk/stm32mp2_clk.c
+@@ -23,6 +23,11 @@
+ #include <platform_def.h>
+ #include "clk-stm32-core.h"
+ 
++#ifdef IMAGE_BL31
++uint32_t saved_pll_freq1_reg;
++uint32_t saved_pll_freq2_reg;
++#endif
++
+ struct stm32_osci_dt_cfg {
+ 	unsigned long freq;
+ 	bool bypass;
+@@ -1150,21 +1155,6 @@ enum clksrc_id {
+ 	CLKSRC_NB
+ };
+ 
+-#ifdef IMAGE_BL2
+-static void stm32mp2_clk_muxsel_on_hsi(struct stm32_clk_priv *priv)
+-{
+-
+-	mmio_clrbits_32(priv->base + RCC_MUXSELCFGR,
+-			RCC_MUXSELCFGR_MUXSEL0_MASK |
+-			RCC_MUXSELCFGR_MUXSEL1_MASK |
+-			RCC_MUXSELCFGR_MUXSEL2_MASK |
+-			RCC_MUXSELCFGR_MUXSEL3_MASK |
+-			RCC_MUXSELCFGR_MUXSEL4_MASK |
+-			RCC_MUXSELCFGR_MUXSEL5_MASK |
+-			RCC_MUXSELCFGR_MUXSEL6_MASK |
+-			RCC_MUXSELCFGR_MUXSEL7_MASK);
+-}
+-
+ static void stm32mp2_a35_ss_on_hsi(void)
+ {
+ 	uintptr_t a35_ss_address = A35SSC_BASE;
+@@ -1192,6 +1182,21 @@ static void stm32mp2_a35_ss_on_hsi(void)
+ 	mmio_clrbits_32(pll_enable_reg, A35_SS_PLL_ENABLE_NRESET_SWPLL_FF);
+ }
+ 
++#ifdef IMAGE_BL2
++static void stm32mp2_clk_muxsel_on_hsi(struct stm32_clk_priv *priv)
++{
++
++	mmio_clrbits_32(priv->base + RCC_MUXSELCFGR,
++			RCC_MUXSELCFGR_MUXSEL0_MASK |
++			RCC_MUXSELCFGR_MUXSEL1_MASK |
++			RCC_MUXSELCFGR_MUXSEL2_MASK |
++			RCC_MUXSELCFGR_MUXSEL3_MASK |
++			RCC_MUXSELCFGR_MUXSEL4_MASK |
++			RCC_MUXSELCFGR_MUXSEL5_MASK |
++			RCC_MUXSELCFGR_MUXSEL6_MASK |
++			RCC_MUXSELCFGR_MUXSEL7_MASK);
++}
++
+ static void stm32mp2_clk_xbar_on_hsi(struct stm32_clk_priv *priv)
+ {
+ 	uintptr_t xbar0cfgr = priv->base + RCC_XBAR0CFGR;
+@@ -1203,6 +1208,7 @@ static void stm32mp2_clk_xbar_on_hsi(struct stm32_clk_priv *priv)
+ 				   XBAR_SRC_HSI);
+ 	}
+ }
++#endif /* IMAGE_BL2 */
+ 
+ /* TODO: MOVE THIS FUNCTION A35 ONLY */
+ static int stm32mp2_a35_pll1_start(void)
+@@ -1242,6 +1248,7 @@ static int stm32mp2_a35_pll1_start(void)
+ 	return 0;
+ }
+ 
++#ifdef IMAGE_BL2
+ static void stm32mp2_a35_pll1_config(uint32_t fbdiv, uint32_t refdiv, uint32_t postdiv1,
+ 				     uint32_t postdiv2)
+ {
+@@ -2192,3 +2199,44 @@ int stm32mp2_clk_init(void)
+ 
+ 	return 0;
+ }
++
++int stm32mp2_pll1_disable(void)
++{
++#ifdef IMAGE_BL2
++	return -EPERM;
++#else
++	const uintptr_t pll_freq1_reg = A35SSC_BASE + A35_SS_PLL_FREQ1;
++	const uintptr_t pll_freq2_reg = A35SSC_BASE + A35_SS_PLL_FREQ2;
++	const uintptr_t pll_enable_reg = A35SSC_BASE + A35_SS_PLL_ENABLE;
++
++	saved_pll_freq1_reg = mmio_read_32(pll_freq1_reg);
++	saved_pll_freq2_reg = mmio_read_32(pll_freq2_reg);
++
++	stm32mp2_a35_ss_on_hsi();
++
++	mmio_clrbits_32(pll_enable_reg, A35_SS_PLL_ENABLE_PD);
++
++	return 0;
++#endif
++}
++
++int stm32mp2_pll1_enable(void)
++{
++#ifdef IMAGE_BL2
++	return -EPERM;
++#else
++	int ret;
++	const uintptr_t pll_freq1_reg = A35SSC_BASE + A35_SS_PLL_FREQ1;
++	const uintptr_t pll_freq2_reg = A35SSC_BASE + A35_SS_PLL_FREQ2;
++
++	mmio_write_32(pll_freq1_reg, saved_pll_freq1_reg);
++	mmio_write_32(pll_freq2_reg, saved_pll_freq2_reg);
++
++	ret = stm32mp2_a35_pll1_start();
++	if (ret != 0) {
++		panic();
++	}
++
++	return 0;
++#endif
++}
+diff --git a/include/drivers/st/stm32mp2_clk.h b/include/drivers/st/stm32mp2_clk.h
+index f8fc67d0e6..e11119ce2f 100644
+--- a/include/drivers/st/stm32mp2_clk.h
++++ b/include/drivers/st/stm32mp2_clk.h
+@@ -39,5 +39,7 @@ enum pll_csg {
+ };
+ 
+ int stm32mp2_clk_init(void);
++int stm32mp2_pll1_disable(void);
++int stm32mp2_pll1_enable(void);
+ 
+ #endif /* STM32MP2_CLK_H */
+-- 
+2.53.0
+

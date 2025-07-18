@@ -1,0 +1,100 @@
+From bf052ca5d000f0fe17458ee1b8ba3c4f9db4d4c9 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 28 Mar 2022 19:26:13 +0200
+Subject: [PATCH 034/954] refactor(st-ddr): create definitions for delays
+
+Replace hard-coded delay values by DDR specific definitions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ca0ccf47b8663bf479ead99b88cc616700c06069 refactor(st-ddr): create definitions for delays]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I48f2c6fc453a4090def7133c695abf1323383edc
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/245948
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp1_ddr.c         | 4 ++--
+ drivers/st/ddr/stm32mp1_ddr_helpers.c | 8 ++++----
+ include/drivers/st/stm32mp_ddr.h      | 4 ++++
+ 3 files changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp1_ddr.c b/drivers/st/ddr/stm32mp1_ddr.c
+index c277f18d32..8926464c66 100644
+--- a/drivers/st/ddr/stm32mp1_ddr.c
++++ b/drivers/st/ddr/stm32mp1_ddr.c
+@@ -266,7 +266,7 @@ static void stm32mp1_ddrphy_init(struct stm32mp_ddrphy *phy, uint32_t pir)
+ 		mmio_read_32((uintptr_t)&phy->pir));
+ 
+ 	/* Need to wait 10 configuration clock before start polling */
+-	udelay(10);
++	udelay(DDR_DELAY_10US);
+ 
+ 	/* Wait DRAM initialization and Gate Training Evaluation complete */
+ 	stm32mp1_ddrphy_idone_wait(phy);
+@@ -732,7 +732,7 @@ void stm32mp1_ddr_init(struct stm32mp_ddr_priv *priv,
+ 	mmio_clrbits_32(priv->rcc + RCC_DDRITFCR, RCC_DDRITFCR_DDRCAPBRST);
+ 
+ 	/* 1.4. wait 128 cycles to permit initialization of end logic */
+-	udelay(2);
++	udelay(DDR_DELAY_2US);
+ 	/* For PCLK = 133MHz => 1 us is enough, 2 to allow lower frequency */
+ 
+ 	/* 1.5. initialize registers ddr_umctl2 */
+diff --git a/drivers/st/ddr/stm32mp1_ddr_helpers.c b/drivers/st/ddr/stm32mp1_ddr_helpers.c
+index 17e14f919b..5adf38f0fc 100644
+--- a/drivers/st/ddr/stm32mp1_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp1_ddr_helpers.c
+@@ -96,7 +96,7 @@ static int ddr_sw_self_refresh_in(void)
+ 	mmio_clrbits_32(ddrphyc_base + DDRPHYC_DSGCR, DDRPHYC_DSGCR_CKOE);
+ 
+ 	/* Additional delay to avoid early latch */
+-	udelay(10);
++	udelay(DDR_DELAY_10US);
+ 
+ 	/* Activate sw retention in PWRCTRL */
+ 	stm32mp_pwr_regs_lock();
+@@ -201,7 +201,7 @@ int ddr_sw_self_refresh_exit(void)
+ #endif
+ 
+ 	/* Additional delay to avoid early DLL clock switch */
+-	udelay(50);
++	udelay(DDR_DELAY_50US);
+ 
+ 	/* Switch controller clocks (uMCTL2/PUBL) to DLL ref clock */
+ 	stm32mp1_clk_rcc_regs_lock();
+@@ -211,7 +211,7 @@ int ddr_sw_self_refresh_exit(void)
+ 	mmio_clrbits_32(ddrphyc_base + DDRPHYC_ACDLLCR,
+ 			DDRPHYC_ACDLLCR_DLLSRST);
+ 
+-	udelay(10);
++	udelay(DDR_DELAY_10US);
+ 
+ 	mmio_setbits_32(ddrphyc_base + DDRPHYC_ACDLLCR,
+ 			DDRPHYC_ACDLLCR_DLLSRST);
+@@ -222,7 +222,7 @@ int ddr_sw_self_refresh_exit(void)
+ 		      DDRPHYC_PIR_ITMSRST | DDRPHYC_PIR_INIT);
+ 
+ 	/* Need to wait at least 10 clock cycles before accessing PGSR */
+-	udelay(1);
++	udelay(DDR_DELAY_1US);
+ 
+ 	/* Pool end of init */
+ 	timeout = timeout_init_us(DDR_TIMEOUT_500US);
+diff --git a/include/drivers/st/stm32mp_ddr.h b/include/drivers/st/stm32mp_ddr.h
+index 83a7994b46..f19dfa189a 100644
+--- a/include/drivers/st/stm32mp_ddr.h
++++ b/include/drivers/st/stm32mp_ddr.h
+@@ -57,6 +57,10 @@ struct stm32mp_ddr_info {
+ 	size_t size;    /* Memory size in byte = col * row * width */
+ };
+ 
++#define DDR_DELAY_1US		1U
++#define DDR_DELAY_2US		2U
++#define DDR_DELAY_10US		10U
++#define DDR_DELAY_50US		50U
+ #define DDR_TIMEOUT_500US	500U
+ #define DDR_TIMEOUT_US_1S	1000000U
+ 
+-- 
+2.53.0
+

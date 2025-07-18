@@ -1,0 +1,662 @@
+From d36b1bb3aa866e4b25902df11c35e7913d95a4f8 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 22 May 2019 19:20:53 +0200
+Subject: [PATCH 102/954] feat(st-bsec): add driver for the new IP version
+ BSEC3
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git de351ce73990e511ce96aa3aec51909c2285860c feat(st-bsec): add driver for the new IP version BSEC3]
+Change-Id: I38ca0db22d06704769c994c6806ccd80b17dde6e
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+---
+ drivers/st/bsec/bsec3.c        | 489 +++++++++++++++++++++++++++++++++
+ include/drivers/st/bsec.h      |  13 +-
+ include/drivers/st/bsec3_reg.h | 103 +++++++
+ 3 files changed, 603 insertions(+), 2 deletions(-)
+ create mode 100644 drivers/st/bsec/bsec3.c
+ create mode 100644 include/drivers/st/bsec3_reg.h
+
+diff --git a/drivers/st/bsec/bsec3.c b/drivers/st/bsec/bsec3.c
+new file mode 100644
+index 0000000000..ce8fa8634f
+--- /dev/null
++++ b/drivers/st/bsec/bsec3.c
+@@ -0,0 +1,489 @@
++/*
++ * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <assert.h>
++#include <limits.h>
++
++#include <libfdt.h>
++
++#include <platform_def.h>
++
++#include <arch_helpers.h>
++#include <common/debug.h>
++#include <drivers/st/bsec.h>
++#include <drivers/st/bsec3_reg.h>
++#include <drivers/st/stm32mp_reset.h>
++#include <lib/mmio.h>
++#include <lib/spinlock.h>
++
++#define BSEC_IP_VERSION_1_0	U(0x10)
++#define BSEC_IP_ID_3		U(0x100033)
++
++#define MAX_NB_TRIES		3U
++
++#define BSEC_DENR_KEY		0xDEB60000
++
++/*
++ * IP configuration
++ */
++#define BSEC_OTP_MASK			GENMASK(4, 0)
++#define BSEC_OTP_BANK_SHIFT		5
++#define BSEC_TIMEOUT_VALUE		0xFFFFFFFFU
++
++static uint32_t otp_bank(uint32_t otp)
++{
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	return (otp & ~BSEC_OTP_MASK) >> BSEC_OTP_BANK_SHIFT;
++}
++
++static uint32_t otp_bit_mask(uint32_t otp)
++{
++	return BIT(otp & BSEC_OTP_MASK);
++}
++
++/*
++ * bsec_get_status: return status register value.
++ */
++static uint32_t bsec_get_status(void)
++{
++	return mmio_read_32(BSEC_BASE + BSEC_OTPSR);
++}
++
++/*
++ * bsec_get_version: return BSEC version.
++ */
++static uint32_t bsec_get_version(void)
++{
++	return mmio_read_32(BSEC_BASE + BSEC_VERR) & BSEC_VERR_MASK;
++}
++
++/*
++ * bsec_get_id: return BSEC ID.
++ */
++static uint32_t bsec_get_id(void)
++{
++	return mmio_read_32(BSEC_BASE + BSEC_IPIDR);
++}
++
++static bool is_fuse_shadowed(uint32_t otp)
++{
++	uint32_t bank = otp_bank(otp);
++	uint32_t otp_mask = otp_bit_mask(otp);
++	uint32_t bank_value;
++
++	bank_value = mmio_read_32(BSEC_BASE + BSEC_SFSR(bank));
++
++	if ((bank_value & otp_mask) != 0U) {
++		return true;
++	}
++
++	return false;
++}
++
++static void poll_otp_status_busy(void)
++{
++	int32_t timeout = BSEC_TIMEOUT_VALUE;
++
++	while (((bsec_get_status() & BSEC_OTPSR_BUSY) != 0U) && (timeout != 0U)) {
++		timeout--;
++	}
++
++	if ((bsec_get_status() & BSEC_OTPSR_BUSY) != 0U) {
++		ERROR("BSEC timeout\n");
++		panic();
++	}
++}
++
++static uint32_t check_read_error(uint32_t otp)
++{
++	uint32_t status = bsec_get_status();
++
++	if ((status & BSEC_OTPSR_SECF) != 0U) {
++		VERBOSE("BSEC read %u single error correction detected\n", otp);
++	}
++
++	if ((status & BSEC_OTPSR_PPLF) != 0U) {
++		VERBOSE("BSEC read %u permanent programming lock detected.\n", otp);
++	}
++
++	if ((status & BSEC_OTPSR_PPLMF) != 0U) {
++		ERROR("BSEC read %u error 0x%x\n", otp, status);
++		return BSEC_ERROR;
++	}
++
++	if ((status & (BSEC_OTPSR_DISTURBF | BSEC_OTPSR_DEDF | BSEC_OTPSR_AMEF)) != 0U) {
++		ERROR("BSEC read %u error 0x%x with invalid FVR\n", otp, status);
++		return BSEC_RETRY;
++	}
++
++	return BSEC_OK;
++}
++
++static uint32_t check_program_error(uint32_t otp)
++{
++	uint32_t status = bsec_get_status();
++
++	if ((status & BSEC_OTPSR_PROGFAIL) != 0U) {
++		ERROR("BSEC program %u error 0x%x\n", otp, status);
++		return BSEC_RETRY;
++	}
++
++	return BSEC_OK;
++}
++
++static void check_reset_error(void)
++{
++	uint32_t status = bsec_get_status();
++
++	/* check initial status reporting */
++	if ((status & BSEC_OTPSR_BUSY) != 0U) {
++		VERBOSE("BSEC reset and busy when OTPSR read\n");
++	}
++	if ((status & BSEC_OTPSR_HIDEUP) != 0U) {
++		VERBOSE("BSEC upper fuse are not accessible (HIDEUP)\n");
++	}
++	if ((status & BSEC_OTPSR_OTPSEC) != 0U) {
++		VERBOSE("BSEC reset single error correction detected\n");
++	}
++	if ((status & BSEC_OTPSR_OTPNVIR) == 0U) {
++		VERBOSE("BSEC reset first fuse word 0 is detected zero\n");
++	}
++	if ((status & BSEC_OTPSR_OTPERR) != 0U) {
++		ERROR("BSEC reset critical error 0x%x\n", status);
++		panic();
++	}
++	if ((status & BSEC_OTPSR_INIT_DONE) != BSEC_OTPSR_INIT_DONE) {
++		ERROR("BSEC reset critical error 0x%x\n", status);
++		panic();
++	}
++}
++
++static bool is_bsec_write_locked(void)
++{
++	return (mmio_read_32(BSEC_BASE + BSEC_LOCKR) & BSEC_LOCKR_GWLOCK_MASK) != 0U;
++}
++
++/*
++ * bsec_probe: initialize BSEC driver.
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_probe(void)
++{
++	if ((bsec_get_version() != BSEC_IP_VERSION_1_0) ||
++	    (bsec_get_id() != BSEC_IP_ID_3)) {
++		ERROR("BSEC probe wrong IP version/ID\n");
++		panic();
++	}
++
++	check_reset_error();
++
++	return BSEC_OK;
++}
++
++/*
++ * bsec_shadow_register: copy SAFMEM OTP to BSEC data.
++ * otp: OTP number.
++ * return value: BSEC_OK if no error.
++ */
++static uint32_t bsec_shadow_register(uint32_t otp)
++{
++	uint32_t result;
++	uint32_t i;
++	bool value;
++
++	result = bsec_read_sr_lock(otp, &value);
++	if (result != BSEC_OK) {
++		WARN("BSEC: %u Sticky-read bit read Error %u\n", otp, result);
++	} else if (value) {
++		VERBOSE("BSEC: OTP %u is locked and will not be refreshed\n", otp);
++	}
++
++	for (i = 0U; i < MAX_NB_TRIES; i++) {
++		mmio_write_32(BSEC_BASE + BSEC_OTPCR, otp);
++
++		poll_otp_status_busy();
++
++		result = check_read_error(otp);
++		if (result != BSEC_RETRY) {
++			break;
++		}
++	}
++
++	return result;
++}
++
++/*
++ * bsec_program_otp: program a bit in SAFMEM after the prog.
++ *	The OTP data is not refreshed.
++ * val: value to program.
++ * otp: OTP number.
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_program_otp(uint32_t val, uint32_t otp)
++{
++	uint32_t result;
++	uint32_t i;
++	bool value;
++
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	if (is_bsec_write_locked() == true) {
++		return BSEC_WRITE_LOCKED;
++	}
++
++	result = bsec_read_sp_lock(otp, &value);
++	if (result != BSEC_OK) {
++		WARN("BSEC: %u Sticky-prog bit read Error %u\n", otp, result);
++	} else if (value) {
++		WARN("BSEC: OTP locked, prog will be ignored\n");
++		return BSEC_WRITE_LOCKED;
++	}
++
++	mmio_write_32(BSEC_BASE + BSEC_WDR, val);
++
++	for (i = 0U; i < MAX_NB_TRIES; i++) {
++		mmio_write_32(BSEC_BASE + BSEC_OTPCR, otp | BSEC_OTPCR_PROG);
++
++		poll_otp_status_busy();
++
++		result = check_program_error(otp);
++		if (result != BSEC_RETRY) {
++			break;
++		}
++	}
++
++	return result;
++}
++
++/*
++ * bsec_read_debug_conf: read debug configuration.
++ */
++uint32_t bsec_read_debug_conf(void)
++{
++	return mmio_read_32(BSEC_BASE + BSEC_DENR);
++}
++
++static uint32_t bsec_lock_register_set(uint32_t offset, uint32_t mask)
++{
++	uint32_t value = mmio_read_32(BSEC_BASE + offset);
++
++	/* The lock is already set */
++	if ((value & mask) != 0U) {
++		return BSEC_OK;
++	}
++
++	if (is_bsec_write_locked()) {
++		return BSEC_WRITE_LOCKED;
++	}
++
++	value |= mask;
++
++	mmio_write_32(BSEC_BASE + offset, value);
++
++	return BSEC_OK;
++}
++
++static bool bsec_lock_register_get(uint32_t offset, uint32_t mask)
++{
++	uint32_t value = mmio_read_32(BSEC_BASE + offset);
++
++	return (value & mask) != 0U;
++}
++
++/*
++ * bsec_set_sr_lock: set shadow-read lock.
++ * otp: OTP number.
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_set_sr_lock(uint32_t otp)
++{
++	uint32_t bank = otp_bank(otp);
++	uint32_t otp_mask = otp_bit_mask(otp);
++
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	return bsec_lock_register_set(BSEC_SRLOCK(bank), otp_mask);
++}
++
++/*
++ * bsec_read_sr_lock: read shadow-read lock.
++ * otp: OTP number.
++ * value: read value (true or false).
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_read_sr_lock(uint32_t otp, bool *value)
++{
++	uint32_t bank = otp_bank(otp);
++	uint32_t otp_mask = otp_bit_mask(otp);
++
++	assert(value != NULL);
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	*value = bsec_lock_register_get(BSEC_SRLOCK(bank), otp_mask);
++
++	return BSEC_OK;
++}
++
++/*
++ * bsec_set_sw_lock: set shadow-write lock.
++ * otp: OTP number.
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_set_sw_lock(uint32_t otp)
++{
++	uint32_t bank = otp_bank(otp);
++	uint32_t otp_mask = otp_bit_mask(otp);
++
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	return bsec_lock_register_set(BSEC_SWLOCK(bank), otp_mask);
++}
++
++/*
++ * bsec_read_sw_lock: read shadow-write lock.
++ * otp: OTP number.
++ * value: read value (true or false).
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_read_sw_lock(uint32_t otp, bool *value)
++{
++	uint32_t bank = otp_bank(otp);
++	uint32_t otp_mask = otp_bit_mask(otp);
++
++	assert(value != NULL);
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	*value = bsec_lock_register_get(BSEC_SWLOCK(bank), otp_mask);
++
++	return BSEC_OK;
++}
++
++/*
++ * bsec_set_sp_lock: set shadow-program lock.
++ * otp: OTP number.
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_set_sp_lock(uint32_t otp)
++{
++	uint32_t bank = otp_bank(otp);
++	uint32_t otp_mask = otp_bit_mask(otp);
++
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	return bsec_lock_register_set(BSEC_SPLOCK(bank), otp_mask);
++}
++
++/*
++ * bsec_read_sp_lock: read shadow-program lock.
++ * otp: OTP number.
++ * value: read value (true or false).
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_read_sp_lock(uint32_t otp, bool *value)
++{
++	uint32_t bank = otp_bank(otp);
++	uint32_t otp_mask = otp_bit_mask(otp);
++
++	assert(value != NULL);
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	*value = bsec_lock_register_get(BSEC_SPLOCK(bank), otp_mask);
++
++	return BSEC_OK;
++}
++
++/*
++ * bsec_get_secure_state: read state in BSEC status register.
++ * return: secure state
++ */
++uint32_t bsec_get_secure_state(void)
++{
++	uint32_t state = BSEC_STATE_INVALID;
++	uint32_t status = bsec_get_status();
++	uint32_t bsec_sr = mmio_read_32(BSEC_BASE + BSEC_SR);
++
++	if ((status & BSEC_OTPSR_INIT_DONE) == BSEC_OTPSR_INIT_DONE) {
++		/* NVSTATE is only valid if INIT_DONE */
++		uint32_t nvstates = (bsec_sr & BSEC_SR_NVSTATE_MASK) >> BSEC_SR_NVSTATE_SHIFT;
++
++		if (nvstates == BSEC_SR_NVSTATE_OPEN)
++			state = BSEC_STATE_SEC_OPEN;
++		else if (nvstates == BSEC_SR_NVSTATE_CLOSED)
++			state = BSEC_STATE_SEC_CLOSED;
++	}
++
++	if ((bsec_sr & BSEC_SR_HVALID) != 0U) {
++		state |= BSEC_HARDWARE_KEY;
++	}
++
++	return state;
++}
++
++/*
++ * bsec_shadow_read_otp: Load OTP from SAFMEM and provide its value
++ * value: read value.
++ * otp: OTP number.
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_shadow_read_otp(uint32_t *value, uint32_t otp)
++{
++	assert(value != NULL);
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	*value = 0U;
++
++	if (is_bsec_write_locked()) {
++		return BSEC_WRITE_LOCKED;
++	}
++
++	if (!is_fuse_shadowed(otp)) {
++		uint32_t result = bsec_shadow_register(otp);
++
++		if (result != BSEC_OK) {
++			ERROR("BSEC: %u Shadowing Error %u\n", otp, result);
++			return result;
++		}
++	}
++
++	*value = mmio_read_32(BSEC_BASE + BSEC_FVR(otp));
++
++	return BSEC_OK;
++}
++
++/*
++ * bsec_read_otp: read an OTP data value.
++ * val: read value.
++ * otp: OTP number.
++ * return value: BSEC_OK if no error.
++ */
++uint32_t bsec_read_otp(uint32_t *val, uint32_t otp)
++{
++	assert(val != NULL);
++	if (otp > STM32MP2_OTP_MAX_ID) {
++		panic();
++	}
++
++	return bsec_shadow_read_otp(val, otp);
++}
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index a96570cf8a..2e9c928fad 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -32,7 +32,6 @@
+ #define BSEC_RETRY			0xFFFFFFF8U
+ #define BSEC_NOT_SUPPORTED		0xFFFFFFF7U
+ #define BSEC_WRITE_LOCKED		0xFFFFFFF6U
+-#define BSEC_ERROR_INVALID_FVR		0xFFFFFFF5U
+ 
+ /*
+  * OTP MODE
+@@ -88,6 +87,16 @@ struct bsec_config {
+ 				 * 1 shadowing of upper OTP is locked
+ 				 * until next reset
+ 				 */
++
++	/* BSEC3 only */
++	uint8_t global_wr_lock;	/*
++				 * BSEC register write lock
++				 * 1 write register is locked until next reset
++				 */
++	uint8_t key_value_lock;	/*
++				 * HWKEY to SAES peripheral lock
++				 * 0 device unique, 1 fixed to 0x0 or invalid
++				 */
+ };
+ 
+ uint32_t bsec_probe(void);
+@@ -121,7 +130,7 @@ uint32_t bsec_set_sp_lock(uint32_t otp);
+ uint32_t bsec_read_sp_lock(uint32_t otp, bool *value);
+ uint32_t bsec_read_permanent_lock(uint32_t otp, bool *value);
+ uint32_t bsec_otp_lock(uint32_t service);
+-
++bool bsec_mode_is_closed_device(void);
+ uint32_t bsec_shadow_read_otp(uint32_t *otp_value, uint32_t word);
+ uint32_t bsec_check_nsec_access_rights(uint32_t otp);
+ 
+diff --git a/include/drivers/st/bsec3_reg.h b/include/drivers/st/bsec3_reg.h
+new file mode 100644
+index 0000000000..9156b1f36f
+--- /dev/null
++++ b/include/drivers/st/bsec3_reg.h
+@@ -0,0 +1,103 @@
++/*
++ * Copyright (c) 2022-2024, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef BSEC3_REG_H
++#define BSEC3_REG_H
++
++#include <lib/utils_def.h>
++
++/* BSEC REGISTER OFFSET (base relative) */
++#define BSEC_FVR(x)			(U(0x000) + 4U * (x))
++#define BSEC_SPLOCK(x)			(U(0x800) + 4U * (x))
++#define BSEC_SWLOCK(x)			(U(0x840) + 4U * (x))
++#define BSEC_SRLOCK(x)			(U(0x880) + 4U * (x))
++#define BSEC_OTPVLDR(x)			(U(0x8C0) + 4U * (x))
++#define BSEC_SFSR(x)			(U(0x940) + 4U * (x))
++#define BSEC_OTPCR			U(0xC04)
++#define BSEC_WDR			U(0xC08)
++#define BSEC_SCRATCHR0			U(0xE00)
++#define BSEC_SCRATCHR1			U(0xE04)
++#define BSEC_SCRATCHR2			U(0xE08)
++#define BSEC_SCRATCHR3			U(0xE0C)
++#define BSEC_LOCKR			U(0xE10)
++#define BSEC_JTAGINR			U(0xE14)
++#define BSEC_JTAGOUTR			U(0xE18)
++#define BSEC_DENR			U(0xE20)
++#define BSEC_UNMAPR			U(0xE24)
++#define BSEC_SR				U(0xE40)
++#define BSEC_OTPSR			U(0xE44)
++#define BSEC_WRCR			U(0xF00)
++#define BSEC_HWCFGR			U(0xFF0)
++#define BSEC_VERR			U(0xFF4)
++#define BSEC_IPIDR			U(0xFF8)
++#define BSEC_SIDR			U(0xFFC)
++
++/* BSEC_OTPCR register fields */
++#define BSEC_OTPCR_ADDR_MASK		GENMASK_32(8, 0)
++#define BSEC_OTPCR_ADDR_SHIFT		0
++#define BSEC_OTPCR_PROG			BIT(13)
++#define BSEC_OTPCR_PPLOCK		BIT(14)
++#define BSEC_OTPCR_LASTCID_MASK		GENMASK_32(21, 19)
++#define BSEC_OTPCR_LASTCID_SHIFT	19
++
++/* BSEC_LOCKR register fields */
++#define BSEC_LOCKR_GWLOCK_MASK		BIT(0)
++#define BSEC_LOCKR_GWLOCK_SHIFT		0
++#define BSEC_LOCKR_DENLOCK_MASK		BIT(1)
++#define BSEC_LOCKR_DENLOCK_SHIFT	1
++#define BSEC_LOCKR_HKLOCK_MASK		BIT(2)
++#define BSEC_LOCKR_HKLOCK_SHIFT		2
++
++/* BSEC_DENR register fields */
++#define BSEC_DENR_LPDBGEN		BIT(0)
++#define BSEC_DENR_DBGENA		BIT(1)
++#define BSEC_DENR_NIDENA		BIT(2)
++#define BSEC_DENR_DEVICEEN		BIT(3)
++#define BSEC_DENR_HDPEN			BIT(4)
++#define BSEC_DENR_SPIDENA		BIT(5)
++#define BSEC_DENR_SPNIDENA		BIT(6)
++#define BSEC_DENR_DBGSWEN		BIT(7)
++#define BSEC_DENR_DBGENM		BIT(8)
++#define BSEC_DENR_NIDENM		BIT(9)
++#define BSEC_DENR_SPIDENM		BIT(10)
++#define BSEC_DENR_SPNIDENM		BIT(11)
++#define BSEC_DENR_CFGSDIS		BIT(12)
++#define BSEC_DENR_CP15SDIS_MASK		GENMASK_32(14, 13)
++#define BSEC_DENR_CP15SDIS_SHIFT	13
++#define BSEC_DENR_LPDBGDIS		BIT(15)
++#define BSEC_DENR_ALL_MSK		GENMASK_32(15, 0)
++
++/* BSEC_SR register fields */
++#define BSEC_SR_BUSY			BIT(0)
++#define BSEC_SR_HVALID			BIT(1)
++#define BSEC_SR_RNGERR			BIT(2)
++#define BSEC_SR_HKWW_MASK		GENMASK_32(15, 8)
++#define BSEC_SR_HKWW_SHIFT		8
++#define BSEC_SR_NVSTATE_MASK		GENMASK_32(31, 26)
++#define BSEC_SR_NVSTATE_SHIFT		26
++#define BSEC_SR_NVSTATE_OPEN		U(0x16)
++#define BSEC_SR_NVSTATE_CLOSED		U(0x0D)
++#define BSEC_SR_NVSTATE_OTP_LOCKED	U(0x23)
++
++/* BSEC_OTPSR register fields */
++#define BSEC_OTPSR_BUSY			BIT(0)
++#define BSEC_OTPSR_INIT_DONE		BIT(1)
++#define BSEC_OTPSR_HIDEUP		BIT(2)
++#define BSEC_OTPSR_OTPNVIR		BIT(4)
++#define BSEC_OTPSR_OTPERR		BIT(5)
++#define BSEC_OTPSR_OTPSEC		BIT(6)
++#define BSEC_OTPSR_PROGFAIL		BIT(16)
++#define BSEC_OTPSR_DISTURBF		BIT(17)
++#define BSEC_OTPSR_DEDF			BIT(18)
++#define BSEC_OTPSR_SECF			BIT(19)
++#define BSEC_OTPSR_PPLF			BIT(20)
++#define BSEC_OTPSR_PPLMF		BIT(21)
++#define BSEC_OTPSR_AMEF			BIT(22)
++
++/* BSEC_VERR register fields */
++#define BSEC_VERR_MASK			GENMASK_32(7, 0)
++
++#endif /* BSEC3_REG_H */
+-- 
+2.53.0
+

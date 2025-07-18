@@ -1,0 +1,66 @@
+From e858d840ab4d9bba44ebce67e421a71e75dc2010 Mon Sep 17 00:00:00 2001
+From: Gabriel FERNANDEZ <gabriel.fernandez@st.com>
+Date: Thu, 20 Nov 2025 17:50:17 +0100
+Subject: [PATCH 935/954] feat(st-clk): increase startup timeout for
+ oscillators for STM32MP2
+
+The startup timeout for oscillators has been increased to accommodate
+the maximum startup time of 2 seconds, as specified in the datasheet.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 89a7cef8d2a78376054d6907d907304b37caed37 feat(st-clk): increase startup timeout for oscillators for STM32MP2]
+Signed-off-by: Gabriel FERNANDEZ <gabriel.fernandez@st.com>
+Change-Id: I138a24403f7563534a3fd89667084890f19d8b00
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/511135
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Tested-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+---
+ drivers/st/clk/clk-stm32-core.c | 4 ++--
+ drivers/st/clk/clk-stm32mp2.c   | 2 --
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32-core.c b/drivers/st/clk/clk-stm32-core.c
+index b919ae6747..8c2f5a96a7 100644
+--- a/drivers/st/clk/clk-stm32-core.c
++++ b/drivers/st/clk/clk-stm32-core.c
+@@ -17,7 +17,7 @@
+ #include <lib/spinlock.h>
+ 
+ #define TIMEOUT_US_200MS	U(200000)
+-#define TIMEOUT_US_1S		U(1000000)
++#define TIMEOUT_US_2S		U(2000000)
+ #define CLKSRC_TIMEOUT		TIMEOUT_US_200MS
+ 
+ static struct spinlock reg_lock;
+@@ -756,7 +756,7 @@ int _clk_stm32_gate_wait_ready(struct stm32_clk_priv *priv, uint16_t gate_id,
+ 		mask_test = 0U;
+ 	}
+ 
+-	timeout = timeout_init_us(TIMEOUT_US_1S);
++	timeout = timeout_init_us(TIMEOUT_US_2S);
+ 
+ 	while ((mmio_read_32(address) & mask_rdy) != mask_test) {
+ 		if (timeout_elapsed(timeout)) {
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index 8a34960394..159af0d7b3 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -107,12 +107,10 @@ static struct stm32_pll1_cfgs pll1_cfgs;
+ #define A35_SS_PLL_ENABLE_NRESET_SWPLL_FF	BIT(2)
+ 
+ #define TIMEOUT_US_200MS	U(200000)
+-#define TIMEOUT_US_1S		U(1000000)
+ 
+ #define PLLRDY_TIMEOUT		TIMEOUT_US_200MS
+ #define CLKSRC_TIMEOUT		TIMEOUT_US_200MS
+ #define CLKDIV_TIMEOUT		TIMEOUT_US_200MS
+-#define OSCRDY_TIMEOUT		TIMEOUT_US_1S
+ 
+ /* PLL minimal frequencies for clock sources */
+ #define PLL_REFCLK_MIN			UL(5000000)
+-- 
+2.53.0
+

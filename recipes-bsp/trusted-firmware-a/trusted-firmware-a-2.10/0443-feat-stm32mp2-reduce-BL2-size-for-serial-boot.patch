@@ -1,0 +1,47 @@
+From ad4e047417fcabf7e6dfb4aa3e3ec71b7ec0a223 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 18 Dec 2023 17:55:12 +0100
+Subject: [PATCH 443/954] feat(stm32mp2): reduce BL2 size for serial boot
+
+Now that we've removed some low-power code in BL2 when booting from
+serial peripheral (USB or UART), we can reduce STM32MP_BL2_RO_SIZE and
+STM32MP_BL2_SIZE by 4kB.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4fe0e55b3ecc1ce12a541d72213ae8191b0daca7 feat(stm32mp2): reduce BL2 size for serial boot]
+Change-Id: Icd97bdb3bc4d1f921f07abe8db241414642ad6f7
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/347574
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 2ac5d4e525..d00d309993 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -143,11 +143,21 @@ enum ddr_type {
+ #define STM32MP_BL31_SIZE		U(0x0001F000)	/* 124 KB for BL31 */
+ 
+ #if TRUSTED_BOARD_BOOT
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++#define STM32MP_BL2_RO_SIZE		U(0x00021000)	/* 132 KB */
++#define STM32MP_BL2_SIZE		U(0x0002C000)	/* 176 KB for BL2 */
++#else /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ #define STM32MP_BL2_RO_SIZE		U(0x00021000)	/* 132 KB */
+ #define STM32MP_BL2_SIZE		U(0x0002D000)	/* 180 KB for BL2 */
++#endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ #else
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++#define STM32MP_BL2_RO_SIZE		U(0x0001F000)	/* 124 KB */
++#define STM32MP_BL2_SIZE		U(0x00028000)	/* 160 KB for BL2 */
++#else /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ #define STM32MP_BL2_RO_SIZE		U(0x00020000)	/* 128 KB */
+ #define STM32MP_BL2_SIZE		U(0x00029000)	/* 164 KB for BL2 */
++#endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ #endif
+ 
+ #define STM32MP_BL2_BASE		(STM32MP_SEC_SYSRAM_BASE + \
+-- 
+2.53.0
+

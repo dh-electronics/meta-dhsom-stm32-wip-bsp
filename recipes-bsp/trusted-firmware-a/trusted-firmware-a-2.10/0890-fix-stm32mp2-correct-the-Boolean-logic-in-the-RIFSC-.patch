@@ -1,0 +1,72 @@
+From 9c1a38eb9cd40c79f36178804a5ace4720ae68fe Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Wed, 3 Sep 2025 10:58:32 +0200
+Subject: [PATCH 890/954] fix(stm32mp2): correct the Boolean logic in the RIFSC
+ driver.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Boolean logic was false in driver. Also update peripheral list.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1dc7d0c73e6b4bd6cd6a2169d2dd6e23608cd474 fix(stm32mp2): correct the Boolean logic in the RIFSC driver.]
+Change-Id: I03ee4d2ff79965a7fc4a0a5a96237530543a178d
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/486686
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/rif/stm32_rifsc.c | 19 +++++--------------
+ 1 file changed, 5 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/st/rif/stm32_rifsc.c b/drivers/st/rif/stm32_rifsc.c
+index e7c0919268..4cea1ac964 100644
+--- a/drivers/st/rif/stm32_rifsc.c
++++ b/drivers/st/rif/stm32_rifsc.c
+@@ -18,22 +18,13 @@
+ 
+ static unsigned long rifsc_periph[] = {
+ #if STM32MP21
+-	STM32MP21_RIFSC_RNG2_ID,
+-	STM32MP21_RIFSC_PKA_ID,
+-	STM32MP21_RIFSC_SAES_ID,
+-	STM32MP21_RIFSC_HASH1_ID,
++	STM32MP21_RIFSC_CRYP1_ID,
+ #endif /* STM32MP21 */
+ #if STM32MP23
+-	STM32MP23_RIFSC_RNG_ID,
+-	STM32MP23_RIFSC_PKA_ID,
+-	STM32MP23_RIFSC_SAES_ID,
+-	STM32MP23_RIFSC_HASH_ID,
++	STM32MP23_RIFSC_CRYP1_ID,
+ #endif /* STM32MP23 */
+ #if STM32MP25
+-	STM32MP25_RIFSC_RNG_ID,
+-	STM32MP25_RIFSC_PKA_ID,
+-	STM32MP25_RIFSC_SAES_ID,
+-	STM32MP25_RIFSC_HASH_ID,
++	STM32MP25_RIFSC_CRYP1_ID,
+ #endif /* STM32MP25 */
+ };
+ 
+@@ -120,7 +111,7 @@ int stm32_rifsc_semaphore_init(void)
+ 
+ 		if (!(((cidcfgr & _RIFSC_CIDCFGR_CFEN) != 0U) &&
+ 		      ((cidcfgr & _RIFSC_CIDCFGR_SEM_EN) != 0U) &&
+-		      ((sem_wl & RIF_CID1_BF) != RIF_CID1_BF))) {
++		      ((sem_wl & RIF_CID1_BF) == RIF_CID1_BF))) {
+ 			continue;
+ 		}
+ 
+@@ -155,7 +146,7 @@ int stm32_rifsc_semaphore_exit(void)
+ 
+ 		if (!(((cidcfgr & _RIFSC_CIDCFGR_CFEN) != 0U) &&
+ 		      ((cidcfgr & _RIFSC_CIDCFGR_SEM_EN) != 0U) &&
+-		      ((sem_wl & RIF_CID1_BF) != RIF_CID1_BF))) {
++		      ((sem_wl & RIF_CID1_BF) == RIF_CID1_BF))) {
+ 			continue;
+ 		}
+ 
+-- 
+2.53.0
+

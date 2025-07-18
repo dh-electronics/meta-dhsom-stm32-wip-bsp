@@ -1,0 +1,356 @@
+From 7107f64c42c7aeb7995b16ec02a8c16117319917 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 16 Feb 2023 14:29:25 +0100
+Subject: [PATCH 086/954] feat(stm32mp1): handle DDR power supplies
+
+Modify the DDR driver to handle the DDR power supplies when a PMIC
+is present in the function stm32mp_board_ddr_power_init(), define
+in the platform file.
+
+This patch allows to easily modify the used DDR power supplies
+for customer boards, when they don't use STPMIC1 PMU or when
+the regulators are not connected as on the STMicroelectronics
+boards.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3ad284c7d51e10a3e9a26edfb465d212f9f49b8d feat(stm32mp1): handle DDR power supplies]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I93ee6295ef7032ac20f03608d22cd460f7d87ef5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/291357
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp_ddr.c      |  10 ---
+ drivers/st/pmic/stm32mp_pmic.c    | 114 -------------------------
+ include/drivers/st/stm32mp_pmic.h |   7 --
+ plat/st/stm32mp1/plat_ddr.c       | 135 ++++++++++++++++++++++++++++++
+ plat/st/stm32mp1/platform.mk      |   2 +
+ 5 files changed, 137 insertions(+), 131 deletions(-)
+ create mode 100644 plat/st/stm32mp1/plat_ddr.c
+
+diff --git a/drivers/st/ddr/stm32mp_ddr.c b/drivers/st/ddr/stm32mp_ddr.c
+index 3d0a2ed190..fa4074263b 100644
+--- a/drivers/st/ddr/stm32mp_ddr.c
++++ b/drivers/st/ddr/stm32mp_ddr.c
+@@ -8,7 +8,6 @@
+ #include <drivers/delay_timer.h>
+ #include <drivers/st/stm32mp_ddr.h>
+ #include <drivers/st/stm32mp_ddrctrl_regs.h>
+-#include <drivers/st/stm32mp_pmic.h>
+ #include <lib/mmio.h>
+ 
+ #include <platform_def.h>
+@@ -287,12 +286,3 @@ void stm32mp_ddr_wait_refresh_update_done_ack(struct stm32mp_ddrctl *ctl)
+ 
+ 	VERBOSE("[0x%lx] rfshctl3 = 0x%x\n", (uintptr_t)&ctl->rfshctl3, rfshctl3);
+ }
+-
+-int stm32mp_board_ddr_power_init(enum ddr_type ddr_type)
+-{
+-	if (dt_pmic_status() > 0) {
+-		return pmic_ddr_power_init(ddr_type);
+-	}
+-
+-	return 0;
+-}
+diff --git a/drivers/st/pmic/stm32mp_pmic.c b/drivers/st/pmic/stm32mp_pmic.c
+index 7663f7dfc0..ae7ed110c7 100644
+--- a/drivers/st/pmic/stm32mp_pmic.c
++++ b/drivers/st/pmic/stm32mp_pmic.c
+@@ -224,120 +224,6 @@ void print_pmic_info_and_debug(void)
+ }
+ #endif
+ 
+-int pmic_ddr_power_init(enum ddr_type ddr_type)
+-{
+-	int status;
+-	uint16_t buck3_min_mv;
+-	struct rdev *buck2, *buck3, *vref;
+-	struct rdev *ldo3 __unused;
+-
+-	buck2 = regulator_get_by_name("buck2");
+-	if (buck2 == NULL) {
+-		return -ENOENT;
+-	}
+-
+-#if STM32MP15
+-	ldo3 = regulator_get_by_name("ldo3");
+-	if (ldo3 == NULL) {
+-		return -ENOENT;
+-	}
+-#endif
+-
+-	vref = regulator_get_by_name("vref_ddr");
+-	if (vref == NULL) {
+-		return -ENOENT;
+-	}
+-
+-	switch (ddr_type) {
+-	case STM32MP_DDR3:
+-#if STM32MP15
+-		status = regulator_set_flag(ldo3, REGUL_SINK_SOURCE);
+-		if (status != 0) {
+-			return status;
+-		}
+-#endif
+-
+-		status = regulator_set_min_voltage(buck2);
+-		if (status != 0) {
+-			return status;
+-		}
+-
+-		status = regulator_enable(buck2);
+-		if (status != 0) {
+-			return status;
+-		}
+-
+-		status = regulator_enable(vref);
+-		if (status != 0) {
+-			return status;
+-		}
+-
+-#if STM32MP15
+-		status = regulator_enable(ldo3);
+-		if (status != 0) {
+-			return status;
+-		}
+-#endif
+-		break;
+-
+-	case STM32MP_LPDDR2:
+-	case STM32MP_LPDDR3:
+-		/*
+-		 * Set LDO3 to 1.8V
+-		 * Set LDO3 to bypass mode if BUCK3 = 1.8V
+-		 * Set LDO3 to normal mode if BUCK3 != 1.8V
+-		 */
+-		buck3 = regulator_get_by_name("buck3");
+-		if (buck3 == NULL) {
+-			return -ENOENT;
+-		}
+-
+-		regulator_get_range(buck3, &buck3_min_mv, NULL);
+-
+-#if STM32MP15
+-		if (buck3_min_mv != 1800) {
+-			status = regulator_set_min_voltage(ldo3);
+-			if (status != 0) {
+-				return status;
+-			}
+-		} else {
+-			status = regulator_set_flag(ldo3, REGUL_ENABLE_BYPASS);
+-			if (status != 0) {
+-				return status;
+-			}
+-		}
+-#endif
+-
+-		status = regulator_set_min_voltage(buck2);
+-		if (status != 0) {
+-			return status;
+-		}
+-
+-#if STM32MP15
+-		status = regulator_enable(ldo3);
+-		if (status != 0) {
+-			return status;
+-		}
+-#endif
+-
+-		status = regulator_enable(buck2);
+-		if (status != 0) {
+-			return status;
+-		}
+-
+-		status = regulator_enable(vref);
+-		if (status != 0) {
+-			return status;
+-		}
+-		break;
+-
+-	default:
+-		break;
+-	};
+-
+-	return 0;
+-}
+-
+ int pmic_voltages_init(void)
+ {
+ #if STM32MP13
+diff --git a/include/drivers/st/stm32mp_pmic.h b/include/drivers/st/stm32mp_pmic.h
+index 5059cb424e..640f0a23a8 100644
+--- a/include/drivers/st/stm32mp_pmic.h
++++ b/include/drivers/st/stm32mp_pmic.h
+@@ -41,13 +41,6 @@ static inline void print_pmic_info_and_debug(void)
+ }
+ #endif
+ 
+-/*
+- * pmic_ddr_power_init - Initialize regulators required for DDR
+- *
+- * Returns 0 on success, and negative values on errors
+- */
+-int pmic_ddr_power_init(enum ddr_type ddr_type);
+-
+ /*
+  * pmic_voltages_init - Update voltages for platform init
+  *
+diff --git a/plat/st/stm32mp1/plat_ddr.c b/plat/st/stm32mp1/plat_ddr.c
+new file mode 100644
+index 0000000000..8ed5b54364
+--- /dev/null
++++ b/plat/st/stm32mp1/plat_ddr.c
+@@ -0,0 +1,135 @@
++/*
++ * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <errno.h>
++
++#include <drivers/st/regulator.h>
++#include <drivers/st/stm32mp_ddr.h>
++#include <drivers/st/stm32mp_pmic.h>
++
++/* configure the STPMIC1 regulators on STMicroelectronics boards */
++static int pmic_ddr_power_init(enum ddr_type ddr_type)
++{
++	int status;
++	uint16_t buck3_min_mv __unused;
++	struct rdev *buck2, *buck3 __unused, *vref;
++	struct rdev *ldo3 __unused;
++
++	buck2 = regulator_get_by_name("buck2");
++	if (buck2 == NULL) {
++		return -ENOENT;
++	}
++
++#if STM32MP15
++	ldo3 = regulator_get_by_name("ldo3");
++	if (ldo3 == NULL) {
++		return -ENOENT;
++	}
++#endif
++
++	vref = regulator_get_by_name("vref_ddr");
++	if (vref == NULL) {
++		return -ENOENT;
++	}
++
++	switch (ddr_type) {
++	case STM32MP_DDR3:
++#if STM32MP15
++		status = regulator_set_flag(ldo3, REGUL_SINK_SOURCE);
++		if (status != 0) {
++			return status;
++		}
++#endif
++
++		status = regulator_set_min_voltage(buck2);
++		if (status != 0) {
++			return status;
++		}
++
++		status = regulator_enable(buck2);
++		if (status != 0) {
++			return status;
++		}
++
++		status = regulator_enable(vref);
++		if (status != 0) {
++			return status;
++		}
++
++#if STM32MP15
++		status = regulator_enable(ldo3);
++		if (status != 0) {
++			return status;
++		}
++#endif
++		break;
++
++	case STM32MP_LPDDR2:
++	case STM32MP_LPDDR3:
++#if STM32MP15
++		/*
++		 * Set LDO3 to 1.8V according  BUCK3 voltage
++		 * => bypass mode if BUCK3 = 1.8V
++		 * => normal mode if BUCK3 != 1.8V
++		 */
++		buck3 = regulator_get_by_name("buck3");
++		if (buck3 == NULL) {
++			return -ENOENT;
++		}
++
++		regulator_get_range(buck3, &buck3_min_mv, NULL);
++
++		if (buck3_min_mv != 1800) {
++			status = regulator_set_min_voltage(ldo3);
++			if (status != 0) {
++				return status;
++			}
++		} else {
++			status = regulator_set_flag(ldo3, REGUL_ENABLE_BYPASS);
++			if (status != 0) {
++				return status;
++			}
++		}
++#endif
++
++		status = regulator_set_min_voltage(buck2);
++		if (status != 0) {
++			return status;
++		}
++
++#if STM32MP15
++		status = regulator_enable(ldo3);
++		if (status != 0) {
++			return status;
++		}
++#endif
++
++		status = regulator_enable(buck2);
++		if (status != 0) {
++			return status;
++		}
++
++		status = regulator_enable(vref);
++		if (status != 0) {
++			return status;
++		}
++		break;
++
++	default:
++		break;
++	};
++
++	return 0;
++}
++
++int stm32mp_board_ddr_power_init(enum ddr_type ddr_type)
++{
++	if (dt_pmic_status() > 0) {
++		return pmic_ddr_power_init(ddr_type);
++	}
++
++	return 0;
++}
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index 92fccfd316..d5ab9ab067 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -293,6 +293,8 @@ endif
+ BL2_SOURCES		+=	drivers/st/ddr/stm32mp1_ddr.c				\
+ 				drivers/st/ddr/stm32mp1_ram.c
+ 
++BL2_SOURCES		+=	plat/st/stm32mp1/plat_ddr.c
++
+ BL2_SOURCES		+=	plat/st/stm32mp1/stm32mp1_critic_power.c
+ BL2_SOURCES		+=	plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+ 
+-- 
+2.53.0
+

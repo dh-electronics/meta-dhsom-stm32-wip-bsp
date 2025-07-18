@@ -1,0 +1,95 @@
+From 034e9db25e3045ae5ed7f81bf609f0d36b476c0c Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 15 Jun 2021 12:11:06 +0200
+Subject: [PATCH 125/954] feat(st-spi): add dirmap_read support
+
+Update the exec_op callback which does not allow anymore memory map
+access. Memory map access are only available through the dirmap_read
+callback.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 47d55c29220481d1cfe3dd1443da34f98a6b62b1 feat(st-spi): add dirmap_read support]
+Change-Id: Ibf9b22c8be59395ea265df6122853057a438527e
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ drivers/st/spi/stm32_ospi.c | 40 ++++++++++++++++++++++++-------------
+ 1 file changed, 26 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index d4fd9918fe..e7595e01a7 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -221,13 +221,11 @@ static unsigned int stm32_ospi_get_mode(uint8_t buswidth)
+ 	return buswidth == 4U ? 3U : buswidth;
+ }
+ 
+-static int stm32_ospi_exec_op(const struct spi_mem_op *op)
++static int stm32_ospi_send(const struct spi_mem_op *op, uint8_t fmode)
+ {
+ 	uint64_t timeout;
+ 	uint32_t ccr;
+ 	uint32_t tcr;
+-	size_t addr_max;
+-	uint8_t fmode = _OSPI_CR_FMODE_INDW;
+ 	int ret;
+ 
+ 	VERBOSE("%s: cmd:%x mode:%d.%d.%d.%d addr:%" PRIx64 " len:%x\n",
+@@ -240,17 +238,6 @@ static int stm32_ospi_exec_op(const struct spi_mem_op *op)
+ 		return ret;
+ 	}
+ 
+-	addr_max = op->addr.val + op->data.nbytes + 1U;
+-
+-	if ((op->data.dir == SPI_MEM_DATA_IN) && (op->data.nbytes != 0U)) {
+-		if ((addr_max < stm32_ospi.mm_size) &&
+-		    (op->addr.buswidth != 0U)) {
+-			fmode = _OSPI_CR_FMODE_MM;
+-		} else {
+-			fmode = _OSPI_CR_FMODE_INDR;
+-		}
+-	}
+-
+ 	if (op->data.nbytes != 0U) {
+ 		mmio_write_32(ospi_base() + _OSPI_DLR, op->data.nbytes - 1U);
+ 	}
+@@ -327,6 +314,30 @@ abort:
+ 	return ret;
+ }
+ 
++static int stm32_ospi_exec_op(const struct spi_mem_op *op)
++{
++	uint8_t fmode = _OSPI_CR_FMODE_INDW;
++
++	if ((op->data.dir == SPI_MEM_DATA_IN) && (op->data.nbytes != 0U)) {
++		fmode = _OSPI_CR_FMODE_INDR;
++	}
++
++	return stm32_ospi_send(op, fmode);
++}
++
++static int stm32_ospi_dirmap_read(const struct spi_mem_op *op)
++{
++	size_t addr_max;
++	uint8_t fmode = _OSPI_CR_FMODE_INDR;
++
++	addr_max = op->addr.val + op->data.nbytes + 1U;
++	if ((addr_max < stm32_ospi.mm_size) && (op->addr.buswidth != 0U)) {
++		fmode = _OSPI_CR_FMODE_MM;
++	}
++
++	return stm32_ospi_send(op, fmode);
++}
++
+ static int stm32_ospi_claim_bus(unsigned int cs)
+ {
+ 	uint32_t cr;
+@@ -437,6 +448,7 @@ static const struct spi_bus_ops stm32_ospi_bus_ops = {
+ 	.set_speed = stm32_ospi_set_speed,
+ 	.set_mode = stm32_ospi_set_mode,
+ 	.exec_op = stm32_ospi_exec_op,
++	.dirmap_read = stm32_ospi_dirmap_read,
+ };
+ 
+ int stm32_ospi_init(void)
+-- 
+2.53.0
+

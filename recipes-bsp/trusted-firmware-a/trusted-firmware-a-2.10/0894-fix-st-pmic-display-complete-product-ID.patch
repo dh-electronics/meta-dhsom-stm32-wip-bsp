@@ -1,0 +1,82 @@
+From f7f7cf19dc6ad8ad96dff13ba14f70baea6af69a Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Wed, 20 Aug 2025 17:30:33 +0200
+Subject: [PATCH 894/954] fix(st-pmic): display complete product ID
+
+Display the entire product ID status register in BL2,
+including the PMIC_NVM_ID bit [3:0] and not only the
+PMIC_REF_ID bits [7:4].
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f4457fe686d5ac11ffdb69343de9faa2ae076f27 fix(st-pmic): display complete product ID]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: Ie222672fa4a58b1cd80277265d43d8e10f279e9f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/483249
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ drivers/st/pmic/stm32mp_pmic2.c | 11 +++++++++--
+ include/drivers/st/stpmic2.h    |  7 ++++---
+ 2 files changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic2.c b/drivers/st/pmic/stm32mp_pmic2.c
+index a496b78850..513d65792a 100644
+--- a/drivers/st/pmic/stm32mp_pmic2.c
++++ b/drivers/st/pmic/stm32mp_pmic2.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2023-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -552,12 +552,19 @@ void initialize_pmic(void)
+ 	}
+ 
+ #if IMAGE_BL2
++#if LOG_LEVEL >= LOG_LEVEL_INFO
+ 	if (stpmic2_get_version(pmic2, &val) != 0) {
+ 		ERROR("Failed to access PMIC\n");
+ 		panic();
+ 	}
+ 	INFO("PMIC2 version = 0x%02x\n", val);
+-	INFO("PMIC2 product ID = 0x%02x\n", pmic2->ref_id);
++
++	if (stpmic2_get_product_id(pmic2, &val) != 0) {
++		ERROR("Failed to access PMIC\n");
++		panic();
++	}
++	INFO("PMIC2 product ID = 0x%02x\n", val);
++#endif
+ #endif
+ 
+ 	ret = register_pmic2();
+diff --git a/include/drivers/st/stpmic2.h b/include/drivers/st/stpmic2.h
+index 02af038f78..d2084ef106 100644
+--- a/include/drivers/st/stpmic2.h
++++ b/include/drivers/st/stpmic2.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2023-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -175,8 +175,9 @@ enum {
+ #define LDO5_ILIM_SHIFT		2
+ 
+ /* PRODUCT_ID bits definition */
+-#define PMIC_NVM_ID_MASK	GENMASK_32(3, 0)
+-#define PMIC_REF_ID_MASK	GENMASK_32(7, 4)
++#define PMIC_NVM_ID_MASK	((uint8_t)GENMASK_32(3, 0))
++#define PMIC_NVM_ID_SHIFT	0
++#define PMIC_REF_ID_MASK	((uint8_t)GENMASK_32(7, 4))
+ #define PMIC_REF_ID_SHIFT	4
+ #define PMIC_REF_ID_STPMIC1L	U(1)
+ #define PMIC_REF_ID_STPMIC25	U(2)
+-- 
+2.53.0
+

@@ -1,0 +1,87 @@
+From 43546fa5118d6edc8a1ebb6164d7315d3f841da2 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 5 Sep 2022 15:41:53 +0200
+Subject: [PATCH 100/954] feat(st-clock): do not reconfigure STGEN in BL2
+
+In BL2, we can rely on the ROM code configuration of STGEN, no need to
+change its clock source. But we still need to reprogram Arm CNTFRQ, as
+the core was reset, and then initialize the generic timer.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d3f3fdad32a97838ba11ae7c79dfb9eb1f175568 feat(st-clock): do not reconfigure STGEN in BL2]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I81c01fadb4c75cf9bf73e0fdd3ac7c941410666e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/265028
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+---
+ drivers/st/clk/stm32mp2_clk.c | 32 +++++++++++---------------------
+ 1 file changed, 11 insertions(+), 21 deletions(-)
+
+diff --git a/drivers/st/clk/stm32mp2_clk.c b/drivers/st/clk/stm32mp2_clk.c
+index 8857d7d1b5..daab9b1b70 100644
+--- a/drivers/st/clk/stm32mp2_clk.c
++++ b/drivers/st/clk/stm32mp2_clk.c
+@@ -1654,7 +1654,14 @@ static int stm32mp2_clk_flexgen_configure(struct stm32_clk_priv *priv)
+ 		fdiv = (cmd_data & FLEX_FDIV_MASK) >> FLEX_FDIV_SHIFT;
+ 
+ 		/* TODO: check if channel can be reconfigured */
+-		flexclkgen_config_channel(channel, clk_src, pdiv, fdiv);
++		switch (channel) {
++		case 33U: /* STGEN */
++			break;
++
++		default:
++			flexclkgen_config_channel(channel, clk_src, pdiv, fdiv);
++			break;
++		}
+ 	}
+ 
+ 	return 0;
+@@ -1713,17 +1720,6 @@ static int stm32mp2_clk_switch_to_hsi(struct stm32_clk_priv *priv)
+ 	return 0;
+ }
+ 
+-static int stm32_clk_stgen_configure(struct stm32_clk_priv *priv, int id)
+-{
+-	unsigned long stgen_freq;
+-
+-	stgen_freq = _clk_stm32_get_rate(priv, id);
+-
+-	stm32mp_stgen_config(stgen_freq);
+-
+-	return 0;
+-}
+-
+ static int stm32_clk_oscillators_wait_lse_ready(struct stm32_clk_priv *priv)
+ {
+ 	int ret = 0;
+@@ -1875,10 +1871,9 @@ static int stm32mp2_init_clock_tree(void)
+ 	struct stm32_clk_priv *priv = clk_stm32_get_priv();
+ 	int ret;
+ 
+-	ret = stm32_clk_stgen_configure(priv, _CK_HSI);
+-	if (ret != 0) {
+-		panic();
+-	}
++	/* Set timer with STGEN without changing its clock source */
++	stm32mp_stgen_restore_rate();
++	generic_delay_timer_init();
+ 
+ 	stm32_clk_oscillators_enable(priv);
+ 
+@@ -1909,11 +1904,6 @@ static int stm32mp2_init_clock_tree(void)
+ 		panic();
+ 	}
+ 
+-	ret = stm32_clk_stgen_configure(priv, _CK_STGEN);
+-	if (ret != 0) {
+-		panic();
+-	}
+-
+ 	ret = stm32_clk_kernel_configure(priv);
+ 	if (ret != 0) {
+ 		panic();
+-- 
+2.53.0
+

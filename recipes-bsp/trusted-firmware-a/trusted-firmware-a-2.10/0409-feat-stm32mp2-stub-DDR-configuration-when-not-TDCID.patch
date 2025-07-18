@@ -1,0 +1,110 @@
+From c9e5576ca9073f3afbe03a8641db2ea58f296489 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 12 Sep 2023 17:26:17 +0200
+Subject: [PATCH 409/954] feat(stm32mp2): stub DDR configuration when not TDCID
+
+If Cortex-A35 is not TDCID, the DDR configuration will be done by
+Cortex-M33. The DDR driver is then not compiled in that case, and put
+under STM32MP_M33_TDCID flag.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6f45be65660d3f1101fcdf3377f6e461bd00b323 feat(stm32mp2): stub DDR configuration when not TDCID]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ib8326271a83b0d5b575ac0f723831af2c91c1b9a
+---
+ plat/st/stm32mp2/bl2_plat_setup.c |  4 ++++
+ plat/st/stm32mp2/platform.mk      | 11 ++++++++++-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 8d79ce839e..55b258e715 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -161,11 +161,13 @@ void bl2_platform_setup(void)
+ {
+ 	int ret;
+ 
++#if !STM32MP_M33_TDCID
+ 	ret = stm32mp2_ddr_probe();
+ 	if (ret != 0) {
+ 		ERROR("DDR probe: error %d\n", ret);
+ 		panic();
+ 	}
++#endif
+ 
+ 	if (stm32mp2_risaf_init() < 0) {
+ 		panic();
+@@ -238,11 +240,13 @@ void bl2_el3_plat_arch_setup(void)
+ 
+ 	reset_backup_domain();
+ 
++#if !STM32MP_M33_TDCID
+ 	/*
+ 	 * Initialize DDR sub-system clock. This needs to be done before enabling DDR PLL (PLL2),
+ 	 * and so before stm32mp2_clk_init().
+ 	 */
+ 	ddr_sub_system_clk_init();
++#endif
+ 
+ 	if (stm32mp2_clk_init() < 0) {
+ 		panic();
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index c866d77ad8..58ff1fc29c 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -54,6 +54,7 @@ DWL_BUFFER_BASE 	?=	0x87000000
+ STM32MP_DDR3_TYPE	?=	0
+ STM32MP_DDR4_TYPE	?=	0
+ STM32MP_LPDDR4_TYPE	?=	0
++ifeq ($(STM32MP_M33_TDCID),0)
+ ifeq (${STM32MP_DDR3_TYPE},1)
+ DDR_TYPE		:=	ddr3
+ endif
+@@ -67,6 +68,10 @@ endif
+ # DDR features
+ STM32MP_DDR_DUAL_AXI_PORT	:=	1
+ STM32MP_DDR_FIP_IO_STORAGE	:=	1
++else #STM32MP_M33_TDCID
++STM32MP_DDR_DUAL_AXI_PORT	:=	0
++STM32MP_DDR_FIP_IO_STORAGE	:=	0
++endif #STM32MP_M33_TDCID
+ 
+ # Device tree
+ BL2_DTSI			:=	stm32mp25-bl2.dtsi
+@@ -232,6 +237,7 @@ BL2_SOURCES			+=	drivers/st/usb_dwc3/usb_dwc3.c				\
+ 					plat/st/stm32mp2/stm32mp2_usb_dfu.c
+ endif
+ 
++ifeq ($(STM32MP_M33_TDCID),0)
+ BL2_SOURCES			+=	drivers/st/ddr/stm32mp2_ddr.c				\
+ 					drivers/st/ddr/stm32mp2_ddr_helpers.c			\
+ 					drivers/st/ddr/stm32mp2_ram.c
+@@ -261,6 +267,7 @@ BL2_SOURCES			+=	drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_d_loadimem.c				\
+ 					drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_writeoutmem.c				\
+ 					drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_h_readmsgblock.c 	\
+ 					drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c
++endif #STM32MP_M33_TDCID
+ 
+ # BL31 sources
+ BL31_SOURCES			+=	${FDT_WRAPPERS_SOURCES}
+@@ -286,8 +293,9 @@ BL31_SOURCES		+=	plat/st/common/stm32mp_svc_setup.c			\
+ BL31_SOURCES		+=	services/arm_arch_svc/arm_arch_svc_setup.c
+ 
+ # Compilation rules
+-.PHONY: check_ddr_type
+ .SUFFIXES:
++ifeq ($(STM32MP_M33_TDCID),0)
++.PHONY: check_ddr_type
+ 
+ bl2: check_ddr_type
+ 
+@@ -299,6 +307,7 @@ check_ddr_type:
+ 		echo "One and only one DDR type must be defined"; \
+ 		false; \
+ 	fi
++endif #STM32MP_M33_TDCID
+ 
+ # generate separate DDR FIP image
+ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+-- 
+2.53.0
+

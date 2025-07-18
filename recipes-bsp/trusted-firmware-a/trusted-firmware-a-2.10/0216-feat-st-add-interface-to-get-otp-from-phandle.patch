@@ -1,0 +1,89 @@
+From 8ada7b966098511e0e9f65d3cc78ed5cc240685f Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Mon, 19 Sep 2022 14:44:37 +0200
+Subject: [PATCH 216/954] feat(st): add interface to get otp from phandle
+
+Add an interface to retrieve an OTP (id and size) from
+a given phandle.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 633c9c6935fb17879a0a5a2ff75b52000017ac32 feat(st): add interface to get otp from phandle]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Ida0550a05e4612b5ae718b3201cab4dc3702c3f9
+---
+ plat/st/common/include/stm32mp_dt.h |  1 +
+ plat/st/common/stm32mp_dt.c         | 47 +++++++++++++++++++++++++++++
+ 2 files changed, 48 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_dt.h b/plat/st/common/include/stm32mp_dt.h
+index af4e9a5d6c..737cdc4e7a 100644
+--- a/plat/st/common/include/stm32mp_dt.h
++++ b/plat/st/common/include/stm32mp_dt.h
+@@ -42,6 +42,7 @@ struct rdev *dt_get_cpu_regulator(void);
+ struct rdev *dt_get_sysram_regulator(void);
+ const char *dt_get_board_model(void);
+ int dt_find_otp_name(const char *name, uint32_t *otp, uint32_t *otp_len);
++int dt_get_otp_by_phandle(const uint32_t phandle, uint32_t *otp_id, uint32_t *otp_len);
+ int fdt_get_gpio_bank_pin_count(unsigned int bank);
+ 
+ #endif /* STM32MP_DT_H */
+diff --git a/plat/st/common/stm32mp_dt.c b/plat/st/common/stm32mp_dt.c
+index aa94143dc1..006e156f2a 100644
+--- a/plat/st/common/stm32mp_dt.c
++++ b/plat/st/common/stm32mp_dt.c
+@@ -390,6 +390,53 @@ int dt_find_otp_name(const char *name, uint32_t *otp, uint32_t *otp_len)
+ 	return 0;
+ }
+ 
++/*
++ * dt_get_otp_by_phandle: return OTP id and OTP size for a given phandle
++ * phandle: phandle to be found
++ * otp_id: return value for the OTP id found
++ * otp_len: return value for the OTP len
++ * return: 0 if OTP found, a negative error value otherwise
++ */
++int dt_get_otp_by_phandle(const uint32_t phandle, uint32_t *otp_id, uint32_t *otp_len)
++{
++	int node;
++	int child;
++	const fdt32_t *cuint;
++	uint32_t offset;
++	bool otp_found = false;
++
++	node = fdt_node_offset_by_compatible(fdt, -1, DT_BSEC_COMPAT);
++	if (node < 0) {
++		return node;
++	}
++
++	fdt_for_each_subnode(child, fdt, node) {
++		uint32_t ph = fdt_get_phandle(fdt, child);
++
++		if (ph == phandle) {
++			otp_found = true;
++			break;
++		}
++	}
++
++	if (!otp_found) {
++		return -FDT_ERR_NOTFOUND;
++	}
++
++	cuint = fdt_getprop(fdt, child, "reg", NULL);
++	if (cuint == NULL) {
++		panic();
++	}
++
++	offset = fdt32_to_cpu(*cuint);
++	cuint++;
++	*otp_len = fdt32_to_cpu(*cuint);
++
++	*otp_id = offset / sizeof(uint32_t);
++
++	return 0;
++}
++
+ /*******************************************************************************
+  * This function gets the pin count for a GPIO bank based from the FDT.
+  * It also checks node consistency.
+-- 
+2.53.0
+

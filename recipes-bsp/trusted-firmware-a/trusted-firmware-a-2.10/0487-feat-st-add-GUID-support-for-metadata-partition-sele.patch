@@ -1,0 +1,69 @@
+From 60a5e55c01f3d926cc25961a66c5eaaaf9595013 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 30 Jan 2024 13:06:49 +0100
+Subject: [PATCH 487/954] feat(st): add GUID support for metadata partition
+ selection
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This patch allows to select metadata partitions with their GUID type
+instead of their partition names
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4f5a5c3c6a4908ce399c169d5d7178123dc6017e feat(st): add GUID support for metadata partition selection]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ie4c088836544508665d2bd389740a1c7b2a50313
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/355626
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/bl2_io_storage.c | 21 +++++++++++++--------
+ 1 file changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index f41cf12cfa..1975bfa184 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -921,6 +921,8 @@ static int plat_set_image_source(unsigned int image_id,
+ 	io_block_spec_t *spec __maybe_unused;
+ 	const partition_entry_t *entry __maybe_unused;
+ 	const uint16_t boot_itf = stm32mp_get_boot_itf_selected();
++	const struct efi_guid metadata_type_guid __maybe_unused = FWU_METADATA_GUID;
++	uuid_t metadata_type_uuid __maybe_unused;
+ 
+ 	policy = &policies[image_id];
+ 	spec = (io_block_spec_t *)policy->image_spec;
+@@ -929,17 +931,20 @@ static int plat_set_image_source(unsigned int image_id,
+ #if (STM32MP_SDMMC || STM32MP_EMMC)
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_SD:
+ 	case BOOT_API_CTX_BOOT_INTERFACE_SEL_FLASH_EMMC:
++		guidcpy(&metadata_type_uuid, &metadata_type_guid);
+ 		partition_init(GPT_IMAGE_ID);
+ 
+-		if (image_id == FWU_METADATA_IMAGE_ID) {
+-			entry = get_partition_entry(METADATA_PART_1);
+-		} else {
+-			entry = get_partition_entry(METADATA_PART_2);
+-		}
+-
++		entry = get_partition_entry_by_type(&metadata_type_uuid);
+ 		if (entry == NULL) {
+-			ERROR("Unable to find a metadata partition\n");
+-			return -ENOENT;
++			entry = (image_id == FWU_METADATA_IMAGE_ID) ?
++				get_partition_entry(METADATA_PART_1) :
++				get_partition_entry(METADATA_PART_2);
++
++
++			if (entry == NULL) {
++				ERROR("Unable to find a metadata partition\n");
++				return -ENOENT;
++			}
+ 		}
+ 
+ 		spec->offset = entry->start;
+-- 
+2.53.0
+

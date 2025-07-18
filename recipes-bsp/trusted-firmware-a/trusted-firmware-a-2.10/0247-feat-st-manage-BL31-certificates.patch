@@ -1,0 +1,52 @@
+From 0525d7dc0311700d138518a1d151dc99f2b29db2 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 18 Jan 2023 14:25:58 +0100
+Subject: [PATCH 247/954] feat(st): manage BL31 certificates
+
+When compiling an Aarch64 platform with TRUSTED_BOARD_BOOT, we need to
+take care about the keys and certificates for BL31 and its DT.
+Add SOC_FW_KEY_CERT_ID and SOC_FW_CONTENT_CERT_ID entries in struct
+policies_load_info, under __aarch64__ flag, as the file is shared
+between Aarch32 and Aarch64 platforms.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c701cd804e82f919cb46404fafec97e1fcf37444 feat(st): manage BL31 certificates]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ic4debdf5d4c34eb4800d287c3a0ba09c023d84ce
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/285741
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/common/stm32mp_fconf_io.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/plat/st/common/stm32mp_fconf_io.c b/plat/st/common/stm32mp_fconf_io.c
+index f5fd21e1e2..19556e007d 100644
+--- a/plat/st/common/stm32mp_fconf_io.c
++++ b/plat/st/common/stm32mp_fconf_io.c
+@@ -83,7 +83,11 @@ struct plat_io_policy policies[MAX_NUMBER_IDS] = {
+ #endif
+ 
+ #if TRUSTED_BOARD_BOOT
++#ifdef __aarch64__
++#define TBBR_UUID_NUMBER	U(8)
++#else
+ #define TBBR_UUID_NUMBER	U(6)
++#endif
+ #else
+ #define TBBR_UUID_NUMBER	U(0)
+ #endif
+@@ -130,6 +134,10 @@ static const struct policies_load_info load_info[FCONF_ST_IO_UUID_NUMBER] = {
+ 	{NON_TRUSTED_FW_KEY_CERT_ID, "nt_fw_key_cert_uuid"},
+ 	{TRUSTED_OS_FW_CONTENT_CERT_ID, "tos_fw_content_cert_uuid"},
+ 	{NON_TRUSTED_FW_CONTENT_CERT_ID, "nt_fw_content_cert_uuid"},
++#ifdef __aarch64__
++	{SOC_FW_KEY_CERT_ID, "soc_fw_key_uuid"},
++	{SOC_FW_CONTENT_CERT_ID, "soc_fw_content_cert_uuid"},
++#endif
+ #endif /* TRUSTED_BOARD_BOOT */
+ };
+ 
+-- 
+2.53.0
+

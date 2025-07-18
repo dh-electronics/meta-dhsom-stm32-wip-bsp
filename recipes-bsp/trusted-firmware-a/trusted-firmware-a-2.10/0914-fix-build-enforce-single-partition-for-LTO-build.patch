@@ -1,0 +1,59 @@
+From 1e908792d78684ffaa5c0d1a976c572e1e81efb9 Mon Sep 17 00:00:00 2001
+From: Andrey Skvortsov <andrej.skvortzov@gmail.com>
+Date: Fri, 8 Dec 2023 18:04:51 +0300
+Subject: [PATCH 914/954] fix(build): enforce single partition for LTO build
+
+For example, build for PLAT=fvp SPD=spmd fails with a following error
+when LTO is enabled using GCC 13.2.1:
+
+  aarch64-none-elf/bin/ld: /tmp/ccrG0Z8D.ltrans0.ltrans.o: in function `spmd_smc_forward':
+  arm-trusted-firmware/services/std_svc/spmd/spmd_main.c:749:(.text+0xbe50): undefined reference to `rdist_ctx'
+  aarch64-none-elf/bin/ld: arm-trusted-firmware/services/std_svc/spmd/spmd_main.c:749:(.text+0xbe58): undefined reference to `dist_ctx'
+  collect2: error: ld returned 1 exit status
+
+Access to rdist_ctx and dist_ctx is defined using inline assembler
+like
+ __asm__ volatile ("ldr %0, =rdist_ctx" : "=r" (v) : "X" (rdist_ctx));
+
+Access assembler function definitions moved to a different ltrans then
+actual variables. Partitioner doesn't take into account defined and
+used symbols in inline assembler. Depending on compiler partitioner
+decision the same code builds for some platforms successfully.
+
+This is a known gcc problem
+1. https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57703
+2. https://gcc.gnu.org/bugzilla/show_bug.cgi?id=46820
+
+TF-A source code isn't that big and enforcing single partitioning will
+not affect build performance, but will fix problems with 'undefined
+references' related to inline assembler.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 12b709e1ab1b7b96b73f9fce407ed9b5b6fe9744 fix(build): enforce single partition for LTO build]
+Change-Id: I72955ab0318f72b588d3a246824f99a48a92d8ef
+Signed-off-by: Andrey Skvortsov <andrej.skvortzov@gmail.com>
+(cherry picked from commit 31f80efeefaee2c59db50a46cabe2b5fdf20e4ae)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/471597
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ Makefile | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Makefile b/Makefile
+index 41d35f21b4..a60aaccd9a 100644
+--- a/Makefile
++++ b/Makefile
+@@ -366,6 +366,7 @@ else ifneq ($(findstring gcc,$(notdir $(LD))),)
+ 	ifeq ($(ENABLE_LTO),1)
+ 		ifeq (${ARCH},aarch64)
+ 			TF_LDFLAGS	+=	-flto -fuse-linker-plugin
++			TF_LDFLAGS      +=	-flto-partition=one
+ 		endif
+ 	endif #(ENABLE_LTO)
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,78 @@
+From 26b33fa9c9097fbaa54403b03d55c735b019a073 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Thu, 15 Sep 2022 11:23:56 +0200
+Subject: [PATCH 223/954] fix(st-spi): always check SR_TCF flags in
+ stm32_omi_wait_cmd()
+
+Currently, SR_TCF flag is checked in case there is data, this criteria
+is not correct.
+
+SR_TCF flags is set when programmed number of bytes have been
+transferred to the memory device ("bytes" comprised command and
+data send to the SPI device).
+So even if there is no data, we must check SR_TCF flag.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 24aa9ac9c32fa9b5858544bb35b73464d218a9e3 fix(st-spi): always check SR_TCF flags in stm32_omi_wait_cmd()]
+Change-Id: I26f8b2783d183a1843a77b60fbecb9623a70394d
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/267825
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/st/spi/stm32_ospi.c | 32 ++++++++++++++------------------
+ 1 file changed, 14 insertions(+), 18 deletions(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index 1c945d482d..9c099767bb 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -129,28 +129,24 @@ static int stm32_ospi_wait_cmd(const struct spi_mem_op *op)
+ 	int ret = 0;
+ 	uint64_t timeout;
+ 
+-	if (op->data.nbytes != 0U) {
+-		timeout = timeout_init_us(_OSPI_CMD_TIMEOUT_US);
+-		while ((mmio_read_32(ospi_base() + _OSPI_SR) &
+-		       _OSPI_SR_TCF) == 0U) {
+-			if (timeout_elapsed(timeout)) {
+-				ret = -ETIMEDOUT;
+-				ERROR("%s: cmd timeout\n", __func__);
+-				break;
+-			}
+-		}
+-
+-		if ((ret == 0) && ((mmio_read_32(ospi_base() + _OSPI_SR) &
+-				   _OSPI_SR_TEF) != 0U)) {
+-			ERROR("%s: transfer error\n", __func__);
+-			ret = -EIO;
++	timeout = timeout_init_us(_OSPI_CMD_TIMEOUT_US);
++	while ((mmio_read_32(ospi_base() + _OSPI_SR) & _OSPI_SR_TCF) == 0U) {
++		if (timeout_elapsed(timeout)) {
++			ret = -ETIMEDOUT;
++			ERROR("%s: cmd timeout\n", __func__);
++			break;
+ 		}
++	}
+ 
+-		/* Clear flags */
+-		mmio_write_32(ospi_base() + _OSPI_FCR,
+-			      _OSPI_FCR_CTCF | _OSPI_FCR_CTEF);
++	if ((ret == 0) && ((mmio_read_32(ospi_base() + _OSPI_SR) &
++			   _OSPI_SR_TEF) != 0U)) {
++		ERROR("%s: transfer error\n", __func__);
++		ret = -EIO;
+ 	}
+ 
++	/* Clear flags */
++	mmio_write_32(ospi_base() + _OSPI_FCR, _OSPI_FCR_CTCF | _OSPI_FCR_CTEF);
++
+ 	if (ret == 0) {
+ 		ret = stm32_ospi_wait_for_not_busy();
+ 	}
+-- 
+2.53.0
+

@@ -1,0 +1,160 @@
+From fb253dc2e729f7864a5b56a18b7572e682c28b4a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 14 Jan 2025 14:13:38 +0100
+Subject: [PATCH 774/954] fix(stm32mp2): save lpsram_amen in low-power context
+
+Save lpsram_amen during Standby in pm context, so the associated register
+are restored correctly on next wake-up.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git dc7de12f3d3dda6e468275e48dddbd447a11a10d fix(stm32mp2): save lpsram_amen in low-power context]
+Fixes: 11d21feae7cb ("feat(stm32mp2): force autonomous mode for LPSRAM1/2/3 when CPU3 is used")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I28afa76cab9668169a37812da87126975addc516
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/419792
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/bl31_plat_setup.c          |  2 +-
+ plat/st/stm32mp2/include/stm32mp2_context.h |  5 +++--
+ plat/st/stm32mp2/stm32mp2_context.c         | 17 +++++++++++++++--
+ plat/st/stm32mp2/stm32mp2_pm.c              | 18 ++++++++++++++++--
+ 4 files changed, 35 insertions(+), 7 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index 184b216d59..a99fefe129 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -146,7 +146,7 @@ void bl31_plat_arch_setup(void)
+ 		/* Initialize the runtime services e.g. PSCI. */
+ 		runtime_svc_init();
+ 
+-		stm32_pm_context_restore();
++		stm32_pm_context_init();
+ 
+ 		/* Jump manually to BL31 warm entry point, with MMU disabled. */
+ 		dsbsy();
+diff --git a/plat/st/stm32mp2/include/stm32mp2_context.h b/plat/st/stm32mp2/include/stm32mp2_context.h
+index 83ea4ac2d6..2a6ba4c187 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_context.h
++++ b/plat/st/stm32mp2/include/stm32mp2_context.h
+@@ -14,9 +14,10 @@
+ void stm32mp_pm_save_enc_mkey_in_context(uint8_t *data);
+ void stm32mp_pm_get_enc_mkey_from_context(uint8_t *data);
+ 
++void stm32_pm_context_init(void);
+ bool stm32_pm_context_is_valid(void);
+-void stm32_pm_context_save(const psci_power_state_t *state);
+-void stm32_pm_context_restore(void);
++void stm32_pm_context_save(const psci_power_state_t *state, const void *data, size_t size);
++void stm32_pm_context_restore(void *data, size_t size);
+ void stm32_pm_context_clear(void);
+ 
+ #endif /* STM32MP2_CONTEXT_H */
+diff --git a/plat/st/stm32mp2/stm32mp2_context.c b/plat/st/stm32mp2/stm32mp2_context.c
+index 4e288cc88c..3edb1e5f61 100644
+--- a/plat/st/stm32mp2/stm32mp2_context.c
++++ b/plat/st/stm32mp2/stm32mp2_context.c
+@@ -21,6 +21,9 @@
+ #define BACKUP_CTX_CLK		CK_BUS_BKPSRAM
+ #define ENC_KEY_SIZE_IN_BYTES	RISAF_KEY_SIZE_IN_BYTES
+ 
++/* Size of data for caller, the PM functions */
++#define DATA_SIZE		U(4)
++
+ /* Magic used to indicated valid = ' ' 'M' 'P' '2' */
+ #define CONTEXT_MAGIC			0x204D5032
+ 
+@@ -36,6 +39,7 @@ struct backup_data_s {
+ 	optee_context_t opteed_sp_context[OPTEED_CORE_COUNT];
+ #endif
+ 	uintptr_t fdt_bl31;
++	uint8_t data[DATA_SIZE];
+ };
+ 
+ void stm32mp_pm_save_enc_mkey_in_context(uint8_t *data)
+@@ -79,7 +83,7 @@ bool stm32_pm_context_is_valid(void)
+ 	return ret;
+ }
+ 
+-void stm32_pm_context_save(const psci_power_state_t *state)
++void stm32_pm_context_save(const psci_power_state_t *state, const void *data, size_t size)
+ {
+ 	void *cpu_context;
+ 	struct backup_data_s *backup_data;
+@@ -118,10 +122,15 @@ void stm32_pm_context_save(const psci_power_state_t *state)
+ 	fdt_get_address(&fdt);
+ 	backup_data->fdt_bl31 = (uintptr_t)fdt;
+ 
++	/* Copy other data in Backup SRAM */
++	assert(size <= (size_t)DATA_SIZE);
++	if ((data != NULL) && (size != 0U)) {
++		(void)memcpy(&backup_data->data, data, MIN(size, (size_t)DATA_SIZE));
++	}
+ 	clk_disable(BACKUP_CTX_CLK);
+ }
+ 
+-void stm32_pm_context_restore(void)
++void stm32_pm_context_restore(void *data, size_t size)
+ {
+ 	void *cpu_context;
+ 	struct backup_data_s *backup_data;
+@@ -166,6 +175,10 @@ void stm32_pm_context_restore(void)
+ 		panic();
+ 	}
+ 
++	if ((data != NULL) && (size != 0U)) {
++		(void)memcpy(data, (const void *)&backup_data->data, MIN(size, (size_t)DATA_SIZE));
++	}
++
+ 	clk_disable(BACKUP_CTX_CLK);
+ }
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index f1853dd931..b534c10896 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -92,9 +92,15 @@ static u_register_t saved_scr_el3;
+ static uint32_t lpstop1_pwrlpdly;
+ #endif
+ 
+-#if !STM32MP21 && !STM32MP_M33_TDCID
++/* PM data saved in pm context during Standby */
++#if STM32MP21 || STM32MP_M33_TDCID
++#define PM_CTX_DATA	NULL
++#define PM_CTX_SIZE	U(0)
++#else
+ /* bitfield to indicate the modified AMEN bit for LP-SRAM1/2/3 */
+ static uint32_t saved_lpsram_amen;
++#define PM_CTX_DATA	&saved_lpsram_amen
++#define PM_CTX_SIZE	sizeof(saved_lpsram_amen)
+ #endif
+ 
+ /* Support PSCI v1.0 Extended State-ID with the recommended encoding */
+@@ -869,7 +875,7 @@ static void __dead2 stm32_pwr_domain_pwr_down_wfi(const psci_power_state_t
+ 	if (psci_is_last_on_cpu_safe() &&
+ 	    stm32_get_stateid(target_state->pwr_domain_state) == PWRSTATE_STANDBY) {
+ 		/* Save the context when all the core are requested to stop */
+-		stm32_pm_context_save(target_state);
++		stm32_pm_context_save(target_state, PM_CTX_DATA, PM_CTX_SIZE);
+ 	}
+ 
+ #if !STM32MP_M33_TDCID
+@@ -1451,6 +1457,14 @@ int plat_setup_psci_ops(uintptr_t sec_entrypoint,
+ 	return 0;
+ }
+ 
++/*******************************************************************************
++ * PM init after Standby
++ ******************************************************************************/
++void stm32_pm_context_init(void)
++{
++	stm32_pm_context_restore(PM_CTX_DATA, PM_CTX_SIZE);
++}
++
+ /*
+  * This driver disable logs if the uart used as console is not available
+  * in function stm32_validate_power_state() after a cpu suspend command.
+-- 
+2.53.0
+

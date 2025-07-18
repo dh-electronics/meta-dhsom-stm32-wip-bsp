@@ -1,0 +1,45 @@
+From bad7e00d9dbed9a57ae0353e7f33b41508897487 Mon Sep 17 00:00:00 2001
+From: Robin van der Gracht <robin@protonic.nl>
+Date: Wed, 24 Jan 2024 09:29:13 +0100
+Subject: [PATCH 482/954] feat(stm32mp1): only fuse monotonic counter on closed
+ devices
+
+The fused monotonic counter is checked by the ROM bootloader. The ROM
+bootloader won't allow booting images build with a lower
+STM32_TF_VERSION value.
+
+On non-closed devices a user can easily circumvent this. But it is
+annoying for a developer when open development hardware gets the counter
+value fused.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cb6f3f0813b5e77794c5f48fb73ac801d06a4b73 feat(stm32mp1): only fuse monotonic counter on closed devices]
+Signed-off-by: Robin van der Gracht <robin@protonic.nl>
+Change-Id: Ie52561368a3178de9d9a44b9d089664241452651
+(cherry picked from commit d6bb94f3a14ddbcf44c667134ed302eff054954c)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/355690
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index e82f932a55..bba2af6347 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -441,7 +441,9 @@ skip_console_init:
+ 	print_reset_reason();
+ 
+ #if STM32MP15
+-	update_monotonic_counter();
++	if (stm32mp_check_closed_device() == STM32MP_CHIP_SEC_CLOSED) {
++		update_monotonic_counter();
++	}
+ #endif
+ 
+ 	stm32mp_syscfg_enable_io_compensation_finish();
+-- 
+2.53.0
+

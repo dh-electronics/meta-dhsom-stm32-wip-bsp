@@ -1,0 +1,314 @@
+From cc5f62796d284b216ac6f8cc561845d84fc830f8 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Thu, 27 Oct 2022 17:52:41 +0200
+Subject: [PATCH 225/954] feat(stm32mp1): rework SVC services
+
+Having two generations of STM32MPX using the same SMCCC protocol,
+rework the SVC services setup to put in common what can be put
+in common and implement platform-specific handlers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 26de0f2b1026635ea75f7196c7a0063ecb707d80 feat(stm32mp1): rework SVC services]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I000573e50d55dc70163c2657c12cc84085416f6b
+---
+ plat/st/common/include/stm32mp_svc_setup.h    | 35 ++++++++
+ plat/st/common/stm32mp_svc_setup.c            | 81 +++++++++++++++++++
+ plat/st/stm32mp1/include/stm32mp1_smc.h       | 16 ----
+ plat/st/stm32mp1/services/bsec_svc.c          |  2 +
+ .../st/stm32mp1/services/stm32mp1_svc_setup.c | 72 +++--------------
+ plat/st/stm32mp1/sp_min/sp_min-stm32mp1.mk    |  3 +-
+ 6 files changed, 132 insertions(+), 77 deletions(-)
+ create mode 100644 plat/st/common/include/stm32mp_svc_setup.h
+ create mode 100644 plat/st/common/stm32mp_svc_setup.c
+
+diff --git a/plat/st/common/include/stm32mp_svc_setup.h b/plat/st/common/include/stm32mp_svc_setup.h
+new file mode 100644
+index 0000000000..55b2336191
+--- /dev/null
++++ b/plat/st/common/include/stm32mp_svc_setup.h
+@@ -0,0 +1,35 @@
++/*
++ * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef STM32MP_SVC_SETUP_H
++#define STM32MP_SVC_SETUP_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++/* Common SMC function IDs for STM32 Service queries across STM32MP paltforms */
++#define STM32_SIP_SVC_CALL_COUNT	0x8200ff00
++#define STM32_SIP_SVC_UID		0x8200ff01
++/*					0x8200ff02 is reserved */
++#define STM32_SIP_SVC_VERSION		0x8200ff03
++
++/* STM32 SiP Service Calls version numbers */
++#define STM32_SIP_SVC_VERSION_MAJOR	0x0
++#define STM32_SIP_SVC_VERSION_MINOR	0x1
++
++/* SMC error codes */
++#define STM32_SMC_OK			0x00000000U
++#define STM32_SMC_NOT_SUPPORTED		0xFFFFFFFFU
++#define STM32_SMC_FAILED		0xFFFFFFFEU
++#define STM32_SMC_INVALID_PARAMS	0xFFFFFFFDU
++
++void plat_svc_smc_handler(uint32_t smc_fid, u_register_t x1,
++			  u_register_t x2, u_register_t x3,
++			  u_register_t x4, uint32_t *ret1,
++			  uint32_t *ret2, bool *ret2_enabled,
++			  u_register_t flags);
++
++#endif /* STM32MP_SVC_SETUP_H */
+diff --git a/plat/st/common/stm32mp_svc_setup.c b/plat/st/common/stm32mp_svc_setup.c
+new file mode 100644
+index 0000000000..bb33dc81ce
+--- /dev/null
++++ b/plat/st/common/stm32mp_svc_setup.c
+@@ -0,0 +1,81 @@
++/*
++ * Copyright (c) 2014-2022, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include <common/debug.h>
++#include <common/runtime_svc.h>
++#include <drivers/scmi-msg.h>
++#include <lib/psci/psci.h>
++#include <platform_def.h>
++#include <tools_share/uuid.h>
++
++#include <stm32mp_svc_setup.h>
++
++/* STM32 SiP Service UUID */
++DEFINE_SVC_UUID2(stm32_sip_svc_uid,
++		 0xa778aa50, 0xf49b, 0x144a, 0x8a, 0x5e,
++		 0x26, 0x4d, 0x59, 0x94, 0xc2, 0x14);
++
++/* Setup STM32MP Standard Services */
++static int32_t stm32mp_svc_setup(void)
++{
++	/*
++	 * PSCI is the only specification implemented as a Standard Service.
++	 * Invoke PSCI setup from here.
++	 */
++	return 0;
++}
++
++/*
++ * Top-level Standard Service SMC handler. This handler will dispatch the SMC
++ * to the correct feature handler or default call a platform handler
++ */
++static uintptr_t stm32mp_svc_smc_handler(uint32_t smc_fid, u_register_t x1,
++					 u_register_t x2, u_register_t x3,
++					 u_register_t x4, void *cookie,
++					 void *handle, u_register_t flags)
++{
++	uint32_t ret1 = 0U, ret2 = 0U;
++	bool ret_uid = false, ret2_enabled = false;
++
++	switch (smc_fid) {
++	case STM32_SIP_SVC_UID:
++		/* Return UUID to the caller */
++		ret_uid = true;
++		break;
++
++	case STM32_SIP_SVC_VERSION:
++		/* Return the version of current implementation */
++		ret1 = STM32_SIP_SVC_VERSION_MAJOR;
++		ret2 = STM32_SIP_SVC_VERSION_MINOR;
++		ret2_enabled = true;
++		break;
++	default:
++		plat_svc_smc_handler(smc_fid, x1, x2, x3, x4, &ret1, &ret2, &ret2_enabled, flags);
++		break;
++	}
++
++	if (ret_uid) {
++		SMC_UUID_RET(handle, stm32_sip_svc_uid);
++	}
++
++	if (ret2_enabled) {
++		SMC_RET2(handle, ret1, ret2);
++	}
++
++	SMC_RET1(handle, ret1);
++}
++
++/* Register Standard Service Calls as runtime service */
++DECLARE_RT_SVC(stm32mp_sip_svc,
++	       OEN_SIP_START,
++	       OEN_SIP_END,
++	       SMC_TYPE_FAST,
++	       stm32mp_svc_setup,
++	       stm32mp_svc_smc_handler
++);
+diff --git a/plat/st/stm32mp1/include/stm32mp1_smc.h b/plat/st/stm32mp1/include/stm32mp1_smc.h
+index 52088de28a..bcb19dd0de 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_smc.h
++++ b/plat/st/stm32mp1/include/stm32mp1_smc.h
+@@ -39,16 +39,6 @@
+ #define STM32_SIP_SMC_SCMI_AGENT0	0x82002000
+ #define STM32_SIP_SMC_SCMI_AGENT1	0x82002001
+ 
+-/* SMC function IDs for SiP Service queries */
+-#define STM32_SIP_SVC_CALL_COUNT	0x8200ff00
+-#define STM32_SIP_SVC_UID		0x8200ff01
+-/*					0x8200ff02 is reserved */
+-#define STM32_SIP_SVC_VERSION		0x8200ff03
+-
+-/* STM32 SiP Service Calls version numbers */
+-#define STM32_SIP_SVC_VERSION_MAJOR	0x0
+-#define STM32_SIP_SVC_VERSION_MINOR	0x1
+-
+ /* Number of STM32 SiP Calls implemented */
+ #define STM32_COMMON_SIP_NUM_CALLS	3
+ 
+@@ -58,10 +48,4 @@
+ #define STM32_SMC_WRITE_SHADOW		0x03
+ #define STM32_SMC_READ_OTP		0x04
+ 
+-/* SMC error codes */
+-#define STM32_SMC_OK			0x00000000U
+-#define STM32_SMC_NOT_SUPPORTED		0xFFFFFFFFU
+-#define STM32_SMC_FAILED		0xFFFFFFFEU
+-#define STM32_SMC_INVALID_PARAMS	0xFFFFFFFDU
+-
+ #endif /* STM32MP1_SMC_H */
+diff --git a/plat/st/stm32mp1/services/bsec_svc.c b/plat/st/stm32mp1/services/bsec_svc.c
+index fcfb4196d9..fa8be81bd4 100644
+--- a/plat/st/stm32mp1/services/bsec_svc.c
++++ b/plat/st/stm32mp1/services/bsec_svc.c
+@@ -10,7 +10,9 @@
+ #include <drivers/st/bsec.h>
+ #include <drivers/st/bsec2_reg.h>
+ 
++#include <stm32mp_svc_setup.h>
+ #include <stm32mp1_smc.h>
++#include <stm32mp_svc_setup.h>
+ 
+ #include "bsec_svc.h"
+ 
+diff --git a/plat/st/stm32mp1/services/stm32mp1_svc_setup.c b/plat/st/stm32mp1/services/stm32mp1_svc_setup.c
+index ed8a448b39..113128da0b 100644
+--- a/plat/st/stm32mp1/services/stm32mp1_svc_setup.c
++++ b/plat/st/stm32mp1/services/stm32mp1_svc_setup.c
+@@ -13,57 +13,28 @@
+ #include <lib/psci/psci.h>
+ #include <tools_share/uuid.h>
+ 
++#include <stm32mp_svc_setup.h>
+ #include <stm32mp1_smc.h>
+ 
+ #include "bsec_svc.h"
+ 
+-/* STM32 SiP Service UUID */
+-DEFINE_SVC_UUID2(stm32_sip_svc_uid,
+-		 0xa778aa50, 0xf49b, 0x144a, 0x8a, 0x5e,
+-		 0x26, 0x4d, 0x59, 0x94, 0xc2, 0x14);
+-
+-/* Setup STM32MP1 Standard Services */
+-static int32_t stm32mp1_svc_setup(void)
+-{
+-	/*
+-	 * PSCI is the only specification implemented as a Standard Service.
+-	 * Invoke PSCI setup from here.
+-	 */
+-	return 0;
+-}
+-
+ /*
+- * Top-level Standard Service SMC handler. This handler will in turn dispatch
+- * calls to PSCI SMC handler.
++ * Platform Standard Service SMC handler. This handler will dispatch
++ * calls to features handlers.
+  */
+-static uintptr_t stm32mp1_svc_smc_handler(uint32_t smc_fid, u_register_t x1,
+-					  u_register_t x2, u_register_t x3,
+-					  u_register_t x4, void *cookie,
+-					  void *handle, u_register_t flags)
++void plat_svc_smc_handler(uint32_t smc_fid, u_register_t x1,
++			  u_register_t x2, u_register_t x3,
++			  u_register_t x4, uint32_t *ret1,
++			  uint32_t *ret2, bool *ret2_enabled,
++			  u_register_t flags)
+ {
+-	uint32_t ret1 = 0U, ret2 = 0U;
+-	bool ret_uid = false, ret2_enabled = false;
+-
+ 	switch (smc_fid) {
+ 	case STM32_SIP_SVC_CALL_COUNT:
+-		ret1 = STM32_COMMON_SIP_NUM_CALLS;
+-		break;
+-
+-	case STM32_SIP_SVC_UID:
+-		/* Return UUID to the caller */
+-		ret_uid = true;
+-		break;
+-
+-	case STM32_SIP_SVC_VERSION:
+-		/* Return the version of current implementation */
+-		ret1 = STM32_SIP_SVC_VERSION_MAJOR;
+-		ret2 = STM32_SIP_SVC_VERSION_MINOR;
+-		ret2_enabled = true;
++		*ret1 = STM32_COMMON_SIP_NUM_CALLS;
+ 		break;
+-
+ 	case STM32_SMC_BSEC:
+-		ret1 = bsec_main(x1, x2, x3, &ret2);
+-		ret2_enabled = true;
++		*ret1 = bsec_main(x1, x2, x3, ret2);
++		*ret2_enabled = true;
+ 		break;
+ 
+ 	case STM32_SIP_SMC_SCMI_AGENT0:
+@@ -75,26 +46,7 @@ static uintptr_t stm32mp1_svc_smc_handler(uint32_t smc_fid, u_register_t x1,
+ 
+ 	default:
+ 		WARN("Unimplemented STM32MP1 Service Call: 0x%x\n", smc_fid);
+-		ret1 = STM32_SMC_NOT_SUPPORTED;
++		*ret1 = STM32_SMC_NOT_SUPPORTED;
+ 		break;
+ 	}
+-
+-	if (ret_uid) {
+-		SMC_UUID_RET(handle, stm32_sip_svc_uid);
+-	}
+-
+-	if (ret2_enabled) {
+-		SMC_RET2(handle, ret1, ret2);
+-	}
+-
+-	SMC_RET1(handle, ret1);
+ }
+-
+-/* Register Standard Service Calls as runtime service */
+-DECLARE_RT_SVC(stm32mp1_sip_svc,
+-	       OEN_SIP_START,
+-	       OEN_SIP_END,
+-	       SMC_TYPE_FAST,
+-	       stm32mp1_svc_setup,
+-	       stm32mp1_svc_smc_handler
+-);
+diff --git a/plat/st/stm32mp1/sp_min/sp_min-stm32mp1.mk b/plat/st/stm32mp1/sp_min/sp_min-stm32mp1.mk
+index 9695c9ba3b..e4f390ac89 100644
+--- a/plat/st/stm32mp1/sp_min/sp_min-stm32mp1.mk
++++ b/plat/st/stm32mp1/sp_min/sp_min-stm32mp1.mk
+@@ -45,6 +45,7 @@ BL32_SOURCES		+=	drivers/scmi-msg/base.c		\
+ 				drivers/scmi-msg/smt.c
+ 
+ # stm32mp1 specific services
+-BL32_SOURCES		+=	plat/st/stm32mp1/services/bsec_svc.c		\
++BL32_SOURCES		+=	plat/st/common/stm32mp_svc_setup.c		\
++				plat/st/stm32mp1/services/bsec_svc.c		\
+ 				plat/st/stm32mp1/services/stm32mp1_svc_setup.c	\
+ 				plat/st/stm32mp1/stm32mp1_scmi.c
+-- 
+2.53.0
+

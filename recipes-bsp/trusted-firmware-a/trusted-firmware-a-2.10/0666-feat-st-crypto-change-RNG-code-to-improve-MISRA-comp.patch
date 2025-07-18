@@ -1,0 +1,64 @@
+From 6a9b12f2d2ada86412b442608b6782271882cca1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 25 Jul 2024 15:42:18 +0200
+Subject: [PATCH 666/954] feat(st-crypto): change RNG code to improve MISRA
+ compatibility
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Modification of RNG code to comply with MISRA rules.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b7f6ba012b89a4c329bbdad0d427b547f6ecdf93 feat(st-crypto): change RNG code to improve MISRA compatibility]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Iec358bf469bc6b61c49fb8e6710c40694bf1872d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/395197
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/crypto/stm32_rng.c | 12 +++++-------
+ 1 file changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/st/crypto/stm32_rng.c b/drivers/st/crypto/stm32_rng.c
+index 82e69d177d..57b9ee9b1f 100644
+--- a/drivers/st/crypto/stm32_rng.c
++++ b/drivers/st/crypto/stm32_rng.c
+@@ -195,7 +195,7 @@ int stm32_rng_read(uint8_t *out, uint32_t size)
+ 			data32 = mmio_read_32(stm32_rng.base + RNG_DR);
+ 			count--;
+ 
+-			memcpy(buf, &data32, MIN(len, sizeof(uint32_t)));
++			(void)memcpy(buf, (uint8_t *)&data32, MIN(len, sizeof(uint32_t)));
+ 			buf += MIN(len, sizeof(uint32_t));
+ 			len -= MIN(len, sizeof(uint32_t));
+ 
+@@ -207,7 +207,7 @@ int stm32_rng_read(uint8_t *out, uint32_t size)
+ 
+ bail:
+ 	if (rc != 0) {
+-		memset(out, 0, buf - out);
++		(void)memset(out, 0, buf - out);
+ 	}
+ 
+ 	return rc;
+@@ -219,12 +219,10 @@ bail:
+  */
+ void stm32_rng_select(uintptr_t rng_base)
+ {
+-	if ((stm32_rng.base != 0U) && (stm32_rng.clock != 0U)) {
+-		/* Driver is already initialized */
+-		return;
++	if ((stm32_rng.base == 0U) || (stm32_rng.clock == 0U)) {
++		/* RNG instance is selected once */
++		stm32_rng.base = rng_base;
+ 	}
+-
+-	stm32_rng.base = rng_base;
+ }
+ 
+ /*
+-- 
+2.53.0
+

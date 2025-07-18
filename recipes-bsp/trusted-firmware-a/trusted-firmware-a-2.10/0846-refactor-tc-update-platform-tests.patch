@@ -1,0 +1,198 @@
+From 5a522cf6d183af258c1b248ed85997b2e7cb874a Mon Sep 17 00:00:00 2001
+From: David Vincze <david.vincze@arm.com>
+Date: Fri, 22 Dec 2023 14:34:22 +0100
+Subject: [PATCH 846/954] refactor(tc): update platform tests
+
+Update the TC's platform test Makefile and related common definitions
+to correspond to newer TF-M code (commit hash: 4ab7a20).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 159cc198b92e47edc61d50f59f8f3e05c4d66f3e refactor(tc): update platform tests]
+Change-Id: I6ef3effe194a780a0533f9c0c2eab9d0f4efc1fc
+Signed-off-by: David Vincze <david.vincze@arm.com>
+(cherry picked from commit a93bf0aacaf696baaa0d93e9d945f4045c9ae125)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443838
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ include/lib/psa/rss_crypto_defs.h          | 35 +++++++++++--------
+ plat/arm/board/tc/plat_tc_mbedtls_config.h |  5 +--
+ plat/arm/board/tc/platform_test.mk         | 40 +++++++++++-----------
+ 3 files changed, 44 insertions(+), 36 deletions(-)
+
+diff --git a/include/lib/psa/rss_crypto_defs.h b/include/lib/psa/rss_crypto_defs.h
+index b8c74268df..40d217ac2e 100644
+--- a/include/lib/psa/rss_crypto_defs.h
++++ b/include/lib/psa/rss_crypto_defs.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023, Arm Limited. All rights reserved.
++ * Copyright (c) 2023-2024, Arm Limited. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  *
+@@ -38,21 +38,28 @@ struct rss_crypto_aead_pack_input {
+ };
+ 
+ /*
+- * Structure used to pack non-pointer types in a call
++ * Structure used to pack non-pointer types in a call to PSA Crypto APIs
+  */
+ struct rss_crypto_pack_iovec {
+-	psa_key_id_t key_id;	/* Key id */
+-	psa_algorithm_t alg;	/* Algorithm */
+-	uint32_t op_handle;	/* Frontend context handle associated
+-				   to a multipart operation */
+-	uint32_t capacity;	/* Key derivation capacity */
+-	uint32_t ad_length;	/* Additional Data length for multipart AEAD */
+-	uint32_t plaintext_length;	/* Plaintext length for multipart AEAD */
+-	struct rss_crypto_aead_pack_input aead_in;	/* Packs AEAD-related inputs */
+-	uint16_t function_id;	/* Used to identify the function in the API dispatcher
+-				   to the service backend. See rss_crypto_func_sid for
+-				   detail */
+-	uint16_t step;		/* Key derivation step */
++    psa_key_id_t key_id;       /*!< Key id */
++    psa_algorithm_t alg;       /*!< Algorithm */
++    uint32_t op_handle;        /*!< Frontend context handle associated to a
++                                *   multipart operation
++                                */
++    uint32_t ad_length;        /*!< Additional Data length for multipart AEAD */
++    uint32_t plaintext_length; /*!< Plaintext length for multipart AEAD */
++
++    struct rss_crypto_aead_pack_input aead_in; /*!< Packs AEAD-related inputs */
++
++    uint16_t function_id;      /*!< Used to identify the function in the
++                                *   API dispatcher to the service backend
++                                *   See rss_crypto_func_sid for detail
++                                */
++    uint16_t step;             /*!< Key derivation step */
++    union {
++        size_t capacity;       /*!< Key derivation capacity */
++        uint64_t value;        /*!< Key derivation integer for update*/
++    };
+ };
+ 
+ #endif /* RSS_CRYPTO_DEFS_H */
+diff --git a/plat/arm/board/tc/plat_tc_mbedtls_config.h b/plat/arm/board/tc/plat_tc_mbedtls_config.h
+index 73c9d3af06..7ea5179ae7 100644
+--- a/plat/arm/board/tc/plat_tc_mbedtls_config.h
++++ b/plat/arm/board/tc/plat_tc_mbedtls_config.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022-2023, Arm Ltd. All rights reserved.
++ * Copyright (c) 2022-2024, Arm Ltd. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -19,7 +19,7 @@
+ #undef TF_MBEDTLS_HEAP_SIZE
+ #define TF_MBEDTLS_HEAP_SIZE	PLATFORM_TEST_MIN_MBEDTLS_HEAP_SIZE
+ #endif
+-#endif
++#endif /* TF_MBEDTLS_HEAP_SIZE */
+ 
+ /**
+  * On Arm TC platforms, the ROTPK is always hashed using the SHA-256
+@@ -43,5 +43,6 @@
+ #define MBEDTLS_TEST_NULL_ENTROPY
+ #define MBEDTLS_ECP_C
+ #define MBEDTLS_ECP_DP_SECP384R1_ENABLED
++#define MBEDTLS_ECP_NO_INTERNAL_RNG
+ 
+ #endif /* PLAT_TC_MBEDTLS_CONFIG_H */
+diff --git a/plat/arm/board/tc/platform_test.mk b/plat/arm/board/tc/platform_test.mk
+index 17fbc3e036..c9f4dcd64f 100644
+--- a/plat/arm/board/tc/platform_test.mk
++++ b/plat/arm/board/tc/platform_test.mk
+@@ -1,4 +1,4 @@
+-# Copyright (c) 2022-2023, Arm Limited. All rights reserved.
++# Copyright (c) 2022-2024, Arm Limited. All rights reserved.
+ #
+ # SPDX-License-Identifier: BSD-3-Clause
+ #
+@@ -13,7 +13,6 @@ ifeq (${PLATFORM_TEST},rss-nv-counters)
+ 
+     # Code under testing.
+     BL31_SOURCES	+=	lib/psa/rss_platform.c \
+-				drivers/arm/rss/rss_comms.c \
+ 				${RSS_COMMS_SOURCES}
+ 
+     PLAT_INCLUDES	+=	-Iinclude/lib/psa
+@@ -27,13 +26,13 @@ else ifeq (${PLATFORM_TEST},rss-rotpk)
+ 
+     # Code under testing.
+     BL31_SOURCES	+=	lib/psa/rss_platform.c \
+-				drivers/arm/rss/rss_comms.c \
+ 				${RSS_COMMS_SOURCES}
+ 
+     PLAT_INCLUDES	+=	-Iinclude/lib/psa
+ 
+     $(eval $(call add_define,PLATFORM_TEST_ROTPK))
+ else ifeq (${PLATFORM_TEST},tfm-testsuite)
++    include drivers/arm/rss/rss_comms.mk
+ 
+     # The variables need to be set to compile the platform test:
+     ifeq (${TF_M_TESTS_PATH},)
+@@ -56,7 +55,7 @@ else ifeq (${PLATFORM_TEST},tfm-testsuite)
+ 
+     MBEDTLS_CONFIG_FILE		=	"<plat_tc_mbedtls_config.h>"
+ 
+-    LIBMBEDTLS_SRCS		+= 	$(addprefix ${MBEDTLS_DIR}/library/,	\
++    LIBMBEDTLS_SRCS		+=	$(addprefix ${MBEDTLS_DIR}/library/,	\
+ 					entropy.c				\
+ 					entropy_poll.c				\
+ 					hmac_drbg.c				\
+@@ -70,30 +69,31 @@ else ifeq (${PLATFORM_TEST},tfm-testsuite)
+ 					psa_util.c				\
+ 					)
+ 
+-    BL31_SOURCES	+=	${RSS_COMMS_SOURCES} 				\
+-				plat/arm/common/arm_dyn_cfg.c 			\
+-				${TC_BASE}/rss_ap_tests.c 			\
+-				${TC_BASE}/rss_ap_testsuites.c 			\
++    BL31_SOURCES	+=	${RSS_COMMS_SOURCES}				\
++				plat/arm/common/arm_dyn_cfg.c			\
++				${TC_BASE}/rss_ap_tests.c			\
++				${TC_BASE}/rss_ap_testsuites.c			\
+ 				${TC_BASE}/rss_ap_test_stubs.c			\
+-				$(TF_M_TESTS_PATH)/test/framework/test_framework.c \
++				$(TF_M_TESTS_PATH)/tests_reg/test/framework/test_framework.c \
+ 				$(MEASURED_BOOT_TESTS_PATH)/measured_boot_common.c \
+ 				$(MEASURED_BOOT_TESTS_PATH)/measured_boot_tests_common.c \
+ 				$(DELEGATED_ATTEST_TESTS_PATH)/delegated_attest_test.c \
+-				drivers/auth/mbedtls/mbedtls_common.c 		\
+-				lib/psa/measured_boot.c 			\
++				drivers/auth/mbedtls/mbedtls_common.c		\
++				lib/psa/measured_boot.c				\
+ 				lib/psa/delegated_attestation.c
+ 
+     PLAT_INCLUDES	+=	-I$(TF_M_EXTRAS_PATH)/partitions/measured_boot/interface/include \
+ 				-I$(TF_M_EXTRAS_PATH)/partitions/delegated_attestation/interface/include \
+-				-I$(TF_M_TESTS_PATH)/test/framework 		\
+-				-I$(TF_M_TESTS_PATH)/log 			\
+-				-I$(TF_M_TESTS_PATH)/test/secure_fw/suites/extra \
+-				-I$(MEASURED_BOOT_TESTS_PATH)/non_secure 	\
+-				-I$(DELEGATED_ATTEST_TESTS_PATH) 		\
+-				-I$(DELEGATED_ATTEST_TESTS_PATH)/non_secure \
+-				-Iplat/arm/board/tc 				\
+-				-Iinclude/drivers/auth/mbedtls 			\
+-				-Iinclude/drivers/arm
++				-I$(TF_M_TESTS_PATH)/tests_reg/test/framework	\
++				-I$(TF_M_TESTS_PATH)/tests_reg/test/secure_fw/suites/extra \
++				-I$(TF_M_TESTS_PATH)/lib/log			\
++				-I$(MEASURED_BOOT_TESTS_PATH)/non_secure	\
++				-I$(DELEGATED_ATTEST_TESTS_PATH)		\
++				-I$(DELEGATED_ATTEST_TESTS_PATH)/non_secure	\
++				-Iplat/arm/board/tc				\
++				-Iinclude/drivers/auth/mbedtls			\
++				-Iinclude/drivers/arm				\
++				-Iinclude/lib/psa
+ 
+     # Some of the PSA functions are declared in multiple header files, that
+     # triggers this warning.
+-- 
+2.53.0
+

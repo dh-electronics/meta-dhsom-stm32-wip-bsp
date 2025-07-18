@@ -1,0 +1,101 @@
+From 5b9619e9c7e642f837b0c98fc43a1da8f20fea62 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Fri, 9 Jul 2021 09:23:52 +0200
+Subject: [PATCH 127/954] feat(mtd): spi_mem: add octal mode support
+
+This patch adds SDR octal mode support.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f28f2d66dde15c470e1f4b88409a88ea746e161c feat(mtd): spi_mem: add octal mode support]
+Change-Id: Ie7cb4fd2e05ff61d81c85719608bd286670a4b73
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+---
+ drivers/mtd/spi-mem/spi_mem.c | 27 +++++++++++++++++++++------
+ include/drivers/spi_mem.h     |  3 +++
+ 2 files changed, 24 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/mtd/spi-mem/spi_mem.c b/drivers/mtd/spi-mem/spi_mem.c
+index 4a8cb80d2e..1eb7f3662e 100644
+--- a/drivers/mtd/spi-mem/spi_mem.c
++++ b/drivers/mtd/spi-mem/spi_mem.c
+@@ -33,22 +33,31 @@ static struct spi_slave spi_slave;
+ 
+ static bool spi_mem_check_buswidth_req(uint8_t buswidth, bool tx)
+ {
++	unsigned int mode = spi_slave.mode;
++
+ 	switch (buswidth) {
+ 	case 1U:
+ 		return true;
+ 
+ 	case 2U:
+-		if ((tx && (spi_slave.mode & (SPI_TX_DUAL | SPI_TX_QUAD)) !=
+-		     0U) ||
+-		    (!tx && (spi_slave.mode & (SPI_RX_DUAL | SPI_RX_QUAD)) !=
+-		     0U)) {
++		if ((tx &&
++		     (mode & (SPI_TX_DUAL | SPI_TX_QUAD | SPI_TX_OCTAL)) != 0U) ||
++		    (!tx &&
++		     (mode & (SPI_RX_DUAL | SPI_RX_QUAD | SPI_RX_OCTAL)) != 0U)) {
+ 			return true;
+ 		}
+ 		break;
+ 
+ 	case 4U:
+-		if ((tx && (spi_slave.mode & SPI_TX_QUAD) != 0U) ||
+-		    (!tx && (spi_slave.mode & SPI_RX_QUAD) != 0U)) {
++		if ((tx && (mode & (SPI_TX_QUAD | SPI_TX_OCTAL)) != 0U) ||
++		    (!tx && (mode & (SPI_RX_QUAD | SPI_RX_OCTAL)) != 0U)) {
++			return true;
++		}
++		break;
++
++	case 8U:
++		if ((tx && (mode & SPI_TX_OCTAL) != 0U) ||
++		    (!tx && (mode & SPI_RX_OCTAL) != 0U)) {
+ 			return true;
+ 		}
+ 		break;
+@@ -304,6 +313,9 @@ int spi_mem_init_slave(void *fdt, int bus_node, const struct spi_bus_ops *ops)
+ 			case 4U:
+ 				mode |= SPI_TX_QUAD;
+ 				break;
++			case 8U:
++				mode |= SPI_TX_OCTAL;
++				break;
+ 			default:
+ 				WARN("spi-tx-bus-width %u not supported\n",
+ 				     fdt32_to_cpu(*cuint));
+@@ -322,6 +334,9 @@ int spi_mem_init_slave(void *fdt, int bus_node, const struct spi_bus_ops *ops)
+ 			case 4U:
+ 				mode |= SPI_RX_QUAD;
+ 				break;
++			case 8U:
++				mode |= SPI_RX_OCTAL;
++				break;
+ 			default:
+ 				WARN("spi-rx-bus-width %u not supported\n",
+ 				     fdt32_to_cpu(*cuint));
+diff --git a/include/drivers/spi_mem.h b/include/drivers/spi_mem.h
+index 7961bc0a0c..539b741b96 100644
+--- a/include/drivers/spi_mem.h
++++ b/include/drivers/spi_mem.h
+@@ -14,6 +14,7 @@
+ #define SPI_MEM_BUSWIDTH_1_LINE		1U
+ #define SPI_MEM_BUSWIDTH_2_LINE		2U
+ #define SPI_MEM_BUSWIDTH_4_LINE		4U
++#define SPI_MEM_BUSWIDTH_8_LINE		8U
+ 
+ /*
+  * enum spi_mem_data_dir - Describes the direction of a SPI memory data
+@@ -82,6 +83,8 @@ struct spi_mem_op {
+ #define SPI_TX_QUAD	BIT(7)			/* transmit with 4 wires */
+ #define SPI_RX_DUAL	BIT(8)			/* receive with 2 wires */
+ #define SPI_RX_QUAD	BIT(9)			/* receive with 4 wires */
++#define SPI_TX_OCTAL	BIT(10)			/* transmit with 8 wires */
++#define SPI_RX_OCTAL	BIT(11)			/* receive with 8 wires */
+ 
+ struct spi_bus_ops {
+ 	/*
+-- 
+2.53.0
+

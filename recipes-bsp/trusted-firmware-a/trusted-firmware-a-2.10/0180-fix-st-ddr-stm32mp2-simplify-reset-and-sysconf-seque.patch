@@ -1,0 +1,60 @@
+From e7dd30cbb5098d1c5a382ce21f8c1968749d99d2 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Tue, 5 Jul 2022 16:10:20 +0200
+Subject: [PATCH 180/954] fix(st-ddr): stm32mp2: simplify reset and sysconf
+ sequences
+
+Keep only two steps in reset procedure, and let DDR subsytem clock
+gating be managed by clock driver itself.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5571f4e11cb7a47d62b6b13b02e884bddd3c14ee fix(st-ddr): stm32mp2: simplify reset and sysconf sequences]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Ide4f3f703caeae88d96c5a8d98fb358f0724555d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/259465
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr.c | 17 ++++++-----------
+ 1 file changed, 6 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
+index b04bf8654e..7f17fd907e 100644
+--- a/drivers/st/ddr/stm32mp2_ddr.c
++++ b/drivers/st/ddr/stm32mp2_ddr.c
+@@ -221,17 +221,13 @@ static void ddr_reset(struct stm32mp_ddr_priv *priv)
+ 
+ 	mmio_write_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+ 	mmio_write_32(priv->rcc + RCC_DDRPHYCAPBCFGR,
+-		      RCC_DDRPHYCAPBCFGR_DDRPHYCAPBEN | RCC_DDRPHYCAPBCFGR_DDRPHYCAPBLPEN);
++		      RCC_DDRPHYCAPBCFGR_DDRPHYCAPBEN | RCC_DDRPHYCAPBCFGR_DDRPHYCAPBLPEN |
++		      RCC_DDRPHYCAPBCFGR_DDRPHYCAPBRST);
+ 	mmio_write_32(priv->rcc + RCC_DDRCAPBCFGR,
+-		      RCC_DDRCAPBCFGR_DDRCAPBEN | RCC_DDRCAPBCFGR_DDRCAPBLPEN);
+-	mmio_write_32(priv->rcc + RCC_DDRCFGR, RCC_DDRCFGR_DDRCFGEN | RCC_DDRCFGR_DDRCFGLPEN);
+-
+-	udelay(DDR_DELAY_1US);
+-
+-	mmio_write_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+-	mmio_write_32(priv->rcc + RCC_DDRPHYCAPBCFGR, RCC_DDRPHYCAPBCFGR_DDRPHYCAPBRST);
+-	mmio_write_32(priv->rcc + RCC_DDRCAPBCFGR, RCC_DDRCAPBCFGR_DDRCAPBRST);
+-	mmio_write_32(priv->rcc + RCC_DDRCFGR, RCC_DDRCFGR_DDRCFGRST);
++		      RCC_DDRCAPBCFGR_DDRCAPBEN | RCC_DDRCAPBCFGR_DDRCAPBLPEN |
++		      RCC_DDRCAPBCFGR_DDRCAPBRST);
++	mmio_write_32(priv->rcc + RCC_DDRCFGR,
++		      RCC_DDRCFGR_DDRCFGEN | RCC_DDRCFGR_DDRCFGLPEN | RCC_DDRCFGR_DDRCFGRST);
+ 
+ 	udelay(DDR_DELAY_1US);
+ 
+@@ -252,7 +248,6 @@ static void ddr_sysconf_configuration(struct stm32mp_ddr_priv *priv)
+ 	mmio_write_32(stm32_ddrdbg_get_base() + DDRDBG_BYPASS_PCLKEN, 0U);
+ 
+ 	mmio_write_32(priv->rcc + RCC_DDRPHYCCFGR, RCC_DDRPHYCCFGR_DDRPHYCEN);
+-	mmio_write_32(priv->rcc + RCC_DDRCPCFGR, RCC_DDRCPCFGR_DDRCPEN | RCC_DDRCPCFGR_DDRCPLPEN);
+ 	mmio_write_32(priv->rcc + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRRST);
+ 
+ 	udelay(DDR_DELAY_1US);
+-- 
+2.53.0
+

@@ -1,0 +1,285 @@
+From 7b76139652172a22abbfe95ca88313db6b59093c Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 4 Jan 2023 09:13:53 +0100
+Subject: [PATCH 240/954] feat(stm32mp2): add BL31 device tree support
+
+BL31 will need to access a device tree for several configurations (UART,
+GIC, OTP mapping...).
+Create a BL31 device tree (SOC_FW_CONFIG). It is loaded in DDR, in a
+spare area.
+It is now used in BL31 instead of HW_CONFIG DT which is non-secure and
+does not embed all the required pieces of information.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 4c21a2e90804161485ef90b82e60ef10618c77fc feat(stm32mp2): add BL31 device tree support]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I320a05859e1aa3dd8db9a274e7201075a8c250c2
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/283139
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ fdts/stm32mp25-bl2.dtsi                     |  1 +
+ fdts/stm32mp25-bl31.dtsi                    | 13 +++++++++++++
+ fdts/stm32mp25-fw-config.dtsi               |  9 ++++++++-
+ plat/st/common/stm32mp_fconf_io.c           |  3 ++-
+ plat/st/stm32mp2/bl2_plat_setup.c           |  2 ++
+ plat/st/stm32mp2/bl31_plat_setup.c          | 17 ++++++++++++++---
+ plat/st/stm32mp2/plat_bl2_mem_params_desc.c | 15 +++++++++++++++
+ plat/st/stm32mp2/platform.mk                | 12 ++++++++++++
+ plat/st/stm32mp2/stm32mp2_def.h             |  1 +
+ 9 files changed, 68 insertions(+), 5 deletions(-)
+ create mode 100644 fdts/stm32mp25-bl31.dtsi
+
+diff --git a/fdts/stm32mp25-bl2.dtsi b/fdts/stm32mp25-bl2.dtsi
+index c1f8b4a3e9..c5f4b185f9 100644
+--- a/fdts/stm32mp25-bl2.dtsi
++++ b/fdts/stm32mp25-bl2.dtsi
+@@ -39,6 +39,7 @@
+ 			bl32_extra2_uuid = "8ea87bb1-cfa2-3f4d-85fd-e7bba50220d9";
+ 			bl33_uuid = "d6d0eea7-fcea-d54b-9782-9934f234b6e4";
+ 			hw_cfg_uuid = "08b8f1d9-c9cf-9349-a962-6fbc6b7265cc";
++			soc_fw_cfg_uuid = "9979814b-0376-fb46-8c8e-8d267f7859e0";
+ 			tos_fw_cfg_uuid = "26257c1a-dbc6-7f47-8d96-c4c4b0248021";
+ 			nt_fw_cfg_uuid = "28da9815-93e8-7e44-ac66-1aaf801550f9";
+ 		};
+diff --git a/fdts/stm32mp25-bl31.dtsi b/fdts/stm32mp25-bl31.dtsi
+new file mode 100644
+index 0000000000..fc9e4de078
+--- /dev/null
++++ b/fdts/stm32mp25-bl31.dtsi
+@@ -0,0 +1,13 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2024 - All Rights Reserved
++ */
++
++/ {
++	soc@0 {
++		/delete-node/ ommanager@40500000;
++		/delete-node/ memory-controller@48200000;
++		/delete-node/ mmc@48220000;
++		/delete-node/ mmc@48230000;
++	};
++};
+diff --git a/fdts/stm32mp25-fw-config.dtsi b/fdts/stm32mp25-fw-config.dtsi
+index 17d8f70391..218eb2b806 100644
+--- a/fdts/stm32mp25-fw-config.dtsi
++++ b/fdts/stm32mp25-fw-config.dtsi
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
+ /*
+- * Copyright (c) 2021-2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2021-2023, STMicroelectronics - All Rights Reserved
+  */
+ 
+ #include <common/tbbr/tbbr_img_def.h>
+@@ -15,6 +15,7 @@
+ #define DDR_SEC_SIZE	0x02000000
+ #define DDR_NS_BASE	(DDR_SEC_BASE + DDR_SEC_SIZE)
+ #define DDR_NS_SIZE	(STM32MP_DDR_BASE + DDR_SIZE - DDR_NS_BASE)
++#define SOC_FW_CFG_BASE	(DDR_SEC_BASE - STM32MP_SOC_FW_CONFIG_MAX_SIZE)
+ 
+ /dts-v1/;
+ 
+@@ -40,6 +41,12 @@
+ 			id = <BL31_IMAGE_ID>;
+ 		};
+ 
++		soc_fw-config {
++			load-address = <0x0 SOC_FW_CFG_BASE>;
++			max-size = <STM32MP_SOC_FW_CONFIG_MAX_SIZE>;
++			id = <SOC_FW_CONFIG_ID>;
++		};
++
+ 		tos_fw {
+ 			load-address = <0x0 DDR_SEC_BASE>;
+ 			max-size = <DDR_SEC_SIZE>;
+diff --git a/plat/st/common/stm32mp_fconf_io.c b/plat/st/common/stm32mp_fconf_io.c
+index a83f3ccfa4..f5fd21e1e2 100644
+--- a/plat/st/common/stm32mp_fconf_io.c
++++ b/plat/st/common/stm32mp_fconf_io.c
+@@ -77,7 +77,7 @@ struct plat_io_policy policies[MAX_NUMBER_IDS] = {
+ #define DEFAULT_UUID_NUMBER	U(7)
+ 
+ #ifdef __aarch64__
+-#define BL31_UUID_NUMBER	U(1)
++#define BL31_UUID_NUMBER	U(2)
+ #else
+ #define BL31_UUID_NUMBER	U(0)
+ #endif
+@@ -115,6 +115,7 @@ static const struct policies_load_info load_info[FCONF_ST_IO_UUID_NUMBER] = {
+ 	{FW_CONFIG_ID, "fw_cfg_uuid"},
+ #ifdef __aarch64__
+ 	{BL31_IMAGE_ID, "bl31_uuid"},
++	{SOC_FW_CONFIG_ID, "soc_fw_cfg_uuid"},
+ #endif
+ 	{BL32_IMAGE_ID, "bl32_uuid"},
+ 	{BL32_EXTRA1_IMAGE_ID, "bl32_extra1_uuid"},
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 711abea67d..7977d1ba24 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -312,6 +312,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 	unsigned long long ddr_top __unused;
+ 	const unsigned int image_ids[] = {
+ 		BL31_IMAGE_ID,
++		SOC_FW_CONFIG_ID,
+ 		BL32_IMAGE_ID,
+ 		BL33_IMAGE_ID,
+ 		HW_CONFIG_ID,
+@@ -367,6 +368,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 				break;
+ 
+ 			case HW_CONFIG_ID:
++			case SOC_FW_CONFIG_ID:
+ 				break;
+ 
+ 			default:
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index df6cc1ee86..fdde782d12 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -8,6 +8,7 @@
+ #include <stdint.h>
+ 
+ #include <common/bl_common.h>
++#include <drivers/generic_delay_timer.h>
+ #include <drivers/st/stm32_console.h>
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+ #include <plat/common/platform.h>
+@@ -21,6 +22,7 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 				u_register_t arg2, u_register_t arg3)
+ {
+ 	bl_params_t *params_from_bl2 = (bl_params_t *)arg0;
++	char name[STM32_SOC_NAME_SIZE];
+ 
+ 	stm32mp_setup_early_console();
+ 
+@@ -29,10 +31,10 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 			MT_CODE | MT_SECURE);
+ 
+ 	/*
+-	 * Map non-secure device tree with secure property, i.e. default region.
++	 * Map soc_fw_config device tree with secure property, i.e. default region.
+ 	 * DDR region definitions will be finalized at BL32 level.
+ 	 */
+-	mmap_add_region(arg2, arg2, STM32MP_HW_CONFIG_MAX_SIZE, MT_RO_DATA | MT_SECURE);
++	mmap_add_region(arg1, arg1, STM32MP_SOC_FW_CONFIG_MAX_SIZE, MT_RO_DATA | MT_SECURE);
+ 
+ #if USE_COHERENT_MEM
+ 	/* Map coherent memory */
+@@ -78,7 +80,7 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 		bl_params = bl_params->next_params_info;
+ 	}
+ 
+-	if (dt_open_and_check(arg2) < 0) {
++	if (dt_open_and_check(arg1) < 0) {
+ 		panic();
+ 	}
+ 
+@@ -87,6 +89,13 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 	}
+ 
+ 	(void)stm32mp_uart_console_setup();
++
++	/*
++	 * This stm32mp_get_soc_name() call is mandatory here to store SoC part number,
++	 * and avoid using BL31 DT at runtime to check stm32mp_is_single_core().
++	 */
++	stm32mp_get_soc_name(name);
++	VERBOSE("CPU: %s\n", name);
+ }
+ 
+ void bl31_plat_arch_setup(void)
+@@ -95,6 +104,8 @@ void bl31_plat_arch_setup(void)
+ 
+ void bl31_platform_setup(void)
+ {
++	generic_delay_timer_init();
++
+ 	stm32mp_gic_init();
+ }
+ 
+diff --git a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+index 2906a009f9..528c0d1d6a 100644
+--- a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
++++ b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
+@@ -70,6 +70,21 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
+ 		.next_handoff_image_id = BL32_IMAGE_ID,
+ 	},
+ 
++	/* Fill SoC FW config related information */
++	{
++		.image_id = SOC_FW_CONFIG_ID,
++
++		SET_STATIC_PARAM_HEAD(ep_info, PARAM_IMAGE_BINARY,
++				      VERSION_2, entry_point_info_t,
++				      SECURE | NON_EXECUTABLE),
++
++		SET_STATIC_PARAM_HEAD(image_info, PARAM_IMAGE_BINARY,
++				      VERSION_2, image_info_t,
++				      IMAGE_ATTRIB_SKIP_LOADING),
++
++		.next_handoff_image_id = INVALID_IMAGE_ID,
++	},
++
+ 	/* Fill BL32 related information */
+ 	{
+ 		.image_id = BL32_IMAGE_ID,
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index d168b77402..b09b0ef28f 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -65,6 +65,8 @@ STM32MP_DDR_FIP_IO_STORAGE	:=	1
+ # Device tree
+ BL2_DTSI			:=	stm32mp25-bl2.dtsi
+ FDT_SOURCES			:=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl2.dts,$(DTB_FILE_NAME)))
++BL31_DTSI			:=	stm32mp25-bl31.dtsi
++FDT_SOURCES			+=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl31.dts,$(DTB_FILE_NAME)))
+ 
+ # Macros and rules to build TF binary
+ STM32_TF_STM32			:=	$(addprefix ${BUILD_PLAT}/tf-a-, $(patsubst %.dtb,%.stm32,$(DTB_FILE_NAME)))
+@@ -73,6 +75,7 @@ STM32_BINARY_MAPPING		:=	plat/st/stm32mp2/${ARCH}/stm32mp2.S
+ 
+ STM32MP_FW_CONFIG_NAME	:=	$(patsubst %.dtb,%-fw-config.dtb,$(DTB_FILE_NAME))
+ STM32MP_FW_CONFIG	:=	${BUILD_PLAT}/fdts/$(STM32MP_FW_CONFIG_NAME)
++STM32MP_SOC_FW_CONFIG	:=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl31.dtb,$(DTB_FILE_NAME)))
+ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+ STM32MP_DDR_FW_NAME	:=	${DDR_TYPE}_pmu_train.bin
+ STM32MP_DDR_FW		:=	drivers/st/ddr/phy/firmware/bin/${STM32MP_DDR_FW_NAME}
+@@ -80,6 +83,8 @@ endif
+ FDT_SOURCES		+=	$(addprefix fdts/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_NAME)))
+ # Add the FW_CONFIG to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
++# Add the SOC_FW_CONFIG to FIP and specify the same to certtool
++$(eval $(call TOOL_ADD_IMG,STM32MP_SOC_FW_CONFIG,--soc-fw-config))
+ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+ # Add the FW_DDR to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_IMG,STM32MP_DDR_FW,--ddr-fw))
+@@ -273,4 +278,11 @@ fip: fip-ddr
+ endif
+ endif
+ 
++# Create DTB file for BL31
++${BUILD_PLAT}/fdts/%-bl31.dts: fdts/%.dts fdts/${BL31_DTSI} | ${BUILD_PLAT} fdt_dirs
++	@echo '#include "$(patsubst fdts/%,%,$<)"' > $@
++	@echo '#include "${BL31_DTSI}"' >> $@
++
++${BUILD_PLAT}/fdts/%-bl31.dtb: ${BUILD_PLAT}/fdts/%-bl31.dts
++
+ include plat/st/common/common_rules.mk
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 4c08ad733e..280a722a31 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -207,6 +207,7 @@ enum ddr_type {
+ #define STM32MP_HW_CONFIG_BASE		(STM32MP_BL33_BASE + \
+ 					STM32MP_BL33_MAX_SIZE)
+ #define STM32MP_HW_CONFIG_MAX_SIZE	U(0x20000)
++#define STM32MP_SOC_FW_CONFIG_MAX_SIZE	U(0x10000) /* 64kB for BL31 DT */
+ 
+ /* Define maximum page size for NAND devices */
+ #define PLATFORM_MTD_MAX_PAGE_SIZE	U(0x1000)
+-- 
+2.53.0
+

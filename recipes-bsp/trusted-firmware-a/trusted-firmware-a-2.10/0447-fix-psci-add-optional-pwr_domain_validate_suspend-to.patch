@@ -1,0 +1,74 @@
+From 3e48cc699b02e072754e08fe5313919e6c6796c6 Mon Sep 17 00:00:00 2001
+From: Wing Li <wingers@google.com>
+Date: Thu, 4 May 2023 08:31:19 -0700
+Subject: [PATCH 447/954] fix(psci): add optional pwr_domain_validate_suspend
+ to plat_psci_ops_t
+
+This patch adds a new optional member `pwr_domain_validate_suspend` to
+the `plat_psci_ops_t` structure that allows a platform to optionally
+perform platform specific validations in OS-initiated mode. This is
+conditionally compiled into the build depending on the value of the
+`PSCI_OS_INIT_MODE` build option.
+
+In https://review.trustedfirmware.org/c/TF-A/trusted-firmware-a/+/17682,
+the return type of the `pwr_domain_suspend` handler was updated from
+`void` to `int` to allow a platform to optionally perform platform
+specific validations in OS-initiated mode. However, when an error code
+other than `PSCI_E_SUCCESS` is returned, the current exit path does not
+undo the operations in `psci_suspend_to_pwrdown_start`, and as a result,
+the system ends up in an unexpected state.
+
+The fix in this patch prevents the need to undo the operations in
+`psci_suspend_to_pwrdown_start`, by allowing the platform to first
+perform any necessary platform specific validations before the PSCI
+generic code proceeds to the point of no return where the CPU_SUSPEND
+request is expected to complete successfully.
+
+[Backport of commit d34886140c74 ("fix(psci): add optional
+ pwr_domain_validate_suspend to plat_psci_ops_t")]
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 29d40cdf6301d83b0ed8051d734bbfe9d0f9fab4 fix(psci): add optional pwr_domain_validate_suspend to plat_psci_ops_t]
+Change-Id: I05d92c7ea3f5364da09af630d44d78252185db20
+Signed-off-by: Wing Li <wingers@google.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/347270
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Tested-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ lib/psci/psci_common.c  | 4 ++--
+ lib/psci/psci_private.h | 2 ++
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/lib/psci/psci_common.c b/lib/psci/psci_common.c
+index f830a95cb7..36e58f02e9 100644
+--- a/lib/psci/psci_common.c
++++ b/lib/psci/psci_common.c
+@@ -449,8 +449,8 @@ void psci_get_target_local_pwr_states(unsigned int end_pwrlvl,
+  * enter. This function will be called after coordination of requested power
+  * states has been done for each power level.
+  *****************************************************************************/
+-static void psci_set_target_local_pwr_states(unsigned int end_pwrlvl,
+-					const psci_power_state_t *target_state)
++void psci_set_target_local_pwr_states(unsigned int end_pwrlvl,
++				      const psci_power_state_t *target_state)
+ {
+ 	unsigned int parent_idx, lvl;
+ 	const plat_local_state_t *pd_state = target_state->pwr_domain_state;
+diff --git a/lib/psci/psci_private.h b/lib/psci/psci_private.h
+index c7cc47eda4..2eb4a9b705 100644
+--- a/lib/psci/psci_private.h
++++ b/lib/psci/psci_private.h
+@@ -297,6 +297,8 @@ void psci_restore_req_local_pwr_states(unsigned int cpu_idx,
+ #endif
+ void psci_get_target_local_pwr_states(unsigned int end_pwrlvl,
+ 				      psci_power_state_t *target_state);
++void psci_set_target_local_pwr_states(unsigned int end_pwrlvl,
++				      const psci_power_state_t *target_state);
+ int psci_validate_entry_point(entry_point_info_t *ep,
+ 			uintptr_t entrypoint, u_register_t context_id);
+ void psci_get_parent_pwr_domain_nodes(unsigned int cpu_idx,
+-- 
+2.53.0
+

@@ -1,0 +1,68 @@
+From c7dada571036074235bd052ddff88b09f680404d Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@st.com>
+Date: Thu, 12 Nov 2020 10:44:51 +0100
+Subject: [PATCH 021/954] feat(st-reset): add system reset management
+
+Add the system reset management into the stm32mp
+reset driver.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git bdcde14fe7769f4a3be15d1137ff81f3805c4675 feat(st-reset): add system reset management]
+Signed-off-by: Lionel Debieve <lionel.debieve@st.com>
+Change-Id: I748f10de2398e1323160f479f99e92abd2f65dca
+---
+ drivers/st/reset/stm32mp1_reset.c  | 15 ++++++++++++++-
+ include/drivers/st/stm32mp_reset.h |  7 ++++++-
+ 2 files changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/st/reset/stm32mp1_reset.c b/drivers/st/reset/stm32mp1_reset.c
+index 98c8dcf710..435d6ed1ea 100644
+--- a/drivers/st/reset/stm32mp1_reset.c
++++ b/drivers/st/reset/stm32mp1_reset.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2019, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2018-2020, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -67,3 +67,16 @@ int stm32mp_reset_deassert(uint32_t id, unsigned int to_us)
+ 
+ 	return 0;
+ }
++
++void __dead2 stm32mp_system_reset(void)
++{
++	uintptr_t rcc_base = stm32mp_rcc_base();
++
++	mmio_setbits_32(rcc_base + RCC_MP_GRSTCSETR,
++			RCC_MP_GRSTCSETR_MPSYSRST);
++
++	/* Loop in case system reset is not immediately caught */
++	for ( ; ; ) {
++		;
++	}
++}
+diff --git a/include/drivers/st/stm32mp_reset.h b/include/drivers/st/stm32mp_reset.h
+index 84448050d7..40ecdd59ab 100644
+--- a/include/drivers/st/stm32mp_reset.h
++++ b/include/drivers/st/stm32mp_reset.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2018-2019, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2018-2020, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -47,4 +47,9 @@ static inline void stm32mp_reset_release(uint32_t reset_id)
+ 	(void)stm32mp_reset_deassert(reset_id, 0U);
+ }
+ 
++/*
++ * Manage system reset control
++ */
++void __dead2 stm32mp_system_reset(void);
++
+ #endif /* STM32MP_RESET_H */
+-- 
+2.53.0
+

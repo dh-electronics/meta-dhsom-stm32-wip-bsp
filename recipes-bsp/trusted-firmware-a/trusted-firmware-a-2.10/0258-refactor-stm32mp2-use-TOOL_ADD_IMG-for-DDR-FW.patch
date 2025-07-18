@@ -1,0 +1,41 @@
+From f96985ce828a615b312592424d4234581e4ec7d9 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 24 Jan 2023 14:57:05 +0100
+Subject: [PATCH 258/954] refactor(stm32mp2): use TOOL_ADD_IMG for DDR FW
+
+To ease Trusted Boot porting for serial boot, we can use TOOL_ADD_IMG
+with a DDR_ prefix instead of defining DDR_FIP_ARGS and DDR_FIP_DEPS.
+To avoid overriding rule issue with the check rule in TOOL_ADD_IMG,
+a copy of the STM32MP_DDR_FW variable is created.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b46fd2cdc85227ae333c0061b45178876b57b6e0 refactor(stm32mp2): use TOOL_ADD_IMG for DDR FW]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I23a3f0afcead2d45d2217cd1efacb5b8989a6522
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/286606
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+---
+ plat/st/stm32mp2/platform.mk | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 14cdc20dbe..ca6bd790e1 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -289,9 +289,10 @@ check_ddr_type:
+ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+ ifneq ($(filter 1,${STM32MP_UART_PROGRAMMER} ${STM32MP_USB_PROGRAMMER}),)
+ 
++STM32MP_DDR_FW_COPY	:=	${STM32MP_DDR_FW}
+ DDR_FIP_NAME		?=	fip-ddr.bin
+-DDR_FIP_ARGS		+=	--ddr-fw ${STM32MP_DDR_FW}
+-DDR_FIP_DEPS		+=	${STM32MP_DDR_FW}
++
++$(eval $(call TOOL_ADD_IMG,STM32MP_DDR_FW_COPY,--ddr-fw,DDR_))
+ 
+ ${BUILD_PLAT}/${DDR_FIP_NAME}: ${DDR_FIP_DEPS} fiptool
+ 	${Q}${FIPTOOL} create ${DDR_FIP_ARGS} $@
+-- 
+2.53.0
+

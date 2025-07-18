@@ -1,0 +1,111 @@
+From 6d537a6085c11fe38f98d8d67ef3a2b2d1196f68 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Mon, 18 Dec 2023 14:34:14 +0100
+Subject: [PATCH 442/954] feat(stm32mp1): stub PM code in serial boot
+
+When booting from USB or UART, with programmer, the low-power sequences
+won't be used, some code can then be stubbed under UART and USB flags.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b2a59857b867c9a9015c726f5187d7ccc9bd2ed0 feat(stm32mp1): stub PM code in serial boot]
+Change-Id: Icd41a38948043d4884c1a8220fb3511cc05c3c94
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/347471
+Reviewed-by: Sebastien PASDELOUP <sebastien.pasdeloup-ext@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp1/bl2_plat_setup.c   | 12 ++++++++++++
+ plat/st/stm32mp1/stm32mp1_private.c |  8 ++++++++
+ 2 files changed, 20 insertions(+)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 722671ef32..4608475e33 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -441,6 +441,11 @@ static void prepare_encryption(void)
+ 
+ 	stm32_mce_init();
+ 
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++	if (stm32_rng_read(mkey, MCE_KEY_SIZE_IN_BYTES) != 0) {
++		panic();
++	}
++#else /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 	if (stm32mp_is_wakeup_from_standby()) {
+ 		stm32mp1_pm_get_mce_mkey_from_context(mkey);
+ 		stm32_mce_reload_configuration();
+@@ -452,6 +457,7 @@ static void prepare_encryption(void)
+ 
+ 		stm32mp1_pm_save_mce_mkey_in_context(mkey);
+ 	}
++#endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 
+ 	if (stm32_mce_write_master_key(mkey) != 0) {
+ 		panic();
+@@ -477,7 +483,11 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 	unsigned int i;
+ 	unsigned int idx;
+ 	unsigned long long ddr_top __unused;
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++	bool wakeup_ddr_sr = false;
++#else /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 	bool wakeup_ddr_sr = stm32mp1_ddr_is_restored();
++#endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 	const unsigned int image_ids[] = {
+ 		BL32_IMAGE_ID,
+ 		BL33_IMAGE_ID,
+@@ -575,6 +585,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		break;
+ 
+ 	case BL32_IMAGE_ID:
++#if !STM32MP_UART_PROGRAMMER && !STM32MP_USB_PROGRAMMER
+ 		if (wakeup_ddr_sr && stm32mp_skip_boot_device_after_standby()) {
+ 			bl_mem_params->ep_info.pc = stm32_pm_get_optee_ep();
+ 			if (stm32mp1_addr_inside_backupsram(bl_mem_params->ep_info.pc)) {
+@@ -582,6 +593,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			}
+ 			break;
+ 		}
++#endif /* !STM32MP_UART_PROGRAMMER && !STM32MP_USB_PROGRAMMER */
+ 
+ 		if (optee_header_is_valid(bl_mem_params->image_info.image_base)) {
+ 			image_info_t *paged_image_info = NULL;
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index e97d2b0eb5..e9e1645892 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -662,6 +662,9 @@ bool stm32mp1_addr_inside_backupsram(uintptr_t addr)
+ 
+ bool stm32mp_is_wakeup_from_standby(void)
+ {
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++	return false;
++#else /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_MP_RSTSCLRR);
+ #if STM32MP15
+ 	uint32_t nsec_address;
+@@ -687,10 +690,14 @@ bool stm32mp_is_wakeup_from_standby(void)
+ #endif
+ 
+ 	return stm32_pm_context_is_valid();
++#endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ }
+ 
+ bool stm32mp_skip_boot_device_after_standby(void)
+ {
++#if STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER
++	return false;
++#else /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 	static int skip = -1;
+ 
+ 	if (skip == -1) {
+@@ -707,6 +714,7 @@ bool stm32mp_skip_boot_device_after_standby(void)
+ 	}
+ 
+ 	return skip == 1;
++#endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ }
+ 
+ #if STM32MP13
+-- 
+2.53.0
+

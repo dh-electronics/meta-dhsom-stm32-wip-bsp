@@ -1,0 +1,69 @@
+From 2d2d3bb9925a22630ef4ed9b4bee69dfee786022 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 4 Oct 2023 09:25:28 +0200
+Subject: [PATCH 355/954] fix(stm32mp2): multiple fixes added for DTR support
+
+- In case of RX and TX calibration, if timeout occurs, stop the TX
+tap loop, it improves the calibration algorithm (time wins).
+- In case check_transfer API is not able to run on a memory device,
+return -EOPNOTSUPP. That means that the driver should be modified to
+support the memory provider or that you can not use DTR commands
+(spi-rx-bus-width and spi-tx-bus-width can not be set to 8).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cfcc3769c32697b208676336250ffb1deb1535cb fix(stm32mp2): multiple fixes added for DTR support]
+Change-Id: Id22e0d2d30b3c2fb805346ae637e00bea9aa6664
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/331573
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_syscfg.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index f6b17e3ca2..bae68aa22b 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -266,6 +266,11 @@ int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+ 			}
+ 
+ 			if (check_transfer() != 0) {
++				if ((!rx_only && (ret == -ETIMEDOUT)) ||
++				    (ret == -EOPNOTSUPP)) {
++					break;
++				}
++
+ 				rx_len = 0U;
+ 			} else {
+ 				rx_len++;
+@@ -277,6 +282,10 @@ int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+ 			}
+ 		}
+ 
++		if (ret == -EOPNOTSUPP) {
++			break;
++		}
++
+ 		rx_tap_w[tx_tap].end = rx_window_end;
+ 		rx_tap_w[tx_tap].length = rx_window_len;
+ 
+@@ -296,6 +305,12 @@ int stm32mp2_syscfg_dlyb_find_tap(uint8_t bank, int (*check_transfer)(void),
+ 			tx_tap, rx_tap_w[tx_tap].length);
+ 	}
+ 
++	if (ret == -EOPNOTSUPP) {
++		ERROR("%s: calibration can not be done on this device\n", __func__);
++
++		return ret;
++	}
++
+ 	if (rx_only) {
+ 		if (rx_window_len == 0U) {
+ 			WARN("%s: can't find RX phase settings\n", __func__);
+-- 
+2.53.0
+

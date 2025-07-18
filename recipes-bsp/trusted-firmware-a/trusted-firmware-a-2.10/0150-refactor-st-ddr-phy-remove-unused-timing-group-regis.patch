@@ -1,0 +1,248 @@
+From 78741be3106b30b90cbc89e226f35891b6d8919b Mon Sep 17 00:00:00 2001
+From: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Date: Thu, 3 Mar 2022 18:54:10 +0100
+Subject: [PATCH 150/954] refactor(st-ddr): phy: remove unused timing group
+ register updates
+
+DDR3/DDR4 are only used in single rank mode, so TG1/TG2/TG3 are useless.
+LPDDR4 use both ranks, keep them active.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c816beec1227479040ade80309243538da327ca8 refactor(st-ddr): phy: remove unused timing group register updates]
+Signed-off-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Change-Id: I43eda226f79b84001e0d068d7958c4159b81c62a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/242961
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ .../src/ddrphy_phyinit_progcsrskiptrain.c     | 87 +------------------
+ .../phyinit/src/ddrphy_phyinit_reginterface.c |  4 +-
+ .../ddrphy_phyinit_usercustom_saveretregs.c   | 38 +++-----
+ 3 files changed, 15 insertions(+), 114 deletions(-)
+
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_progcsrskiptrain.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_progcsrskiptrain.c
+index c29e0e6760..af01fe1dff 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_progcsrskiptrain.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_progcsrskiptrain.c
+@@ -106,7 +106,7 @@ static void dfimrl_program(void)
+ }
+ 
+ /*
+- * Program txdqsdlytg0/1/2/3[9:0] per P-State:
++ * Program txdqsdlytg0/1[9:0] per P-State:
+  *
+  *         txdqsdlytg*[9:6] = floor( (4*UI + tstaoff) / UI)
+  *         txdqsdlytg*[5:0] = ceiling( (tstaoff%UI / UI) * 32)
+@@ -187,33 +187,6 @@ static void txdqsdlytg_program(uint16_t *txdqsdly)
+ 									CSR_TXDQSDLYTG0_ADDR)),
+ 						      txdqsdly[pstate]);
+ 				}
+-
+-				if ((mb_ddr_1d[pstate].cspresent & 0x2) >> 1) {
+-					mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (p_addr |
+-										      TDBYTE |
+-										      c_addr |
+-										      u_addr |
+-									CSR_TXDQSDLYTG1_ADDR)),
+-						      txdqsdly[pstate]);
+-				}
+-
+-				if ((mb_ddr_1d[pstate].cspresent & 0x4) >> 2) {
+-					mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (p_addr |
+-										      TDBYTE |
+-										      c_addr |
+-										      u_addr |
+-									CSR_TXDQSDLYTG2_ADDR)),
+-						      txdqsdly[pstate]);
+-				}
+-
+-				if ((mb_ddr_1d[pstate].cspresent & 0x8) >> 3) {
+-					mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (p_addr |
+-										      TDBYTE |
+-										      c_addr |
+-										      u_addr |
+-									CSR_TXDQSDLYTG3_ADDR)),
+-						      txdqsdly[pstate]);
+-				}
+ #elif STM32MP_LPDDR4_TYPE
+ 				if (((mb_ddr_1d[pstate].cspresentcha & 0x1) >> 0) |
+ 				    ((mb_ddr_1d[pstate].cspresentchb & 0x1) >> 0)) {
+@@ -243,7 +216,7 @@ static void txdqsdlytg_program(uint16_t *txdqsdly)
+ /*
+  * ##############################################################
+  *
+- * Program txdqdlyTg0/1/2/3[8:0] per P-state:
++ * Program txdqdlyTg0/1[8:0] per P-state:
+  *
+  *     txdqdlyTg*[8:6] = floor( (txdqsdlytg*[5:0]*UI/32 + tDQS2DQ + 0.5UI) / UI)
+  *     txdqdlyTg*[5:0] = ceil( ((txdqsdlytg*[5:0]*UI/32 + tDQS2DQ + 0.5UI)%UI / UI) * 32)
+@@ -309,33 +282,6 @@ static void txdqdlytg_program(uint16_t *txdqsdly)
+ 									CSR_TXDQDLYTG0_ADDR)),
+ 						      txdqdly);
+ 				}
+-
+-				if ((mb_ddr_1d[pstate].cspresent & 0x2) >> 1) {
+-					mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (p_addr |
+-										      TDBYTE |
+-										      c_addr |
+-										      r_addr |
+-									CSR_TXDQDLYTG1_ADDR)),
+-						      txdqdly);
+-				}
+-
+-				if ((mb_ddr_1d[pstate].cspresent & 0x4) >> 2) {
+-					mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (p_addr |
+-										      TDBYTE |
+-										      c_addr |
+-										      r_addr |
+-									CSR_TXDQDLYTG2_ADDR)),
+-						      txdqdly);
+-				}
+-
+-				if ((mb_ddr_1d[pstate].cspresent & 0x8) >> 3) {
+-					mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (p_addr |
+-										      TDBYTE |
+-										      c_addr |
+-										      r_addr |
+-									CSR_TXDQDLYTG3_ADDR)),
+-						      txdqdly);
+-				}
+ #elif STM32MP_LPDDR4_TYPE
+ 				if (((mb_ddr_1d[pstate].cspresentcha & 0x1) >> 0) |
+ 				    ((mb_ddr_1d[pstate].cspresentchb & 0x1) >> 0)) {
+@@ -363,7 +309,7 @@ static void txdqdlytg_program(uint16_t *txdqsdly)
+ }
+ 
+ /*
+- * Program rxendly0/1/2/3[10:0] per P-State:
++ * Program rxendly0/1[10:0] per P-State:
+  *
+  *         rxendly[10:6] = floor( (4*UI + tDQSCK + tstaoff) / UI)
+  *         rxendly[5:0]  = ceil( ((tDQSCK + tstaoff) % UI) * 32)
+@@ -455,33 +401,6 @@ static void rxendly_program(bool skip_train)
+ 									CSR_RXENDLYTG0_ADDR)),
+ 						      rxendly);
+ 				}
+-
+-				if ((mb_ddr_1d[pstate].cspresent & 0x2) >> 1) {
+-					mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (p_addr |
+-										      TDBYTE |
+-										      c_addr |
+-										      u_addr |
+-									CSR_RXENDLYTG1_ADDR)),
+-						      rxendly);
+-				}
+-
+-				if ((mb_ddr_1d[pstate].cspresent & 0x4) >> 2) {
+-					mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (p_addr |
+-										      TDBYTE |
+-										      c_addr |
+-										      u_addr |
+-									CSR_RXENDLYTG2_ADDR)),
+-						      rxendly);
+-				}
+-
+-				if ((mb_ddr_1d[pstate].cspresent & 0x8) >> 3) {
+-					mmio_write_16((uintptr_t)(DDRPHYC_BASE + 4 * (p_addr |
+-										      TDBYTE |
+-										      c_addr |
+-										      u_addr |
+-									CSR_RXENDLYTG3_ADDR)),
+-						      rxendly);
+-				}
+ #elif STM32MP_LPDDR4_TYPE
+ 				if (((mb_ddr_1d[pstate].cspresentcha & 0x1) >> 0) |
+ 				    ((mb_ddr_1d[pstate].cspresentchb & 0x1) >> 0)) {
+diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
+index 4b52047629..785d91c3a8 100644
+--- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
++++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
+@@ -29,9 +29,9 @@
+  * as desired if a larger number of registers need to be restored.
+  */
+ #if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+-#define MAX_NUM_RET_REGS	416
++#define MAX_NUM_RET_REGS	129
+ #elif STM32MP_LPDDR4_TYPE
+-#define MAX_NUM_RET_REGS	281
++#define MAX_NUM_RET_REGS	282
+ #endif /* STM32MP_LPDDR4_TYPE */
+ 
+ /*
+diff --git a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
+index 17afd4ad30..411767abaf 100644
+--- a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
++++ b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
+@@ -77,11 +77,9 @@ void ddrphy_phyinit_usercustom_saveretregs(void)
+ 		for (lane = 0; lane <= R_MAX; lane++) {
+ 			r_addr = lane << 8;
+ 			ddrphy_phyinit_trackreg(TDBYTE | c_addr | r_addr | CSR_RXPBDLYTG0_ADDR);
++#if STM32MP_LPDDR4_TYPE
+ 			ddrphy_phyinit_trackreg(TDBYTE | c_addr | r_addr | CSR_RXPBDLYTG1_ADDR);
+-#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+-			ddrphy_phyinit_trackreg(TDBYTE | c_addr | r_addr | CSR_RXPBDLYTG2_ADDR);
+-			ddrphy_phyinit_trackreg(TDBYTE | c_addr | r_addr | CSR_RXPBDLYTG3_ADDR);
+-#endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
++#endif /* STM32MP_LPDDR4_TYPE */
+ 		} /* r_addr */
+ 
+ #if STM32MP_LPDDR4_TYPE
+@@ -124,48 +122,32 @@ void ddrphy_phyinit_usercustom_saveretregs(void)
+ 				u_addr = nibble << 8;
+ 				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+ 							CSR_RXENDLYTG0_ADDR);
++#if STM32MP_LPDDR4_TYPE
+ 				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+ 							CSR_RXENDLYTG1_ADDR);
+-#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_RXENDLYTG2_ADDR);
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_RXENDLYTG3_ADDR);
+-#endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
++#endif /* STM32MP_LPDDR4_TYPE */
+ 				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+ 							CSR_TXDQSDLYTG0_ADDR);
++#if STM32MP_LPDDR4_TYPE
+ 				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+ 							CSR_TXDQSDLYTG1_ADDR);
+-#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_TXDQSDLYTG2_ADDR);
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_TXDQSDLYTG3_ADDR);
+-#endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
++#endif /* STM32MP_LPDDR4_TYPE */
+ 				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+ 							CSR_RXCLKDLYTG0_ADDR);
++#if STM32MP_LPDDR4_TYPE
+ 				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+ 							CSR_RXCLKDLYTG1_ADDR);
+-#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_RXCLKDLYTG2_ADDR);
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | u_addr |
+-							CSR_RXCLKDLYTG3_ADDR);
+-#endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
++#endif /* STM32MP_LPDDR4_TYPE */
+ 			} /* nibble */
+ 
+ 			for (lane = R_MIN; lane <= R_MAX; lane++) {
+ 				r_addr = lane << 8;
+ 				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | r_addr |
+ 							CSR_TXDQDLYTG0_ADDR);
++#if STM32MP_LPDDR4_TYPE
+ 				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | r_addr |
+ 							CSR_TXDQDLYTG1_ADDR);
+-#if STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | r_addr |
+-							CSR_TXDQDLYTG2_ADDR);
+-				ddrphy_phyinit_trackreg(p_addr | TDBYTE | c_addr | r_addr |
+-							CSR_TXDQDLYTG3_ADDR);
+-#endif /* STM32MP_DDR3_TYPE || STM32MP_DDR4_TYPE */
++#endif /* STM32MP_LPDDR4_TYPE */
+ 			} /* r_addr */
+ 
+ #if STM32MP_LPDDR4_TYPE
+-- 
+2.53.0
+

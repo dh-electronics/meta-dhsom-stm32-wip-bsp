@@ -1,0 +1,43 @@
+From fc15049c15bbed5e7725e2a7d1e75e28e9503644 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 19 Jan 2024 18:52:50 +0100
+Subject: [PATCH 544/954] feat(st-pmic): support st,regulator-sink-source
+
+Add support of "st,regulator-sink-source" in device tree
+to handle REGUL_SINK_SOURCE configuration on LDO3 for STPMIC25.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 826a9ea57bb85c160262b3b2638cb555e4d3918f feat(st-pmic): support st,regulator-sink-source]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ic85bffec15373edad2c87f5b8f9c838f39b10037
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/355041
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/368529
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic2.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic2.c b/drivers/st/pmic/stm32mp_pmic2.c
+index fd8c5514e0..9ab65ee13d 100644
+--- a/drivers/st/pmic/stm32mp_pmic2.c
++++ b/drivers/st/pmic/stm32mp_pmic2.c
+@@ -450,6 +450,15 @@ static int register_pmic2(void)
+ 				return ret;
+ 			}
+ 		}
++
++		if (fdt_getprop(fdt, subnode, "st,regulator-sink-source", NULL) != NULL) {
++			VERBOSE("%s: set regulator-sink-source\n", desc->node_name);
++			ret = pmic2_set_flag(desc, REGUL_SINK_SOURCE);
++			if (ret != 0) {
++				ERROR("set regulator-sink-source failed\n");
++				return ret;
++			}
++		}
+ 	}
+ 
+ 	return 0;
+-- 
+2.53.0
+

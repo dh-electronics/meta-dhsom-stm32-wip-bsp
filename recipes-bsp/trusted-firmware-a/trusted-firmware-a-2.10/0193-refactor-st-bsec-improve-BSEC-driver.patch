@@ -1,0 +1,177 @@
+From 435fa2f90b50c036b142f9bb455519ac25ed5e07 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 12 Apr 2022 11:08:46 +0200
+Subject: [PATCH 193/954] refactor(st-bsec): improve BSEC driver
+
+Remove the unused functions bsec_set_config() and
+bsec_get_config() and the associated struct bsec_config.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git b26c5d28320cb9fd38af03c83f5440201d62fe4f refactor(st-bsec): improve BSEC driver]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I137ed381b97da53e66c8e5dbdfddd4a74cb1a37e
+---
+ drivers/st/bsec/bsec2.c   | 83 ---------------------------------------
+ include/drivers/st/bsec.h | 50 -----------------------
+ 2 files changed, 133 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index ca7956d142..e57e13cafa 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -236,89 +236,6 @@ uint32_t bsec_get_base(void)
+ 	return bsec_base;
+ }
+ 
+-/*
+- * bsec_set_config: enable and configure BSEC.
+- * cfg: pointer to param structure used to set register.
+- * return value: BSEC_OK if no error.
+- */
+-uint32_t bsec_set_config(struct bsec_config *cfg)
+-{
+-	uint32_t value;
+-	uint32_t result;
+-
+-	if (is_otp_invalid_mode()) {
+-		return BSEC_ERROR;
+-	}
+-
+-	value = ((((uint32_t)cfg->freq << BSEC_CONF_FRQ_SHIFT) &
+-						BSEC_CONF_FRQ_MASK) |
+-		 (((uint32_t)cfg->pulse_width << BSEC_CONF_PRG_WIDTH_SHIFT) &
+-						BSEC_CONF_PRG_WIDTH_MASK) |
+-		 (((uint32_t)cfg->tread << BSEC_CONF_TREAD_SHIFT) &
+-						BSEC_CONF_TREAD_MASK));
+-
+-	bsec_lock();
+-
+-	mmio_write_32(bsec_base + BSEC_OTP_CONF_OFF, value);
+-
+-	bsec_unlock();
+-
+-	result = bsec_power_safmem((bool)cfg->power &
+-				   BSEC_CONF_POWER_UP_MASK);
+-	if (result != BSEC_OK) {
+-		return result;
+-	}
+-
+-	value = ((((uint32_t)cfg->upper_otp_lock << UPPER_OTP_LOCK_SHIFT) &
+-						UPPER_OTP_LOCK_MASK) |
+-		 (((uint32_t)cfg->den_lock << DENREG_LOCK_SHIFT) &
+-						DENREG_LOCK_MASK) |
+-		 (((uint32_t)cfg->prog_lock << GPLOCK_LOCK_SHIFT) &
+-						GPLOCK_LOCK_MASK));
+-
+-	bsec_lock();
+-
+-	mmio_write_32(bsec_base + BSEC_OTP_LOCK_OFF, value);
+-
+-	bsec_unlock();
+-
+-	return BSEC_OK;
+-}
+-
+-/*
+- * bsec_get_config: return config parameters set in BSEC registers.
+- * cfg: config param return.
+- * return value: BSEC_OK if no error.
+- */
+-uint32_t bsec_get_config(struct bsec_config *cfg)
+-{
+-	uint32_t value;
+-
+-	if (cfg == NULL) {
+-		return BSEC_INVALID_PARAM;
+-	}
+-
+-	value = mmio_read_32(bsec_base + BSEC_OTP_CONF_OFF);
+-	cfg->power = (uint8_t)((value & BSEC_CONF_POWER_UP_MASK) >>
+-						BSEC_CONF_POWER_UP_SHIFT);
+-	cfg->freq = (uint8_t)((value & BSEC_CONF_FRQ_MASK) >>
+-						BSEC_CONF_FRQ_SHIFT);
+-	cfg->pulse_width = (uint8_t)((value & BSEC_CONF_PRG_WIDTH_MASK) >>
+-						BSEC_CONF_PRG_WIDTH_SHIFT);
+-	cfg->tread = (uint8_t)((value & BSEC_CONF_TREAD_MASK) >>
+-						BSEC_CONF_TREAD_SHIFT);
+-
+-	value = mmio_read_32(bsec_base + BSEC_OTP_LOCK_OFF);
+-	cfg->upper_otp_lock = (uint8_t)((value & UPPER_OTP_LOCK_MASK) >>
+-						UPPER_OTP_LOCK_SHIFT);
+-	cfg->den_lock = (uint8_t)((value & DENREG_LOCK_MASK) >>
+-						DENREG_LOCK_SHIFT);
+-	cfg->prog_lock = (uint8_t)((value & GPLOCK_LOCK_MASK) >>
+-						GPLOCK_LOCK_SHIFT);
+-
+-	return BSEC_OK;
+-}
+-
+ /*
+  * bsec_shadow_register: copy SAFMEM OTP to BSEC data.
+  * otp: OTP number.
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index 2e9c928fad..cff961839d 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -52,59 +52,9 @@
+ #define BSEC_LOCK_PROGRAM		0x03
+ #define BSEC_LOCK_KVLOCK		0x04
+ 
+-/*
+- * Values for struct bsec_config::freq
+- */
+-#define FREQ_10_20_MHZ			0x0
+-#define FREQ_20_30_MHZ			0x1
+-#define FREQ_30_45_MHZ			0x2
+-#define FREQ_45_67_MHZ			0x3
+-
+-/*
+- * Device info structure, providing device-specific functions and a means of
+- * adding driver-specific state.
+- */
+-struct bsec_config {
+-	uint8_t den_lock;	/*
+-				 * Debug enable sticky lock
+-				 * 1 debug enable is locked until next reset
+-				 */
+-
+-	/*  BSEC2 only */
+-	uint8_t tread;		/* SAFMEM Reading current level default 0 */
+-	uint8_t pulse_width;	/* SAFMEM Programming pulse width default 1 */
+-	uint8_t freq;		/*
+-				 * SAFMEM CLOCK see freq value define
+-				 * default FREQ_45_67_MHZ
+-				 */
+-	uint8_t power;		/* Power up SAFMEM. 1 power up, 0 power off */
+-	uint8_t prog_lock;	/*
+-				 * Programming Sticky lock
+-				 * 1 programming is locked until next reset
+-				 */
+-	uint8_t upper_otp_lock;	/*
+-				 * Shadowing of upper OTP sticky lock
+-				 * 1 shadowing of upper OTP is locked
+-				 * until next reset
+-				 */
+-
+-	/* BSEC3 only */
+-	uint8_t global_wr_lock;	/*
+-				 * BSEC register write lock
+-				 * 1 write register is locked until next reset
+-				 */
+-	uint8_t key_value_lock;	/*
+-				 * HWKEY to SAES peripheral lock
+-				 * 0 device unique, 1 fixed to 0x0 or invalid
+-				 */
+-};
+-
+ uint32_t bsec_probe(void);
+ uint32_t bsec_get_base(void);
+ 
+-uint32_t bsec_set_config(struct bsec_config *cfg);
+-uint32_t bsec_get_config(struct bsec_config *cfg);
+-
+ uint32_t bsec_shadow_register(uint32_t otp);
+ uint32_t bsec_read_otp(uint32_t *val, uint32_t otp);
+ uint32_t bsec_write_otp(uint32_t val, uint32_t otp);
+-- 
+2.53.0
+

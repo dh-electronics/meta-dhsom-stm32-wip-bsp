@@ -1,0 +1,53 @@
+From 63c3e61d16748d3a97dfd899e53abafb56c6a7ae Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 10 Jan 2024 16:28:20 +0100
+Subject: [PATCH 445/954] fix(stm32mp2): correct early/crash console init
+
+The former code, using x2 register, was removing the LPEN bit from UART
+config register. So the UART clock is stopped as soon as the CA35 is in
+CSleep. It was then displaying crap in Linux console.
+The ands check instruction is replaced with a clearer tst instruction
+directly with the bit to be tested.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 173147942174e73740b9e8d1c66ccda5d91a95f5 fix(stm32mp2): correct early/crash console init
+0f0a21100e6798c3b3a9e3a8c6236d4a61aac469 fix(stm32mp2): correct early/crash console init]
+Change-Id: I8a2b3ab195981dee2962e0c2f5d501d5933c17f4
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/349637
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/aarch64/stm32mp2_helper.S | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+index f82d69df1a..dd57624f97 100644
+--- a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
++++ b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -97,13 +97,13 @@ func plat_crash_console_init
+ 	str	x0, [x1]
+ 1:
+ 	ldr	x0, [x1]
+-	ands	x2, x0, x2
++	tst	x0, #DEBUG_UART_RST_BIT
+ 	beq	1b
+-	bic	x2, x2, #DEBUG_UART_RST_BIT
+-	str	x2, [x1]
++	bic	x0, x0, #DEBUG_UART_RST_BIT
++	str	x0, [x1]
+ 2:
+ 	ldr	x0, [x1]
+-	ands	x2, x0, x2
++	tst	x0, #DEBUG_UART_RST_BIT
+ 	bne	2b
+ 	/* Enable GPIOs for UART TX */
+ 	mov_imm	x1, (RCC_BASE + DEBUG_UART_TX_GPIO_BANK_CLK_REG)
+-- 
+2.53.0
+

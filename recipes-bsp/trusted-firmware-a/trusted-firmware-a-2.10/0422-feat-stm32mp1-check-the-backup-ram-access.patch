@@ -1,0 +1,174 @@
+From b30e28ecb3f9a1fa87af4051f70458b6306c48b3 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 13 Oct 2023 10:45:09 +0200
+Subject: [PATCH 422/954] feat(stm32mp1): check the backup ram access
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In case of boot when a tamper is raised, the backup RAM access
+can be forbidden and a control access need to be done to avoid
+abort.
+In that case, we will notice that the BL2 is booting in a degraded
+mode because no suspend context can be saved.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7f3247daad2ae7c163a48c908ff5028967bf0f0d feat(stm32mp1): check the backup ram access]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I9063b2da3d4dbe3f0c458171dd7aef9c34d74d51
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/333573
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp1/include/stm32mp1_private.h |  2 ++
+ plat/st/stm32mp1/stm32mp1_context.c         | 26 ++++++++++++++++++
+ plat/st/stm32mp1/stm32mp1_def.h             |  6 +++++
+ plat/st/stm32mp1/stm32mp1_private.c         | 30 +++++++++++++++++++++
+ 4 files changed, 64 insertions(+)
+
+diff --git a/plat/st/stm32mp1/include/stm32mp1_private.h b/plat/st/stm32mp1/include/stm32mp1_private.h
+index 52afc60bce..d8b98063ba 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_private.h
++++ b/plat/st/stm32mp1/include/stm32mp1_private.h
+@@ -35,6 +35,8 @@ void stm32mp1_deconfigure_uart_pins(void);
+ 
+ void stm32mp1_init_scmi_server(void);
+ 
++bool stm32mp_bkpram_get_access(void);
++
+ /* Wrappers for OTP / BSEC functions */
+ static inline uint32_t stm32_otp_read(uint32_t *val, uint32_t otp)
+ {
+diff --git a/plat/st/stm32mp1/stm32mp1_context.c b/plat/st/stm32mp1/stm32mp1_context.c
+index c039fe0beb..877c435cf4 100644
+--- a/plat/st/stm32mp1/stm32mp1_context.c
++++ b/plat/st/stm32mp1/stm32mp1_context.c
+@@ -103,6 +103,10 @@ uint32_t stm32_pm_get_optee_ep(void)
+ 
+ void stm32_clean_context(void)
+ {
++	if (!stm32mp_bkpram_get_access()) {
++		return;
++	}
++
+ 	clk_enable(BKPSRAM);
+ 
+ 	zeromem((void *)STM32MP_BACKUP_RAM_BASE, sizeof(struct backup_data_s));
+@@ -115,6 +119,10 @@ void stm32_context_save_bl2_param(void)
+ {
+ 	struct backup_data_s *backup_data;
+ 
++	if (!stm32mp_bkpram_get_access()) {
++		return;
++	}
++
+ 	clk_enable(BKPSRAM);
+ 
+ 	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
+@@ -195,6 +203,10 @@ void stm32mp1_pm_save_mce_mkey_in_context(uint8_t *data)
+ 
+ 	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
+ 
++	if (!stm32mp_bkpram_get_access()) {
++		return;
++	}
++
+ 	clk_enable(BKPSRAM);
+ 
+ 	memcpy(backup_data->mce_mkey, data, MCE_KEY_SIZE_IN_BYTES);
+@@ -208,6 +220,11 @@ void stm32mp1_pm_get_mce_mkey_from_context(uint8_t *data)
+ 
+ 	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
+ 
++	if (!stm32mp_bkpram_get_access()) {
++		ERROR("DDR encryption key not available\n");
++		panic();
++	}
++
+ 	clk_enable(BKPSRAM);
+ 
+ 	memcpy(data, backup_data->mce_mkey, MCE_KEY_SIZE_IN_BYTES);
+@@ -223,6 +240,10 @@ void stm32mp1_pm_save_mce_region(uint32_t index, struct stm32_mce_region_s *conf
+ 		panic();
+ 	}
+ 
++	if (!stm32mp_bkpram_get_access()) {
++		return;
++	}
++
+ 	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
+ 
+ 	clk_enable(BKPSRAM);
+@@ -242,6 +263,11 @@ void stm32mp1_pm_get_mce_region(uint32_t index, struct stm32_mce_region_s *confi
+ 
+ 	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
+ 
++	if (!stm32mp_bkpram_get_access()) {
++		ERROR("MCE region not available\n");
++		panic();
++	}
++
+ 	clk_enable(BKPSRAM);
+ 
+ 	memcpy(config, &backup_data->mce_regions[index], sizeof(struct stm32_mce_region_s));
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index a12bbcdf74..a334068885 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -574,7 +574,13 @@ enum ddr_type {
+ #define TAMP_BASE			U(0x5C00A000)
+ #define TAMP_BKP_REGISTER_BASE		(TAMP_BASE + U(0x100))
+ #define TAMP_BKP_REG_CLK		RTCAPB
++#define TAMP_CR2			U(0x4)
++#define TAMP_CR2_MASK_NOER		GENMASK_32(7, 0)
++#define TAMP_CR3			U(0x8)
++#define TAMP_CR3_MASK_NOER		GENMASK_32(12, 0)
++#define TAMP_SR				U(0x30)
+ #define TAMP_COUNTR			U(0x40)
++#define TAMP_ERCFGR			U(0x54)
+ 
+ #if !(defined(__LINKER__) || defined(__ASSEMBLER__))
+ static inline uintptr_t tamp_bkpr(uint32_t idx)
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index cd4b47ad18..c2f81b0023 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -733,3 +733,33 @@ uintptr_t stm32_get_bkpr_fwu_info_addr(void)
+ 	return tamp_bkpr(TAMP_BOOT_FWU_INFO_REG_ID);
+ }
+ #endif /* PSA_FWU_SUPPORT */
++
++#if STM32MP13
++bool stm32mp_bkpram_get_access(void)
++{
++	static bool state = true;
++
++	if (!state) {
++		return state;
++	}
++
++	clk_enable(RTCAPB);
++
++	if ((mmio_read_32(TAMP_BASE + TAMP_ERCFGR) != 0U) &&
++	    (mmio_read_32(TAMP_BASE + TAMP_SR) != 0U) &&
++	    (((mmio_read_32(TAMP_BASE + TAMP_CR2) & TAMP_CR2_MASK_NOER) == 0U) ||
++	     ((mmio_read_32(TAMP_BASE + TAMP_CR3) & TAMP_CR3_MASK_NOER) == 0U))) {
++		NOTICE("TAMPER detected : Degraded mode\n");
++		state = false;
++	}
++
++	clk_disable(RTCAPB);
++
++	return state;
++}
++#else /* STM32MP15 */
++bool stm32mp_bkpram_get_access(void)
++{
++	return true;
++}
++#endif
+-- 
+2.53.0
+

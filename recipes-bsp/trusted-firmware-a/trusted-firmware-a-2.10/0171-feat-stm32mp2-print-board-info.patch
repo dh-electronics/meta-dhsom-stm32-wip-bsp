@@ -1,0 +1,73 @@
+From 8dca8b3b9a5e42ce6fdb618e2697314643f05ddd Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 15 Apr 2022 16:15:25 +0200
+Subject: [PATCH 171/954] feat(stm32mp2): print board info
+
+Call stm32mp_print_boardinfo() during BL2 setup. As for STM32MP1,
+the board info is taken in the dedicated OTP fuse. This fuse will be
+taken from device tree.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 336178db9828e39885b0f763362b6c1d9acfba6e feat(stm32mp2): print board info]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I2de0199378562b459b27427109ce66239316b8d9
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/248446
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c   |  2 ++
+ plat/st/stm32mp2/stm32mp2_def.h     |  1 +
+ plat/st/stm32mp2/stm32mp2_private.c | 13 +++++++++++++
+ 3 files changed, 16 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 866ad89da7..f02dce4a81 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -224,6 +224,8 @@ void bl2_el3_plat_arch_setup(void)
+ 		NOTICE("Model: %s\n", board_model);
+ 	}
+ 
++	stm32mp_print_boardinfo();
++
+ 	print_reset_reason();
+ 
+ skip_console_init:
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 7f983433c9..af06aded57 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -262,6 +262,7 @@ enum ddr_type {
+ #define HW2_OTP					"hw2_otp"
+ #define NAND_OTP				"otp16"
+ #define NAND2_OTP				"otp20"
++#define BOARD_ID_OTP				"board_id"
+ 
+ /* OTP mask */
+ /* PACKAGE */
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 303d7600df..f52133be1b 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -249,6 +249,19 @@ void stm32mp_print_cpuinfo(void)
+ 	NOTICE("CPU: %s\n", name);
+ }
+ 
++void stm32mp_print_boardinfo(void)
++{
++	uint32_t board_id = 0U;
++
++	if (stm32_get_otp_value(BOARD_ID_OTP, &board_id) != 0) {
++		return;
++	}
++
++	if (board_id != 0U) {
++		stm32_display_board_info(board_id);
++	}
++}
++
+ /* Return true when SoC provides a single Cortex-A35 core, and false otherwise */
+ bool stm32mp_is_single_core(void)
+ {
+-- 
+2.53.0
+

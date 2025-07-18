@@ -1,0 +1,54 @@
+From b1c48e67288a545102ef675bbbb6f4602bb48d7e Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 18 Apr 2023 18:41:39 +0200
+Subject: [PATCH 311/954] feat(psci): update PSCI_MAX_PWR_LVL for extented
+ StateID format
+
+For Extended StateID format, the power level parameter is no more
+encoded in the bit field, so limit can be increase.
+
+In the power_state parameter, the bit field 27:0 = StateID, the
+composite state with one nibble by local state for the generic ARM
+encoding, so the maximum power level supported by PSCI is 7
+(=28/4 by niblle).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3158ca4cce0ff2e856b9c85639b026608b5aa706 feat(psci): update PSCI_MAX_PWR_LVL for extented StateID format]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I61433362c96304a2b06b7e0039a2d13130a28aaf
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/301445
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ include/lib/psci/psci.h | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/include/lib/psci/psci.h b/include/lib/psci/psci.h
+index c40f955f0a..7381fcdc98 100644
+--- a/include/lib/psci/psci.h
++++ b/include/lib/psci/psci.h
+@@ -30,12 +30,21 @@
+ /* This is the power level corresponding to a CPU */
+ #define PSCI_CPU_PWR_LVL	U(0)
+ 
++#if PSCI_EXTENDED_STATE_ID
++/*
++ * For Extented StateID format, the composite state use bits 27:0 with one
++ * nibble by local state (recommended ARM encoding = ARM_RECOM_STATE_ID_ENC),
++ * the maximum power level supported by PSCI is 7 (28/4).
++ */
++#define PSCI_MAX_PWR_LVL	U(7)
++#else
+ /*
+  * The maximum power level supported by PSCI. Since PSCI CPU_SUSPEND
+  * uses the old power_state parameter format which has 2 bits to specify the
+  * power level, this constant is defined to be 3.
+  */
+ #define PSCI_MAX_PWR_LVL	U(3)
++#endif
+ 
+ /*******************************************************************************
+  * Defines for runtime services function ids
+-- 
+2.53.0
+

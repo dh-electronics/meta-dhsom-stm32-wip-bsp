@@ -1,0 +1,53 @@
+From 0c7b6748156b6dcde166222fcf459a6c3356eba4 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 25 Oct 2023 18:41:16 +0200
+Subject: [PATCH 390/954] feat(st): introduce EARLY traces macros
+
+In case STM32MP_EARLY_CONSOLE, the EARLY will just use the equivalent
+tf_log macros. If not, the message will just be discarded. This will be
+used when the full console driver is not initialized, during init phase
+or in drivers called before console is set, like clock driver. This also
+reduces the size of the binary when STM32MP_EARLY_CONSOLE is not set.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e1bfb6b338bacc3d217a2257afc65dc4446481b5 feat(st): introduce EARLY traces macros]
+Change-Id: I5704c3ec658af4e32c69d310edd74206da04aaee
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/338367
+---
+ plat/st/common/include/stm32mp_common.h | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index d2f422b79a..db4f919703 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -85,12 +85,24 @@ uintptr_t get_uart_address(uint32_t instance_nb);
+ int stm32mp_uart_console_setup(void);
+ 
+ #if STM32MP_EARLY_CONSOLE
++#define EARLY_ERROR(...)	ERROR(__VA_ARGS__)
++#define EARLY_NOTICE(...)	NOTICE(__VA_ARGS__)
++#define EARLY_WARN(...)		WARN(__VA_ARGS__)
++#define EARLY_INFO(...)		INFO(__VA_ARGS__)
++#define EARLY_VERBOSE(...)	VERBOSE(__VA_ARGS__)
++
+ void stm32mp_setup_early_console(void);
+-#else
++#else /* STM32MP_EARLY_CONSOLE */
++#define EARLY_ERROR(...)
++#define EARLY_NOTICE(...)
++#define EARLY_WARN(...)
++#define EARLY_INFO(...)
++#define EARLY_VERBOSE(...)
++
+ static inline void stm32mp_setup_early_console(void)
+ {
+ }
+-#endif
++#endif /* STM32MP_EARLY_CONSOLE */
+ 
+ void stm32_save_header(void);
+ uintptr_t stm32_get_header_address(void);
+-- 
+2.53.0
+
