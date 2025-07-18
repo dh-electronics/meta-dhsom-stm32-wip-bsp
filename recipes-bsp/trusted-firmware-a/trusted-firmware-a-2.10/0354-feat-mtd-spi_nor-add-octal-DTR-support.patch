@@ -1,0 +1,261 @@
+From 4c68ca68d67be66b43a5cdad3479e102fa1d720b Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 4 Oct 2023 09:10:57 +0200
+Subject: [PATCH 354/841] feat(mtd): spi_nor: add octal DTR support
+
+This patch adds octal DTR support for Macronix devices.
+In case of the read command used is an octal DTR command, DTR feature
+is enabled on the flash.
+
+Before leaving BL2, spi_nor_reset API is called to reset the device
+(DTR feature disabled)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 583a7a53d126c3e2b30b7f4d031b1e78ec2980a8 feat(mtd): spi_nor: add octal DTR support]
+Change-Id: I90db0b7da84e1977e4dd7a627271ea2957fa9e14
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/331572
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/mtd/nor/spi_nor.c | 122 ++++++++++++++++++++++++++++++++++++++
+ include/drivers/spi_nor.h |  55 ++++++++++-------
+ 2 files changed, 155 insertions(+), 22 deletions(-)
+
+diff --git a/drivers/mtd/nor/spi_nor.c b/drivers/mtd/nor/spi_nor.c
+index 7625a4006..ae6c709be 100644
+--- a/drivers/mtd/nor/spi_nor.c
++++ b/drivers/mtd/nor/spi_nor.c
+@@ -26,6 +26,7 @@
+ #define BANK_SIZE		0x1000000U
+ 
+ #define SPI_READY_TIMEOUT_US	40000U
++#define SPI_NOR_SRST_US		100U
+ 
+ static struct nor_device nor_dev;
+ 
+@@ -215,6 +216,47 @@ static int spi_nor_quad_enable(void)
+ 	return 0;
+ }
+ 
++static int spi_nor_macronix_octal_dtr_enable(void)
++{
++	struct spi_mem_op op;
++	uint8_t buf;
++	int ret;
++
++	zeromem(&op, sizeof(struct spi_mem_op));
++	op.cmd.opcode = SPI_NOR_OP_WR_CR2;
++	op.cmd.nbytes = 1U;
++	op.cmd.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
++	op.addr.nbytes = 4U;
++	op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
++	op.data.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
++	op.data.dir = SPI_MEM_DATA_OUT;
++	op.data.nbytes = 1U;
++	op.data.buf = &buf;
++
++	ret = spi_nor_write_en();
++	if (ret != 0) {
++		return ret;
++	}
++
++	buf = SPI_NOR_REG_MXIC_DC_20;
++	op.addr.val = SPI_NOR_REG_MXIC_CR2_DC;
++
++	ret = spi_mem_exec_op(&op);
++	if (ret != 0) {
++		return ret;
++	}
++
++	ret = spi_nor_write_en();
++	if (ret != 0) {
++		return ret;
++	}
++
++	buf = SPI_NOR_REG_MXIC_OPI_DTR_EN;
++	op.addr.val = SPI_NOR_REG_MXIC_CR2_MODE;
++
++	return spi_mem_exec_op(&op);
++}
++
+ static int spi_nor_clean_bar(void)
+ {
+ 	int ret;
+@@ -359,6 +401,24 @@ int spi_nor_init(unsigned long long *size, unsigned int *erase_size)
+ 		return ret;
+ 	}
+ 
++	if (nor_dev.read_op.cmd.nbytes == 2U) {
++		ret = -EOPNOTSUPP;
++
++		/* Only OCTAL DTR mode is currently supported */
++		if (nor_dev.read_op.cmd.buswidth == 8U) {
++			switch (id) {
++			case MACRONIX_ID:
++				INFO("Enable Macronix octal DTR support\n");
++				ret = spi_nor_macronix_octal_dtr_enable();
++				break;
++			default:
++				break;
++			}
++		}
++
++		return ret;
++	}
++
+ 	if ((nor_dev.flags & SPI_NOR_USE_BANK) != 0U) {
+ 		switch (id) {
+ 		case SPANSION_ID:
+@@ -392,3 +452,65 @@ int spi_nor_init(unsigned long long *size, unsigned int *erase_size)
+ 
+ 	return ret;
+ }
++
++int spi_nor_reset(void)
++{
++	struct spi_mem_op op;
++	bool repeat = false;
++	int ret;
++
++	/* Software reset to be done for octal DTR */
++	if (nor_dev.read_op.cmd.nbytes != 2U) {
++		return 0;
++	}
++
++	/* Detect if opcode is repeated or inverted */
++	if (((nor_dev.read_op.cmd.opcode & 0xFF00U) >> 8U) ==
++	    (nor_dev.read_op.cmd.opcode & 0x00FFU)) {
++		repeat = true;
++	}
++
++	zeromem(&op, sizeof(struct spi_mem_op));
++	op.cmd.nbytes = 2U;
++	op.cmd.buswidth = SPI_MEM_BUSWIDTH_8_LINE;
++	op.cmd.dtr = true;
++	op.addr.dtr = true;
++	op.dummy.dtr = true;
++	op.data.dtr = true;
++	op.data.dir = SPI_MEM_DATA_OUT;
++
++	/* Software reset enable */
++	op.cmd.opcode = (SPI_NOR_OP_SRSTEN << 8U);
++	if (repeat) {
++		op.cmd.opcode |= (SPI_NOR_OP_SRSTEN & 0xFFU);
++	} else {
++		op.cmd.opcode |= (~SPI_NOR_OP_SRSTEN & 0xFFU);
++	}
++
++	ret = spi_mem_exec_op(&op);
++	if (ret != 0) {
++		return ret;
++	}
++
++	/* Software reset */
++	op.cmd.opcode = (SPI_NOR_OP_SRST << 8U);
++	if (repeat) {
++		op.cmd.opcode |= (SPI_NOR_OP_SRST & 0xFFU);
++	} else {
++		op.cmd.opcode |= (~SPI_NOR_OP_SRST & 0xFFU);
++	}
++
++	ret = spi_mem_exec_op(&op);
++	if (ret != 0) {
++		return ret;
++	}
++
++	/*
++	 * Software Reset is not instant, and the delay varies
++	 * from flash to flash. Looking at a few flashes, most
++	 * read command range somewhere below 100 microseconds.
++	 */
++	udelay(SPI_NOR_SRST_US);
++
++	return 0;
++}
+diff --git a/include/drivers/spi_nor.h b/include/drivers/spi_nor.h
+index 07dee5a9d..a3c65adc2 100644
+--- a/include/drivers/spi_nor.h
++++ b/include/drivers/spi_nor.h
+@@ -10,35 +10,45 @@
+ #include <drivers/spi_mem.h>
+ 
+ /* OPCODE */
+-#define SPI_NOR_OP_WREN		0x06U	/* Write enable */
+-#define SPI_NOR_OP_WRSR		0x01U	/* Write status register 1 byte */
+-#define SPI_NOR_OP_READ_ID	0x9FU	/* Read JEDEC ID */
+-#define SPI_NOR_OP_READ_CR	0x35U	/* Read configuration register */
+-#define SPI_NOR_OP_READ_SR	0x05U	/* Read status register */
+-#define SPI_NOR_OP_READ_FSR	0x70U	/* Read flag status register */
+-#define SPINOR_OP_RDEAR		0xC8U	/* Read Extended Address Register */
+-#define SPINOR_OP_WREAR		0xC5U	/* Write Extended Address Register */
++#define SPI_NOR_OP_WREN			0x06U	/* Write enable */
++#define SPI_NOR_OP_WRSR			0x01U	/* Write status register 1 byte */
++#define SPI_NOR_OP_READ_ID		0x9FU	/* Read JEDEC ID */
++#define SPI_NOR_OP_READ_CR		0x35U	/* Read configuration register */
++#define SPI_NOR_OP_READ_SR		0x05U	/* Read status register */
++#define SPI_NOR_OP_READ_FSR		0x70U	/* Read flag status register */
++#define SPINOR_OP_RDEAR			0xC8U	/* Read Extended Address Register */
++#define SPINOR_OP_WREAR			0xC5U	/* Write Extended Address Register */
++#define SPI_NOR_OP_SRSTEN		0x66U	/* Software Reset Enable */
++#define SPI_NOR_OP_SRST			0x99U	/* Software Reset */
+ 
+ /* Used for Spansion flashes only. */
+-#define SPINOR_OP_BRWR		0x17U	/* Bank register write */
+-#define SPINOR_OP_BRRD		0x16U	/* Bank register read */
++#define SPINOR_OP_BRWR			0x17U	/* Bank register write */
++#define SPINOR_OP_BRRD			0x16U	/* Bank register read */
+ 
+-#define SPI_NOR_OP_READ		0x03U	/* Read data bytes (low frequency) */
+-#define SPI_NOR_OP_READ_FAST	0x0BU	/* Read data bytes (high frequency) */
+-#define SPI_NOR_OP_READ_1_1_2	0x3BU	/* Read data bytes (Dual Output SPI) */
+-#define SPI_NOR_OP_READ_1_2_2	0xBBU	/* Read data bytes (Dual I/O SPI) */
+-#define SPI_NOR_OP_READ_1_1_4	0x6BU	/* Read data bytes (Quad Output SPI) */
+-#define SPI_NOR_OP_READ_1_4_4	0xEBU	/* Read data bytes (Quad I/O SPI) */
+-#define SPI_NOR_OP_READ_1_1_8	0x8BU	/* Read data bytes (Octal Output SPI) */
+-#define SPI_NOR_OP_READ_1_8_8	0xCBU	/* Read data bytes (Octal I/O SPI) */
++#define SPI_NOR_OP_READ			0x03U	/* Read data bytes (low frequency) */
++#define SPI_NOR_OP_READ_FAST		0x0BU	/* Read data bytes (high frequency) */
++#define SPI_NOR_OP_READ_1_1_2		0x3BU	/* Read data bytes (Dual Output SPI) */
++#define SPI_NOR_OP_READ_1_2_2		0xBBU	/* Read data bytes (Dual I/O SPI) */
++#define SPI_NOR_OP_READ_1_1_4		0x6BU	/* Read data bytes (Quad Output SPI) */
++#define SPI_NOR_OP_READ_1_4_4		0xEBU	/* Read data bytes (Quad I/O SPI) */
++#define SPI_NOR_OP_READ_1_1_8		0x8BU	/* Read data bytes (Octal Output SPI) */
++#define SPI_NOR_OP_READ_1_8_8		0xCBU	/* Read data bytes (Octal I/O SPI) */
+ 
+ /* 4-bytes address opcodes */
+-#define SPI_NOR_OP_READ_4B	0x13U	/* Read data bytes (low frequency) */
+-#define SPI_NOR_OP_READ_FAST_4B	0x0CU	/* Read data bytes (high frequency) */
++#define SPI_NOR_OP_READ_4B		0x13U	/* Read data bytes (low frequency) */
++#define SPI_NOR_OP_READ_FAST_4B		0x0CU	/* Read data bytes (high frequency) */
++#define SPI_NOR_OP_DT_READ_8_8_8	0xEEU	/* Read data bytes (Octal DTR I/O SPI) */
++
++/* Used for Macronix and Winbond flashes. */
++#define SPI_NOR_OP_WR_CR2		0x72U		/* Write configuration register 2 */
++#define SPI_NOR_REG_MXIC_CR2_MODE	0x00000000U	/* For setting octal DTR mode */
++#define SPI_NOR_REG_MXIC_OPI_DTR_EN	0x2U		/* Enable Octal DTR */
++#define SPI_NOR_REG_MXIC_CR2_DC		0x00000300U	/* For setting dummy cycles */
++#define SPI_NOR_REG_MXIC_DC_20		0x0U		/* Setting dummy cycles to 20 */
+ 
+ /* Flags for NOR specific configuration */
+-#define SPI_NOR_USE_FSR		BIT(0)
+-#define SPI_NOR_USE_BANK	BIT(1)
++#define SPI_NOR_USE_FSR			BIT(0)
++#define SPI_NOR_USE_BANK		BIT(1)
+ 
+ struct nor_device {
+ 	struct spi_mem_op read_op;
+@@ -52,6 +62,7 @@ struct nor_device {
+ int spi_nor_read(unsigned int offset, uintptr_t buffer, size_t length,
+ 		 size_t *length_read);
+ int spi_nor_init(unsigned long long *device_size, unsigned int *erase_size);
++int spi_nor_reset(void);
+ 
+ /*
+  * Platform can implement this to override default NOR instance configuration.
+-- 
+2.47.2
+

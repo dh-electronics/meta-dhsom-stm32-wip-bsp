@@ -1,0 +1,47 @@
+From 792118001c0347b180932030cf37087f8913cd04 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 14 Jun 2022 09:28:03 +0200
+Subject: [PATCH 237/841] feat(st-clock): add init of STM32MP2 DDR sub-system
+
+We need to initialize DDR sub-system before enabling
+the PLL 2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 700d8b972345c305ab4b0fdcc4bc85209656d461 feat(st-clock): add init of STM32MP2 DDR sub-system]
+Change-Id: I21394033d50ecf7bcac2091953d2f0d049ede39f
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/256122
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/clk/stm32mp2_clk.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/st/clk/stm32mp2_clk.c b/drivers/st/clk/stm32mp2_clk.c
+index daab9b1b7..f0c339b6b 100644
+--- a/drivers/st/clk/stm32mp2_clk.c
++++ b/drivers/st/clk/stm32mp2_clk.c
+@@ -2112,6 +2112,12 @@ static int stm32_clk_parse_fdt(struct stm32_clk_platdata *pdata)
+ }
+ #endif /* IMAGE_BL2 */
+ 
++static void stmp32mp2_clk_init_ddr_sub_system(uintptr_t base)
++{
++	mmio_write_32(base + RCC_DDRCPCFGR,
++		      RCC_DDRCPCFGR_DDRCPEN | RCC_DDRCPCFGR_DDRCPLPEN);
++}
++
+ static struct stm32_osci_dt_cfg mp25_osci[NB_OSCILLATOR];
+ 
+ static struct stm32_pll_dt_cfg mp25_pll[_PLL_NB];
+@@ -2173,6 +2179,8 @@ int stm32mp2_clk_init(void)
+ 		return ret;
+ 	}
+ 
++	stmp32mp2_clk_init_ddr_sub_system(base);
++
+ #ifdef IMAGE_BL2
+ 	ret = stm32mp2_init_clock_tree();
+ 	if (ret != 0) {
+-- 
+2.47.2
+

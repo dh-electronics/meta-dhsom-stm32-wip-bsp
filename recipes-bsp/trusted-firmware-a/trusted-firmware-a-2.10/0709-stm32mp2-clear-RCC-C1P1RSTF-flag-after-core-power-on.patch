@@ -1,0 +1,48 @@
+From 7c4a1b483436b4001c30893adcc13fc381abe042 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 22 Nov 2024 17:56:19 +0100
+Subject: [PATCH 709/841] stm32mp2: clear RCC C1P1RSTF flag after core power on
+
+The ROM code don't manages the C1P1RSTF flag associated to core 1 reset
+(used for CPU hotplug) and it is not cleared by por_rstn reset, so
+application need to reset this flag to avoid strange
+RCC_C1BOOTRSTSSETR value for next CPU1 booting (see expected value
+in reference manual Table "RCC HWRSTSCLRR, RCC_C1HWRSTSCLRR,
+RCC_C2HWRSTSCLRR flags").
+
+The boot ROM uses RCC_HWRSTSCLRR, RCC_C1HWRSTSCLRR, and PWR_CPU1CR
+to set the boot reset reason via RCC_C1BOOTRSTSSETR after every system
+reset, power-on reset, or exit from Standby.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 297bdf186b89ae1f6af0efe7a3d127496efd7887 stm32mp2: clear RCC C1P1RSTF flag after core power on]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I01002820713edf8f6acaebfa5b8079f5fc713462
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/420547
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/438132
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 3b5ee026f..d4e93cb57 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -704,6 +704,10 @@ static void stm32_pwr_domain_on_finish(const psci_power_state_t *target_state)
+ 	} else {
+ 		/* Restore generic timer after reset */
+ 		stm32mp_stgen_restore_rate();
++#if !STM32MP21
++		/* clear flag after core 1 power on */
++		mmio_setbits_32(rcc_base + RCC_C1HWRSTSCLRR, RCC_C1HWRSTSCLRR_C1P1RSTF);
++#endif /* !STM32MP21 */
+ 	}
+ 
+ 	stm32mp2_disable_rcc_wakeup_irq(rcc_base);
+-- 
+2.47.2
+

@@ -1,0 +1,67 @@
+From e07b03946911e5db0d6285582f8c7b2c0732a2cf Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 28 Sep 2018 09:12:10 +0200
+Subject: [PATCH 017/841] feat(debug): add one register in asm print functions
+
+This allows using one more register for timeouts in console drivers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ea314568670338b74ea48f92cfa5e84b51fe8891 feat(debug): add one register in asm print functions]
+Change-Id: Ie4e0d4e09bfc453b637940ab44ef7c2e2bb82982
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ common/aarch32/debug.S | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/common/aarch32/debug.S b/common/aarch32/debug.S
+index 2937f56fd..f12680989 100644
+--- a/common/aarch32/debug.S
++++ b/common/aarch32/debug.S
+@@ -115,10 +115,10 @@ endfunc asm_assert
+ 
+ /*
+  * This function prints a string from address in r4
+- * Clobber: lr, r0 - r4
++ * Clobber: lr, r0 - r4, r7
+  */
+ func asm_print_str
+-	mov	r3, lr
++	mov	r7, lr
+ 1:
+ 	ldrb	r0, [r4], #0x1
+ 	cmp	r0, #0
+@@ -126,20 +126,20 @@ func asm_print_str
+ 	bl	plat_crash_console_putc
+ 	b	1b
+ 2:
+-	bx	r3
++	bx	r7
+ endfunc asm_print_str
+ 
+ /*
+  * This function prints a hexadecimal number in r4.
+  * In: r4 = the hexadecimal to print.
+- * Clobber: lr, r0 - r3, r5
++ * Clobber: lr, r0 - r3, r5, r7
+  */
+ func asm_print_hex
+ 	mov	r5, #32  /* No of bits to convert to ascii */
+ 
+ 	/* Convert to ascii number of bits in r5 */
+ asm_print_hex_bits:
+-	mov	r3, lr
++	mov	r7, lr
+ 1:
+ 	sub	r5, r5, #4
+ 	lsr	r0, r4, r5
+@@ -155,7 +155,7 @@ asm_print_hex_bits:
+ 	bl	plat_crash_console_putc
+ 	cmp	r5, #0
+ 	bne	1b
+-	bx	r3
++	bx	r7
+ endfunc asm_print_hex
+ 
+ 	/***********************************************************
+-- 
+2.47.2
+

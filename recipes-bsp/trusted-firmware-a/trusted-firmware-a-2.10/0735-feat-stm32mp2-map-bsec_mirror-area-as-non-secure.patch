@@ -1,0 +1,117 @@
+From c43a18ee39153169de596f6e1bdcb3f0eef494a3 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 19 Sep 2024 18:11:29 +0200
+Subject: [PATCH 735/841] feat(stm32mp2): map bsec_mirror area as non-secure
+
+Remove STM32MP_SEC_SRAM1_SIZE, as this area is now non-secure.
+Add STM32MP_BSEC_MIRROR_BASE & STM32MP_BSEC_MIRROR_SIZE macros, and
+use them to map this area as non-secure. The whole SRAM1 is still
+mapped as secure in BL2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 44407d0489dbabbafd19b71b83302dbab613a3b4 feat(stm32mp2): map bsec_mirror area as non-secure]
+Change-Id: Id2c317efec842168e560ae0328f7644d8bf30c85
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/412862
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h     |  7 ++++---
+ plat/st/stm32mp2/stm32mp2_private.c | 29 +++++++++++++++++++----------
+ 2 files changed, 23 insertions(+), 13 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 32bef8578..066caaf71 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -157,8 +157,9 @@
+ #define RETRAM_SIZE			U(0x00020000)
+ #define STM32MP_BACKUP_RAM_BASE		U(0x42000000)
+ 
+-/* the first 4KB of SRAM1 are reserved are for BSEC shadow */
+-#define STM32MP_SEC_SRAM1_SIZE		U(0x1000)
++/* The first 4KB of SRAM1 are reserved are for BSEC mirror */
++#define STM32MP_BSEC_MIRROR_BASE	SRAM1_BASE
++#define STM32MP_BSEC_MIRROR_SIZE	PAGE_SIZE
+ 
+ #define STM32MP_SEC_SYSRAM_BASE		STM32MP_SYSRAM_BASE
+ 
+@@ -279,7 +280,7 @@ enum ddr_type {
+ #endif
+ 
+ #if STM32MP_DDR_FIP_IO_STORAGE
+-#define STM32MP_DDR_FW_BASE		(SRAM1_BASE + STM32MP_SEC_SRAM1_SIZE)
++#define STM32MP_DDR_FW_BASE		(SRAM1_BASE + STM32MP_BSEC_MIRROR_SIZE)
+ #define STM32MP_DDR_FW_DMEM_OFFSET	U(0x400)
+ #define STM32MP_DDR_FW_IMEM_OFFSET	U(0x800)
+ #define STM32MP_DDR_FW_MAX_SIZE		U(0x8800)
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 1fe89f2e4..1fadb5a56 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -17,14 +17,6 @@
+ #include <platform_def.h>
+ #include <stm32mp2_context.h>
+ 
+-#if STM32MP_DDR_FIP_IO_STORAGE && defined(IMAGE_BL2)
+-/* Map the whole SRAM1 as secure, required to load DDR FW from FIP */
+-#define SRAM1_MAP_SIZE	SRAM1_SIZE_FOR_TFA
+-#else
+-/* Map the beginning of SRAM1 as secure */
+-#define SRAM1_MAP_SIZE	STM32MP_SEC_SRAM1_SIZE
+-#endif
+-
+ #define MAP_SYSRAM	MAP_REGION_FLAT(STM32MP_SYSRAM_BASE, \
+ 					STM32MP_SYSRAM_SIZE, \
+ 					MT_MEMORY | \
+@@ -58,12 +50,25 @@
+ 					MT_EXECUTE_NEVER)
+ #endif /* STM32MP_USB_PROGRAMMER && !STM32MP21 */
+ 
++#if STM32MP_DDR_FIP_IO_STORAGE && defined(IMAGE_BL2)
++/* Map the whole SRAM1 allocated to TF-A as secure, required to load DDR FW from FIP */
+ #define MAP_SRAM1	MAP_REGION_FLAT(SRAM1_BASE, \
+-					SRAM1_MAP_SIZE, \
++					SRAM1_SIZE_FOR_TFA, \
+ 					MT_MEMORY | \
+ 					MT_RW | \
+ 					MT_SECURE | \
+ 					MT_EXECUTE_NEVER)
++#endif
++
++#if STM32MP_M33_TDCID
++#define MAP_BSEC_MIRROR	MAP_REGION_FLAT(STM32MP_BSEC_MIRROR_BASE, \
++					STM32MP_BSEC_MIRROR_SIZE, \
++					MT_RO_DATA | MT_NS)
++#else
++#define MAP_BSEC_MIRROR	MAP_REGION_FLAT(STM32MP_BSEC_MIRROR_BASE, \
++					STM32MP_BSEC_MIRROR_SIZE, \
++					MT_RO_DATA | MT_SECURE)
++#endif
+ 
+ #define MAP_DEVICE	MAP_REGION_FLAT(STM32MP_DEVICE_BASE, \
+ 					STM32MP_DEVICE_SIZE, \
+@@ -80,7 +85,11 @@ static const mmap_region_t stm32mp2_mmap[] = {
+ #else /* !STM32MP_USB_PROGRAMMER || STM32MP21 */
+ 	MAP_SYSRAM,
+ #endif /* STM32MP_USB_PROGRAMMER && !STM32MP21 */
++#if STM32MP_DDR_FIP_IO_STORAGE
+ 	MAP_SRAM1,
++#else
++	MAP_BSEC_MIRROR,
++#endif
+ 	MAP_DEVICE,
+ 	{0}
+ };
+@@ -88,7 +97,7 @@ static const mmap_region_t stm32mp2_mmap[] = {
+ #if defined(IMAGE_BL31)
+ static const mmap_region_t stm32mp2_mmap[] = {
+ 	MAP_SEC_SYSRAM,
+-	MAP_SRAM1,
++	MAP_BSEC_MIRROR,
+ 	MAP_DEVICE,
+ 	{0}
+ };
+-- 
+2.47.2
+

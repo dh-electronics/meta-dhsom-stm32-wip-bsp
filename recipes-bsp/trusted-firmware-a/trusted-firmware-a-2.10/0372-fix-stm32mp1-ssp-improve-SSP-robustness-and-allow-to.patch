@@ -1,0 +1,123 @@
+From 87af2a4315e2a153b60a63ccd043b5daf1e80d69 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@linaro.org>
+Date: Thu, 12 May 2022 16:47:21 +0200
+Subject: [PATCH 372/841] fix(stm32mp1-ssp): improve SSP robustness and allow
+ to drop some words
+
+NOT_UPSTREAMABLE
+
+The patch added some security checks on RMA password. It also allows
+to skip some worlds if already program on chip (such as board ID on
+STM32 boards).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 710ac63944dc85d583106b4f43170664bb911ab7 fix(stm32mp1-ssp): improve SSP robustness and allow to drop some words]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Id63fac5cbb2e86bd8394e65a25224f97ae9444e6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/265023
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp1/stm32mp1_ssp.c | 49 +++++++++++++++++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+
+diff --git a/plat/st/stm32mp1/stm32mp1_ssp.c b/plat/st/stm32mp1/stm32mp1_ssp.c
+index 3749c220a..af0c25304 100644
+--- a/plat/st/stm32mp1/stm32mp1_ssp.c
++++ b/plat/st/stm32mp1/stm32mp1_ssp.c
+@@ -208,6 +208,7 @@ static int ssp_secrets_check(boot_api_context_t *boot_ctx)
+ 	uint32_t check_val;
+ 	uint32_t otp_bytes = boot_ctx->p_ssp_config->p_blob_payload->oem_secret_size_bytes;
+ 	uint32_t otp_decrypted;
++	uint32_t *val;
+ 
+ 	if (otp_bytes == 0U) {
+ 		return -EINVAL;
+@@ -241,8 +242,16 @@ static int ssp_secrets_check(boot_api_context_t *boot_ctx)
+ 		return -EINVAL;
+ 	}
+ 
++	val = (uint32_t *)boot_ctx->p_ssp_config->p_ssp_oem_secrets_decrypted;
++
+ 	/* Check all OTP available */
+ 	for (i = SSP_OTP_SECRET_BASE; i < SSP_OTP_SECRET_BASE + otp_decrypted - 1U; i++) {
++		val++;
++
++		if (*val == 0U) {
++			continue;
++		}
++
+ 		if (stm32_get_otp_value_from_idx(i, &check_val) != 0) {
+ 			return -EINVAL;
+ 		}
+@@ -263,6 +272,7 @@ static int ssp_secrets_flash(boot_api_context_t *boot_ctx)
+ {
+ 	uint32_t i;
+ 	uint32_t *val;
++	uint32_t otp_val;
+ 	uint32_t otp_bytes =
+ 		boot_ctx->p_ssp_config->p_blob_payload->oem_secret_size_bytes;
+ 	uint32_t otp_decrypted;
+@@ -287,6 +297,20 @@ static int ssp_secrets_flash(boot_api_context_t *boot_ctx)
+ 		return -EINVAL;
+ 	}
+ 
++	if (bsec_shadow_read_otp(&otp_val, otp_rma.idx) != BSEC_OK) {
++		return -EINVAL;
++	}
++
++	if ((otp_val & RMA_OTP_MASK) != (*val & RMA_OTP_MASK)) {
++		WARN("RMA programming failed\n");
++		return -EINVAL;
++	}
++
++	if (bsec_permanent_lock_otp(otp_rma.idx) != BSEC_OK) {
++		WARN("Error locking RMA OTP\n");
++		return -EINVAL;
++	}
++
+ 	val++;
+ 	otp_decrypted--;
+ 	for (i = SSP_OTP_SECRET_BASE; i < (SSP_OTP_SECRET_BASE + otp_decrypted - 1U); i++) {
+@@ -461,6 +485,29 @@ static int prepare_certificate(uint8_t *cert, const uint8_t *pubkey)
+ 	return 0;
+ }
+ 
++/*
++ * Clean OTP value that might be still in shadow registers
++ */
++static void cleanup_otp_value(void)
++{
++	unsigned int i;
++
++	/* RMA clear and lock */
++	if (bsec_write_otp(0U, otp_rma.idx) != BSEC_OK) {
++		return;
++	}
++
++	if (bsec_set_sr_lock(otp_rma.idx) != BSEC_OK) {
++		return;
++	}
++
++	for (i = SSP_OTP_SECRET_BASE; i < SSP_OTP_SECRET_END + 1U; i++) {
++		if (bsec_write_otp(0U, otp_rma.idx) != BSEC_OK) {
++			return;
++		}
++	}
++}
++
+ /*
+  * Clean external data and bootrom context secret values.
+  */
+@@ -638,6 +685,8 @@ static int ssp_secret_programming(boot_api_context_t *boot_context)
+ 	}
+ 
+ clean:
++	cleanup_otp_value();
++
+ 	ssp_cleanup(boot_context);
+ 
+ 	if (result != 0) {
+-- 
+2.47.2
+

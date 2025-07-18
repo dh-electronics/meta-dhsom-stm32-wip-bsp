@@ -1,0 +1,46 @@
+From a51ea58ed275bb85198c16c9139a5f6251ea6149 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Thu, 25 Aug 2022 17:56:04 +0200
+Subject: [PATCH 221/841] fix(st-spi): enable delay block bypass
+
+Enabling delay block bypass allows to identify SPI flashes until 50 Mhz.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 568823a0b5c720f10acb890f49867f944e77a4c8 fix(st-spi): enable delay block bypass]
+Change-Id: I64882b9185a7a157f519dbf2d0260813727ae897
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/267823
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+---
+ drivers/st/spi/stm32_ospi.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/spi/stm32_ospi.c b/drivers/st/spi/stm32_ospi.c
+index 07bf10bcb..1659c4937 100644
+--- a/drivers/st/spi/stm32_ospi.c
++++ b/drivers/st/spi/stm32_ospi.c
+@@ -50,6 +50,7 @@
+ 
+ /* OCTOSPI device configuration register 1 */
+ #define _OSPI_DCR1_CKMODE	BIT(0)
++#define _OSPI_DCR1_DLYBYP	BIT(3)
+ #define _OSPI_DCR1_CSHT		GENMASK_32(13, 8)
+ #define _OSPI_DCR1_CSHT_SHIFT	8U
+ #define _OSPI_DCR1_DEVSIZE	GENMASK_32(20, 16)
+@@ -591,7 +592,8 @@ int stm32_ospi_init(void)
+ 		}
+ 	}
+ 
+-	mmio_write_32(ospi_base() + _OSPI_DCR1, _OSPI_DCR1_DEVSIZE);
++	mmio_write_32(ospi_base() + _OSPI_DCR1,
++		      _OSPI_DCR1_DEVSIZE | _OSPI_DCR1_DLYBYP);
+ 
+ 	return spi_mem_init_slave(fdt, ospi_node, &stm32_ospi_bus_ops);
+ };
+-- 
+2.47.2
+

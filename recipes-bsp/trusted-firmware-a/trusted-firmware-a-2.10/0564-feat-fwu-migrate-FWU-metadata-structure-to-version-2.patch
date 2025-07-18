@@ -1,0 +1,123 @@
+From d0c540f483b029228c4a908910c1bf98038cb6ee Mon Sep 17 00:00:00 2001
+From: Sughosh Ganu <sughosh.ganu@linaro.org>
+Date: Thu, 1 Feb 2024 12:47:13 +0530
+Subject: [PATCH 564/841] feat(fwu): migrate FWU metadata structure to version
+ 2
+
+The latest version of the FWU specification [1] has changes to the
+metadata structure. This is version 2 of the structure.
+
+Primary changes include
+ - bank_state field in the top level structure
+ - Total metadata size in the top level structure
+ - Image description structures now optional
+ - Number of banks and images per bank values part of the structure
+
+Make changes to the structure to align with version 2 of the structure
+defined in the specification. These changes also remove support for
+version 1 of the metadata structure.
+
+[1] - https://developer.arm.com/documentation/den0118/latest/
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e233212f08d4eb5c4b8a2538184bd88ea76249f4 feat(fwu): migrate FWU metadata structure to version 2]
+Change-Id: I84b4e742e463cae92375dde8b4603b4a581d62d8
+Signed-off-by: Sughosh Ganu <sughosh.ganu@linaro.org>
+(cherry picked from commit a89d58bb204c00db260225859bce0b55aa5e2385)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/372645
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ include/drivers/fwu/fwu.h          |  4 +++
+ include/drivers/fwu/fwu_metadata.h | 44 +++++++++++++++++++++++++++++-
+ 2 files changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/include/drivers/fwu/fwu.h b/include/drivers/fwu/fwu.h
+index 9f18e221c..1414fec0f 100644
+--- a/include/drivers/fwu/fwu.h
++++ b/include/drivers/fwu/fwu.h
+@@ -9,6 +9,10 @@
+ 
+ #include <stdbool.h>
+ 
++#define FWU_BANK_STATE_ACCEPTED		0xFCU
++#define FWU_BANK_STATE_VALID		0xFEU
++#define FWU_BANK_STATE_INVALID		0xFFU
++
+ void fwu_init(void);
+ bool fwu_is_trial_run_state(void);
+ const struct fwu_metadata *fwu_get_metadata(void);
+diff --git a/include/drivers/fwu/fwu_metadata.h b/include/drivers/fwu/fwu_metadata.h
+index 7ff11763c..cc2c863d5 100644
+--- a/include/drivers/fwu/fwu_metadata.h
++++ b/include/drivers/fwu/fwu_metadata.h
+@@ -14,6 +14,8 @@
+ #include <stdint.h>
+ #include <tools_share/uuid.h>
+ 
++#define NR_OF_MAX_FW_BANKS	4
++
+ /* Properties of image in a bank */
+ struct fwu_image_properties {
+ 
+@@ -45,6 +47,29 @@ struct fwu_image_entry {
+ 
+ } __packed;
+ 
++/* Firmware Image descriptor */
++struct fwu_fw_store_descriptor {
++
++	/* Number of Banks */
++	uint8_t num_banks;
++
++	/* Reserved */
++	uint8_t reserved;
++
++	/* Number of images per bank */
++	uint16_t num_images;
++
++	/* Size of image_entry(all banks) in bytes */
++	uint16_t img_entry_size;
++
++	/* Size of image bank info structure in bytes */
++	uint16_t bank_info_entry_size;
++
++	/* Array of fwu_image_entry structs */
++	struct fwu_image_entry img_entry[NR_OF_IMAGES_IN_FW_BANK];
++
++} __packed;
++
+ /*
+  * FWU metadata filled by the updater and consumed by TF-A for
+  * various purposes as below:
+@@ -66,8 +91,25 @@ struct fwu_metadata {
+ 	/* Previous bank index with which device booted successfully */
+ 	uint32_t previous_active_index;
+ 
++	/* Size of the entire metadata in bytes */
++	uint32_t metadata_size;
++
++	/* Offset of the image descriptor structure */
++	uint16_t desc_offset;
++
++	/* Reserved */
++	uint16_t reserved1;
++
++	/* Bank state */
++	uint8_t bank_state[NR_OF_MAX_FW_BANKS];
++
++	/* Reserved */
++	uint32_t reserved2;
++
++#if PSA_FWU_METADATA_FW_STORE_DESC
+ 	/* Image entry information */
+-	struct fwu_image_entry img_entry[NR_OF_IMAGES_IN_FW_BANK];
++	struct fwu_fw_store_descriptor fw_desc;
++#endif
+ 
+ } __packed;
+ 
+-- 
+2.47.2
+

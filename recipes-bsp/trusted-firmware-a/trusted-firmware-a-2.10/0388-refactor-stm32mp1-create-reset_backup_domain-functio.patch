@@ -1,0 +1,108 @@
+From 17faceeac2307eba2587b8be7c96c34f224f194d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 25 Oct 2023 19:31:56 +0200
+Subject: [PATCH 388/841] refactor(stm32mp1): create reset_backup_domain
+ function
+
+Same as for STM32MP2, move backup domain reset code to a dedicated
+function reset_backup_domain().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f4c4e93cba58da4b8870d180c294c9d2ee75b99a refactor(stm32mp1): create reset_backup_domain function]
+Change-Id: I7c36ce00072217eff622febb95483b14513e7106
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/338365
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 58 ++++++++++++++++---------------
+ 1 file changed, 30 insertions(+), 28 deletions(-)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index a2cbca926..6be99f18e 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -234,13 +234,39 @@ static void update_monotonic_counter(void)
+ }
+ #endif
+ 
++static void reset_backup_domain(void)
++{
++	uintptr_t pwr_base = stm32mp_pwr_base();
++	uintptr_t rcc_base = stm32mp_rcc_base();
++
++	/*
++	 * Disable the backup domain write protection.
++	 * The protection is enable at each reset by hardware
++	 * and must be disabled by software.
++	 */
++	mmio_setbits_32(pwr_base + PWR_CR1, PWR_CR1_DBP);
++
++	while ((mmio_read_32(pwr_base + PWR_CR1) & PWR_CR1_DBP) == 0U) {
++		;
++	}
++
++	/* Reset backup domain on cold boot cases */
++	if ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_RTCSRC_MASK) == 0U) {
++		mmio_setbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
++
++		while ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_VSWRST) == 0U) {
++			;
++		}
++
++		mmio_clrbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
++	}
++}
++
+ void bl2_el3_plat_arch_setup(void)
+ {
+ 	const char *board_model;
+ 	boot_api_context_t *boot_context =
+ 		(boot_api_context_t *)stm32mp_get_boot_ctx_address();
+-	uintptr_t pwr_base;
+-	uintptr_t rcc_base;
+ 
+ 	if (bsec_probe() != 0U) {
+ 		panic();
+@@ -261,38 +287,14 @@ void bl2_el3_plat_arch_setup(void)
+ 		panic();
+ 	}
+ 
+-	pwr_base = stm32mp_pwr_base();
+-	rcc_base = stm32mp_rcc_base();
+-
+-	/*
+-	 * Disable the backup domain write protection.
+-	 * The protection is enable at each reset by hardware
+-	 * and must be disabled by software.
+-	 */
+-	mmio_setbits_32(pwr_base + PWR_CR1, PWR_CR1_DBP);
+-
+-	while ((mmio_read_32(pwr_base + PWR_CR1) & PWR_CR1_DBP) == 0U) {
+-		;
+-	}
+-
+-	/* Reset backup domain on cold boot cases */
+-	if ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_RTCSRC_MASK) == 0U) {
+-		mmio_setbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
+-
+-		while ((mmio_read_32(rcc_base + RCC_BDCR) & RCC_BDCR_VSWRST) ==
+-		       0U) {
+-			;
+-		}
+-
+-		mmio_clrbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
+-	}
++	reset_backup_domain();
+ 
+ 	/*
+ 	 * Set minimum reset pulse duration to 31ms for discrete power
+ 	 * supplied boards.
+ 	 */
+ 	if (dt_pmic_status() <= 0) {
+-		mmio_clrsetbits_32(rcc_base + RCC_RDLSICR,
++		mmio_clrsetbits_32(stm32mp_rcc_base() + RCC_RDLSICR,
+ 				   RCC_RDLSICR_MRD_MASK,
+ 				   31U << RCC_RDLSICR_MRD_SHIFT);
+ 	}
+-- 
+2.47.2
+

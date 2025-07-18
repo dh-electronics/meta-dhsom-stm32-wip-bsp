@@ -1,0 +1,48 @@
+From 0f8dd6164a71dc3c50981c30727a7d3742e09b57 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 13 Sep 2024 11:53:53 +0200
+Subject: [PATCH 684/841] fix(stm32mp2): mask potential tamper earlier
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+current implementation doesn't mask potential tamper if there is no
+console. Fixing this bug by placing masking operation earlier.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c0c3a038019892a0395b352ec8523042dd1244ca fix(stm32mp2): mask potential tamper earlier]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: I272d9b731a8f8fb1c8034edaf53c27c205d9caf8
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/404312
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 5d3dbb6ac..b6bb172f4 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -446,15 +446,15 @@ void bl2_el3_plat_arch_setup(void)
+ 
+ 	stm32_save_boot_info(boot_context);
+ 
++	/* Masking potential tamper during BL2 */
++	stm32mp_syscfg_mask_potential_tamper_enable();
++
+ 	if (stm32mp_uart_console_setup() != 0) {
+ 		goto skip_console_init;
+ 	}
+ 
+ 	iac_dump();
+ 
+-	/* Masking potential tamper during BL2 */
+-	stm32mp_syscfg_mask_potential_tamper_enable();
+-
+ 	stm32mp_print_cpuinfo();
+ 
+ 	board_model = dt_get_board_model();
+-- 
+2.47.2
+

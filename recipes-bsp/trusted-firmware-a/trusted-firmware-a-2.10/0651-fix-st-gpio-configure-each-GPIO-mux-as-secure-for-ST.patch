@@ -1,0 +1,54 @@
+From fb4d14d935ae487d64a08be63de2917003768461 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 8 Nov 2023 18:59:07 +0100
+Subject: [PATCH 651/841] fix(st-gpio): configure each GPIO mux as secure for
+ STM32MP2
+
+GPIOs are configured as secure by default on STM32MP2. The former code
+is then put under #if STM32MP13 || STM32MP15. The else part is for
+STM32MP2 family.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 817648c8c950c22b119382af409abea03457ac77 fix(st-gpio): configure each GPIO mux as secure for STM32MP2
+593d615a1a05c13c8aedd3150c073878d74e23ab fix(st-gpio): configure each GPIO mux as secure for STM32MP25]
+Change-Id: I85754faff7ddba08a34c19a90e48273b574e485f
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/392674
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/gpio/stm32_gpio.c | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/st/gpio/stm32_gpio.c b/drivers/st/gpio/stm32_gpio.c
+index a882737eb..a014ab7c7 100644
+--- a/drivers/st/gpio/stm32_gpio.c
++++ b/drivers/st/gpio/stm32_gpio.c
+@@ -284,10 +284,7 @@ static void set_gpio(uint32_t bank, uint32_t pin, uint32_t mode, uint32_t type,
+ 
+ 	clk_disable(clock);
+ 
+-#if STM32MP25
+-	set_gpio_secure_cfg(bank, pin, true);
+-#else
+-
++#if STM32MP13 || STM32MP15
+ 	if (status == DT_SECURE) {
+ 		stm32mp_register_secure_gpio(bank, pin);
+ #if !IMAGE_BL2
+@@ -300,7 +297,9 @@ static void set_gpio(uint32_t bank, uint32_t pin, uint32_t mode, uint32_t type,
+ 		set_gpio_secure_cfg(bank, pin, false);
+ #endif
+ 	}
+-#endif
++#else /* !STM32MP13 && !STM32MP15 */
++	set_gpio_secure_cfg(bank, pin, true);
++#endif /* STM32MP13 || STM32MP15 */
+ }
+ 
+ void set_gpio_secure_cfg(uint32_t bank, uint32_t pin, bool secure)
+-- 
+2.47.2
+

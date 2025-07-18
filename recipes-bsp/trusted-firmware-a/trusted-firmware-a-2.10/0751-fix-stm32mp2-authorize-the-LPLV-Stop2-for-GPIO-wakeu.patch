@@ -1,0 +1,62 @@
+From 2eda4b15a025457f75845842cf998d087d34b3c6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Tue, 10 Dec 2024 11:24:37 +0100
+Subject: [PATCH 751/841] fix(stm32mp2): authorize the LPLV-Stop2 for GPIO
+ wakeup
+
+In reference manual, Table 94. Functionalities depending on
+system operating mode, the GPIO wake are functional up to LPLV-Stop2
+low power mode but in stm32_get_sys_suspend_power_state() the mode
+is limited to LP-Stop2 when GPIO wake up is activated.
+
+This patch update the test done on EXTI1_C1IMR1 to add at exist PVD and
+PVM the bit 0 to 15 associated to GPIO EXTI line 0 to 15.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d8f9b61e2ed69a4d36aa34276af314b47eeafe19 fix(stm32mp2): authorize the LPLV-Stop2 for GPIO wakeup]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I23d82694f7979fd8a27af4922b9aa872e822e070
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/415390
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h | 1 +
+ plat/st/stm32mp2/stm32mp2_pm.c  | 4 ++--
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 214420557..447dbef2f 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -339,6 +339,7 @@ enum ddr_type {
+ #define EXTI1_C1IMR2			U(0x90)
+ #define EXTI1_C1IMR3			U(0xA0)
+ 
++#define EXTI1_C1IMR1_GPIO		GENMASK_32(15, 0)
+ #define EXTI1_C1IMR1_PVD		BIT_32(16)
+ #define EXTI1_C1IMR1_PVM		BIT_32(17)
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index dd879e5db..7d3a58830 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -1159,13 +1159,13 @@ static void stm32_get_sys_suspend_power_state(psci_power_state_t *req_state)
+ 	uint32_t c1imr3 = mmio_read_32(exti_base + EXTI1_C1IMR3);
+ 
+ 	/* Verify the max level supported according to the activated EXTI1 */
+-	if ((c1imr1 & (EXTI1_C1IMR1_PVD | EXTI1_C1IMR1_PVM)) != 0U) {
++	if ((c1imr1 & (EXTI1_C1IMR1_GPIO | EXTI1_C1IMR1_PVD | EXTI1_C1IMR1_PVM)) != 0U) {
+ 		max_pwr_state = PWRSTATE_LPLV_STOP2;
+ 		VERBOSE("%s: max_pwr_state = PWRSTATE_LPLV_STOP2 C1IMR1=%x\n", __func__, c1imr1);
+ 	}
+ 
+ 	/* Wake-up pin are connected directly to PWR */
+-	if (((c1imr1 & ~(EXTI1_C1IMR1_PVD | EXTI1_C1IMR1_PVM)) != 0U) ||
++	if (((c1imr1 & ~(EXTI1_C1IMR1_GPIO | EXTI1_C1IMR1_PVD | EXTI1_C1IMR1_PVM)) != 0U) ||
+ 	    ((c1imr2 & ~EXTI1_C1IMR2_WKUP_MASK) != 0U) || (c1imr3 != 0U)) {
+ 		max_pwr_state = PWRSTATE_LP_STOP2;
+ 		VERBOSE("%s: max_pwr_state = PWRSTATE_LP_STOP2, C1IMR1=%x, C1IMR2=%x, C1IMR3=%x\n",
+-- 
+2.47.2
+

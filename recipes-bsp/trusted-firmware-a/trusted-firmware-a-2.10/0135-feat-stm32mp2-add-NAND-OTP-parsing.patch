@@ -1,0 +1,180 @@
+From ddaebe00f5d66afd50c5553018d92ce5da3cddf6 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 2 Sep 2021 16:06:06 +0200
+Subject: [PATCH 135/841] feat(stm32mp2): add NAND OTP parsing
+
+This is the same method as STM32MP13, with 2 OTP words.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8b06b9bcec1e31b7e791a51053fa7e57ab5e96ea feat(stm32mp2): add NAND OTP parsing]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I84874fbbd18a42a2abec5b03f64744170f856dac
+---
+ plat/st/stm32mp2/stm32mp2_boot_device.c | 113 +++++++++++++++++++++++-
+ plat/st/stm32mp2/stm32mp2_def.h         |  13 ++-
+ 2 files changed, 123 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_boot_device.c b/plat/st/stm32mp2/stm32mp2_boot_device.c
+index bed14e668..67553b0f2 100644
+--- a/plat/st/stm32mp2/stm32mp2_boot_device.c
++++ b/plat/st/stm32mp2/stm32mp2_boot_device.c
+@@ -17,7 +17,118 @@
+ #if STM32MP_RAW_NAND || STM32MP_SPI_NAND
+ static int get_data_from_otp(struct nand_device *nand_dev, bool is_slc)
+ {
+-	/* To do: implement otp parsing */
++	uint32_t nand_param;
++	uint32_t nand2_param;
++
++	/* Check if NAND parameters are stored in OTP */
++	if (stm32_get_otp_value(NAND_OTP, &nand_param) != 0) {
++		ERROR("BSEC: NAND_OTP Error\n");
++		return -EACCES;
++	}
++
++	if ((nand_param == 0U) && is_slc) {
++		return 0;
++	}
++
++	if (((nand_param & NAND_PARAM_STORED_IN_OTP) == 0U) && is_slc) {
++		goto ecc;
++	}
++
++	if (stm32_get_otp_value(NAND2_OTP, &nand2_param) != 0) {
++		ERROR("BSEC: NAND_OTP Error\n");
++		return -EACCES;
++	}
++
++	/* Check OTP configuration for this device */
++	if ((((nand2_param & NAND2_CONFIG_DISTRIB) == NAND2_PNAND_NAND1_SNAND_NAND2) && !is_slc) ||
++	    (((nand2_param & NAND2_CONFIG_DISTRIB) == NAND2_PNAND_NAND2_SNAND_NAND1) && is_slc)) {
++		nand_param = nand2_param << (NAND_PAGE_SIZE_SHIFT - NAND2_PAGE_SIZE_SHIFT);
++	}
++
++	/* NAND parameter shall be read from OTP */
++	if ((nand_param & NAND_WIDTH_MASK) != 0U) {
++		nand_dev->buswidth = NAND_BUS_WIDTH_16;
++	} else {
++		nand_dev->buswidth = NAND_BUS_WIDTH_8;
++	}
++
++	switch ((nand_param & NAND_PAGE_SIZE_MASK) >> NAND_PAGE_SIZE_SHIFT) {
++	case NAND_PAGE_SIZE_2K:
++		nand_dev->page_size = 0x800U;
++		break;
++
++	case NAND_PAGE_SIZE_4K:
++		nand_dev->page_size = 0x1000U;
++		break;
++
++	case NAND_PAGE_SIZE_8K:
++		nand_dev->page_size = 0x2000U;
++		break;
++
++	default:
++		ERROR("Cannot read NAND page size\n");
++		return -EINVAL;
++	}
++
++	switch ((nand_param & NAND_BLOCK_SIZE_MASK) >> NAND_BLOCK_SIZE_SHIFT) {
++	case NAND_BLOCK_SIZE_64_PAGES:
++		nand_dev->block_size = 64U * nand_dev->page_size;
++		break;
++
++	case NAND_BLOCK_SIZE_128_PAGES:
++		nand_dev->block_size = 128U * nand_dev->page_size;
++		break;
++
++	case NAND_BLOCK_SIZE_256_PAGES:
++		nand_dev->block_size = 256U * nand_dev->page_size;
++		break;
++
++	default:
++		ERROR("Cannot read NAND block size\n");
++		return -EINVAL;
++	}
++
++	nand_dev->size = ((nand_param & NAND_BLOCK_NB_MASK) >>
++			  NAND_BLOCK_NB_SHIFT) *
++		NAND_BLOCK_NB_UNIT * nand_dev->block_size;
++
++ecc:
++	if (is_slc) {
++		switch ((nand_param & NAND_ECC_BIT_NB_MASK) >>
++			NAND_ECC_BIT_NB_SHIFT) {
++		case NAND_ECC_BIT_NB_1_BITS:
++			nand_dev->ecc.max_bit_corr = 1U;
++			break;
++
++		case NAND_ECC_BIT_NB_4_BITS:
++			nand_dev->ecc.max_bit_corr = 4U;
++			break;
++
++		case NAND_ECC_BIT_NB_8_BITS:
++			nand_dev->ecc.max_bit_corr = 8U;
++			break;
++
++		case NAND_ECC_ON_DIE:
++			nand_dev->ecc.mode = NAND_ECC_ONDIE;
++			break;
++
++		default:
++			if (nand_dev->ecc.max_bit_corr == 0U) {
++				ERROR("No valid eccbit number\n");
++				return -EINVAL;
++			}
++		}
++	} else {
++		/* Selected multiple plane NAND */
++		if ((nand_param & NAND_PLANE_BIT_NB_MASK) != 0U) {
++			nand_dev->nb_planes = 2U;
++		} else {
++			nand_dev->nb_planes = 1U;
++		}
++	}
++
++	VERBOSE("OTP: Block %u Page %u Size %llu\n", nand_dev->block_size,
++		nand_dev->page_size, nand_dev->size);
+ 
+ 	return 0;
+ }
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 962bae4d9..1f3f77eca 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -251,7 +251,8 @@ enum ddr_type {
+ #define PART_NUMBER_OTP				"otp9"
+ #define PACKAGE_OTP				"package_otp"
+ #define HW2_OTP					"hw2_otp"
+-#define NAND_OTP				"nand_otp"
++#define NAND_OTP				"otp16"
++#define NAND2_OTP				"otp20"
+ 
+ /* OTP mask */
+ /* PACKAGE */
+@@ -281,7 +282,7 @@ enum ddr_type {
+ #define NAND_BLOCK_SIZE_128_PAGES		U(1)
+ #define NAND_BLOCK_SIZE_256_PAGES		U(2)
+ 
+-/* NAND number of block (in unit of 256 blocs) */
++/* NAND number of block (in unit of 256 blocks) */
+ #define NAND_BLOCK_NB_MASK			GENMASK_32(26, 19)
+ #define NAND_BLOCK_NB_SHIFT			19
+ #define NAND_BLOCK_NB_UNIT			U(256)
+@@ -302,6 +303,14 @@ enum ddr_type {
+ /* NAND number of planes */
+ #define NAND_PLANE_BIT_NB_MASK			BIT(14)
+ 
++/* NAND2 OTP */
++#define NAND2_PAGE_SIZE_SHIFT			16
++
++/* NAND2 config distribution */
++#define NAND2_CONFIG_DISTRIB			BIT(0)
++#define NAND2_PNAND_NAND2_SNAND_NAND1		U(0)
++#define NAND2_PNAND_NAND1_SNAND_NAND2		U(1)
++
+ /* MONOTONIC OTP */
+ #define MAX_MONOTONIC_VALUE			32
+ 
+-- 
+2.47.2
+

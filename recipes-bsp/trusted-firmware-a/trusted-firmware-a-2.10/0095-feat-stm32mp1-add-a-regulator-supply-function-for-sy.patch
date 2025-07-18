@@ -1,0 +1,86 @@
+From 8dc24561cff765f4719f16e7024ba0642147b6de Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Fri, 26 May 2023 09:35:08 +0200
+Subject: [PATCH 095/841] feat(stm32mp1): add a regulator supply function for
+ sysram
+
+Add a new function to retrieve the SYSRAM associated supply
+regulator.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d37a6a70a38a779d5059a9d218e73f5e463137db feat(stm32mp1): add a regulator supply function for sysram]
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Ib49cd63cfe7d95e048fe72f01e0cc5663cb7d7af
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/308667
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/include/stm32mp_dt.h |  1 +
+ plat/st/common/stm32mp_dt.c         | 26 ++++++++++++++++++++++++++
+ plat/st/stm32mp1/stm32mp1_def.h     |  1 +
+ 3 files changed, 28 insertions(+)
+
+diff --git a/plat/st/common/include/stm32mp_dt.h b/plat/st/common/include/stm32mp_dt.h
+index 2d1165365..af4e9a5d6 100644
+--- a/plat/st/common/include/stm32mp_dt.h
++++ b/plat/st/common/include/stm32mp_dt.h
+@@ -39,6 +39,7 @@ size_t dt_get_ddr_size(void);
+ uint32_t dt_get_pwr_vdd_voltage(void);
+ struct rdev *dt_get_vdd_regulator(void);
+ struct rdev *dt_get_cpu_regulator(void);
++struct rdev *dt_get_sysram_regulator(void);
+ const char *dt_get_board_model(void);
+ int dt_find_otp_name(const char *name, uint32_t *otp, uint32_t *otp_len);
+ int fdt_get_gpio_bank_pin_count(unsigned int bank);
+diff --git a/plat/st/common/stm32mp_dt.c b/plat/st/common/stm32mp_dt.c
+index 1cbf51bac..aa94143dc 100644
+--- a/plat/st/common/stm32mp_dt.c
++++ b/plat/st/common/stm32mp_dt.c
+@@ -298,6 +298,32 @@ struct rdev *dt_get_cpu_regulator(void)
+ 	return regulator_get_by_supply_name(fdt, node, "cpu");
+ }
+ 
++/*******************************************************************************
++ * This function retrieves SYSRAM supply regulator from DT.
++ * Returns an rdev taken from supply node, NULL otherwise.
++ ******************************************************************************/
++struct rdev *dt_get_sysram_regulator(void)
++{
++	int node;
++
++	fdt_for_each_compatible_node(fdt, node, DT_MMIO_SRAM) {
++		int len;
++		const fdt32_t *cuint = fdt_getprop(fdt, node, "reg", &len);
++
++		if (cuint != NULL) {
++			if (fdt32_to_cpu(*cuint) == STM32MP_SYSRAM_BASE) {
++				break;
++			}
++		}
++	}
++
++	if (node < 0) {
++		return NULL;
++	}
++
++	return regulator_get_by_supply_name(fdt, node, "vddcore");
++}
++
+ /*******************************************************************************
+  * This function retrieves board model from DT
+  * Returns string taken from model node, NULL otherwise
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index 20c30be6d..896826666 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -663,6 +663,7 @@ static inline uintptr_t tamp_bkpr(uint32_t idx)
+ #define DT_DDR_COMPAT			"st,stm32mp1-ddr"
+ #endif
+ #define DT_IWDG_COMPAT			"st,stm32mp1-iwdg"
++#define DT_MMIO_SRAM			"mmio-sram"
+ #define DT_PWR_COMPAT			"st,stm32mp1,pwr-reg"
+ #if STM32MP13
+ #define DT_RCC_CLK_COMPAT		"st,stm32mp13-rcc"
+-- 
+2.47.2
+

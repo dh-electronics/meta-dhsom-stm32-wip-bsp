@@ -1,0 +1,52 @@
+From cc108b6083dff4606a5acc3232e4dfd7257c4af4 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 19 Jan 2024 17:45:25 +0100
+Subject: [PATCH 546/841] feat(st-regulator): support regulator_set_voltage for
+ fixed regulator
+
+Always support the regulator_set_voltage operation for the same voltage.
+This patch prepares the DDR power configuration when the power supplies
+are fixed.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0088b7889d1271fd9fe2948e2b99562a7003382d feat(st-regulator): support regulator_set_voltage for fixed regulator]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Idf032b03c6f0c95f997dec3ed8a0d38c54a3de15
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/355235
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/368530
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/regulator/regulator_core.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/st/regulator/regulator_core.c b/drivers/st/regulator/regulator_core.c
+index 0b11e538d..b369acdbb 100644
+--- a/drivers/st/regulator/regulator_core.c
++++ b/drivers/st/regulator/regulator_core.c
+@@ -215,14 +215,18 @@ int regulator_set_voltage(struct rdev *rdev, uint16_t mvolt)
+ 
+ 	VERBOSE("%s: set mvolt\n", rdev->desc->node_name);
+ 
+-	if (rdev->desc->ops->set_voltage == NULL) {
+-		return -ENODEV;
+-	}
+-
+ 	if ((mvolt < rdev->min_mv) || (mvolt > rdev->max_mv)) {
+ 		return -EPERM;
+ 	}
+ 
++	if (regulator_get_voltage(rdev) == mvolt) {
++		return 0U;
++	}
++
++	if (rdev->desc->ops->set_voltage == NULL) {
++		return -ENODEV;
++	}
++
+ 	lock_driver(rdev);
+ 
+ 	ret = rdev->desc->ops->set_voltage(rdev->desc, mvolt);
+-- 
+2.47.2
+

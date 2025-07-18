@@ -1,0 +1,57 @@
+From 3005ee228773c7039b5dfca1f7da8087054b0855 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 13 Oct 2022 18:26:34 +0200
+Subject: [PATCH 070/841] fix(stm32mp1): flush data cache at the end of BL2
+
+Explicitly flush .bss and .data areas from cache. This is because BL2
+is re-entered during low-power phases when OP-TEE is in DDR
+(if STM32MP1_OPTEE_IN_SYSRAM is not set), and we must be sure data is
+correct there.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6eda2a67b5222f61204edddce7102944c85afc71 fix(stm32mp1): flush data cache at the end of BL2]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ieb1006649c8f50e7998b73d59a625331a846fb0e
+---
+ plat/st/stm32mp1/bl2_plat_setup.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 96308c927..84ecf4937 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2023, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2023, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -42,6 +42,13 @@
+ 
+ #define PLL1_NOMINAL_FREQ_IN_KHZ	650000U /* 650MHz */
+ 
++#if !STM32MP1_OPTEE_IN_SYSRAM
++IMPORT_SYM(uintptr_t, __BSS_START__, BSS_START);
++IMPORT_SYM(uintptr_t, __BSS_END__, BSS_END);
++IMPORT_SYM(uintptr_t, __DATA_START__, DATA_START);
++IMPORT_SYM(uintptr_t, __DATA_END__, DATA_END);
++#endif
++
+ #if DEBUG
+ static const char debug_msg[] = {
+ 	"***************************************************\n"
+@@ -645,6 +652,11 @@ void bl2_el3_plat_prepare_exit(void)
+ 	}
+ #endif /* STM32MP_UART_PROGRAMMER || STM32MP_USB_PROGRAMMER */
+ 
++#if !STM32MP1_OPTEE_IN_SYSRAM
++	flush_dcache_range(BSS_START, BSS_END - BSS_START);
++	flush_dcache_range(DATA_START, DATA_END - DATA_START);
++#endif
++
+ 	stm32mp1_security_setup();
+ 
+ 	/* end of boot mode */
+-- 
+2.47.2
+

@@ -1,0 +1,54 @@
+From ca53da5b680250dc56bd266c84f6987944ac051c Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Sat, 30 Sep 2023 23:07:23 +0200
+Subject: [PATCH 503/841] feat(stm32mp21): disable PWR_CPU3CR and PWR_D3CR
+ access on STM32MP21
+
+PWR_CPU3CR and PWR_D3CR are not present on STM32MP21.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 85459715ceaca5149e4c3c91c04ad1b5d776ef8f feat(stm32mp21): disable PWR_CPU3CR and PWR_D3CR access on STM32MP21]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: Ibf0bb9edd65fd0155d0e864d2a8346bcb28df155
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/356323
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index eeb67d155..32557a338 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2023, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2023-2024, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -461,7 +461,9 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 	/* Clear previous status */
+ 	mmio_setbits_32(pwr_base + PWR_CPU1CR, PWR_CPU1CR_CSSF);
+ 	mmio_setbits_32(pwr_base + PWR_CPU2CR, PWR_CPU2CR_CSSF);
++#if !STM32MP21
+ 	mmio_setbits_32(pwr_base + PWR_CPU3CR, PWR_CPU3CR_CSSF);
++#endif /* !STM32MP21 */
+ 
+ 	/* Enable the Non-secure interrupt to wake up the CPU with WFI for pending interrupt */
+ 	saved_scr_el3 = read_scr_el3();
+@@ -1046,8 +1048,10 @@ static void stm32_pm_init(void)
+ 					   (1 << PWR_D2CR_LPLVDLY_D2_SHIFT) |
+ 					   (1 << PWR_D2CR_PODH_D2_SHIFT));
+ 
++#if !STM32MP21
+ 	/* System standby not set (D3) */
+ 	mmio_write_32(pwr_base + PWR_D3CR, 0U);
++#endif /* !STM32MP21 */
+ 
+ 	/* To confirmed: delay can be customizable or keep hardcoded at 1ms / 2ms */
+ 
+-- 
+2.47.2
+

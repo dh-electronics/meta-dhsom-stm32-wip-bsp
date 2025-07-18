@@ -1,0 +1,61 @@
+From 4bb1d2ca1b0f184362c3cbfec0b558e280bafd5d Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 25 Nov 2024 09:59:26 +0100
+Subject: [PATCH 712/841] feat(stm32mp2): indicate Core 1 reset for all reset
+ reason
+
+The STM32MP2 reset reason is indicated in BL2 only when the CA35 cluster
+is fully restarted. The flag C1P1RSTF should never occur in this case
+and is independent for other flag (not cleared by por_rstn reset,
+managed by TF-A BL31 for CPU power ON, ).
+
+This patch changes the display of this flag (no return) to detect
+invalid C1P1RSTF value (see expected value in reference manual Table
+"RCC HWRSTSCLRR, RCC_C1HWRSTSCLRR, RCC_C2HWRSTSCLRR flags").
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6c6a3dc4d72fdadbd4d0f2483ed4dad4247c4759 feat(stm32mp2): indicate Core 1 reset for all reset reason]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I87e0ee2945c0f40177bcfa9afc12872011762a13
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/420550
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/438135
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index ddad892b7..d36aec418 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -93,6 +93,12 @@ static void print_reset_reason(void)
+ 		return;
+ 	}
+ 
++#if !STM32MP21
++	if ((rstsr & RCC_C1BOOTRSTSCLRR_C1P1RSTF) != 0U) {
++		INFO("CA35 processor core 1 reset\n");
++	}
++#endif /* !STM32MP21 */
++
+ 	INFO("Reset reason (0x%x):\n", rstsr);
+ 
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) == 0U) {
+@@ -157,11 +163,6 @@ static void print_reset_reason(void)
+ 		INFO("  IWDG5 system reset (rst_iwdg5)\n");
+ 		return;
+ 	}
+-
+-	if ((rstsr & RCC_C1BOOTRSTSCLRR_C1P1RSTF) != 0U) {
+-		INFO("  A35 processor core 1 reset\n");
+-		return;
+-	}
+ #endif /* !STM32MP21 */
+ 
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_PADRSTF) != 0U) {
+-- 
+2.47.2
+

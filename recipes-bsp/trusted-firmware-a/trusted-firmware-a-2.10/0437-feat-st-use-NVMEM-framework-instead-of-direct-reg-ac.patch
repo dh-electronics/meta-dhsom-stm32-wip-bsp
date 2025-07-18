@@ -1,0 +1,692 @@
+From 8a261ae8ae280ccca9525b810f4cc24ed17e889c Mon Sep 17 00:00:00 2001
+From: Simeon Marijon <simeon.marijon@foss.st.com>
+Date: Tue, 5 Dec 2023 15:17:34 +0100
+Subject: [PATCH 437/841] feat(st): use NVMEM framework instead of direct reg
+ access
+
+Previously all acces was done directly using tamp_bkpr which
+calculate the offset on a hardcoded based address.
+
+Now, we use a cell description from the device to access the TAMP
+Backup Registers
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7a28c43be94bf31a89b8127061b417e0029abda2 feat(st): use NVMEM framework instead of direct reg access]
+Signed-off-by: Simeon Marijon <simeon.marijon@foss.st.com>
+Change-Id: I2e5fb0ad1c1a426e9d970313f5d773755ea14a5f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/344047
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Simeon MARIJON <simeon.marijon@st.com>
+Tested-by: Simeon MARIJON <simeon.marijon@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ fdts/stm32mp131.dtsi                    |   6 +
+ fdts/stm32mp151.dtsi                    |   8 +
+ fdts/stm32mp251.dtsi                    |   6 +
+ plat/st/common/include/stm32mp_common.h |  17 +-
+ plat/st/common/stm32mp_common.c         | 199 ++++++++++++++++++++----
+ plat/st/stm32mp1/bl2_plat_setup.c       |  18 ++-
+ plat/st/stm32mp1/stm32mp1_def.h         |   8 -
+ plat/st/stm32mp1/stm32mp1_pm.c          |  25 ++-
+ plat/st/stm32mp1/stm32mp1_private.c     |  37 +----
+ plat/st/stm32mp2/stm32mp2_def.h         |   8 -
+ plat/st/stm32mp2/stm32mp2_pm.c          |  13 +-
+ plat/st/stm32mp2/stm32mp2_private.c     |  17 --
+ 12 files changed, 243 insertions(+), 119 deletions(-)
+
+diff --git a/fdts/stm32mp131.dtsi b/fdts/stm32mp131.dtsi
+index 3a800d0e1..647e2d2fb 100644
+--- a/fdts/stm32mp131.dtsi
++++ b/fdts/stm32mp131.dtsi
+@@ -481,6 +481,12 @@
+ 					reg = <0x78 0x4>;
+ 				};
+ 			};
++
++			boot_info: boot-info {
++				compatible = "st,stm32mp-bootinfo";
++				nvmem-cells = <&boot_mode>, <&fwu_info>;
++				nvmem-cell-names = "boot-mode", "fwu-info";
++			};
+ 		};
+ 
+ 		/*
+diff --git a/fdts/stm32mp151.dtsi b/fdts/stm32mp151.dtsi
+index 0e8eeb70a..cfd969244 100644
+--- a/fdts/stm32mp151.dtsi
++++ b/fdts/stm32mp151.dtsi
+@@ -556,6 +556,14 @@
+ 				};
+ 
+ 			};
++
++			boot_info: boot-info {
++				compatible = "st,stm32mp-bootinfo";
++				nvmem-cells = <&magic_number>, <&branch_address>,
++					      <&boot_mode>, <&fwu_info>;
++				nvmem-cell-names = "magic-number", "core1-branch-address",
++						   "boot-mode", "fwu-info";
++			};
+ 		};
+ 
+ 		/*
+diff --git a/fdts/stm32mp251.dtsi b/fdts/stm32mp251.dtsi
+index 5a9653637..274cd12f4 100644
+--- a/fdts/stm32mp251.dtsi
++++ b/fdts/stm32mp251.dtsi
+@@ -457,6 +457,12 @@
+ 				};
+ 
+ 			};
++
++			boot_info: boot-info {
++				compatible = "st,stm32mp-bootinfo";
++				nvmem-cells = <&boot_mode>, <&fwu_info>, <&stop2_entrypoint>;
++				nvmem-cell-names = "boot-mode", "fwu-info", "stop2-entrypoint";
++			};
+ 		};
+ 
+ 		ddr: ddr@48040000 {
+diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
+index 9051336e4..7f8a1b16a 100644
+--- a/plat/st/common/include/stm32mp_common.h
++++ b/plat/st/common/include/stm32mp_common.h
+@@ -10,6 +10,7 @@
+ #include <stdbool.h>
+ 
+ #include <platform_def.h>
++#include <drivers/st/nvmem.h>
+ 
+ #define JEDEC_ST_BKID U(0x0)
+ #define JEDEC_ST_MFID U(0x20)
+@@ -167,9 +168,6 @@ int stm32mp_unmap_retram(void);
+ void stm32_save_boot_info(boot_api_context_t *boot_context);
+ /* Function to get boot peripheral info */
+ void stm32_get_boot_interface(uint32_t *interface, uint32_t *instance);
+-/* Function to get BOOT_MODE backup register address */
+-uintptr_t stm32_get_bkpr_boot_mode_addr(void);
+-uintptr_t stm32_get_bkpr_stop2_ep_addr(void);
+ 
+ /* Display board information from the value found in OTP fuse */
+ void stm32_display_board_info(uint32_t board_id);
+@@ -177,8 +175,19 @@ void stm32_display_board_info(uint32_t board_id);
+ int stm32_tamp_nvram_init(void);
+ int stm32_tamp_nvram_update_rights(void);
+ 
++int stm32_get_fwu_info_cell(struct nvmem_cell *fwu_info);
++int stm32_get_boot_mode_cell(struct nvmem_cell *boot_mode);
++
++#if STM32MP15
++int stm32_get_magic_number_cell(struct nvmem_cell *magic_number);
++int stm32_get_core1_branch_address_cell(struct nvmem_cell *core1_branch_address);
++#endif
++
++#if STM32MP25
++int stm32_get_stop2_entrypoint_cell(struct nvmem_cell *stop2_entrypoint);
++#endif
++
+ #if PSA_FWU_SUPPORT
+-uintptr_t stm32_get_bkpr_fwu_info_addr(void);
+ void stm32_fwu_set_boot_idx(void);
+ uint32_t stm32_get_and_dec_fwu_trial_boot_cnt(void);
+ void stm32_set_max_fwu_trial_boot_cnt(void);
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index e54d58c80..411f3b2c3 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2023, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2023, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -11,6 +11,7 @@
+ #include <common/debug.h>
+ #include <drivers/clk.h>
+ #include <drivers/delay_timer.h>
++#include <drivers/st/nvmem.h>
+ #include <drivers/st/stm32_console.h>
+ #include <drivers/st/stm32mp_clkfunc.h>
+ #include <drivers/st/stm32mp_reset.h>
+@@ -438,6 +439,11 @@ void stm32_display_board_info(uint32_t board_id)
+ void stm32_save_boot_info(boot_api_context_t *boot_context)
+ {
+ 	uint32_t auth_status;
++	struct nvmem_cell boot_mode = {};
++	uint32_t reg_val = 0;
++	uint32_t clear = BOOT_ITF_MASK | BOOT_INST_MASK | BOOT_PART_MASK |
++			 BOOT_AUTH_MASK;
++	uint32_t set;
+ 
+ 	assert(boot_context->boot_interface_instance <= (BOOT_INST_MASK >> BOOT_INST_SHIFT));
+ 	assert(boot_context->boot_interface_selected <= (BOOT_ITF_MASK >> BOOT_ITF_SHIFT));
+@@ -458,72 +464,199 @@ void stm32_save_boot_info(boot_api_context_t *boot_context)
+ 		break;
+ 	}
+ 
+-	clk_enable(TAMP_BKP_REG_CLK);
++	set = (boot_context->boot_interface_instance << BOOT_INST_SHIFT) |
++	      (boot_context->boot_interface_selected << BOOT_ITF_SHIFT) |
++	      (boot_context->boot_partition_used_toboot << BOOT_PART_SHIFT) |
++	      (auth_status << BOOT_AUTH_SHIFT);
+ 
+-	mmio_clrsetbits_32(stm32_get_bkpr_boot_mode_addr(),
+-			   BOOT_ITF_MASK | BOOT_INST_MASK | BOOT_PART_MASK | BOOT_AUTH_MASK,
+-			   (boot_context->boot_interface_instance << BOOT_INST_SHIFT) |
+-			   (boot_context->boot_interface_selected << BOOT_ITF_SHIFT) |
+-			   (boot_context->boot_partition_used_toboot << BOOT_PART_SHIFT) |
+-			   (auth_status << BOOT_AUTH_SHIFT));
+-
+-	clk_disable(TAMP_BKP_REG_CLK);
++	stm32_get_boot_mode_cell(&boot_mode);
++	nvmem_cell_read(&boot_mode, (uint8_t *)&reg_val, sizeof(reg_val), NULL);
++	reg_val &= ~clear;
++	reg_val |= set;
++	nvmem_cell_write(&boot_mode, (uint8_t *)&reg_val, sizeof(reg_val));
+ }
+ 
+ void stm32_get_boot_interface(uint32_t *interface, uint32_t *instance)
+ {
+ 	static uint32_t itf;
++	struct nvmem_cell boot_mode = {};
++	uint32_t reg_val = 0;
+ 
+ 	if (itf == 0U) {
+-		clk_enable(TAMP_BKP_REG_CLK);
+-
+-		itf = mmio_read_32(stm32_get_bkpr_boot_mode_addr()) &
+-		      (BOOT_ITF_MASK | BOOT_INST_MASK);
+-
+-		clk_disable(TAMP_BKP_REG_CLK);
++		stm32_get_boot_mode_cell(&boot_mode);
++		nvmem_cell_read(&boot_mode, (uint8_t *)&reg_val,
++				sizeof(reg_val), NULL);
++		itf = reg_val & (BOOT_ITF_MASK | BOOT_INST_MASK);
+ 	}
+ 
+ 	*interface = (itf & BOOT_ITF_MASK) >> BOOT_ITF_SHIFT;
+ 	*instance = (itf & BOOT_INST_MASK) >> BOOT_INST_SHIFT;
+ }
+ 
++static int stm32_get_bootinfo_cell(const char *name, struct nvmem_cell *cell)
++{
++	void *fdt = NULL;
++	int node = 0;
++	int ret;
++
++	if (fdt_get_address(&fdt) == 0) {
++		ret = -ENODEV;
++	} else {
++		node = fdt_node_offset_by_compatible(fdt, -1,
++						     "st,stm32mp-bootinfo");
++		if (node >= 0) {
++			ret = nvmem_get_cell_by_name(fdt, node, name, cell);
++		} else {
++			ret = -ENODEV;
++		}
++	}
++	return ret;
++}
++
++#if STM32MP15
++int stm32_get_magic_number_cell(struct nvmem_cell *magic_number)
++{
++	static bool initialized = false;
++	static struct nvmem_cell s_magic_number = { 0 };
++
++	if (!initialized) {
++		stm32_get_bootinfo_cell("magic-number", &s_magic_number);
++		initialized = true;
++	}
++
++	memcpy(magic_number, &s_magic_number, sizeof(*magic_number));
++
++	return 0;
++}
++
++int stm32_get_core1_branch_address_cell(struct nvmem_cell *core1_branch_address)
++{
++	static bool initialized = false;
++	static struct nvmem_cell s_core1_branch_address = { 0 };
++
++	if (!initialized) {
++		stm32_get_bootinfo_cell("core1-branch-address", &s_core1_branch_address);
++		initialized = true;
++	}
++
++	memcpy(core1_branch_address, &s_core1_branch_address, sizeof(*core1_branch_address));
++
++	return 0;
++}
++#endif
++
++int stm32_get_fwu_info_cell(struct nvmem_cell *fwu_info)
++{
++	static bool initialized = false;
++	static struct nvmem_cell s_fwu_info = { 0 };
++
++	if (!initialized) {
++		stm32_get_bootinfo_cell("fwu-info", &s_fwu_info);
++		initialized = true;
++	}
++
++	memcpy(fwu_info, &s_fwu_info, sizeof(*fwu_info));
++
++	return 0;
++}
++
++int stm32_get_boot_mode_cell(struct nvmem_cell *boot_mode)
++{
++	static bool initialized = false;
++	static struct nvmem_cell s_boot_mode = { 0 };
++
++	if (!initialized) {
++		stm32_get_bootinfo_cell("boot-mode", &s_boot_mode);
++		initialized = true;
++	}
++
++	memcpy(boot_mode, &s_boot_mode, sizeof(*boot_mode));
++
++	return 0;
++}
++
++#if STM32MP25
++int stm32_get_stop2_entrypoint_cell(struct nvmem_cell *stop2_entrypoint)
++{
++	static bool initialized = false;
++	static struct nvmem_cell s_stop2_entrypoint = { 0 };
++
++	if (!initialized) {
++		stm32_get_bootinfo_cell("stop2-entrypoint", &s_stop2_entrypoint);
++		initialized = true;
++	}
++
++	memcpy(stop2_entrypoint, &s_stop2_entrypoint, sizeof(*stop2_entrypoint));
++
++	return 0;
++}
++#endif
+ #if PSA_FWU_SUPPORT
++static int stm32_nvmem_cell_clrset(struct nvmem_cell *cell, uint32_t clear,
++				   uint32_t set)
++{
++	int ret = 0;
++	uint32_t reg_val = 0;
++
++	ret = nvmem_cell_read(cell, (uint8_t *)&reg_val, sizeof(reg_val), NULL);
++	if (ret != 0) {
++		return ret;
++	}
++
++	reg_val &= ~clear;
++	reg_val |= set;
++
++	ret = nvmem_cell_write(cell, (uint8_t *)&reg_val, sizeof(reg_val));
++	if (ret != 0) {
++		return ret;
++	}
++
++	return 0;
++}
++
+ void stm32_fwu_set_boot_idx(void)
+ {
+-	clk_enable(TAMP_BKP_REG_CLK);
+-	mmio_clrsetbits_32(stm32_get_bkpr_fwu_info_addr(),
+-			   FWU_INFO_IDX_MSK,
+-			   (plat_fwu_get_boot_idx() << FWU_INFO_IDX_OFF) &
+-			   FWU_INFO_IDX_MSK);
+-	clk_disable(TAMP_BKP_REG_CLK);
++	struct nvmem_cell fwu_info = {};
++
++	uint32_t clear = FWU_INFO_IDX_MSK;
++	uint32_t set = (plat_fwu_get_boot_idx() << FWU_INFO_IDX_OFF) &
++		       FWU_INFO_IDX_MSK;
++
++	stm32_get_fwu_info_cell(&fwu_info);
++
++	stm32_nvmem_cell_clrset(&fwu_info, clear, set);
+ }
+ 
+ uint32_t stm32_get_and_dec_fwu_trial_boot_cnt(void)
+ {
+-	uintptr_t bkpr_fwu_cnt = stm32_get_bkpr_fwu_info_addr();
++	struct nvmem_cell fwu_info_cell = {};
+ 	uint32_t try_cnt;
++	uint32_t fwu_info = 0;
++
++	stm32_get_fwu_info_cell(&fwu_info_cell);
++
++	nvmem_cell_read(&fwu_info_cell, (uint8_t *)&fwu_info, sizeof(fwu_info),
++			NULL);
+ 
+-	clk_enable(TAMP_BKP_REG_CLK);
+-	try_cnt = (mmio_read_32(bkpr_fwu_cnt) & FWU_INFO_CNT_MSK) >> FWU_INFO_CNT_OFF;
++	try_cnt = (fwu_info & FWU_INFO_CNT_MSK) >> FWU_INFO_CNT_OFF;
+ 
+ 	assert(try_cnt <= FWU_MAX_TRIAL_REBOOT);
+ 
+ 	if (try_cnt != 0U) {
+-		mmio_clrsetbits_32(bkpr_fwu_cnt, FWU_INFO_CNT_MSK,
+-				   (try_cnt - 1U) << FWU_INFO_CNT_OFF);
++		stm32_nvmem_cell_clrset(&fwu_info_cell, FWU_INFO_CNT_MSK,
++					(try_cnt - 1U) << FWU_INFO_CNT_OFF);
+ 	}
+-	clk_disable(TAMP_BKP_REG_CLK);
+ 
+ 	return try_cnt;
+ }
+ 
+ void stm32_set_max_fwu_trial_boot_cnt(void)
+ {
+-	uintptr_t bkpr_fwu_cnt = stm32_get_bkpr_fwu_info_addr();
++	struct nvmem_cell fwu_info_cell = {};
+ 
+-	clk_enable(TAMP_BKP_REG_CLK);
+-	mmio_clrsetbits_32(bkpr_fwu_cnt, FWU_INFO_CNT_MSK,
+-			   (FWU_MAX_TRIAL_REBOOT << FWU_INFO_CNT_OFF) & FWU_INFO_CNT_MSK);
+-	clk_disable(TAMP_BKP_REG_CLK);
++	stm32_get_fwu_info_cell(&fwu_info_cell);
++	stm32_nvmem_cell_clrset(&fwu_info_cell, FWU_INFO_CNT_MSK,
++				(FWU_MAX_TRIAL_REBOOT << FWU_INFO_CNT_OFF) &
++					FWU_INFO_CNT_MSK);
+ }
+ #endif /* PSA_FWU_SUPPORT */
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 1b9da0e8b..722671ef3 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -16,6 +16,7 @@
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/mmc.h>
+ #include <drivers/st/bsec.h>
++#include <drivers/st/nvmem.h>
+ #include <drivers/st/regulator_fixed.h>
+ #include <drivers/st/regulator_gpio.h>
+ #include <drivers/st/stm32_iwdg.h>
+@@ -30,6 +31,7 @@
+ #include <drivers/st/stm32mp_pmic.h>
+ #include <lib/fconf/fconf.h>
+ #include <lib/fconf/fconf_dyn_cfg_getter.h>
++#include <libfdt.h>
+ #include <lib/mmio.h>
+ #include <lib/optee_utils.h>
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+@@ -174,15 +176,19 @@ void bl2_platform_setup(void)
+ 
+ 	if (!stm32mp1_ddr_is_restored()) {
+ #if STM32MP15
+-		uintptr_t bkpr_core1_magic =
+-			tamp_bkpr(BOOT_API_CORE1_MAGIC_NUMBER_TAMP_BCK_REG_IDX);
+-		uintptr_t bkpr_core1_addr =
+-			tamp_bkpr(BOOT_API_CORE1_BRANCH_ADDRESS_TAMP_BCK_REG_IDX);
++		struct nvmem_cell magic_number;
++		struct nvmem_cell branch_address;
++		uint32_t reg_val = 0;
++
++		stm32_get_magic_number_cell(&magic_number);
++		stm32_get_core1_branch_address_cell(&branch_address);
+ 
+ 		/* Clear backup register */
+-		mmio_write_32(bkpr_core1_addr, 0);
++		nvmem_cell_write(&branch_address, (uint8_t *)&reg_val,
++				 sizeof(reg_val));
+ 		/* Clear backup register magic */
+-		mmio_write_32(bkpr_core1_magic, 0);
++		nvmem_cell_write(&magic_number, (uint8_t *)&reg_val,
++				 sizeof(reg_val));
+ #endif
+ 
+ 		/* Clear the context in BKPSRAM */
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index 6833cd676..eeb7dfa1b 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -572,7 +572,6 @@ enum ddr_type {
+  * STM32MP1 TAMP
+  ******************************************************************************/
+ #define TAMP_BASE			U(0x5C00A000)
+-#define TAMP_BKP_REGISTER_BASE		(TAMP_BASE + U(0x100))
+ #define TAMP_BKP_REG_CLK		RTCAPB
+ #define TAMP_CR2			U(0x4)
+ #if STM32MP13
+@@ -589,13 +588,6 @@ enum ddr_type {
+ #define TAMP_COUNTR			U(0x40)
+ #define TAMP_ERCFGR			U(0x54)
+ 
+-#if !(defined(__LINKER__) || defined(__ASSEMBLER__))
+-static inline uintptr_t tamp_bkpr(uint32_t idx)
+-{
+-	return TAMP_BKP_REGISTER_BASE + (idx << 2);
+-}
+-#endif
+-
+ /*******************************************************************************
+  * STM32MP1 USB
+  ******************************************************************************/
+diff --git a/plat/st/stm32mp1/stm32mp1_pm.c b/plat/st/stm32mp1/stm32mp1_pm.c
+index 620dde1b0..66352a6a8 100644
+--- a/plat/st/stm32mp1/stm32mp1_pm.c
++++ b/plat/st/stm32mp1/stm32mp1_pm.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2023, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2024, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -13,6 +13,7 @@
+ #include <drivers/arm/gic_common.h>
+ #include <drivers/arm/gicv2.h>
+ #include <drivers/clk.h>
++#include <drivers/st/nvmem.h>
+ #include <dt-bindings/clock/stm32mp1-clks.h>
+ #include <lib/mmio.h>
+ #include <lib/psci/psci.h>
+@@ -60,10 +61,18 @@ static void stm32_cpu_standby(plat_local_state_t cpu_state)
+ static int stm32_pwr_domain_on(u_register_t mpidr)
+ {
+ 	unsigned long current_cpu_mpidr = read_mpidr_el1();
+-	uintptr_t bkpr_core1_addr =
+-		tamp_bkpr(BOOT_API_CORE1_BRANCH_ADDRESS_TAMP_BCK_REG_IDX);
+-	uintptr_t bkpr_core1_magic =
+-		tamp_bkpr(BOOT_API_CORE1_MAGIC_NUMBER_TAMP_BCK_REG_IDX);
++	struct nvmem_cell magic_number;
++	struct nvmem_cell branch_address;
++	int ret = 0;
++
++	ret = stm32_get_magic_number_cell(&magic_number);
++	if (ret != 0) {
++		return -ENODEV;
++	}
++	ret = stm32_get_core1_branch_address_cell(&branch_address);
++	if (ret != 0) {
++		return -ENODEV;
++	}
+ 
+ 	if (mpidr == current_cpu_mpidr) {
+ 		return PSCI_E_INVALID_PARAMS;
+@@ -79,10 +88,12 @@ static int stm32_pwr_domain_on(u_register_t mpidr)
+ 	cntfrq_core0 = read_cntfrq_el0();
+ 
+ 	/* Write entrypoint in backup RAM register */
+-	mmio_write_32(bkpr_core1_addr, stm32_sec_entrypoint);
++	nvmem_cell_write(&branch_address, (uint8_t *)&stm32_sec_entrypoint,
++			 sizeof(stm32_sec_entrypoint));
+ 
+ 	/* Write magic number in backup register */
+-	mmio_write_32(bkpr_core1_magic, BOOT_API_A7_CORE1_MAGIC_NUMBER);
++	nvmem_cell_write(&magic_number, (uint8_t *)&stm32_sec_entrypoint,
++			 sizeof(stm32_sec_entrypoint));
+ 
+ 	clk_disable(RTCAPB);
+ 
+diff --git a/plat/st/stm32mp1/stm32mp1_private.c b/plat/st/stm32mp1/stm32mp1_private.c
+index 573c88c6e..e97d2b0eb 100644
+--- a/plat/st/stm32mp1/stm32mp1_private.c
++++ b/plat/st/stm32mp1/stm32mp1_private.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2015-2023, ARM Limited and Contributors. All rights reserved.
++ * Copyright (c) 2015-2024, ARM Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -7,6 +7,7 @@
+ #include <assert.h>
+ 
+ #include <drivers/clk.h>
++#include <drivers/st/nvmem.h>
+ #include <drivers/st/stm32_gpio.h>
+ #include <drivers/st/stm32_iwdg.h>
+ #include <lib/mmio.h>
+@@ -16,20 +17,6 @@
+ #include <plat/common/platform.h>
+ #include <platform_def.h>
+ 
+-#if STM32MP13
+-#define TAMP_BOOT_MODE_BACKUP_REG_ID	U(30)
+-#endif
+-#if STM32MP15
+-#define TAMP_BOOT_MODE_BACKUP_REG_ID	U(20)
+-#endif
+-
+-/*
+- * Backup register to store fwu update information.
+- * It should be writeable only by secure world, but also readable by non secure
+- * (so it should be in Zone 2).
+- */
+-#define TAMP_BOOT_FWU_INFO_REG_ID	U(10)
+-
+ #if defined(IMAGE_BL2)
+ #define MAP_SEC_SYSRAM	MAP_REGION_FLAT(STM32MP_SYSRAM_BASE, \
+ 					STM32MP_SYSRAM_SIZE, \
+@@ -677,8 +664,8 @@ bool stm32mp_is_wakeup_from_standby(void)
+ {
+ 	uint32_t rstsr = mmio_read_32(stm32mp_rcc_base() + RCC_MP_RSTSCLRR);
+ #if STM32MP15
+-	uintptr_t bkpr_core1_addr = tamp_bkpr(BOOT_API_CORE1_BRANCH_ADDRESS_TAMP_BCK_REG_IDX);
+ 	uint32_t nsec_address;
++	struct nvmem_cell core1_branch_address = {};
+ #endif
+ 
+ 	if ((rstsr & RCC_MP_RSTSCLRR_PADRSTF) != 0U) {
+@@ -690,9 +677,9 @@ bool stm32mp_is_wakeup_from_standby(void)
+ 	}
+ 
+ #if STM32MP15
+-	clk_enable(RTCAPB);
+-	nsec_address = mmio_read_32(bkpr_core1_addr);
+-	clk_disable(RTCAPB);
++	stm32_get_core1_branch_address_cell(&core1_branch_address);
++	nvmem_cell_read(&core1_branch_address, (uint8_t *)&nsec_address,
++			sizeof(nsec_address), NULL);
+ 
+ 	if (nsec_address == 0U) {
+ 		return false;
+@@ -722,18 +709,6 @@ bool stm32mp_skip_boot_device_after_standby(void)
+ 	return skip == 1;
+ }
+ 
+-uintptr_t stm32_get_bkpr_boot_mode_addr(void)
+-{
+-	return tamp_bkpr(TAMP_BOOT_MODE_BACKUP_REG_ID);
+-}
+-
+-#if PSA_FWU_SUPPORT
+-uintptr_t stm32_get_bkpr_fwu_info_addr(void)
+-{
+-	return tamp_bkpr(TAMP_BOOT_FWU_INFO_REG_ID);
+-}
+-#endif /* PSA_FWU_SUPPORT */
+-
+ #if STM32MP13
+ bool stm32mp_bkpram_get_access(void)
+ {
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index acaa37c80..2ac5d4e52 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -426,18 +426,10 @@ enum ddr_type {
+ #define PLAT_MAX_TAMP_EXT			U(3)
+ #define TAMP_BASE				U(0x46010000)
+ #define TAMP_SMCR				(TAMP_BASE + U(0x20))
+-#define TAMP_BKP_REGISTER_BASE			(TAMP_BASE + U(0x100))
+ #define TAMP_BKP_REG_CLK			CK_BUS_RTC
+ #define TAMP_BKP_SEC_NUMBER			U(10)
+ #define TAMP_COUNTR				U(0x40)
+ 
+-#if !(defined(__LINKER__) || defined(__ASSEMBLER__))
+-static inline uintptr_t tamp_bkpr(uint32_t idx)
+-{
+-	return TAMP_BKP_REGISTER_BASE + (idx << 2);
+-}
+-#endif
+-
+ /*******************************************************************************
+  * STM32MP2 USB
+  ******************************************************************************/
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 848a48855..f1700823a 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -970,8 +970,8 @@ int plat_setup_psci_ops(uintptr_t sec_entrypoint,
+ 			const plat_psci_ops_t **psci_ops)
+ {
+ 	int ret = 0;
+-	uintptr_t stop2_entrypoint = (uintptr_t)&stm32_stop2_entrypoint;
+-
++	uint32_t stop2_entrypoint = (uint32_t)(uintptr_t)&stm32_stop2_entrypoint;
++	struct nvmem_cell stop2_entrypoint_cell;
+ 	assert(stop2_entrypoint < UINT32_MAX);
+ 
+ 	ret = stm32_parse_domain_idle_state();
+@@ -992,9 +992,12 @@ int plat_setup_psci_ops(uintptr_t sec_entrypoint,
+ 	stm32_percpu_data[STM32MP_SECONDARY_CPU].state[STATE_RUNNING] = false;
+ 
+ 	/* Save boot entry point for STOP2 exit */
+-	clk_enable(TAMP_BKP_REG_CLK);
+-	mmio_write_32(stm32_get_bkpr_stop2_ep_addr(), (uint32_t)stop2_entrypoint);
+-	clk_disable(TAMP_BKP_REG_CLK);
++	ret = stm32_get_stop2_entrypoint_cell(&stop2_entrypoint_cell);
++	if (ret != 0) {
++		return ret;
++	}
++	nvmem_cell_write(&stop2_entrypoint_cell, (uint8_t *)&stop2_entrypoint,
++			 sizeof(stop2_entrypoint));
+ 
+ 	stm32_pm_init();
+ 
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 9f6829070..88a1e5396 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -584,23 +584,6 @@ size_t stm32_risaf_get_memory_size(int instance)
+ 	}
+ }
+ 
+-uintptr_t stm32_get_bkpr_boot_mode_addr(void)
+-{
+-	return tamp_bkpr(96);
+-}
+-
+-uintptr_t stm32_get_bkpr_stop2_ep_addr(void)
+-{
+-	return tamp_bkpr(11);
+-}
+-
+-#if PSA_FWU_SUPPORT
+-uintptr_t stm32_get_bkpr_fwu_info_addr(void)
+-{
+-	return tamp_bkpr(48);
+-}
+-#endif /* PSA_FWU_SUPPORT */
+-
+ uintptr_t stm32_ddrdbg_get_base(void)
+ {
+ 	return DDRDBG_BASE;
+-- 
+2.47.2
+

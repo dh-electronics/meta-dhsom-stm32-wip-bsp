@@ -1,0 +1,57 @@
+From 4f601bb594e17ccb08ddb841fdd01c794b2e65c1 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 5 Jan 2023 14:46:23 +0100
+Subject: [PATCH 315/841] feat(stm32mp2): add FWU support
+
+Add stm32_get_bkpr_fwu_info_addr() function.
+Call stm32_fwu_set_boot_idx() in bl2_plat_handle_post_image_load().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c54ede16476e0a0faa466ddfa6543838330a44fc feat(stm32mp2): add FWU support]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: Ieb57dffa4ce784d1ed61b401dc17376fe745c111
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/283461
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c   | 5 +++++
+ plat/st/stm32mp2/stm32mp2_private.c | 7 +++++++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index bd12142b5..718f21764 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -453,6 +453,11 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		break;
+ 
+ 	case BL33_IMAGE_ID:
++#if PSA_FWU_SUPPORT
++		stm32_fwu_set_boot_idx();
++#endif /* PSA_FWU_SUPPORT */
++		break;
++
+ 	default:
+ 		/* Do nothing in default case */
+ 		break;
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 03d17a91d..6bf3c7007 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -492,6 +492,13 @@ uintptr_t stm32_get_bkpr_boot_mode_addr(void)
+ 	return tamp_bkpr(96);
+ }
+ 
++#if PSA_FWU_SUPPORT
++uintptr_t stm32_get_bkpr_fwu_info_addr(void)
++{
++	return tamp_bkpr(48);
++}
++#endif /* PSA_FWU_SUPPORT */
++
+ uintptr_t stm32_ddrdbg_get_base(void)
+ {
+ 	return DDRDBG_BASE;
+-- 
+2.47.2
+

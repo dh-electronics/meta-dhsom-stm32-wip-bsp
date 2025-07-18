@@ -1,0 +1,201 @@
+From 575823a2f9dd2ed5b8311f051c2e24e74ffd9f03 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 12 Apr 2022 13:51:50 +0200
+Subject: [PATCH 201/841] refactor(st-bsec): improve BSEC API
+
+Some functions are only used internally in BSEC2 driver, they should be
+changed to static to simplify the BSEC API.
+
+The function bsec_permanent_lock_otp is not available in TF-A BL2,
+only requested for BL32 with BSEC SVC.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 16fcd3c88599355e9b817f6f2b9956b59f72f702 refactor(st-bsec): improve BSEC API]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ib0409be229ad422e0b5e4d3750a507b25d14c40b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/250941
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec2.c              | 39 +++++++++++-----------------
+ include/drivers/st/bsec.h            | 13 +++-------
+ plat/st/stm32mp1/services/bsec_svc.c |  7 +----
+ 3 files changed, 19 insertions(+), 40 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index 997c7fc02..1f6d1ac15 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -25,7 +25,12 @@
+ 
+ static uint32_t otp_nsec_access[OTP_ACCESS_SIZE] __unused;
+ 
++static uint32_t bsec_shadow_register(uint32_t otp);
+ static uint32_t bsec_power_safmem(bool power);
++static uint32_t bsec_get_version(void);
++static uint32_t bsec_get_id(void);
++static uint32_t bsec_get_status(void);
++static uint32_t bsec_read_permanent_lock(uint32_t otp, bool *value);
+ 
+ /* BSEC access protection */
+ static spinlock_t bsec_spinlock;
+@@ -216,8 +221,8 @@ uint32_t bsec_probe(void)
+ 		return BSEC_ERROR;
+ 	}
+ 
+-	if ((((bsec_get_version() & BSEC_IPVR_MSK) != BSEC_IP_VERSION_1_1) &&
+-	     ((bsec_get_version() & BSEC_IPVR_MSK) != BSEC_IP_VERSION_2_0)) ||
++	if (((bsec_get_version() != BSEC_IP_VERSION_1_1) &&
++	     (bsec_get_version() != BSEC_IP_VERSION_2_0)) ||
+ 	    (bsec_get_id() != BSEC_IP_ID_2)) {
+ 		panic();
+ 	}
+@@ -241,7 +246,7 @@ uint32_t bsec_get_base(void)
+  * otp: OTP number.
+  * return value: BSEC_OK if no error.
+  */
+-uint32_t bsec_shadow_register(uint32_t otp)
++static uint32_t bsec_shadow_register(uint32_t otp)
+ {
+ 	uint32_t result;
+ 	bool value;
+@@ -433,6 +438,7 @@ uint32_t bsec_program_otp(uint32_t val, uint32_t otp)
+  * otp: OTP number.
+  * return value: BSEC_OK if no error.
+  */
++#if defined(IMAGE_BL32)
+ uint32_t bsec_permanent_lock_otp(uint32_t otp)
+ {
+ 	uint32_t result;
+@@ -495,6 +501,7 @@ uint32_t bsec_permanent_lock_otp(uint32_t otp)
+ 
+ 	return result;
+ }
++#endif
+ 
+ /*
+  * bsec_read_debug_conf: return debug configuration register value.
+@@ -535,43 +542,27 @@ uint32_t bsec_read_scratch(void)
+ /*
+  * bsec_get_status: return status register value.
+  */
+-uint32_t bsec_get_status(void)
++static uint32_t bsec_get_status(void)
+ {
+ 	return mmio_read_32(bsec_base + BSEC_OTP_STATUS_OFF);
+ }
+ 
+-/*
+- * bsec_get_hw_conf: return hardware configuration register value.
+- */
+-uint32_t bsec_get_hw_conf(void)
+-{
+-	return mmio_read_32(bsec_base + BSEC_IPHW_CFG_OFF);
+-}
+-
+ /*
+  * bsec_get_version: return BSEC version register value.
+  */
+-uint32_t bsec_get_version(void)
++static uint32_t bsec_get_version(void)
+ {
+-	return mmio_read_32(bsec_base + BSEC_IPVR_OFF);
++	return mmio_read_32(bsec_base + BSEC_IPVR_OFF) & BSEC_IPVR_MSK;
+ }
+ 
+ /*
+  * bsec_get_id: return BSEC ID register value.
+  */
+-uint32_t bsec_get_id(void)
++static uint32_t bsec_get_id(void)
+ {
+ 	return mmio_read_32(bsec_base + BSEC_IP_ID_OFF);
+ }
+ 
+-/*
+- * bsec_get_magic_id: return BSEC magic number register value.
+- */
+-uint32_t bsec_get_magic_id(void)
+-{
+-	return mmio_read_32(bsec_base + BSEC_IP_MAGIC_ID_OFF);
+-}
+-
+ /*
+  * bsec_set_sr_lock: set shadow-read lock.
+  * otp: OTP number.
+@@ -722,7 +713,7 @@ uint32_t bsec_read_sp_lock(uint32_t otp, bool *value)
+  * value: read value (true or false).
+  * return value: BSEC_OK if no error.
+  */
+-uint32_t bsec_read_permanent_lock(uint32_t otp, bool *value)
++static uint32_t bsec_read_permanent_lock(uint32_t otp, bool *value)
+ {
+ 	uint32_t bank = otp_bank_offset(otp);
+ 	uint32_t otp_mask = BIT(otp & BSEC_OTP_MASK);
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index 3396a79ac..797c53ffd 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -52,31 +52,23 @@
+ uint32_t bsec_probe(void);
+ uint32_t bsec_get_base(void);
+ 
+-uint32_t bsec_shadow_register(uint32_t otp);
+ uint32_t bsec_read_otp(uint32_t *val, uint32_t otp);
++uint32_t bsec_shadow_read_otp(uint32_t *otp_value, uint32_t word);
+ uint32_t bsec_write_otp(uint32_t val, uint32_t otp);
+ uint32_t bsec_program_otp(uint32_t val, uint32_t otp);
+-uint32_t bsec_permanent_lock_otp(uint32_t otp);
+ 
+ uint32_t bsec_read_debug_conf(void);
+ 
+ void bsec_write_scratch(uint32_t val);
+ uint32_t bsec_read_scratch(void);
+ 
+-uint32_t bsec_get_status(void);
+-uint32_t bsec_get_hw_conf(void);
+-uint32_t bsec_get_version(void);
+-uint32_t bsec_get_id(void);
+-uint32_t bsec_get_magic_id(void);
+-
++/* Sticky lock support */
+ uint32_t bsec_set_sr_lock(uint32_t otp);
+ uint32_t bsec_read_sr_lock(uint32_t otp, bool *value);
+ uint32_t bsec_set_sw_lock(uint32_t otp);
+ uint32_t bsec_read_sw_lock(uint32_t otp, bool *value);
+ uint32_t bsec_set_sp_lock(uint32_t otp);
+ uint32_t bsec_read_sp_lock(uint32_t otp, bool *value);
+-uint32_t bsec_read_permanent_lock(uint32_t otp, bool *value);
+-uint32_t bsec_shadow_read_otp(uint32_t *otp_value, uint32_t word);
+ 
+ uint32_t bsec_get_secure_state(void);
+ static inline bool bsec_mode_is_closed_device(void)
+@@ -85,6 +77,7 @@ static inline bool bsec_mode_is_closed_device(void)
+ }
+ 
+ #if defined(IMAGE_BL32)
++uint32_t bsec_permanent_lock_otp(uint32_t otp);
+ uint32_t bsec_check_nsec_access_rights(uint32_t otp);
+ #endif
+ 
+diff --git a/plat/st/stm32mp1/services/bsec_svc.c b/plat/st/stm32mp1/services/bsec_svc.c
+index 1fb44b487..fcfb4196d 100644
+--- a/plat/st/stm32mp1/services/bsec_svc.c
++++ b/plat/st/stm32mp1/services/bsec_svc.c
+@@ -39,12 +39,7 @@ uint32_t bsec_main(uint32_t x1, uint32_t x2, uint32_t x3,
+ 			break;
+ 		}
+ 
+-		result = bsec_shadow_register(x2);
+-		if (result != BSEC_OK) {
+-			break;
+-		}
+-
+-		result = bsec_read_otp(ret_otp_value, x2);
++		result = bsec_shadow_read_otp(ret_otp_value, x2);
+ 		if (result != BSEC_OK) {
+ 			break;
+ 		}
+-- 
+2.47.2
+

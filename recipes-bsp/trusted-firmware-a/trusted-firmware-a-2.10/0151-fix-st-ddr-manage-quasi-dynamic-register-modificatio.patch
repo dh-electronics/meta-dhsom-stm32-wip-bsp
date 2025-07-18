@@ -1,0 +1,120 @@
+From 38a8413a1c12464a6cd99fab6bde8c931f4504e7 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Fri, 11 Mar 2022 16:35:17 +0100
+Subject: [PATCH 151/841] fix(st-ddr): manage quasi-dynamic register
+ modifications (stm32mp2)
+
+Manage the quasi-dynamic register modifications in the STM32MP2 DDR driver:
+    - hwlpctl.hw_lp_en : group 2
+    - dfimisc.dfi_init_start & dfimisc.dfi_init_complete_en : group 3
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 15ecdf265e55755aafb99ae0adae0cf5b5d6bfa6 fix(st-ddr): manage quasi-dynamic register modifications (stm32mp2)]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I0d471d5bed0ee5772fcad0f9e8e4b941cd406dd2
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/243920
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp2_ddr.c         | 16 ++++++++++------
+ drivers/st/ddr/stm32mp2_ddr_helpers.c | 19 +++++++++++++++----
+ 2 files changed, 25 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
+index da4dc348a..b04bf8654 100644
+--- a/drivers/st/ddr/stm32mp2_ddr.c
++++ b/drivers/st/ddr/stm32mp2_ddr.c
+@@ -271,7 +271,11 @@ static void disable_refresh(struct stm32mp_ddrctl *ctl)
+ 
+ 	udelay(DDR_DELAY_1US);
+ 
+-	stm32mp_ddr_start_sw_done(ctl);
++	/*
++	 * manage quasi-dynamic registers modification
++	 * dfimisc.dfi_init_complete_en : Group 3
++	 */
++	stm32mp_ddr_set_qd3_update_conditions(ctl);
+ 
+ 	udelay(DDR_DELAY_1US);
+ 
+@@ -279,7 +283,7 @@ static void disable_refresh(struct stm32mp_ddrctl *ctl)
+ 
+ 	udelay(DDR_DELAY_1US);
+ 
+-	stm32mp_ddr_wait_sw_done_ack(ctl);
++	stm32mp_ddr_unset_qd3_update_conditions(ctl);
+ }
+ 
+ static void enable_refresh(struct stm32mp_ddrctl *ctl)
+@@ -312,24 +316,24 @@ static void wait_dfi_init_complete(struct stm32mp_ddrctl *ctl)
+ 
+ static void activate_controller(struct stm32mp_ddrctl *ctl)
+ {
+-	stm32mp_ddr_start_sw_done(ctl);
++	stm32mp_ddr_set_qd3_update_conditions(ctl);
+ 
+ 	mmio_setbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_INIT_START);
+ 
+-	stm32mp_ddr_wait_sw_done_ack(ctl);
++	stm32mp_ddr_unset_qd3_update_conditions(ctl);
+ 
+ 	wait_dfi_init_complete(ctl);
+ 
+ 	udelay(DDR_DELAY_1US);
+ 
+-	stm32mp_ddr_start_sw_done(ctl);
++	stm32mp_ddr_set_qd3_update_conditions(ctl);
+ 
+ 	mmio_clrsetbits_32((uintptr_t)&ctl->dfimisc, DDRCTRL_DFIMISC_DFI_INIT_START,
+ 			   DDRCTRL_DFIMISC_DFI_INIT_COMPLETE_EN);
+ 
+ 	udelay(DDR_DELAY_1US);
+ 
+-	stm32mp_ddr_wait_sw_done_ack(ctl);
++	stm32mp_ddr_unset_qd3_update_conditions(ctl);
+ }
+ 
+ void stm32mp2_ddr_init(struct stm32mp_ddr_priv *priv,
+diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+index fea2b3583..11d7e752d 100644
+--- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2021, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2021-2022, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -92,15 +92,26 @@ static int sr_ssr_exit(void)
+ 
+ static int sr_hsr_set(void)
+ {
++	uintptr_t ddrctrl_base = stm32mp_ddrctrl_base();
++
+ 	mmio_write_32(stm32mp_rcc_base() + RCC_DDRITFCFGR, RCC_DDRITFCFGR_DDRCKMOD_HSR);
+ 
+-	/* sw_done set to 0 to enable quasi-dynamic parameters programmation */
+-	mmio_write_32(stm32mp_ddrctrl_base() + DDRCTRL_SWCTL, 0);
++	/*
++	 * manage quasi-dynamic registers modification
++	 * hwlpctl.hw_lp_en : Group 2
++	 */
++	if (stm32mp_ddr_sw_selfref_entry((struct stm32mp_ddrctl *)ddrctrl_base) != 0) {
++		panic();
++	}
++	stm32mp_ddr_start_sw_done((struct stm32mp_ddrctl *)ddrctrl_base);
+ 
+-	mmio_write_32(stm32mp_ddrctrl_base() + DDRCTRL_HWLPCTL,
++	mmio_write_32(ddrctrl_base + DDRCTRL_HWLPCTL,
+ 		      DDRCTRL_HWLPCTL_HW_LP_EN | DDRCTRL_HWLPCTL_HW_LP_EXIT_IDLE_EN |
+ 		      (HW_IDLE_PERIOD << DDRCTRL_HWLPCTL_HW_LP_IDLE_X32_SHIFT));
+ 
++	stm32mp_ddr_wait_sw_done_ack((struct stm32mp_ddrctl *)ddrctrl_base);
++	stm32mp_ddr_sw_selfref_exit((struct stm32mp_ddrctl *)ddrctrl_base);
++
+ 	return 0;
+ }
+ 
+-- 
+2.47.2
+

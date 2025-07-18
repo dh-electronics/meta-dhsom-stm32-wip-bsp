@@ -1,0 +1,77 @@
+From 74dbcd404c91cb085532a3c20ca933153a081e42 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 16 Jan 2025 10:01:35 +0100
+Subject: [PATCH 799/841] fix(stm32mp2): restore system for warmboot after D1
+ DStandby exit
+
+After Standby1 request, when the request is not accepted by cortex
+M33 for cortex-M33 TDCID, the D1 domain stay in DStandby mode and the
+content of the SYSRAM is not lost.
+
+On next wake-up, the TF-A BL31 warm boot entry is used by ROM code,
+and TF-BL2 is not executed, as for Stop2 mode exit.
+
+But in this case, initializations of the CA35 subsystem are missing
+after cluster reset: GIC configuration and the generic timer
+(based on STGEN).
+
+The standby flag RCC_C1BOOTRSTSCLRR_STBYC1RSTF is tested because,
+the GIC function stm32mp_gic_resume() can't not called for Standby1 exit
+as  they based on configuration saved SYSRAM in stm32mp_gic_save(),
+lost is this mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8734be398aae8011834723a07b656f534062ac0c fix(stm32mp2): restore system for warmboot after D1 DStandby exit]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ic6bded2a4bca3719ad479cb17bab99433ec23023
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/429571
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 24 +++++++++++++++++++++++-
+ 1 file changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 66ac31d3c..fd0f4e541 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -685,6 +685,9 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		}
+ #endif
+ 		stm32mp_gic_cpuif_disable();
++#if STM32MP_M33_TDCID
++		stm32mp_gic_save();
++#endif
+ 		stm32mp2_pll1_disable();
+ 		break;
+ 
+@@ -775,7 +778,26 @@ static void stm32_pwr_domain_suspend_finish(const psci_power_state_t
+ 	switch (stateid) {
+ 	case PWRSTATE_STANDBY:
+ 		VERBOSE("STANDBY exit\n");
+-#if !STM32MP_M33_TDCID
++#if STM32MP_M33_TDCID
++		/* Restore system for warmboot after D1 DStandby exit */
++		if ((mmio_read_32(rcc_base + RCC_C1BOOTRSTSCLRR) &
++		     RCC_C1BOOTRSTSCLRR_STBYC1RSTF) == 0U) {
++			stm32mp_stgen_config(clk_get_rate(CK_KER_STGEN));
++			stm32mp2_pll1_enable();
++			stm32mp_gic_resume();
++			stm32mp_gic_cpuif_enable();
++#if !STM32MP21
++			mmio_write_32(A35SSC_BASE + CA35SS_SYSCFG_VBAR_CR, stm32_sec_entrypoint);
++			/* Start the secondary core if it was running before Standby */
++			if ((core_id == STM32MP_PRIMARY_CPU) &&
++			    stm32mp_state_check(STM32MP_SECONDARY_CPU, STATE_START)) {
++				/* Reset the secondary core to execute warm boot */
++				mmio_write_32(RCC_BASE + RCC_C1P1RSTCSETR,
++					      RCC_C1P1RSTCSETR_C1P1PORRST);
++			}
++#endif /* !STM32MP21 */
++		}
++#else
+ 		/* Restore the DDR self refresh mode */
+ 		ddr_restore_sr_mode();
+ #endif
+-- 
+2.47.2
+

@@ -1,0 +1,112 @@
+From 817fed8c68f0bae9b1f1f041b36a21e9f26bcf96 Mon Sep 17 00:00:00 2001
+From: Sughosh Ganu <sughosh.ganu@linaro.org>
+Date: Wed, 7 Feb 2024 20:13:01 +0530
+Subject: [PATCH 569/841] feat(fwu): add a function to obtain an alternate FWU
+ bank to boot
+
+Add a function fwu_get_alternate_boot_bank() to return a valid bank to
+boot from. This function can be called by a platform to get an
+alternate bank to try to boot the platform in the unlikely scenario of
+the active bank being in an invalid state, or if the number of times
+the platform boots in trial state exceeds a pre-set count.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 01a2e9b1cbfc0869fddfcfba106294d514add079 feat(fwu): add a function to obtain an alternate FWU bank to boot]
+Change-Id: I4bcd88e68e334c452882255bf028e01b090369d1
+Signed-off-by: Sughosh Ganu <sughosh.ganu@linaro.org>
+(cherry picked from commit 26aab79560a2281c4207b01102495459c2bddefc)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/372650
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/fwu/fwu.c         | 57 +++++++++++++++++++++++++++++++++++++++
+ include/drivers/fwu/fwu.h |  3 +++
+ 2 files changed, 60 insertions(+)
+
+diff --git a/drivers/fwu/fwu.c b/drivers/fwu/fwu.c
+index 5c3ccf878..b6f06e0a7 100644
+--- a/drivers/fwu/fwu.c
++++ b/drivers/fwu/fwu.c
+@@ -181,6 +181,63 @@ exit:
+ 	return result;
+ }
+ 
++/*******************************************************************************
++ * Check for an alternate bank for the platform to boot from. This function will
++ * mostly be called whenever the count of the number of times a platform boots
++ * in the Trial State exceeds a pre-set limit.
++ * The function first checks if the platform can boot from the previously active
++ * bank. If not, it tries to find another bank in the accepted state.
++ * And finally, if both the checks fail, as a last resort, it tries to find
++ * a valid bank.
++ *
++ * Returns the index of a bank to boot, else returns invalid index
++ * INVALID_BOOT_IDX.
++ ******************************************************************************/
++uint32_t fwu_get_alternate_boot_bank(void)
++{
++	uint32_t i;
++
++	/* First check if the previously active bank can be used */
++	if (metadata.bank_state[metadata.previous_active_index] ==
++	    FWU_BANK_STATE_ACCEPTED) {
++		return metadata.previous_active_index;
++	}
++
++	/* Now check for any other bank in the accepted state */
++	for (i = 0U; i < NR_OF_FW_BANKS; i++) {
++		if (i == metadata.active_index ||
++		    i == metadata.previous_active_index) {
++			continue;
++		}
++
++		if (metadata.bank_state[i] == FWU_BANK_STATE_ACCEPTED) {
++			return i;
++		}
++	}
++
++	/*
++	 * No accepted bank found. Now try booting from a valid bank.
++	 * Give priority to the previous active bank.
++	 */
++	if (metadata.bank_state[metadata.previous_active_index] ==
++	    FWU_BANK_STATE_VALID) {
++		return metadata.previous_active_index;
++	}
++
++	for (i = 0U; i < NR_OF_FW_BANKS; i++) {
++		if (i == metadata.active_index ||
++		    i == metadata.previous_active_index) {
++			continue;
++		}
++
++		if (metadata.bank_state[i] == FWU_BANK_STATE_VALID) {
++			return i;
++		}
++	}
++
++	return INVALID_BOOT_IDX;
++}
++
+ /*******************************************************************************
+  * The platform can be in one of Valid, Invalid or Accepted states.
+  *
+diff --git a/include/drivers/fwu/fwu.h b/include/drivers/fwu/fwu.h
+index 489d4a1e7..18e8a3163 100644
+--- a/include/drivers/fwu/fwu.h
++++ b/include/drivers/fwu/fwu.h
+@@ -13,8 +13,11 @@
+ #define FWU_BANK_STATE_VALID		0xFEU
+ #define FWU_BANK_STATE_INVALID		0xFFU
+ 
++#define INVALID_BOOT_IDX		0xFFFFFFFFU
++
+ void fwu_init(void);
+ uint32_t fwu_get_active_bank_state(void);
++uint32_t fwu_get_alternate_boot_bank(void);
+ const struct fwu_metadata *fwu_get_metadata(void);
+ 
+ #endif /* FWU_H */
+-- 
+2.47.2
+

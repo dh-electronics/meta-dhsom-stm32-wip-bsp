@@ -1,0 +1,70 @@
+From 8ced031940a6b4ba74bb8fd130a99239d33e8076 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 26 Nov 2024 10:18:34 +0100
+Subject: [PATCH 705/841] fix(stm32mp2): optimize the wake-up time for low
+ power modes
+
+Use the default values defined in AN5727 for the PWRLP_TEMPO on
+STM32MP25x boards with STPMIC25: set PWRLP_DLY=0 in RCC_PWRLPDLYCR
+register for Stop2 modes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f020a0487f68ac82430d194d5e688434dd0856c3 fix(stm32mp2): optimize the wake-up time for low power modes]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I04259cc5bfafa631a209da1f49a8c2767681bde0
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/394305
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Maxime MERE <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/432191
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index 7e6e45c02..6d67fe7d7 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -89,7 +89,6 @@ uintptr_t stm32_sec_entrypoint;
+ static u_register_t saved_scr_el3;
+ 
+ static uint32_t lpstop1_pwrlpdly;
+-static uint32_t stop2_pwrlpdly;
+ 
+ #if !STM32MP21
+ /* bitfield to indicate the modified AMEN bit for LP-SRAM1/2/3 */
+@@ -612,7 +611,6 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		if (!cpu2_running) {
+ 			mmio_write_32(pwr_base + PWR_CPU2CR, 0U);
+ 		}
+-		mmio_write_32(rcc_base + RCC_PWRLPDLYCR, stop2_pwrlpdly);
+ 		stm32mp_gic_cpuif_disable();
+ 		stm32mp_gic_save();
+ 		stm32mp2_pll1_disable();
+@@ -624,7 +622,6 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 		if (!cpu2_running) {
+ 			mmio_write_32(pwr_base + PWR_CPU2CR, PWR_CPU2CR_LPDS_D2);
+ 		}
+-		mmio_write_32(rcc_base + RCC_PWRLPDLYCR, stop2_pwrlpdly);
+ 		stm32mp_gic_cpuif_disable();
+ 		stm32mp_gic_save();
+ 		stm32mp2_pll1_disable();
+@@ -638,7 +635,6 @@ static void stm32_pwr_domain_suspend(const psci_power_state_t *target_state)
+ 			mmio_write_32(pwr_base + PWR_CPU2CR,
+ 				      PWR_CPU2CR_LPDS_D2 | PWR_CPU2CR_LVDS_D2);
+ 		}
+-		mmio_write_32(rcc_base + RCC_PWRLPDLYCR, stop2_pwrlpdly);
+ 		stm32mp_gic_cpuif_disable();
+ 		stm32mp_gic_save();
+ 		stm32mp2_pll1_disable();
+@@ -1333,8 +1329,6 @@ static void stm32_pm_init(void *fdt)
+ 	/* Compute RCC PWR LP DLY according to parent clock */
+ 	lsmcu = mmio_read_32(rcc_base + RCC_LSMCUDIVR) & RCC_LSMCUDIVR_LSMCUDIV;
+ 	lpstop1_pwrlpdly = PWRLPDLYCR_VAL(param.lpstop1dly, lsmcu);
+-	/* Wait 2ms for Stop2 */
+-	stop2_pwrlpdly = PWRLPDLYCR_VAL(2000, lsmcu);
+ }
+ 
+ /*******************************************************************************
+-- 
+2.47.2
+
