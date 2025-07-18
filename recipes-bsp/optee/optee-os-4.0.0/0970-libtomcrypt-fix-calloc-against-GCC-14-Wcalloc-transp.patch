@@ -1,0 +1,74 @@
+From be120a448c68db430f906b5e93ceced055f907e6 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 25 Jun 2024 17:06:35 +0200
+Subject: [PATCH 0970/1695] libtomcrypt: fix calloc() against GCC 14
+ -Wcalloc-transposed-args
+
+Fix use of XCALLOC() macro against GCC 14 directive
+-Wcalloc-transposed-args that makes GCC to complain with an warning/error
+trace message like:
+
+warning: 'calloc' sizes specified with 'sizeof' in the earlier argument and not in the later argument [-Wcalloc-transposed-args]
+
+This change was proposed and merged in mainline libtomcrypt repository.
+
+No functional change.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 865fb11f31b737a9716482106e28d4d48fd20021 libtomcrypt: fix calloc() against GCC 14 -Wcalloc-transposed-args]
+Link: https://github.com/libtom/libtomcrypt/pull/647
+Change-Id: Ida6858cd48cba81892729db3977a3e6365947b60
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Acked-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-by: Jerome Forissier <jerome.forissier@linaro.org>
+Reviewed-by: Jens Wiklander <jens.wiklander@linaro.org>
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/390273
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../src/pk/asn1/der/sequence/der_decode_sequence_flexi.c        | 2 +-
+ .../src/pk/asn1/der/sequence/der_decode_sequence_multi.c        | 2 +-
+ .../src/pk/asn1/der/sequence/der_encode_sequence_multi.c        | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_decode_sequence_flexi.c b/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_decode_sequence_flexi.c
+index 2a0841d96..35886cf88 100644
+--- a/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_decode_sequence_flexi.c
++++ b/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_decode_sequence_flexi.c
+@@ -268,7 +268,7 @@ static int s_der_decode_sequence_flexi(const unsigned char *in, unsigned long *i
+             }
+             l->size = len;
+ 
+-            if ((l->data = XCALLOC(sizeof(wchar_t), l->size)) == NULL) {
++            if ((l->data = XCALLOC(l->size, sizeof(wchar_t))) == NULL) {
+                err = CRYPT_MEM;
+                goto error;
+             }
+diff --git a/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_decode_sequence_multi.c b/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_decode_sequence_multi.c
+index 429b5407e..d5283fad2 100644
+--- a/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_decode_sequence_multi.c
++++ b/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_decode_sequence_multi.c
+@@ -78,7 +78,7 @@ static int s_der_decode_sequence_va(const unsigned char *in, unsigned long inlen
+       return CRYPT_NOP;
+    }
+ 
+-   list = XCALLOC(sizeof(*list), x);
++   list = XCALLOC(x, sizeof(*list));
+    if (list == NULL) {
+       return CRYPT_MEM;
+    }
+diff --git a/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_encode_sequence_multi.c b/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_encode_sequence_multi.c
+index a0877fc19..0d3c7d135 100644
+--- a/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_encode_sequence_multi.c
++++ b/core/lib/libtomcrypt/src/pk/asn1/der/sequence/der_encode_sequence_multi.c
+@@ -81,7 +81,7 @@ int der_encode_sequence_multi(unsigned char *out, unsigned long *outlen, ...)
+       return CRYPT_NOP;
+    }
+ 
+-   list = XCALLOC(sizeof(*list), x);
++   list = XCALLOC(x, sizeof(*list));
+    if (list == NULL) {
+       return CRYPT_MEM;
+    }
+-- 
+2.47.2
+

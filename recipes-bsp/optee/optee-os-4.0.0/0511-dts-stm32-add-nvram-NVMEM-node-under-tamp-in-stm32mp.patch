@@ -1,0 +1,121 @@
+From 60ede76b388cced6928c6df238937c9a8219e57b Mon Sep 17 00:00:00 2001
+From: Simeon Marijon <simeon.marijon@foss.st.com>
+Date: Thu, 21 Sep 2023 09:36:44 +0200
+Subject: [PATCH 0511/1695] dts: stm32: add nvram (NVMEM) node under tamp in
+ stm32mp151.dtsi
+
+Backup Registers nvram will be accessed using the NVMEM framework
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e876b1170e6e29791115166bcdf252436dc96e8a dts: stm32: add nvram (NVMEM) node under tamp in stm32mp151.dtsi]
+Change-Id: I7e6a3203267dbf78c28042b9cf49d8b7ca5170f3
+Signed-off-by: Simeon Marijon <simeon.marijon@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/328927
+Tested-by: Simeon MARIJON <simeon.marijon@st.com>
+Reviewed-by: Simeon MARIJON <simeon.marijon@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+(cherry picked from commit d540763ab9ebf0744988bce3f705b4b688c9246b)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/351776
+---
+ core/arch/arm/dts/stm32mp151.dtsi | 80 +++++++++++++++++++++++++++++++
+ 1 file changed, 80 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp151.dtsi b/core/arch/arm/dts/stm32mp151.dtsi
+index dbfdb5b2f..368e2bca4 100644
+--- a/core/arch/arm/dts/stm32mp151.dtsi
++++ b/core/arch/arm/dts/stm32mp151.dtsi
+@@ -1591,9 +1591,89 @@
+ 
+ 		tamp: tamp@5c00a000 {
+ 			compatible = "st,stm32-tamp", "syscon", "simple-mfd";
++			#address-cells = <1>;
++			#size-cells = <1>;
+ 			reg = <0x5c00a000 0x400>;
+ 			interrupts = <GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>;
+ 			clocks = <&rcc RTCAPB>;
++			ranges;
++
++			nvram: nvram@5c00a100 {
++				compatible = "st,stm32mp15-tamp-nvram";
++				#address-cells = <1>;
++				#size-cells = <1>;
++				reg = <0x5c00a100 0x80>;
++
++				wakeup_sec: tamp-bkp@0 {
++					reg = <0x0 0x4>;
++				};
++
++				m4_security_perimeter_exti1: tamp-bkp@4 {
++					/* see cortex-m4 wake up feature */
++					reg = <0x4 0x4>;
++				};
++
++				m4_security_perimeter_exti2: tamp-bkp@8 {
++					/* see cortex-m4 wake up feature */
++					reg = <0x8 0x4>;
++				};
++
++				m4_security_perimeter_exti3: tamp-bkp@c {
++					/* see cortex-m4 wtake up feature */
++					reg = <0xc 0x4>;
++				};
++
++				magic_number: tamp-bkp@10 {
++					/* see ddr and cpu wake up management feature */
++					reg = <0x10 0x4>;
++				};
++
++				branch_address: tamp-bkp@14 {
++					/* see ddr and cpu wake up management feature */
++					reg = <0x14 0x4>;
++				};
++
++				fwu_info: tamp-bkp@28 {
++					/* see firmware update info feature */
++					reg = <0x28 0x4>;
++				};
++
++				copro_rsc_tbl_address: tamp-bkp@44 {
++					/* see cortex-m4 management feature */
++					reg = <0x44 0x4>;
++				};
++
++				cortex_m_state: tamp-bkp@48 {
++					/* see cortex-m4 management feature */
++					reg = <0x48 0x4>;
++				};
++
++				boot_mode: tamp-bkp@50 {
++					/* see boot mode selection feature */
++					reg = <0x50 0x4>;
++				};
++
++				boot_counter: tamp-bkp@54 {
++					/* see boot counter feature */
++					reg = <0x54 0x4>;
++				};
++
++				m4_wakeup_area_start: tamp-bkp@58 {
++					/* see cortex-m4 wake up feature */
++					reg = <0x58 0x4>;
++				};
++
++				m4_wakeup_area_length: tamp-bkp@5c {
++					/* see cortex-m4 wake up feature */
++					reg = <0x5c 0x4>;
++				};
++
++				m4_wakeup_area_hash: tamp-bkp@60 {
++					/* SHA-256 value see Cortex-M4 wake up feature */
++					reg = <0x60 0x20>;
++				};
++			};
++
+ 		};
+ 
+ 		/*
+-- 
+2.47.2
+

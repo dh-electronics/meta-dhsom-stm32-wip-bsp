@@ -1,0 +1,49 @@
+From 38718a204b33388e53e1acb06b8a66cc5c504d32 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 22 Nov 2024 11:06:44 +0100
+Subject: [PATCH 1412/1695] firewall: stm32_etzpc: fix check_access
+
+Fix stm32_etzpc firewall check_access handler to report access is
+permitted only when the request strictly match the ETZPC configuration.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 121f9d84d9dda4be1ed6e1db20151e372a160fea firewall: stm32_etzpc: fix check_access]
+Change-Id: I88a669a90f3e2dbefbb5535d3748d44e1dd9903f
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/420415
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/firewall/stm32_etzpc.c | 15 +--------------
+ 1 file changed, 1 insertion(+), 14 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_etzpc.c b/core/drivers/firewall/stm32_etzpc.c
+index c6055884d..bb9da7c4a 100644
+--- a/core/drivers/firewall/stm32_etzpc.c
++++ b/core/drivers/firewall/stm32_etzpc.c
+@@ -361,20 +361,7 @@ static TEE_Result stm32_etzpc_check_access(struct firewall_query *firewall)
+ 	if (id < etzpc_dev->ddata->num_per_sec) {
+ 		attr = etzpc_do_get_decprot(etzpc_dev, id);
+ 
+-		/*
+-		 * Access authorized if the attributes requested match the
+-		 * current configuration, or if the requester is secure and
+-		 * the device is not MCU isolated, or if the requester is
+-		 * non-secure and the device is not MCU isolated and not secure
+-		 */
+-		if (attr == attr_req ||
+-		    ((attr_req == ETZPC_DECPROT_S_RW ||
+-		      attr_req == ETZPC_DECPROT_NS_R_S_W) && attr !=
+-		     ETZPC_DECPROT_MCU_ISOLATION) ||
+-		    ((attr_req == ETZPC_DECPROT_NS_RW ||
+-		      attr_req == ETZPC_DECPROT_NS_R_S_W) && attr !=
+-		     ETZPC_DECPROT_MCU_ISOLATION && attr !=
+-		     ETZPC_DECPROT_S_RW))
++		if (attr == attr_req)
+ 			return TEE_SUCCESS;
+ 		else
+ 			return TEE_ERROR_ACCESS_DENIED;
+-- 
+2.47.2
+

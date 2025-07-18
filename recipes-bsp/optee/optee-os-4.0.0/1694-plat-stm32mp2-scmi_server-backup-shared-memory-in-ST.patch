@@ -1,0 +1,139 @@
+From 4d25918a529941e442ef8bca3b43814a8f199585 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Thu, 22 May 2025 11:38:09 +0200
+Subject: [PATCH 1694/1695] plat-stm32mp2: scmi_server: backup shared memory in
+ STANDBY1
+
+Shared memory is actually in SRAM memory on STM32MP2x SoC, and this memory
+is reset during STANDBY1 low power mode.
+
+To avoid losing the information stored into the shared memory, save it
+before suspend and restore it after resume.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a8dd87d45831be900f0aaa44a5e0587269e3df25 plat-stm32mp2: scmi_server: backup shared memory in STANDBY1]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: If4eac6fdb6a9ee818bf52d8ddeb3666a6d3758f3
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/460977
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     | 55 ++++++++++++++++++-
+ 1 file changed, 54 insertions(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index 2a91ed7b8..6e71d30ec 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -13,6 +13,7 @@
+ #include <kernel/dt.h>
+ #include <kernel/dt_driver.h>
+ #include <kernel/notif.h>
++#include <kernel/pm.h>
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <mm/core_mmu.h>
+@@ -25,6 +26,8 @@
+ #include <tee_api_defines.h>
+ #include <tee/cache.h>
+ 
++#define SCMI_SHMEM_SIZE 128
++
+ /*
+  * struct optee_scmi_server - Data of scmi_server_scpfw
+  *
+@@ -48,6 +51,7 @@ struct optee_scmi_server {
+  * @event_waiting: an event from mailbox is waiting to be handle
+  * @mailbox_notif: data for threaded execution
+  * @shm: shared memory information
++ * @shm_backup: shared memory backup during suspend
+  * @exposed_clock: data for clocks exposed thru SCMI
+  * @protocol_list: list of optee_scmi_server_protocol
+  * @link: link for optee_scmi_server:agent_list
+@@ -61,6 +65,7 @@ struct optee_scmi_server_agent {
+ 	bool event_waiting;
+ 	struct notif_driver mailbox_notif;
+ 	struct shared_mem shm;
++	uint8_t *shm_backup;
+ 
+ 	SIMPLEQ_HEAD(protocol_list_head, optee_scmi_server_protocol)
+ 		protocol_list;
+@@ -183,6 +188,44 @@ static void mailbox_rcv_callback(void *cookie)
+ 	notif_send_async(NOTIF_VALUE_DO_BOTTOM_HALF);
+ }
+ 
++static TEE_Result
++optee_scmi_server_pm(enum pm_op op, uint32_t pm_hint,
++		     const struct pm_callback_handle *pm_handle)
++{
++	struct optee_scmi_server *ctx = pm_handle->handle;
++	struct optee_scmi_server_agent *agent_ctx = NULL;
++
++	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
++		return TEE_SUCCESS;
++
++	switch (op) {
++	case PM_OP_SUSPEND:
++		SIMPLEQ_FOREACH(agent_ctx, &ctx->agent_list, link) {
++			if (agent_ctx->shm.size != 0) {
++				uint8_t *shm = (uint8_t *)agent_ctx->shm.va;
++
++				memcpy(agent_ctx->shm_backup, shm,
++				       SCMI_SHMEM_SIZE);
++			}
++		}
++		break;
++	case PM_OP_RESUME:
++		SIMPLEQ_FOREACH(agent_ctx, &ctx->agent_list, link) {
++			if (agent_ctx->shm.size != 0) {
++				uint8_t *shm = (uint8_t *)agent_ctx->shm.va;
++
++				memcpy(shm, agent_ctx->shm_backup,
++				       SCMI_SHMEM_SIZE);
++			}
++		}
++		break;
++	default:
++		return TEE_ERROR_BAD_PARAMETERS;
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result optee_scmi_server_shm_map(struct shared_mem *shm)
+ {
+ 	/* Nothing to do */
+@@ -259,11 +302,18 @@ static TEE_Result optee_scmi_server_probe_agent(const void *fdt, int agent_node,
+ 		agent_ctx->shm.pa = fdt_reg_base_address(fdt, shmem_node);
+ 		if (shmem_node >= 0 &&
+ 		    (agent_ctx->shm.pa == DT_INFO_INVALID_REG ||
+-		     agent_ctx->shm.size == DT_INFO_INVALID_REG_SIZE)) {
++		     agent_ctx->shm.size == DT_INFO_INVALID_REG_SIZE ||
++		     agent_ctx->shm.size < SCMI_SHMEM_SIZE)) {
+ 			panic();
+ 		}
+ 
+ 		optee_scmi_server_shm_map(&agent_ctx->shm);
++
++		agent_ctx->shm.size = SCMI_SHMEM_SIZE;
++		agent_ctx->shm_backup = calloc(SCMI_SHMEM_SIZE,
++					       sizeof(*agent_ctx->shm_backup));
++		if (!agent_ctx->shm_backup)
++			panic();
+ 	}
+ 
+ 	fdt_for_each_subnode(protocol_node, fdt, agent_node) {
+@@ -455,6 +505,9 @@ static TEE_Result optee_scmi_server_probe(const void *fdt, int parent_node,
+ 		}
+ 	}
+ 
++	register_pm_core_service_cb(optee_scmi_server_pm, ctx,
++				    "scmi-server-scpfw");
++
+ 	return TEE_SUCCESS;
+ 
+ fail_scpfw_cfg:
+-- 
+2.47.2
+

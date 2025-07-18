@@ -1,0 +1,81 @@
+From 5b2d48a42445c8ec41a4a5427341fead45fb2879 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Tue, 28 Jan 2025 12:00:47 +0100
+Subject: [PATCH 1567/1695] core: interrupt: add set_wake for power-management
+ wake-on on interrupt
+
+For interrupt controllers that can handle power-management wake-up
+when receiving an interrupt, add the operation set_wake().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e874b35696dae656751ba44674ad5dc34215f38a core: interrupt: add set_wake for power-management wake-on on interrupt]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I9e5e3bc31857669bc799985eb9a2e3552908b66c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434914
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/include/kernel/interrupt.h | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/core/include/kernel/interrupt.h b/core/include/kernel/interrupt.h
+index 22a7a0449..0d04a585b 100644
+--- a/core/include/kernel/interrupt.h
++++ b/core/include/kernel/interrupt.h
+@@ -58,6 +58,8 @@ struct itr_chip {
+  * @raise_pi	Raise per-cpu interrupt or NULL if not applicable
+  * @raise_sgi	Raise a SGI or NULL if not applicable to that controller
+  * @set_affinity Set interrupt/cpu affinity or NULL if not applicable
++ * @set_wake	Enable/disable power-management wake-on of an interrupt or NULL
++ *		if not applicable
+  *
+  * Handlers @enable, @disable, @mask, @unmask and @add are mandated. Handlers
+  * @mask and @unmask have unpaged memory contrainsts. See itr_chip_is_valid().
+@@ -74,6 +76,7 @@ struct itr_ops {
+ 			  uint32_t cpu_mask);
+ 	void (*set_affinity)(struct itr_chip *chip, size_t it,
+ 		uint8_t cpu_mask);
++	void (*set_wake)(struct itr_chip *chip, size_t it, bool on);
+ };
+ 
+ /*
+@@ -273,6 +276,15 @@ static inline bool interrupt_can_set_affinity(struct itr_chip *chip)
+ 	return chip->ops->set_affinity;
+ }
+ 
++/*
++ * interrupt_can_set_wake() - Return whether controller embeds set_wake
++ * @chip	Interrupt controller
++ */
++static inline bool interrupt_can_set_wake(struct itr_chip *chip)
++{
++	return chip->ops->set_wake;
++}
++
+ /*
+  * interrupt_raise_pi() - Raise a peripheral interrupt of a controller
+  * @chip	Interrupt controller
+@@ -312,6 +324,19 @@ static inline void interrupt_set_affinity(struct itr_chip *chip, size_t itr_num,
+ 	chip->ops->set_affinity(chip, itr_num, cpu_mask);
+ }
+ 
++/*
++ * interrupt_set_wake() - Enable/disable power-management wake-on of interrupt
++ * @chip	Interrupt controller
++ * @itr_num	Interrupt number
++ * @on		A boolean for enable/disable
++ */
++static inline void interrupt_set_wake(struct itr_chip *chip, size_t itr_num,
++				      bool on)
++{
++	assert(interrupt_can_set_wake(chip));
++	chip->ops->set_wake(chip, itr_num, on);
++}
++
+ /*
+  * interrupt_configure() - Configure an interrupt in an interrupt controller
+  * @chip	Interrupt controller
+-- 
+2.47.2
+

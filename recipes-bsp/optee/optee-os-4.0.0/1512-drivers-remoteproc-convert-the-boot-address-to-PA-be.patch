@@ -1,0 +1,54 @@
+From 7f4191d76f344d05603b786ec427ec4e95fcdb5c Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Tue, 4 Feb 2025 15:12:21 +0100
+Subject: [PATCH 1512/1695] drivers: remoteproc: convert the boot address to PA
+ before checking it.
+
+The boot address is the CM33 boot address. A translation to PA is needed
+before checking that the address is part of a declared memory region.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 71bb0b12c6d8aa4fc868ae673f56cdfcf61d88aa drivers: remoteproc: convert the boot address to PA before checking it.]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: Ib3eaad0df4788e95536e3dd479c3885d0adc9e60
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434525
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+---
+ core/drivers/remoteproc/stm32_remoteproc.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/remoteproc/stm32_remoteproc.c b/core/drivers/remoteproc/stm32_remoteproc.c
+index be9ee0d4e..805b59568 100644
+--- a/core/drivers/remoteproc/stm32_remoteproc.c
++++ b/core/drivers/remoteproc/stm32_remoteproc.c
+@@ -222,6 +222,8 @@ static TEE_Result stm32mp2_rproc_start(struct stm32_rproc_instance *rproc)
+ 	struct stm32_rproc_mem *mems = NULL;
+ 	unsigned int i = 0;
+ 	bool boot_addr_valid = false;
++	int res = TEE_ERROR_GENERIC;
++	paddr_t boot_pa = 0;
+ 
+ 	if (!rproc->boot_addr)
+ 		return TEE_ERROR_GENERIC;
+@@ -229,8 +231,13 @@ static TEE_Result stm32mp2_rproc_start(struct stm32_rproc_instance *rproc)
+ 	mems = rproc->regions;
+ 
+ 	/* Check that the boot address is in declared regions */
++	res = stm32_rproc_da_to_pa(rproc->cdata->rproc_id, rproc->boot_addr,
++				   sizeof(paddr_t), &boot_pa);
++	if (res)
++		return res;
++
+ 	for (i = 0; i < rproc->n_regions; i++) {
+-		if (!core_is_buffer_inside(rproc->boot_addr, 1, mems[i].addr,
++		if (!core_is_buffer_inside(boot_pa, 1, mems[i].addr,
+ 					   mems[i].size))
+ 			continue;
+ 
+-- 
+2.47.2
+

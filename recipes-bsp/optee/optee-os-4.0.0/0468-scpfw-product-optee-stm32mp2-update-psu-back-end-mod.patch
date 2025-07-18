@@ -1,0 +1,210 @@
+From 645cc07cf4ef40ac65761c35bc49626a7ce63a7b Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Fri, 5 Apr 2024 17:01:58 +0200
+Subject: [PATCH 0468/1695] scpfw: product/optee-stm32mp2: update psu back end
+ module for CPU DVFS
+
+Make adaptations to the psu back end module for regulator
+framework API update.
+Also update the config flag management for DVFS.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a92ec7b96afbee613bffa75435b827c3e4617014 scpfw: product/optee-stm32mp2: update psu back end module for CPU DVFS]
+Change-Id: Iac1e631be33d37d7d2f9c52ab1c56702cec9402b
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/371831
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../product/optee-stm32mp2/fw/Firmware.cmake  | 18 +++++--
+ .../product/optee-stm32mp2/fw/config_all.c    |  2 +-
+ .../include/mod_psu_optee_regulator.h         |  2 +-
+ .../src/mod_psu_optee_regulator.c             | 49 +++++++++----------
+ 4 files changed, 38 insertions(+), 33 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/Firmware.cmake b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/Firmware.cmake
+index 44494af9b..72b0e94ab 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/Firmware.cmake
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/Firmware.cmake
+@@ -79,11 +79,21 @@ if(CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN)
+ list(APPEND SCP_MODULES "scmi-voltage-domain")
+ endif(CFG_SCPFW_MOD_SCMI_VOLTAGE_DOMAIN)
+ 
+-if(CFG_STM32_CPU_OPP)
+-list(APPEND SCP_MODULES "psu-optee-regulator")
+-list(APPEND SCP_MODULES "psu")
++if(CFG_SCPFW_MOD_DVFS)
+ list(APPEND SCP_MODULES "dvfs")
++endif(CFG_SCPFW_MOD_DVFS)
++
++if(CFG_SCPFW_MOD_SCMI_PERF)
+ list(APPEND SCP_MODULES "scmi-perf")
+-endif(CFG_STM32_CPU_OPP)
++endif(CFG_SCPFW_MOD_SCMI_PERF)
++
++if(CFG_SCPFW_MOD_PSU)
++list(APPEND SCP_MODULES "psu")
++endif(CFG_SCPFW_MOD_PSU)
++
++if(CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR)
++list(APPEND SCP_MODULES "psu-optee-regulator")
++endif(CFG_SCPFW_MOD_PSU_OPTEE_REGULATOR)
++
+ 
+ list(APPEND SCP_MODULES "optee-console")
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
+index bd71fe972..bc9f980b7 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/fw/config_all.c
+@@ -763,7 +763,7 @@ static void set_resources(struct scpfw_config *cfg)
+                     dvfs_elt[dvfs_index].data = (void *)(dvfs_data + dvfs_index);
+ 
+                     /* Module psu_optee module (elements and  configuration data) */
+-                    psu_optee_regu_elt[psu_index].name = perfd_cfg->regulator->reg_name;
++                    psu_optee_regu_elt[psu_index].name = perfd_cfg->regulator->name;
+                     psu_optee_regu_elt[psu_index].sub_element_count = scpfw_resource_counter.psu_count;
+                     psu_optee_regu_elt[psu_index].data = (void *)(psu_optee_regu_data + psu_index);
+ 
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/include/mod_psu_optee_regulator.h b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/include/mod_psu_optee_regulator.h
+index a1529b7bd..3547b3b24 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/include/mod_psu_optee_regulator.h
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/include/mod_psu_optee_regulator.h
+@@ -19,7 +19,7 @@ struct regulator;
+  * \brief Platform regulator configuration.
+  */
+ struct mod_psu_optee_regulator_dev_config {
+-    struct rdev *rdev;
++    struct regulator *regulator;
+ };
+ 
+ #endif /* MOD_PSU_OPTEE_REGULATOR_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c
+index f1e8c444c..ad94f0320 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c
+@@ -32,15 +32,15 @@ struct psu_optee_regulator_ctx {
+ /* A single instance handles all voltage regulators abstracted by regulator.h */
+ static struct psu_optee_regulator_ctx module_ctx;
+ 
+-static char __maybe_unused *regulator_name(struct rdev *rdev)
++static char __maybe_unused *psu_regulator_name(struct regulator *regulator)
+ {
+-    if (rdev)
+-        return (char *)rdev->reg_name;
++    if (regulator)
++        return (char *)regulator->name;
+ 
+     return NULL;
+ }
+ 
+-static struct rdev *get_regulator(fwk_id_t id)
++static struct regulator *get_regulator(fwk_id_t id)
+ {
+     unsigned int elt_index;
+ 
+@@ -48,7 +48,7 @@ static struct rdev *get_regulator(fwk_id_t id)
+     if (elt_index >= module_ctx.dev_count)
+         return NULL;
+ 
+-    return module_ctx.config[elt_index].rdev;
++    return module_ctx.config[elt_index].regulator;
+ }
+ 
+ /*
+@@ -57,15 +57,15 @@ static struct rdev *get_regulator(fwk_id_t id)
+ static int psu_optee_regulator_set_enabled(fwk_id_t id, bool enabled)
+ {
+     TEE_Result res = TEE_ERROR_GENERIC;
+-    struct rdev *regulator;
++    struct regulator *regulator;
+ 
+     regulator = get_regulator(id);
+     if (!regulator) {
+         return FWK_E_PARAM;
+     }
+ 
+-    DEBUG_MSG("PSU set %s %s", regulator_name(regulator),
+-          enabled ? "ON" : "OFF");
++    DEBUG_MSG("PSU set %s %s", psu_regulator_name(regulator),
++              enabled ? "ON" : "OFF");
+ 
+     if (enabled) {
+         res = regulator_enable(regulator);
+@@ -82,15 +82,16 @@ static int psu_optee_regulator_set_enabled(fwk_id_t id, bool enabled)
+ 
+ static int psu_optee_regulator_get_enabled(fwk_id_t id, bool *enabled)
+ {
+-    struct rdev *regulator;
++    struct regulator *regulator;
+ 
+    regulator = get_regulator(id);
+    if (!regulator || (enabled == NULL)) {
+         return FWK_E_PARAM;
+     }
+ 
+-    *enabled = regulator_is_enabled((const struct rdev *)regulator);
+-    DEBUG_MSG("PSU get %s state: %s", regulator_name(regulator),
++    *enabled = regulator_is_enabled(regulator);
++
++    DEBUG_MSG("PSU get %s state: %s", psu_regulator_name(regulator),
+               enabled ? "ON" : "OFF");
+ 
+     return FWK_SUCCESS;
+@@ -99,18 +100,17 @@ static int psu_optee_regulator_get_enabled(fwk_id_t id, bool *enabled)
+ static int psu_optee_regulator_set_voltage(fwk_id_t id, uint32_t voltage)
+ {
+     TEE_Result res = TEE_ERROR_GENERIC;
+-    struct rdev *regulator;
+-    uint16_t level_mv = voltage;
++    struct regulator *regulator;
+ 
+     regulator = get_regulator(id);
+     if (!regulator) {
+         return FWK_E_PARAM;
+     }
+ 
+-    DEBUG_MSG("PSU set regulator %s level: %"PRIu32"mV",
+-              regulator_name(regulator), (uint32_t)level_mv);
++    DEBUG_MSG("PSU set regulator %s level: %u mV",
++              psu_regulator_name(regulator), voltage);
+ 
+-    res = regulator_set_voltage(regulator, level_mv);
++    res = regulator_set_voltage(regulator, (int)voltage * 1000);
+ 
+     if (res) {
+         return FWK_E_HANDLER;
+@@ -122,25 +122,20 @@ static int psu_optee_regulator_set_voltage(fwk_id_t id, uint32_t voltage)
+ 
+ static int psu_optee_regulator_get_voltage(fwk_id_t id, uint32_t *voltage)
+ {
+-    TEE_Result res = TEE_ERROR_GENERIC;
+-    struct rdev *regulator;
+-    uint16_t level_mv;
++    struct regulator *regulator;
++    int level_mv;
+ 
+     regulator = get_regulator(id);
+     if (!regulator || (voltage == NULL)) {
+         return FWK_E_PARAM;
+     }
+ 
+-    res = regulator_get_voltage(regulator, &level_mv);
+-
+-    DEBUG_MSG("PSU get regulator %s level: %"PRIu32"mV (res %#"PRIx32")",
+-              regulator_name(regulator), (uint32_t)level_mv, res);
++    level_mv = regulator_get_voltage(regulator) / 1000;
+ 
+-    if (res) {
+-        return FWK_E_HANDLER;
+-    }
++    DEBUG_MSG("PSU get regulator %s level: %d mV",
++              psu_regulator_name(regulator), level_mv);
+ 
+-    *voltage = level_mv;
++    *voltage = (uint32_t)level_mv;
+ 
+     return FWK_SUCCESS;
+ }
+-- 
+2.47.2
+

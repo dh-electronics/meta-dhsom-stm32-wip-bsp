@@ -1,0 +1,82 @@
+From 05237bb235a301048f7b76993f39973145f3f67b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cl=C3=A9ment=20Le=20Goffic?= <clement.legoffic@foss.st.com>
+Date: Mon, 26 Feb 2024 09:35:32 +0100
+Subject: [PATCH 1147/1695] drivers: stm32_rtc: replace stm32_is_a_leap_year
+ with rtc_is_a_leap_year
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The RTC framework provides generic functions such as an helper for
+detecting leap_year. Use it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 845f570c67fe603c6dbd1edc4278b7e85348818f drivers: stm32_rtc: replace stm32_is_a_leap_year with rtc_is_a_leap_year]
+Change-Id: I5934d819f4552cf6d75edf7f39c68b38a513a0f8
+Signed-off-by: Clément Le Goffic <clement.legoffic@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/402361
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_rtc.c | 15 +++++----------
+ 1 file changed, 5 insertions(+), 10 deletions(-)
+
+diff --git a/core/drivers/stm32_rtc.c b/core/drivers/stm32_rtc.c
+index 0c97e44da..6e772aa96 100644
+--- a/core/drivers/stm32_rtc.c
++++ b/core/drivers/stm32_rtc.c
+@@ -10,6 +10,7 @@
+ #endif /* CFG_ARM64_core */
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
++#include <drivers/rtc.h>
+ #include <drivers/stm32_rtc.h>
+ #include <drivers/stm32_rif.h>
+ #include <io.h>
+@@ -355,12 +356,6 @@ static signed long long stm32_rtc_diff_time_ms(struct optee_rtc_time *current,
+ 	return (curr_s - ref_s) * 1000U;
+ }
+ 
+-static bool stm32_is_a_leap_year(uint32_t year)
+-{
+-	return ((year % 4) == 0) &&
+-	       (((year % 100) != 0) || ((year % 400) == 0));
+-}
+-
+ /* Return absolute difference in milliseconds on day-in-year fraction */
+ static signed long long stm32_rtc_diff_date_ms(struct optee_rtc_time *current,
+ 					       struct optee_rtc_time *ref)
+@@ -399,7 +394,7 @@ static signed long long stm32_rtc_diff_date_ms(struct optee_rtc_time *current,
+ 	/* Particular cases: leap years (one day more) */
+ 	if (diff_in_days > 0) {
+ 		if (current->tm_year == ref->tm_year) {
+-			if (stm32_is_a_leap_year(current->tm_year) &&
++			if (rtc_is_a_leap_year(current->tm_year) &&
+ 			    ref->tm_mon <= 2 &&
+ 			    current->tm_mon >= 3 && current->tm_mday <= 28)
+ 				diff_in_days++;
+@@ -407,18 +402,18 @@ static signed long long stm32_rtc_diff_date_ms(struct optee_rtc_time *current,
+ 			uint32_t y = 0;
+ 
+ 			/* Ref year is leap */
+-			if (stm32_is_a_leap_year(ref->tm_year) &&
++			if (rtc_is_a_leap_year(ref->tm_year) &&
+ 			    ref->tm_mon <= 2 && ref->tm_mday <= 28)
+ 				diff_in_days++;
+ 
+ 			/* Current year is leap */
+-			if (stm32_is_a_leap_year(current->tm_year) &&
++			if (rtc_is_a_leap_year(current->tm_year) &&
+ 			    current->tm_mon >= 3)
+ 				diff_in_days++;
+ 
+ 			/* Interleaved years are leap */
+ 			for (y = ref->tm_year + 1; y < current->tm_year; y++)
+-				if (stm32_is_a_leap_year(y))
++				if (rtc_is_a_leap_year(y))
+ 					diff_in_days++;
+ 		}
+ 	}
+-- 
+2.47.2
+

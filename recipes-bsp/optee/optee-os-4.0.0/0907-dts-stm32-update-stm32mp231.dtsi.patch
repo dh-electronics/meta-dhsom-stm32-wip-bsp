@@ -1,0 +1,109 @@
+From 77643eb47d54c937ea603cb0940d65ebef94e612 Mon Sep 17 00:00:00 2001
+From: Francois Choleau <francois.choleau@st.com>
+Date: Fri, 14 Jun 2024 03:45:08 -0400
+Subject: [PATCH 0907/1695] dts: stm32: update stm32mp231.dtsi
+
+update as per stm32mp251.dtsi
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ef13ab2895348cd77426c437f4275de6d49e6461 dts: stm32: update stm32mp231.dtsi]
+Signed-off-by: Francois Choleau <francois.choleau@st.com>
+Change-Id: I460f1e56e510dec1c5067c6ecd22b0cba148ee98
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/388621
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp231.dtsi | 34 +++++++++++++++++++++++--------
+ 1 file changed, 25 insertions(+), 9 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp231.dtsi b/core/arch/arm/dts/stm32mp231.dtsi
+index 9df8b8960..44ca8e414 100644
+--- a/core/arch/arm/dts/stm32mp231.dtsi
++++ b/core/arch/arm/dts/stm32mp231.dtsi
+@@ -130,6 +130,25 @@
+ 		};
+ 	};
+ 
++	scmi_cm33_agent: scmi-cm-agent@0 {
++		compatible = "st,scmi-cortexm-agent";
++		mbox-names = "scmi_cm33";
++		mboxes = <&ipcc1 RIF_IPCC_CPU1_CHANNEL(16)>;
++		scmi-agent-id = <1>;
++		scmi-channel-id = <0>;
++
++		scmi_regu_cm33: scmi-regu-cm33 {
++			compatible = "st,scmi-regulator-consumer";
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			voltd-vdd33ucpd {
++				reg = <VOLTD_SCMI_UCPD>;
++				voltd-supply = <&vdd33ucpd>;
++			};
++		};
++	};
++
+ 	scmi_regu: scmi-regu {
+ 		compatible = "st,scmi-regulator-consumer";
+ 		#address-cells = <1>;
+@@ -153,10 +172,6 @@
+ 			reg = <VOLTD_SCMI_VDDIO4>;
+ 			voltd-supply = <&vddio4>;
+ 		};
+-		voltd-vdd33ucpd {
+-			reg = <VOLTD_SCMI_UCPD>;
+-			voltd-supply = <&vdd33ucpd>;
+-		};
+ 		voltd-vdda18adc {
+ 			reg = <VOLTD_SCMI_ADC>;
+ 			voltd-supply = <&vdda18adc>;
+@@ -201,6 +216,8 @@
+ 		ipcc1: mailbox@40490000 {
+ 			compatible = "st,stm32mp25-ipcc";
+ 			reg = <0x40490000 0x400>;
++			interrupts = <GIC_SPI 173 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "rx";
+ 			clocks = <&rcc CK_BUS_IPCC1>;
+ 		};
+ 
+@@ -534,6 +551,7 @@
+ 			reg = <0x420a0000 0x1000>;
+ 			clocks = <&rcc CK_BUS_BKPSRAM>;
+ 			st,mem-map = <0x0 0x42000000 0x0 0x2000>;
++			#access-controller-cells = <1>;
+ 		};
+ 
+ 		risaf2: risaf@420b0000 {
+@@ -541,6 +559,7 @@
+ 			reg = <0x420b0000 0x1000>;
+ 			clocks = <&rcc CK_KER_OSPI1>;
+ 			st,mem-map = <0x0 0x60000000 0x0 0x10000000>;
++			#access-controller-cells = <1>;
+ 			status = "disabled";
+ 		};
+ 
+@@ -549,11 +568,7 @@
+ 			reg = <0x420d0000 0x1000>;
+ 			clocks = <&rcc CK_BUS_RISAF4>;
+ 			st,mem-map = <0x0 0x80000000 0x1 0x00000000>;
+-		};
+-
+-		risaf5: risaf@420e0000 {
+-			/* Not present on STM32MP23 */
+-			status = "disabled";
++			#access-controller-cells = <1>;
+ 		};
+ 
+ 		risab1: risab@420f0000 {
+@@ -969,6 +984,7 @@
+ 			#address-cells = <1>;
+ 			#size-cells = <1>;
+ 			ranges;
++			st,backup-zones = <24 24 24 24 12 12 8>;
+ 			status = "disabled";
+ 
+ 			nvram: nvram@46010100 {
+-- 
+2.47.2
+

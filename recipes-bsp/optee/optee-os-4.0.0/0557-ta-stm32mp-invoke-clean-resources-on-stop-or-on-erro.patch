@@ -1,0 +1,101 @@
+From 73b05b867a147d026a88d8b65f03134bf4689a84 Mon Sep 17 00:00:00 2001
+From: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+Date: Mon, 4 Dec 2023 11:47:24 +0100
+Subject: [PATCH 0557/1695] ta: stm32mp: invoke clean resources on stop or on
+ error
+
+Invoke PTA_REMOTEPROC_CLEAN to clean-up resources on stop or on error.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0d386c27495a8142ef8c6ba538de7652308869fc ta: stm32mp: invoke clean resources on stop or on error]
+Change-Id: I6ab563e5356de35b31a843b5ff13e566cacd7c10
+Signed-off-by: Gwenael Treuveur <gwenael.treuveur@foss.st.com>
+---
+ ta/remoteproc/src/remoteproc_core.c | 35 ++++++++++++++++++++++++++---
+ 1 file changed, 32 insertions(+), 3 deletions(-)
+
+diff --git a/ta/remoteproc/src/remoteproc_core.c b/ta/remoteproc/src/remoteproc_core.c
+index ce958dff1..11369a5f8 100644
+--- a/ta/remoteproc/src/remoteproc_core.c
++++ b/ta/remoteproc/src/remoteproc_core.c
+@@ -757,6 +757,26 @@ static TEE_Result get_segment_hash(struct remoteproc_context *ctx, uint8_t *src,
+ 	return TEE_ERROR_NO_DATA;
+ }
+ 
++static void remoteproc_clean_resources(struct remoteproc_context *ctx)
++{
++	uint32_t param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++					       TEE_PARAM_TYPE_NONE,
++					       TEE_PARAM_TYPE_NONE,
++					       TEE_PARAM_TYPE_NONE);
++
++	TEE_Param params[TEE_NUM_PARAMS] = { };
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	params[0].value.a = ctx->rproc_id;
++
++	res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
++				  PTA_REMOTEPROC_CLEAN, param_types,
++				  params, NULL);
++
++	/* Unexpected error that probably leave the system unstable */
++	assert(!res);
++}
++
+ static TEE_Result remoteproc_load_segment(uint8_t *src, uint32_t size,
+ 					  uint32_t da, uint32_t mem_size,
+ 					  void *priv)
+@@ -880,8 +900,9 @@ static TEE_Result remoteproc_load_elf(struct remoteproc_context *ctx)
+ 
+ 		res = e32_parser_load_elf_image(ctx->fw_img + offset, img_size,
+ 						remoteproc_load_segment, ctx);
+-		if (res)
++		if (res) {
+ 			goto out;
++		}
+ 
+ 		/* Take opportunity to get the resource table address */
+ 		res = remoteproc_parse_rsc_table(ctx, ctx->fw_img + offset,
+@@ -913,7 +934,9 @@ static TEE_Result remoteproc_load_elf(struct remoteproc_context *ctx)
+ 	}
+ 
+ out:
+-	/* Should we clean-up the memories in case of fail ? */
++	/* Clean the resources in case of fail */
++	if (res)
++		remoteproc_clean_resources(ctx);
+ 	TEE_Free(ctx->hash_table);
+ 	ctx->hash_table = NULL;
+ 
+@@ -1006,6 +1029,8 @@ static TEE_Result remoteproc_start_fw(uint32_t pt,
+ 					  pt, params, NULL);
+ 		if (res == TEE_SUCCESS)
+ 			ctx->state = REMOTEPROC_STARTED;
++		else
++			remoteproc_clean_resources(ctx);
+ 		break;
+ 	default:
+ 		res = TEE_ERROR_BAD_STATE;
+@@ -1034,6 +1059,8 @@ static TEE_Result remoteproc_stop_fw(uint32_t pt,
+ 
+ 	switch (ctx->state) {
+ 	case REMOTEPROC_LOADED:
++		remoteproc_clean_resources(ctx);
++		ctx->state = REMOTEPROC_OFF;
+ 		res = TEE_ERROR_BAD_STATE;
+ 		break;
+ 	case REMOTEPROC_OFF:
+@@ -1043,8 +1070,10 @@ static TEE_Result remoteproc_stop_fw(uint32_t pt,
+ 		res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
+ 					  PTA_RPROC_FIRMWARE_STOP,
+ 					  pt, params, NULL);
+-		if (res == TEE_SUCCESS)
++		if (res == TEE_SUCCESS) {
++			remoteproc_clean_resources(ctx);
+ 			ctx->state = REMOTEPROC_OFF;
++		}
+ 		break;
+ 	default:
+ 		res = TEE_ERROR_BAD_STATE;
+-- 
+2.47.2
+

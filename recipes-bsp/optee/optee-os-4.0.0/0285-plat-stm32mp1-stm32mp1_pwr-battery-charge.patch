@@ -1,0 +1,51 @@
+From 35b2f7199c4c2225c43833952b0677247d9b8fbd Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 19 Dec 2023 09:00:27 +0100
+Subject: [PATCH 0285/1695] plat-stm32mp1: stm32mp1_pwr: battery charge
+
+Implement battery charge mode upon DT regulator property
+st,enable-vbat-charge and st,vbat-charge-1K5.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f498cb6477c3bf7783a502bda6d84770e24d9745 plat-stm32mp1: stm32mp1_pwr: battery charge]
+Change-Id: I71cfe4875d0d40f3c342339cf6a8e1868529bf2d
+Relates-to-Change-Id: I46ce799f01974aae40daeb15629648de2d885d07
+Signed-off-by: Pascal Paillet <p.paillet@linaro.org>
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+---
+ core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+index e06e2a2b1..9f857edc9 100644
+--- a/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
++++ b/core/arch/arm/plat-stm32mp1/drivers/stm32mp1_pwr.c
+@@ -18,6 +18,10 @@
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
+ 
++/* VBAT charge */
++#define PWR_CR3_VBE		BIT(8)
++#define PWR_CR3_VBRS		BIT(9)
++/* Regulators */
+ #define PWR_CR3_USB33_EN	BIT(24)
+ #define PWR_CR3_USB33_RDY	BIT(26)
+ #define PWR_CR3_REG18_EN	BIT(28)
+@@ -276,6 +280,15 @@ static TEE_Result stm32mp1_pwr_regu_probe(const void *fdt, int node,
+ 		}
+ 	}
+ 
++	if (fdt_getprop(fdt, node, "st,enable-vbat-charge", NULL)) {
++		uintptr_t cr3 = stm32_pwr_base() + PWR_CR3_OFF;
++
++		io_setbits32(cr3, PWR_CR3_VBE);
++
++		if (fdt_getprop(fdt, node, "st,vbat-charge-1K5", NULL))
++			io_setbits32(cr3, PWR_CR3_VBRS);
++	}
++
+ 	return TEE_SUCCESS;
+ }
+ 
+-- 
+2.47.2
+

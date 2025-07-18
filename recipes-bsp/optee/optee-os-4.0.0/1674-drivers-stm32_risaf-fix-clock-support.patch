@@ -1,0 +1,196 @@
+From 038d55b665ab498dd4fdfa278e56bc956396b531 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 2 Apr 2025 15:13:10 +0200
+Subject: [PATCH 1674/1695] drivers: stm32_risaf: fix clock support
+
+The clock for RISAF is associated to each device, managed by IP drivers
+located in secure world with OP-TEE driver or in normal world with Linux
+driver.
+
+The RISAF driver enable clock in probe, so the clock is expected critical
+and never stopped even is not used.
+
+It is not perfecty for low power when clock is managed by OP-TEE and
+exposed by SCMI BUT it is not working when clock is managed by non secure,
+the clock is deactivated by Linux clock driver, that cause SERC in pm
+function for suspend request.
+
+It is the case for RISAF5 and PCIE on STM32MP25 boards when PCIE
+is enabled in OP-TEE but not used in Linux kernel.
+
+This patch just come back to previous behavior as short term solution.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7bb7ec0aee5a8e380468f4a76111ec04dfedcfad drivers: stm32_risaf: fix clock support]
+Fixes: 0d37a2bfcee7 ("drivers: stm32_risaf: alignment with upstream")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ie42481064c41980fe6b9bfca17cd98534da85e16
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/448588
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/firewall/stm32_risaf.c | 67 +++++++++++++++++++++++------
+ 1 file changed, 53 insertions(+), 14 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index 110edb9fc..5fbacd590 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -352,11 +352,14 @@ void stm32_risaf_clear_illegal_access_flags(void)
+ 	SLIST_FOREACH(risaf, &risaf_list, link) {
+ 		vaddr_t base = io_pa_or_va_secure(&risaf->pdata.base, 1);
+ 
+-		if (!io_read32(base + _RISAF_IASR))
+-			continue;
++		if (clk_enable(risaf->pdata.clock))
++			panic("Can't enable RISAF clock");
++
++		if (io_read32(base + _RISAF_IASR))
++			io_write32(base + _RISAF_IACR, _RISAF_IACR_CAEF |
++				   _RISAF_IACR_IAEF0 | _RISAF_IACR_IAEF1);
+ 
+-		io_write32(base + _RISAF_IACR, _RISAF_IACR_CAEF |
+-			   _RISAF_IACR_IAEF0 | _RISAF_IACR_IAEF1);
++		clk_disable(risaf->pdata.clock);
+ 	}
+ }
+ 
+@@ -370,9 +373,14 @@ void stm32_risaf_print_erroneous_data(void)
+ 	SLIST_FOREACH(risaf, &risaf_list, link) {
+ 		vaddr_t base = io_pa_or_va_secure(&risaf->pdata.base, 1);
+ 
++		if (clk_enable(risaf->pdata.clock))
++			panic("Can't enable RISAF clock");
++
+ 		/* Check if faulty address on this RISAF */
+-		if (!io_read32(base + _RISAF_IASR))
++		if (!io_read32(base + _RISAF_IASR)) {
++			clk_disable(risaf->pdata.clock);
+ 			continue;
++		}
+ 
+ 		IMSG("\n\nDUMPING DATA FOR %s\n\n", risaf->pdata.risaf_name);
+ 		IMSG("=====================================================");
+@@ -406,6 +414,8 @@ void stm32_risaf_print_erroneous_data(void)
+ 		}
+ 
+ 		IMSG("=====================================================\n");
++
++		clk_disable(risaf->pdata.clock);
+ 	};
+ }
+ 
+@@ -835,11 +845,17 @@ stm32_risaf_pm(enum pm_op op, unsigned int pm_hint,
+ 	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
+ 		return TEE_SUCCESS;
+ 
++	res = clk_enable(risaf->pdata.clock);
++	if (res)
++		return res;
++
+ 	if (op == PM_OP_RESUME)
+ 		res = stm32_risaf_pm_resume(risaf);
+ 	else
+ 		res = stm32_risaf_pm_suspend(risaf);
+ 
++	clk_disable(risaf->pdata.clock);
++
+ 	return res;
+ }
+ 
+@@ -934,6 +950,10 @@ static TEE_Result stm32_risaf_acquire_access(struct firewall_query *fw,
+ 	if (res)
+ 		return res;
+ 
++	res = clk_enable(risaf->pdata.clock);
++	if (res)
++		return res;
++
+ 	region = &risaf->pdata.regions[region_idx];
+ 	id = _RISAF_GET_REGION_ID(region->cfg);
+ 
+@@ -953,8 +973,10 @@ static TEE_Result stm32_risaf_acquire_access(struct firewall_query *fw,
+ 		    !(cfgr & _RISAF_REG_CFGR_SEC) ||
+ 		    (cidcfgr &&
+ 		     ((read && !_RISAF_REG_READ_OK(cidcfgr, RIF_CID1)) ||
+-		      (write && !_RISAF_REG_WRITE_OK(cidcfgr, RIF_CID1)))))
+-			return TEE_ERROR_ACCESS_DENIED;
++		      (write && !_RISAF_REG_WRITE_OK(cidcfgr, RIF_CID1))))) {
++			res = TEE_ERROR_ACCESS_DENIED;
++			goto err;
++		}
+ 	} else {
+ 		/*
+ 		 * Access is denied if the subregion is disabled and OP-TEE does
+@@ -968,22 +990,31 @@ static TEE_Result stm32_risaf_acquire_access(struct firewall_query *fw,
+ 		cfgr = io_read32(base + _RISAF_SUBREG_CFGR(id, sid));
+ 
+ 		if ((!(cfgr & _RISAF_SUBREG_CFGR_SREN) && !is_tdcid) ||
+-		    !(cfgr & _RISAF_SUBREG_CFGR_SEC))
+-			return TEE_ERROR_ACCESS_DENIED;
++		    !(cfgr & _RISAF_SUBREG_CFGR_SEC)) {
++			res = TEE_ERROR_ACCESS_DENIED;
++			goto err;
++		}
+ 
+ 		if ((cfgr & _RISAF_SUBREG_CFGR_SREN) &&
+ 		    (((cfgr & _RISAF_SUBREG_CFGR_SRCID) >>
+ 		      _RISAF_SUBREG_CFGR_SRCID_SHIFT) != RIF_CID1) &&
+-		    (read || write))
+-			return TEE_ERROR_ACCESS_DENIED;
++		    (read || write)) {
++			res = TEE_ERROR_ACCESS_DENIED;
++			goto err;
++		}
+ 
+ 		if ((cfgr & _RISAF_SUBREG_CFGR_SREN) &&
+ 		    ((read && !(cfgr & _RISAF_SUBREG_CFGR_RDEN)) ||
+-		    (write && !(cfgr & _RISAF_SUBREG_CFGR_WREN))))
+-			return TEE_ERROR_ACCESS_DENIED;
++		    (write && !(cfgr & _RISAF_SUBREG_CFGR_WREN)))) {
++			res = TEE_ERROR_ACCESS_DENIED;
++			goto err;
++		}
+ 	}
+ 
+-	return TEE_SUCCESS;
++err:
++	clk_disable(risaf->pdata.clock);
++
++	return res;
+ }
+ 
+ static TEE_Result stm32_risaf_reconfigure_area(struct firewall_query *fw,
+@@ -1021,6 +1052,10 @@ static TEE_Result stm32_risaf_reconfigure_area(struct firewall_query *fw,
+ 	region = &risaf->pdata.regions[region_idx];
+ 	id = _RISAF_GET_REGION_ID(region->cfg);
+ 
++	res = clk_enable(risaf->pdata.clock);
++	if (res)
++		return res;
++
+ 	exceptions = cpu_spin_lock_xsave(&risaf->pdata.conf_lock);
+ 
+ 	if (is_region) {
+@@ -1048,6 +1083,8 @@ static TEE_Result stm32_risaf_reconfigure_area(struct firewall_query *fw,
+ 
+ 	cpu_spin_unlock_xrestore(&risaf->pdata.conf_lock, exceptions);
+ 
++	clk_disable(risaf->pdata.clock);
++
+ 	return res;
+ }
+ 
+@@ -1249,6 +1286,8 @@ static TEE_Result stm32_risaf_probe(const void *fdt, int node,
+ 		}
+ 	}
+ 
++	clk_disable(risaf->pdata.clock);
++
+ 	controller = calloc(1, sizeof(*controller));
+ 	if (!controller)
+ 		panic();
+-- 
+2.47.2
+

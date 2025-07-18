@@ -1,0 +1,68 @@
+From 44d34c883fcbd6d558600e1a7527b1d454b22a9f Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 24 Mar 2023 09:52:09 +0100
+Subject: [PATCH 0318/1695] plat-stm32mp2: add platform resources for BSEC3
+
+Add the platform function to manage bsec3. This patch adds
+the function to lock or unlock access.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 70cb7ddf4b7a7cf6f4b3f145a52db5e0f8418682 plat-stm32mp2: add platform resources for BSEC3]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Change-Id: Ied1e17d1f4730f3f4072383b3926d6e13b6d3604
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/247745
+---
+ core/arch/arm/plat-stm32mp2/main.c            | 11 +++++++++++
+ core/arch/arm/plat-stm32mp2/platform_config.h | 10 ++++++++++
+ 2 files changed, 21 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index d7c2e570d..5d89f8626 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -6,6 +6,7 @@
+ #include <config.h>
+ #include <console.h>
+ #include <drivers/gic.h>
++#include <drivers/stm32_bsec.h>
+ #include <drivers/stm32_rif.h>
+ #include <drivers/stm32_risab.h>
+ #include <drivers/stm32_risaf.h>
+@@ -172,3 +173,13 @@ void plat_abort_handler(struct thread_abort_regs *regs __unused)
+ 	/* If fault is ignored, it could be due to a SERC event */
+ 	stm32_serc_handle_ilac();
+ }
++
++#ifdef CFG_STM32_BSEC3
++void plat_bsec_get_static_cfg(struct stm32_bsec_static_cfg *cfg)
++{
++	cfg->base = BSEC3_BASE;
++	cfg->shadow = SRAM1_BASE;
++	cfg->upper_start = STM32MP2_UPPER_OTP_START;
++	cfg->max_id = STM32MP2_OTP_MAX_ID;
++}
++#endif
+diff --git a/core/arch/arm/plat-stm32mp2/platform_config.h b/core/arch/arm/plat-stm32mp2/platform_config.h
+index e377d2ce0..c59e059af 100644
+--- a/core/arch/arm/plat-stm32mp2/platform_config.h
++++ b/core/arch/arm/plat-stm32mp2/platform_config.h
+@@ -96,6 +96,16 @@
+ /* Console configuration */
+ #define GIC_SPI_UART4			126
+ 
++/*
++ * BSEC: 368 available OTPs, the other are masked
++ * - ECIES key: 368 to 375 (only readable by bootrom)
++ * - HWKEY: 376 to 383 (never reloadable or readable)
++ */
++#define STM32MP2_OTP_MAX_ID		0x16FU
++#define STM32MP2_UPPER_OTP_START	0x100U
++
++#define OTP_MAX_SIZE			(STM32MP2_OTP_MAX_ID + 1U)
++
+ #define TARGET_CPU0_GIC_MASK		BIT(0)
+ #define TARGET_CPU1_GIC_MASK		BIT(1)
+ #define TARGET_CPUS_GIC_MASK		GENMASK_32(CFG_TEE_CORE_NB_CORE - 1, 0)
+-- 
+2.47.2
+

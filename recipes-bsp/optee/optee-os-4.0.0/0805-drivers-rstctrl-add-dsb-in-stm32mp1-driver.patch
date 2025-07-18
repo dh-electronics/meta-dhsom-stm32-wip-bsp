@@ -1,0 +1,48 @@
+From f28f64d57b3c3f117f917d51beec0bd0a5479d8b Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 11 Apr 2024 11:58:33 +0200
+Subject: [PATCH 0805/1695] drivers: rstctrl: add dsb in stm32mp1 driver
+
+Add missing barrier in the stm32mp1 drivers for access
+to register, mapped as device memory (shareable, bufferable).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ae24da24e8d10b09c5eca0cb97cb32fe47e4f3d1 drivers: rstctrl: add dsb in stm32mp1 driver]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I1cd8f7cbb7f60cd70f39570028c07a83beaa124a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/305822
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373107
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/rstctrl/stm32mp1_rstctrl.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/core/drivers/rstctrl/stm32mp1_rstctrl.c b/core/drivers/rstctrl/stm32mp1_rstctrl.c
+index d16caef00..2119d1f9f 100644
+--- a/core/drivers/rstctrl/stm32mp1_rstctrl.c
++++ b/core/drivers/rstctrl/stm32mp1_rstctrl.c
+@@ -79,6 +79,9 @@ static TEE_Result reset_assert(struct rstctrl *rstctrl, unsigned int to_us)
+ 
+ 		if (!(io_read32(rcc_base + offset) & bit_mask))
+ 			return TEE_ERROR_SECURITY;
++	} else {
++		/* Make sure the above write is performed */
++		dsb();
+ 	}
+ 
+ 	return TEE_SUCCESS;
+@@ -123,6 +126,9 @@ static TEE_Result reset_deassert(struct rstctrl *rstctrl, unsigned int to_us)
+ 
+ 		if (io_read32(rcc_base + offset) & bit_mask)
+ 			return TEE_ERROR_SECURITY;
++	} else {
++		/* Make sure the above write is performed */
++		dsb();
+ 	}
+ 
+ 	return TEE_SUCCESS;
+-- 
+2.47.2
+

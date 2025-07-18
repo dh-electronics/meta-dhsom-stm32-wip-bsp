@@ -1,0 +1,47 @@
+From 750717ba0c7910714b95b28c35dc9c768ef3e5ac Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 22 May 2024 17:32:28 +0200
+Subject: [PATCH 0968/1695] core: pager: fix arguments passed to calloc in
+ alloc_merged_pgt_array()
+
+An error was reported when compiling with GCC14 on this calloc:
+
+core/arch/arm/mm/tee_pager.c: In function 'alloc_merged_pgt_array':
+core/arch/arm/mm/tee_pager.c:934:35: warning: 'calloc' sizes specified
+with 'sizeof' in the earlier argument and not in the later argument
+[-Wcalloc-transposed-args]
+   934 |         pgt_array = calloc(sizeof(struct pgt *), pgt_count);
+       |                                   ^~~~~~
+
+Looking at the code, it seems that pgt_count and sizeof(struct pgt *)
+are inverted.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 16685446d432f00f99490fcf0253b0be51780829 core: pager: fix arguments passed to calloc in alloc_merged_pgt_array()]
+Change-Id: I5970ab7b1ea8e99db74a87905494157566356b5e
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Fixes: 60e367146042 ("core: pager fix alloc_merged_pgt_array()")
+Reviewed-by: Jens Wiklander <jens.wiklander@linaro.org>
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/390271
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/mm/tee_pager.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/mm/tee_pager.c b/core/arch/arm/mm/tee_pager.c
+index a9d3f39d2..097a60c01 100644
+--- a/core/arch/arm/mm/tee_pager.c
++++ b/core/arch/arm/mm/tee_pager.c
+@@ -931,7 +931,7 @@ static struct pgt **alloc_merged_pgt_array(struct vm_paged_region *a,
+ 	    a->pgt_array[a_pgt_count - 1] != a_next->pgt_array[0])
+ 		return NULL;
+ 
+-	pgt_array = calloc(sizeof(struct pgt *), pgt_count);
++	pgt_array = calloc(pgt_count, sizeof(struct pgt *));
+ 	if (!pgt_array)
+ 		return NULL;
+ 
+-- 
+2.47.2
+

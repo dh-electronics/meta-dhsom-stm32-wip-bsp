@@ -1,0 +1,96 @@
+From 9a3c77ac48f0643c6fdbe1d7ff8ffb8bc2a3e15b Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Thu, 31 Aug 2023 13:55:39 +0200
+Subject: [PATCH 0482/1695] driver: clk: rcc: restore clock for standby
+
+Correctly handle during standby of clock activated by RCC with pm function.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cdccfc479b768d79f9effe49aafd851495218d5d driver: clk: rcc: restore clock for standby]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I03cb664f4e6cfb9a0c9b04ab89dcf358a80f9f8f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/326485
+Tested-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/clk/clk-stm32-rcc.c | 45 ++++++++++++++++++++++++++++++++
+ 1 file changed, 45 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32-rcc.c b/core/drivers/clk/clk-stm32-rcc.c
+index 894a1c69e..51d0da41c 100644
+--- a/core/drivers/clk/clk-stm32-rcc.c
++++ b/core/drivers/clk/clk-stm32-rcc.c
+@@ -3,13 +3,46 @@
+  * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
+  */
+ 
++#include <config.h>
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+ #include <drivers/stm32_gpio.h>
+ #include <kernel/dt.h>
++#include <kernel/pm.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <tee_api_defines_extensions.h>
+ 
++struct stm32mp_rcc_clock {
++	struct clk *clk;
++
++	SLIST_ENTRY(stm32mp_rcc_clock) link;
++};
++
++static SLIST_HEAD(, stm32mp_rcc_clock) stm32mp_rcc_list =
++	SLIST_HEAD_INITIALIZER(stm32mp_rcc_list);
++
++static TEE_Result
++stm32mp_rcc_pm(enum pm_op op, unsigned int pm_hint __unused,
++	       const struct pm_callback_handle *pm_handle __unused)
++{
++	struct stm32mp_rcc_clock *rcc_clock = NULL;
++
++	SLIST_FOREACH(rcc_clock, &stm32mp_rcc_list, link) {
++		if (op == PM_OP_RESUME) {
++			if (clk_enable(rcc_clock->clk)) {
++				EMSG("Can't enable %s clock",
++				     rcc_clock->clk->name);
++				panic();
++			}
++		} else {
++			clk_disable(rcc_clock->clk);
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result stm32mp_rcc_probe(const void *fdt, int node,
+ 				    const void *compat_data __unused)
+ {
+@@ -31,10 +64,22 @@ static TEE_Result stm32mp_rcc_probe(const void *fdt, int node,
+ 
+ 	/* Enable clock(s) if present */
+ 	while (!clk_dt_get_by_index(fdt, node, idx++, &clk)) {
++		struct stm32mp_rcc_clock *rcc_clock = NULL;
++
+ 		if (clk_enable(clk))
+ 			panic("Can't enable RCC clock");
++
++		rcc_clock = calloc(1, sizeof(*rcc_clock));
++		if (!rcc_clock)
++			panic("Out of memory");
++
++		rcc_clock->clk = clk;
++
++		SLIST_INSERT_HEAD(&stm32mp_rcc_list, rcc_clock, link);
+ 	}
+ 
++	register_pm_core_service_cb(stm32mp_rcc_pm, NULL, "stm32mp-rcc");
++
+ 	return TEE_SUCCESS;
+ }
+ 
+-- 
+2.47.2
+

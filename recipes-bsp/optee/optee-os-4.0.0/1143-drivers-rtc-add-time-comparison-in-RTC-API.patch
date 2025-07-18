@@ -1,0 +1,128 @@
+From 28695271a256083439dd05629ef4e16ff532b0ee Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cl=C3=A9ment=20Le=20Goffic?= <clement.legoffic@foss.st.com>
+Date: Mon, 5 Feb 2024 17:54:44 +0100
+Subject: [PATCH 1143/1695] drivers: rtc: add time comparison in RTC API
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add following features to the RTC API to support time comparison:
+-Retrieve the number of days per months.
+-Know if a year is leap
+-Compare two time structure
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e700dec17b6497425568f88bad73fd39fbd9fb99 drivers: rtc: add time comparison in RTC API]
+Change-Id: Iaf88ccabab42a6826c7b975a23c5de4621ff1005
+Signed-off-by: Clément Le Goffic <clement.legoffic@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/402357
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/rtc/rtc.c     | 46 +++++++++++++++++++++++++++++++++++++-
+ core/include/drivers/rtc.h | 28 +++++++++++++++++++++++
+ 2 files changed, 73 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/rtc/rtc.c b/core/drivers/rtc/rtc.c
+index 97d3f83a9..4c6ce6056 100644
+--- a/core/drivers/rtc/rtc.c
++++ b/core/drivers/rtc/rtc.c
+@@ -5,10 +5,54 @@
+ 
+ #include <assert.h>
+ #include <drivers/rtc.h>
+-#include <tee_api_types.h>
++
++/* Time fields shift values to fit date in a 32bit word */
++#define RTC_CMP_YEAR_SHIFT	U(26)
++#define RTC_CMP_MONTH_SHIFT	U(22)
++#define RTC_CMP_DAY_SHIFT	U(17)
++#define RTC_CMP_HOUR_SHIFT	U(12)
++#define RTC_CMP_MINUTES_SHIFT	U(6)
+ 
+ struct rtc *rtc_device;
+ 
++static const uint8_t rtc_months_days[] = {
++	31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
++};
++
++bool rtc_is_a_leap_year(uint32_t year)
++{
++	return !(year % 4) && ((year % 100) || !(year % 400));
++}
++
++uint8_t rtc_get_month_days(uint32_t month, uint32_t year)
++{
++	if (rtc_is_a_leap_year(year) && month == 1)
++		return rtc_months_days[month] + 1;
++	else
++		return rtc_months_days[month];
++}
++
++int rtc_timecmp(struct optee_rtc_time *a, struct optee_rtc_time *b)
++{
++	uint32_t tm_a = 0;
++	uint32_t tm_b = 0;
++
++	tm_a = (a->tm_year << RTC_CMP_YEAR_SHIFT) +
++	       (a->tm_mon << RTC_CMP_MONTH_SHIFT) +
++	       (a->tm_mday << RTC_CMP_DAY_SHIFT) +
++	       (a->tm_hour << RTC_CMP_HOUR_SHIFT) +
++	       (a->tm_min << RTC_CMP_MINUTES_SHIFT) +
++	       a->tm_sec;
++	tm_b = (b->tm_year << RTC_CMP_YEAR_SHIFT) +
++	       (b->tm_mon << RTC_CMP_MONTH_SHIFT) +
++	       (b->tm_mday << RTC_CMP_DAY_SHIFT) +
++	       (b->tm_hour << RTC_CMP_HOUR_SHIFT) +
++	       (b->tm_min << RTC_CMP_MINUTES_SHIFT) +
++	       b->tm_sec;
++
++	return CMP_TRILEAN(tm_a, tm_b);
++}
++
+ void rtc_register(struct rtc *rtc)
+ {
+ 	/* One RTC is supported only */
+diff --git a/core/include/drivers/rtc.h b/core/include/drivers/rtc.h
+index 876575b64..1c3dc3b1d 100644
+--- a/core/include/drivers/rtc.h
++++ b/core/include/drivers/rtc.h
+@@ -86,6 +86,34 @@ struct rtc_ops {
+ 	TEE_Result (*set_alarm_wakeup_status)(struct rtc *rtc, bool status);
+ };
+ 
++/**
++ * rtc_is_a_leap_year() - Check if a year is a leap year
++ * @year:	The year to check
++ *
++ * Return:	true if the year is a leap year, false otherwise
++ */
++bool rtc_is_a_leap_year(uint32_t year);
++
++/**
++ * rtc_get_month_days() - Get the number of days in a month
++ * @month:	The month to know the number of days
++ * @year:	The year of the month
++ *
++ * Return:	Number of days in the month
++ */
++uint8_t rtc_get_month_days(uint32_t month, uint32_t year);
++
++/**
++ * rtc_timecmp() - Compare two RTC time structures
++ * @a:		First RTC time
++ * @b:		Second RTC time
++ *
++ * Return a negative value if a < b
++ * Return 0 if a == b
++ * Return a positive value if a > b
++ */
++int rtc_timecmp(struct optee_rtc_time *a, struct optee_rtc_time *b);
++
+ #ifdef CFG_DRIVERS_RTC
+ extern struct rtc *rtc_device;
+ 
+-- 
+2.47.2
+

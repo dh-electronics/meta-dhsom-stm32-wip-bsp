@@ -1,0 +1,31 @@
+From 5ae9936d30377e5f72d900504983a3a2d6033bc5 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 12 Jan 2024 16:13:16 +0100
+Subject: [PATCH 0422/1695] drivers: stm32_i2c: apply pinctrl config at init
+
+Load pinctrl active configuration during I2C bus initialization.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 639a254fb8e14b142931e65d9040833a93369062 drivers: stm32_i2c: apply pinctrl config at init]
+Change-Id: I5d44f798a46b10de5310f30e802384f3c98fa3f3
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/drivers/stm32_i2c.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/core/drivers/stm32_i2c.c b/core/drivers/stm32_i2c.c
+index 563dfc946..4d2b09870 100644
+--- a/core/drivers/stm32_i2c.c
++++ b/core/drivers/stm32_i2c.c
+@@ -1654,6 +1654,9 @@ static TEE_Result stm32_i2c_probe(const void *fdt, int node,
+ 	init_data.analog_filter = true;
+ 	init_data.digital_filter_coef = 0;
+ 
++	if (pinctrl_apply_state(i2c_handle_p->pinctrl))
++		panic();
++
+ 	res = stm32_i2c_init(i2c_handle_p, &init_data);
+ 	if (res)
+ 		panic("Couldn't initialise I2C");
+-- 
+2.47.2
+

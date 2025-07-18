@@ -1,0 +1,50 @@
+From 49875a33bf9bc523cdf3752ae2bf2e42dfcffc13 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 12 Sep 2024 08:08:57 +0200
+Subject: [PATCH 1189/1695] core: panic: clean cache before issuing WFI
+ instruction
+
+Clean cache on CPU that panics before it issues WFI instructions.
+On STM32MP* platforms, a WFI instruct will cause the CPU to enter
+reset state when device is configure for a STM32MP STANDBY state.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8fc6633daae1c4731a78eaec1c9cfc79676d9f21 core: panic: clean cache before issuing WFI instruction]
+Change-Id: Iefd273730a6675a07cc5434e1d9208c25d085a64
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/403894
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/kernel/panic.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/core/kernel/panic.c b/core/kernel/panic.c
+index 9edef97d8..5851c2c73 100644
+--- a/core/kernel/panic.c
++++ b/core/kernel/panic.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <initcall.h>
++#include <kernel/cache_helpers.h>
+ #include <kernel/interrupt.h>
+ #include <kernel/misc.h>
+ #include <kernel/panic.h>
+@@ -22,6 +23,12 @@ multi_core_panic_it_handler(struct itr_handler *hdl __unused)
+ {
+ 	IMSG("Halting CPU %zu", get_core_pos());
+ 
++	/*
++	 * Going to idle may put the CPU in reset state on
++	 * STM32MP* platform. Clean cache to ensure consistency.
++	 */
++	dcache_op_level1(DCACHE_OP_CLEAN);
++
+ 	while (true)
+ 		cpu_idle();
+ }
+-- 
+2.47.2
+

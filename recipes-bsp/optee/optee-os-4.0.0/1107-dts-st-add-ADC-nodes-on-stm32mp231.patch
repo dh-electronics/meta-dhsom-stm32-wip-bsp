@@ -1,0 +1,139 @@
+From 0449feb24ed24acbb1bfa66303832136c6708eb7 Mon Sep 17 00:00:00 2001
+From: Cheick Traore <cheick.traore-ext@st.com>
+Date: Tue, 3 Sep 2024 09:51:59 +0200
+Subject: [PATCH 1107/1695] dts: st: add ADC nodes on stm32mp231
+
+Add ADC nodes on STM32MP25 SoC. It has 3 ADCs,
+split into two blocks:
+- ADC12 (ADC1 & ADC2) are tightly coupled.
+- ADC3 is managed independently.
+Also define internal voltage channels for each ADCs, exception made for
+vbat/4 channel (to avoid undesired load on it, in case no conversion is
+needed on this channel). Choice is let to board implementation (via DT)
+to define it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1f5c48c28d38654e6445e4025ac2783ad57d6a4f dts: st: add ADC nodes on stm32mp231]
+Change-Id: Ia867eee9ca0ef610f21e5a77ed1126105de77b84
+Signed-off-by: Cheick Traore <cheick.traore-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/401596
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp231.dtsi | 98 +++++++++++++++++++++++++++++++
+ 1 file changed, 98 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp231.dtsi b/core/arch/arm/dts/stm32mp231.dtsi
+index 3962420ca..ea63798a3 100644
+--- a/core/arch/arm/dts/stm32mp231.dtsi
++++ b/core/arch/arm/dts/stm32mp231.dtsi
+@@ -430,6 +430,104 @@
+ 				status = "disabled";
+ 			};
+ 
++			adc_12: adc@404e0000 {
++				compatible = "st,stm32mp23-adc-core";
++				reg = <0x404e0000 0x400>;
++				interrupts = <GIC_SPI 87 IRQ_TYPE_LEVEL_HIGH>,
++					<GIC_SPI 88 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&rcc CK_KER_ADC12>;
++				clock-names = "adc";
++				interrupt-controller;
++				#interrupt-cells = <1>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				access-controllers = <&rifsc STM32MP25_RIFSC_ADC12_ID>;
++				status = "disabled";
++
++				adc1: adc@0 {
++					compatible = "st,stm32mp23-adc";
++					reg = <0x0>;
++					interrupt-parent = <&adc_12>;
++					interrupts = <0>;
++					#io-channel-cells = <1>;
++					#address-cells = <1>;
++					#size-cells = <0>;
++					status = "disabled";
++					channel@14 {
++						reg = <14>;
++						label = "vrefint";
++					};
++				};
++
++				adc2: adc@100 {
++					compatible = "st,stm32mp23-adc";
++					reg = <0x100>;
++					interrupt-parent = <&adc_12>;
++					interrupts = <1>;
++					#io-channel-cells = <1>;
++					#address-cells = <1>;
++					#size-cells = <0>;
++					status = "disabled";
++					channel@14 {
++						reg = <14>;
++						label = "vrefint";
++					};
++					channel@15 {
++						reg = <15>;
++						label = "vddcore";
++					};
++					channel@17 {
++						reg = <17>;
++						label = "vddcpu";
++					};
++					channel@18 {
++						reg = <18>;
++						label = "vddgpu";
++					};
++				};
++			};
++
++			adc_3: adc@404f0000 {
++				compatible = "st,stm32mp23-adc-core";
++				reg = <0x404f0000 0x400>;
++				interrupts = <GIC_SPI 89 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&rcc CK_KER_ADC3>;
++				clock-names = "adc";
++				interrupt-controller;
++				#interrupt-cells = <1>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				access-controllers = <&rifsc STM32MP25_RIFSC_ADC3_ID>;
++				status = "disabled";
++
++				adc3: adc@0 {
++					compatible = "st,stm32mp23-adc";
++					reg = <0x0>;
++					interrupt-parent = <&adc_3>;
++					interrupts = <0>;
++					#io-channel-cells = <1>;
++					#address-cells = <1>;
++					#size-cells = <0>;
++					status = "disabled";
++					channel@14 {
++						reg = <14>;
++						label = "vrefint";
++					};
++					channel@15 {
++						reg = <15>;
++						label = "vddcore";
++					};
++					channel@17 {
++						reg = <17>;
++						label = "vddcpu";
++					};
++					channel@18 {
++						reg = <18>;
++						label = "vddgpu";
++					};
++				};
++			};
++
+ 			hash: hash@42010000  {
+ 				compatible = "st,stm32mp13-hash";
+ 				reg = <0x42010000  0x400>;
+-- 
+2.47.2
+

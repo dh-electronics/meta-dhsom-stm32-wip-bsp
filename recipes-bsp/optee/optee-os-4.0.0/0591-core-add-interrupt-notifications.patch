@@ -1,0 +1,381 @@
+From ca744a3c1c319cb1cab942806b91349ac39b8869 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 15 Feb 2024 13:39:34 +0100
+Subject: [PATCH 0591/1695] core: add interrupt notifications
+
+Allows to send interrupts to non-secure world using the async
+notification mechanism. The difference with async notif is that
+non-secure world handle the event from a interrupt context.
+
+A notified interrupt is an identifier between 0 and NOTIF_IT_VALUE_MAX
+managed using a list separated from the async notif ID list. Non-secure
+world uses the same async notif mechanism to query pending interrupt
+event, using added OPTEE_SMC_GET_IT_NOTIF_VALUE API function ID.
+
+Adds another SMC service to mask/unmask a interrupt notification line.
+
+For the implementation, it_pending bit string contains the pending state
+of each IT. It is set when notif_send_it(it number) is called and
+cleared during OPTEE_SMC_GET_IT_VALUE.
+
+Bit field it_masked bit string contains the masking state that is set
+with OPTEE_SMC_SET_IT_MASK.
+
+This change defines up to 32 interrupt identifiers OP-TEE can notify
+to non-secure world. Once core is initialized, all interrupt notifiers
+are masked.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d73dfa52c0832717d0055b01ef077015d460fe1f core: add interrupt notifications]
+Change-Id: Ia5537919bcefb9f83497a649de7b515eb091d204
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+[etienne: rephrased commit log, added dedicated caps]
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/280743
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/include/sm/optee_smc.h | 72 +++++++++++++++++++++++
+ core/arch/arm/tee/entry_fast.c       | 37 ++++++++++++
+ core/include/kernel/notif.h          | 25 ++++++++
+ core/kernel/notif.c                  | 85 ++++++++++++++++++++++++++++
+ 4 files changed, 219 insertions(+)
+
+diff --git a/core/arch/arm/include/sm/optee_smc.h b/core/arch/arm/include/sm/optee_smc.h
+index c0b512ebd..9e2268b48 100644
+--- a/core/arch/arm/include/sm/optee_smc.h
++++ b/core/arch/arm/include/sm/optee_smc.h
+@@ -549,6 +549,12 @@
+  */
+ #define OPTEE_SMC_ASYNC_NOTIF_VALUE_DO_BOTTOM_HALF	0
+ 
++/*
++ * Notification that OP-TEE triggers an interrupt event to Linux kernel
++ * for an interrupt consumer.
++ */
++#define OPTEE_SMC_ASYNC_NOTIF_VALUE_DO_IT		U(1)
++
+ #define OPTEE_SMC_FUNCID_GET_ASYNC_NOTIF_VALUE	17
+ #define OPTEE_SMC_GET_ASYNC_NOTIF_VALUE \
+ 	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_GET_ASYNC_NOTIF_VALUE)
+@@ -559,6 +565,72 @@
+ /* See OPTEE_SMC_CALL_WITH_REGD_ARG above */
+ #define OPTEE_SMC_FUNCID_CALL_WITH_REGD_ARG	U(19)
+ 
++/*
++ * Retrieve a value of interrupt notifications pending since the last call
++ * of this function. Interrupt notification (IT_NOTIF) differs from ASYNC_NOTIF
++ * in that ASYNC_NOTIF allows non-secure world to wake or request a secure
++ * threaded execution while IT_NOTIF triggers an interrupt context event in the
++ * non-secure world, that is a event handler from a top half interrupt context.
++ *
++ * OP-TEE keeps a record of all posted values. When an interrupt is
++ * received by the REE, which indicates that there are posted values,
++ * this function should be called until all pended values have been retrieved.
++ * When a value is retrieved it's cleared from the record in secure world.
++ *
++ * It is expected that this function is called from an interrupt handler
++ * in normal world.
++ *
++ * Call requests usage:
++ * a0	SMC Function ID, OPTEE_SMC_GET_IT_NOTIF_VALUE
++ * a1-6	Not used
++ * a7	Hypervisor Client ID register
++ *
++ * Normal return register usage:
++ * a0	OPTEE_SMC_RETURN_OK
++ * a1	IT_NOTIF interrupt identifier value
++ * a2	Bit[0]: OPTEE_SMC_IT_NOTIF_VALUE_VALID if the value in a1 is
++ *		valid, else 0 if no values where pending
++ * a2	Bit[1]: OPTEE_SMC_IT_NOTIF_VALUE_PENDING if another value is
++ *		pending, else 0.
++ *	Bit[31:2]: MBZ
++ * a3-7	Preserved
++ *
++ * Not supported return register usage:
++ * a0	OPTEE_SMC_RETURN_ENOTAVAIL
++ * a1-7	Preserved
++ */
++#define OPTEE_SMC_IT_NOTIF_VALID	BIT(0)
++#define OPTEE_SMC_IT_NOTIF_PENDING	BIT(1)
++
++#define OPTEE_SMC_FUNCID_GET_IT_NOTIF_VALUE	U(53)
++#define OPTEE_SMC_GET_IT_NOTIF_VALUE \
++	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_GET_IT_NOTIF_VALUE)
++
++/*
++ * Mask or unmask an interrupt notification event.
++ *
++ * It is expected that this function is called from an interrupt handler
++ * in normal world.
++ *
++ * Call requests usage:
++ * a0	SMC Function ID, OPTEE_SMC_SET_IT_NOTIF_MASK
++ * a1	Interrupt identifier value
++ * a2	1 if interrupt is to be masked, 0 if interrupt is to be masked
++ * a3-6	Not used
++ * a7	Hypervisor Client ID register
++ *
++ * Normal return register usage:
++ * a0	OPTEE_SMC_RETURN_OK
++ * a1-7	Preserved
++ *
++ * Not supported return register usage:
++ * a0	OPTEE_SMC_RETURN_ENOTAVAIL
++ * a1-7	Preserved
++ */
++#define OPTEE_SMC_FUNCID_SET_IT_NOTIF_MASK	U(54)
++#define OPTEE_SMC_SET_IT_NOTIF_MASK \
++	OPTEE_SMC_FAST_CALL_VAL(OPTEE_SMC_FUNCID_SET_IT_NOTIF_MASK)
++
+ /*
+  * Resume from RPC (for example after processing a foreign interrupt)
+  *
+diff --git a/core/arch/arm/tee/entry_fast.c b/core/arch/arm/tee/entry_fast.c
+index 5d54dbebf..44b94badb 100644
+--- a/core/arch/arm/tee/entry_fast.c
++++ b/core/arch/arm/tee/entry_fast.c
+@@ -228,6 +228,29 @@ static void tee_entry_watchdog(struct thread_smc_args *args)
+ #endif
+ }
+ 
++static void get_it_value(struct thread_smc_args *args)
++{
++	bool value_valid = false;
++	bool value_pending = false;
++
++	args->a0 = OPTEE_SMC_RETURN_OK;
++	args->a1 = it_get_value(&value_valid, &value_pending);
++	args->a2 = 0;
++	if (value_valid)
++		args->a2 |= OPTEE_SMC_IT_NOTIF_VALID;
++	if (value_pending)
++		args->a2 |= OPTEE_SMC_IT_NOTIF_PENDING;
++}
++
++static void set_it_mask(struct thread_smc_args *args)
++{
++	uint32_t it_value = args->a1;
++	bool masked = args->a2;
++
++	args->a0 = OPTEE_SMC_RETURN_OK;
++	it_set_mask(it_value, masked);
++}
++
+ /*
+  * If tee_entry_fast() is overridden, it's still supposed to call this
+  * function.
+@@ -307,6 +330,20 @@ void __tee_entry_fast(struct thread_smc_args *args)
+ 		tee_entry_watchdog(args);
+ 		break;
+ 
++	case OPTEE_SMC_GET_IT_NOTIF_VALUE:
++		if (IS_ENABLED(CFG_CORE_ASYNC_NOTIF))
++			get_it_value(args);
++		else
++			args->a0 = OPTEE_SMC_RETURN_UNKNOWN_FUNCTION;
++		break;
++
++	case OPTEE_SMC_SET_IT_NOTIF_MASK:
++		if (IS_ENABLED(CFG_CORE_ASYNC_NOTIF))
++			set_it_mask(args);
++		else
++			args->a0 = OPTEE_SMC_RETURN_UNKNOWN_FUNCTION;
++		break;
++
+ 	default:
+ 		args->a0 = OPTEE_SMC_RETURN_UNKNOWN_FUNCTION;
+ 		break;
+diff --git a/core/include/kernel/notif.h b/core/include/kernel/notif.h
+index 71b53d8ea..28c9fc9c8 100644
+--- a/core/include/kernel/notif.h
++++ b/core/include/kernel/notif.h
+@@ -38,6 +38,11 @@
+ 
+ #define NOTIF_VALUE_DO_BOTTOM_HALF	0
+ 
++/* NOTIF_VALUE_DO_IT notify that an IT is pending */
++#define NOTIF_VALUE_DO_IT		1
++
++#define NOTIF_IT_VALUE_MAX		U(31)
++
+ /*
+  * enum notif_event - Notification of an event
+  * @NOTIF_EVENT_STARTED:	Delivered in an atomic context to inform
+@@ -111,10 +116,15 @@ TEE_Result notif_wait(uint32_t value);
+  */
+ #if defined(CFG_CORE_ASYNC_NOTIF)
+ void notif_send_async(uint32_t value);
++void notif_send_it(uint32_t it_value);
+ #else
+ static inline void notif_send_async(uint32_t value __unused)
+ {
+ }
++
++static inline void notif_send_it(uint32_t value __unused)
++{
++}
+ #endif
+ 
+ /*
+@@ -143,6 +153,8 @@ static inline void notif_unregister_driver(struct notif_driver *ndrv __unused)
+ /* This is called from a fast call */
+ #if defined(CFG_CORE_ASYNC_NOTIF)
+ uint32_t notif_get_value(bool *value_valid, bool *value_pending);
++uint32_t it_get_value(bool *value_valid, bool *value_pending);
++uint32_t it_set_mask(uint32_t it_value, bool masked);
+ #else
+ static inline uint32_t notif_get_value(bool *value_valid, bool *value_pending)
+ {
+@@ -150,6 +162,19 @@ static inline uint32_t notif_get_value(bool *value_valid, bool *value_pending)
+ 	*value_pending = false;
+ 	return UINT32_MAX;
+ }
++
++static inline uint32_t it_get_value(bool *value_valid, bool *value_pending)
++{
++	*value_valid = false;
++	*value_pending = false;
++	return UINT32_MAX;
++}
++
++static inline uint32_t it_set_mask(uint32_t it_value __unused,
++				   bool masked __unused)
++{
++	return 0;
++}
+ #endif
+ 
+ /*
+diff --git a/core/kernel/notif.c b/core/kernel/notif.c
+index abf9feafa..a6a2607ab 100644
+--- a/core/kernel/notif.c
++++ b/core/kernel/notif.c
+@@ -11,8 +11,14 @@
+ #include <kernel/spinlock.h>
+ #include <kernel/thread.h>
+ #include <optee_rpc_cmd.h>
++#include <sm/optee_smc.h>
+ #include <types_ext.h>
+ 
++/* Async notif ID related to interrupt event triggered in non-secure world */
++#define NOTIF_VALUE_DO_IT		1
++
++static_assert(NOTIF_VALUE_DO_IT == OPTEE_SMC_ASYNC_NOTIF_VALUE_DO_IT);
++
+ #if defined(CFG_CORE_ASYNC_NOTIF)
+ static struct mutex notif_mutex = MUTEX_INITIALIZER;
+ static unsigned int notif_lock = SPINLOCK_UNLOCK;
+@@ -25,6 +31,10 @@ static bitstr_t bit_decl(notif_values, NOTIF_ASYNC_VALUE_MAX + 1);
+ static bitstr_t bit_decl(notif_alloc_values, NOTIF_ASYNC_VALUE_MAX + 1);
+ static bool notif_started;
+ 
++static bitstr_t bit_decl(it_pending, NOTIF_IT_VALUE_MAX + 1);
++static bitstr_t bit_decl(it_masked, NOTIF_IT_VALUE_MAX + 1);
++static unsigned int it_lock = SPINLOCK_UNLOCK;
++
+ TEE_Result notif_alloc_async_value(uint32_t *val)
+ {
+ 	static bool alloc_values_inited;
+@@ -37,6 +47,7 @@ TEE_Result notif_alloc_async_value(uint32_t *val)
+ 
+ 	if (!alloc_values_inited) {
+ 		bit_set(notif_alloc_values, NOTIF_VALUE_DO_BOTTOM_HALF);
++		bit_set(notif_alloc_values, NOTIF_VALUE_DO_IT);
+ 		alloc_values_inited = true;
+ 	}
+ 
+@@ -109,6 +120,74 @@ void notif_send_async(uint32_t value)
+ 	cpu_spin_unlock_xrestore(&notif_lock, old_itr_status);
+ }
+ 
++uint32_t it_get_value(bool *value_valid, bool *value_pending)
++{
++	uint32_t old_itr_status = 0;
++	uint32_t res = 0;
++	int bit = 0;
++
++	old_itr_status = cpu_spin_lock_xsave(&it_lock);
++
++	bit_ffs(it_pending, (int)NOTIF_IT_VALUE_MAX, &bit);
++
++	*value_valid = (bit >= 0);
++	if (!*value_valid) {
++		*value_pending = false;
++		goto out;
++	}
++
++	res = bit;
++	bit_clear(it_pending, res);
++	bit_ffs(it_pending, (int)NOTIF_IT_VALUE_MAX, &bit);
++	*value_pending = (bit >= 0);
++out:
++	cpu_spin_unlock_xrestore(&it_lock, old_itr_status);
++
++	return res;
++}
++
++uint32_t it_set_mask(uint32_t it_number, bool masked)
++{
++	uint32_t old_itr_status = 0;
++
++	old_itr_status = cpu_spin_lock_xsave(&it_lock);
++
++	DMSG("it_number=%"PRIu32" masked=%u", it_number, masked);
++
++	if (it_number >= NOTIF_IT_VALUE_MAX)
++		goto out;
++
++	if (masked) {
++		bit_set(it_masked, it_number);
++	} else {
++		bit_clear(it_masked, it_number);
++
++		if (bit_test(it_pending, it_number))
++			notif_send_async(NOTIF_VALUE_DO_IT);
++	}
++
++out:
++	cpu_spin_unlock_xrestore(&it_lock, old_itr_status);
++
++	return 0;
++}
++
++void notif_send_it(uint32_t it_number)
++{
++	uint32_t old_itr_status = 0;
++
++	assert(it_number <= NOTIF_IT_VALUE_MAX);
++	old_itr_status = cpu_spin_lock_xsave(&it_lock);
++
++	DMSG("0x%"PRIx32, it_number);
++	bit_set(it_pending, it_number);
++
++	if (!bit_test(it_masked, it_number))
++		notif_send_async(NOTIF_VALUE_DO_IT);
++
++	cpu_spin_unlock_xrestore(&it_lock, old_itr_status);
++}
++
+ bool notif_async_is_started(void)
+ {
+ 	uint32_t old_itr_status = 0;
+@@ -132,6 +211,12 @@ void notif_register_driver(struct notif_driver *ndrv)
+ 	SLIST_INSERT_HEAD(&notif_driver_head, ndrv, link);
+ 
+ 	cpu_spin_unlock_xrestore(&notif_lock, old_itr_status);
++
++	old_itr_status = cpu_spin_lock_xsave(&it_lock);
++
++	bit_nset(it_masked, 0, (int)NOTIF_IT_VALUE_MAX);
++
++	cpu_spin_unlock_xrestore(&it_lock, old_itr_status);
+ }
+ 
+ void notif_unregister_driver(struct notif_driver *ndrv)
+-- 
+2.47.2
+

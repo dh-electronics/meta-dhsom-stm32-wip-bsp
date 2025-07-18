@@ -1,0 +1,66 @@
+From 0cd75381caccdb905a52a31d2d8c3397bbf728d5 Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@foss.st.com>
+Date: Wed, 8 Dec 2021 14:58:24 +0100
+Subject: [PATCH 0527/1695] plat-stm32mp1: scmi: add the power management in
+ server
+
+Add the callback for SCMI server power management.
+It will properly reinitialized the channel when coming
+back from resume.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 365927c29cb7a6a4e14ed59a8a6f12b2a7f710e3 plat-stm32mp1: scmi: add the power management in server]
+Change-Id: I73751f560e345416845edc46073f91c5f4358437
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/358373
+Tested-by: Pascal PAILLET <p.paillet@st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Pascal PAILLET <p.paillet@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/scmi_server.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp1/scmi_server.c b/core/arch/arm/plat-stm32mp1/scmi_server.c
+index 5a525125e..3e8931481 100644
+--- a/core/arch/arm/plat-stm32mp1/scmi_server.c
++++ b/core/arch/arm/plat-stm32mp1/scmi_server.c
+@@ -949,6 +949,26 @@ static void __noreturn get_voltd_regulator(struct stm32_scmi_voltd *v __unused)
+ }
+ #endif /*CFG_SCMI_MSG_REGULATOR_CONSUMER*/
+ 
++static TEE_Result stm32_scmi_pm(enum pm_op op, unsigned int pm_hint __unused,
++				const struct pm_callback_handle *hdl __unused)
++{
++	struct scmi_msg_channel *chan = NULL;
++	size_t i = 0;
++
++	if (op == PM_OP_RESUME) {
++		for (i = 0; i < ARRAY_SIZE(scmi_channel); i++) {
++			chan = plat_scmi_get_channel(i);
++
++			assert(chan && chan->shm_addr.va);
++
++			scmi_smt_init_agent_channel(chan);
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++DECLARE_KEEP_PAGER(stm32_scmi_pm);
++
+ /*
+  * Initialize platform SCMI resources
+  */
+@@ -957,6 +977,8 @@ static TEE_Result stm32mp1_init_scmi_server(void)
+ 	size_t i = 0;
+ 	size_t j = 0;
+ 
++	register_pm_driver_cb(stm32_scmi_pm, NULL, "scmi-server-driver");
++
+ 	for (i = 0; i < ARRAY_SIZE(scmi_channel); i++) {
+ 		const struct channel_resources *res = scmi_channel + i;
+ 		struct scmi_msg_channel *chan = res->channel;
+-- 
+2.47.2
+

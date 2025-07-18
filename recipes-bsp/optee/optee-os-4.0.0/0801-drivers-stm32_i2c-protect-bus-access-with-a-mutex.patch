@@ -1,0 +1,176 @@
+From 206b12fffd8b7d01a9c32634450ac181693df008 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 18 Mar 2024 11:41:56 +0100
+Subject: [PATCH 0801/1695] drivers: stm32_i2c: protect bus access with a mutex
+
+Protect concurrent accesses to an STM32 I2C bus with a PM aware mutex.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c3e450c86e73fc07d520ee1c47339cf1861094e5 drivers: stm32_i2c: protect bus access with a mutex]
+Change-Id: I31b5e12c64971529ca0587c70cdf7baea190dbd9
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+(cherry picked from commit bdde1c9927e8d6367bbde286025d937be11b7fdf)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/367755
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/stm32_i2c.c         | 37 ++++++++++++++++++++++++++------
+ core/include/drivers/stm32_i2c.h |  3 +++
+ 2 files changed, 33 insertions(+), 7 deletions(-)
+
+diff --git a/core/drivers/stm32_i2c.c b/core/drivers/stm32_i2c.c
+index a76cdb1cf..ea9975a1d 100644
+--- a/core/drivers/stm32_i2c.c
++++ b/core/drivers/stm32_i2c.c
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: (GPL-2.0 OR BSD-3-Clause)
+ /*
+- * Copyright (c) 2017-2019, STMicroelectronics
++ * Copyright (c) 2017-2024, STMicroelectronics
+  *
+  * The driver API is defined in header file stm32_i2c.h.
+  *
+@@ -20,6 +20,7 @@
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+ #include <kernel/dt_driver.h>
++#include <kernel/mutex_pm_aware.h>
+ #include <kernel/panic.h>
+ #include <libfdt.h>
+ #include <stdbool.h>
+@@ -766,6 +767,8 @@ int stm32_i2c_init(struct i2c_handle_s *hi2c,
+ 	vaddr_t base = 0;
+ 	uint32_t val = 0;
+ 
++	mutex_pm_aware_init(&hi2c->mu);
++
+ 	rc = i2c_setup_timing(hi2c, init_data, &timing);
+ 	if (rc)
+ 		return rc;
+@@ -1080,11 +1083,15 @@ static int do_write(struct i2c_handle_s *hi2c, struct i2c_request *request,
+ 	if (request->mode != I2C_MODE_MASTER && request->mode != I2C_MODE_MEM)
+ 		return -1;
+ 
+-	if (hi2c->i2c_state != I2C_STATE_READY)
++	if (!p_data || !size)
+ 		return -1;
+ 
+-	if (!p_data || !size)
++	mutex_pm_aware_lock(&hi2c->mu);
++
++	if (hi2c->i2c_state != I2C_STATE_READY) {
++		mutex_pm_aware_unlock(&hi2c->mu);
+ 		return -1;
++	}
+ 
+ 	clk_enable(hi2c->clock);
+ 
+@@ -1174,6 +1181,7 @@ static int do_write(struct i2c_handle_s *hi2c, struct i2c_request *request,
+ 
+ bail:
+ 	clk_disable(hi2c->clock);
++	mutex_pm_aware_unlock(&hi2c->mu);
+ 
+ 	return rc;
+ }
+@@ -1216,8 +1224,12 @@ int stm32_i2c_read_write_membyte(struct i2c_handle_s *hi2c, uint16_t dev_addr,
+ 	uint8_t *p_buff = p_data;
+ 	uint32_t event_mask = 0;
+ 
+-	if (hi2c->i2c_state != I2C_STATE_READY || !p_data)
++	mutex_pm_aware_lock(&hi2c->mu);
++
++	if (hi2c->i2c_state != I2C_STATE_READY || !p_data) {
++		mutex_pm_aware_unlock(&hi2c->mu);
+ 		return -1;
++	}
+ 
+ 	clk_enable(hi2c->clock);
+ 
+@@ -1277,6 +1289,7 @@ int stm32_i2c_read_write_membyte(struct i2c_handle_s *hi2c, uint16_t dev_addr,
+ 
+ bail:
+ 	clk_disable(hi2c->clock);
++	mutex_pm_aware_unlock(&hi2c->mu);
+ 
+ 	return rc;
+ }
+@@ -1303,11 +1316,15 @@ static int do_read(struct i2c_handle_s *hi2c, struct i2c_request *request,
+ 	if (request->mode != I2C_MODE_MASTER && request->mode != I2C_MODE_MEM)
+ 		return -1;
+ 
+-	if (hi2c->i2c_state != I2C_STATE_READY)
++	if (!p_data || !size)
+ 		return -1;
+ 
+-	if (!p_data || !size)
++	mutex_pm_aware_lock(&hi2c->mu);
++
++	if (hi2c->i2c_state != I2C_STATE_READY) {
++		mutex_pm_aware_unlock(&hi2c->mu);
+ 		return -1;
++	}
+ 
+ 	clk_enable(hi2c->clock);
+ 
+@@ -1392,6 +1409,7 @@ static int do_read(struct i2c_handle_s *hi2c, struct i2c_request *request,
+ 
+ bail:
+ 	clk_disable(hi2c->clock);
++	mutex_pm_aware_unlock(&hi2c->mu);
+ 
+ 	return rc;
+ }
+@@ -1473,8 +1491,12 @@ bool stm32_i2c_is_device_ready(struct i2c_handle_s *hi2c, uint32_t dev_addr,
+ 	unsigned int i2c_trials = 0U;
+ 	bool rc = false;
+ 
+-	if (hi2c->i2c_state != I2C_STATE_READY)
++	mutex_pm_aware_lock(&hi2c->mu);
++
++	if (hi2c->i2c_state != I2C_STATE_READY) {
++		mutex_pm_aware_unlock(&hi2c->mu);
+ 		return rc;
++	}
+ 
+ 	clk_enable(hi2c->clock);
+ 
+@@ -1549,6 +1571,7 @@ bool stm32_i2c_is_device_ready(struct i2c_handle_s *hi2c, uint32_t dev_addr,
+ 
+ bail:
+ 	clk_disable(hi2c->clock);
++	mutex_pm_aware_unlock(&hi2c->mu);
+ 
+ 	return rc;
+ }
+diff --git a/core/include/drivers/stm32_i2c.h b/core/include/drivers/stm32_i2c.h
+index 0c955ade2..42b26b0eb 100644
+--- a/core/include/drivers/stm32_i2c.h
++++ b/core/include/drivers/stm32_i2c.h
+@@ -11,6 +11,7 @@
+ #include <drivers/pinctrl.h>
+ #include <kernel/dt.h>
+ #include <kernel/dt_driver.h>
++#include <kernel/mutex_pm_aware.h>
+ #include <mm/core_memprot.h>
+ #include <stdbool.h>
+ #include <stdint.h>
+@@ -114,6 +115,7 @@ struct i2c_cfg {
+  * @sec_cfg: I2C registers configuration storage
+  * @pinctrl: Pin control configuration for the I2C bus in active state
+  * @pinctrl_sleep: Pin control configuration for the I2C bus in standby state
++ * @mu: Protection on concurrent access to the I2C bus considering PM context
+  */
+ struct i2c_handle_s {
+ 	struct io_pa_va base;
+@@ -127,6 +129,7 @@ struct i2c_handle_s {
+ 	struct i2c_cfg sec_cfg;
+ 	struct pinctrl_state *pinctrl;
+ 	struct pinctrl_state *pinctrl_sleep;
++	struct mutex_pm_aware mu;
+ };
+ 
+ /*
+-- 
+2.47.2
+

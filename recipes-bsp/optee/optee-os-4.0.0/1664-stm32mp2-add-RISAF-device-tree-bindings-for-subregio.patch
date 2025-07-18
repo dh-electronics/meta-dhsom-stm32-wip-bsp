@@ -1,0 +1,108 @@
+From 77d47cb32124276cd39e222358a65f18ba30aeeb Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Fri, 7 Mar 2025 12:06:27 +0100
+Subject: [PATCH 1664/1695] stm32mp2: add RISAF device tree bindings for
+ subregions
+
+RISAF subregion management requests some specific device tree
+bindings, all gathered in a new RISAFSUBPROT macro.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e2b52ff720a7f4dd37890b99c2be6b56f9177efc stm32mp2: add RISAF device tree bindings for subregions]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I951f99f3a72edab1b9be4e903758224c6bde8b6d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/443824
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ .../include/dt-bindings/soc/stm32mp25-risaf.h | 59 ++++++++++++++++++-
+ 1 file changed, 58 insertions(+), 1 deletion(-)
+
+diff --git a/core/include/dt-bindings/soc/stm32mp25-risaf.h b/core/include/dt-bindings/soc/stm32mp25-risaf.h
+index c7c9128c3..f98f44301 100644
+--- a/core/include/dt-bindings/soc/stm32mp25-risaf.h
++++ b/core/include/dt-bindings/soc/stm32mp25-risaf.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause) */
+ /*
+- * Copyright (C) 2020-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2020-2025, STMicroelectronics - All Rights Reserved
+  */
+ 
+ #ifndef _DT_BINDINGS_STM32MP25_RISAF_H
+@@ -21,6 +21,29 @@
+ 				     */
+ #define RIF_ENC_EN		0x2
+ 
++/* RISAF subregion IDs */
++#define RISAF_SUBREG_ID(idx)	(idx)
++
++/* RISAF subregion enable modes */
++#define RIF_SREN_DIS		0x0
++#define RIF_SREN_EN		0x1
++
++/* RISAF subregion read enable modes */
++#define RIF_RDEN_DIS		0x0
++#define RIF_RDEN_EN		0x1
++
++/* RISAF subregion write enable modes */
++#define RIF_WREN_DIS		0x0
++#define RIF_WREN_EN		0x1
++
++/* RISAF subregion delegation control modes */
++#define RIF_DCEN_DIS		0x0
++#define RIF_DCEN_EN		0x1
++
++/* RISAF subregion resource lock modes */
++#define RIF_RLOCK_DIS		0x0
++#define RIF_RLOCK_EN		0x1
++
+ #define DT_RISAF_EN_SHIFT	4
+ #define DT_RISAF_SEC_SHIFT	5
+ #define DT_RISAF_ENC_SHIFT	6
+@@ -45,4 +68,38 @@
+ 	 ((enabled) << DT_RISAF_EN_SHIFT) | \
+ 	 (risaf_region))
+ 
++#define DT_RISAF_SUB_EN_SHIFT		1
++#define DT_RISAF_SUB_SEC_SHIFT		2
++#define DT_RISAF_SUB_PRIV_SHIFT		3
++#define DT_RISAF_SUB_SRCID_SHIFT	4
++#define DT_RISAF_SUB_RDEN_SHIFT		8
++#define DT_RISAF_SUB_WREN_SHIFT		9
++#define DT_RISAF_SUB_DCEN_SHIFT		16
++#define DT_RISAF_SUB_DCCID_SHIFT	17
++#define DT_RISAF_SUB_RLOCK_SHIFT	31
++
++#define DT_RISAF_SUB_REG_ID_MASK	BIT(0)
++#define DT_RISAF_SUB_EN_MASK		BIT(DT_RISAF_SUB_EN_SHIFT)
++#define DT_RISAF_SUB_SEC_MASK		BIT(DT_RISAF_SUB_SEC_SHIFT)
++#define DT_RISAF_SUB_PRIV_MASK		BIT(DT_RISAF_SUB_PRIV_SHIFT)
++#define DT_RISAF_SUB_SRCID_MASK		GENMASK_32(6, DT_RISAF_SUB_SRCID_SHIFT)
++#define DT_RISAF_SUB_RDEN_MASK		BIT(DT_RISAF_SUB_RDEN_SHIFT)
++#define DT_RISAF_SUB_WREN_MASK		BIT(DT_RISAF_SUB_WREN_SHIFT)
++#define DT_RISAF_SUB_DCEN_MASK		BIT(DT_RISAF_SUB_DCEN_SHIFT)
++#define DT_RISAF_SUB_DCCID_MASK		GENMASK_32(19, DT_RISAF_SUB_DCCID_SHIFT)
++#define DT_RISAF_SUB_RLOCK_MASK		BIT(DT_RISAF_SUB_RLOCK_SHIFT)
++
++#define RISAFSUBPROT(risaf_subregion, dccid, dcen, rden, wren, srcid, \
++		     priv, sec, enabled, rlock) \
++	(((rlock) << DT_RISAF_SUB_RLOCK_SHIFT) | \
++	 ((dccid) << DT_RISAF_SUB_DCCID_SHIFT) | \
++	 ((dcen) << DT_RISAF_SUB_DCEN_SHIFT) | \
++	 ((wren) << DT_RISAF_SUB_WREN_SHIFT) | \
++	 ((rden) << DT_RISAF_SUB_RDEN_SHIFT) | \
++	 ((srcid) << DT_RISAF_SUB_SRCID_SHIFT) | \
++	 ((priv) << DT_RISAF_SUB_PRIV_SHIFT) | \
++	 ((sec) << DT_RISAF_SUB_SEC_SHIFT) | \
++	 ((enabled) << DT_RISAF_SUB_EN_SHIFT) | \
++	 (risaf_subregion))
++
+ #endif /* _DT_BINDINGS_STM32MP25_RISAF_H */
+-- 
+2.47.2
+

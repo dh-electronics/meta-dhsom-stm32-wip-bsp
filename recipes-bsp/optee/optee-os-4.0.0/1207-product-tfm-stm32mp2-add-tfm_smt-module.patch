@@ -1,0 +1,1147 @@
+From 7c1f2b4748d0496466ddf54f35525c71bcd3c02b Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Wed, 12 Jun 2024 14:58:20 +0200
+Subject: [PATCH 1207/1695] product/tfm-stm32mp2: add tfm_smt module
+
+For CA35 client, a smt transport is used.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git cfba6d04174e61395fdd9a55c4a389749e37b58c product/tfm-stm32mp2: add tfm_smt module]
+Change-Id: Ie75e86ce6f0a0dcdab8ad802d32c5ae9f50b7590
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/391978
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Domain-Review: Etienne CARRIERE <etienne.carriere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../product/tfm-stm32mp2/fw/Firmware.cmake    |   3 +
+ .../product/tfm-stm32mp2/fw/config_all.c      | 147 +++--
+ .../module/tfm_mbx/CMakeLists.txt             |   3 +-
+ .../module/tfm_mbx/src/mod_tfm_mbx.c          |  47 +-
+ .../module/tfm_smt/CMakeLists.txt             |  15 +
+ .../tfm-stm32mp2/module/tfm_smt/Module.cmake  |   9 +
+ .../module/tfm_smt/include/internal/tfm_smt.h |  44 ++
+ .../module/tfm_smt/include/mod_tfm_smt.h      | 123 ++++
+ .../module/tfm_smt/src/mod_tfm_smt.c          | 539 ++++++++++++++++++
+ 9 files changed, 889 insertions(+), 41 deletions(-)
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/CMakeLists.txt
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/Module.cmake
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/include/internal/tfm_smt.h
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/include/mod_tfm_smt.h
+ create mode 100644 core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/src/mod_tfm_smt.c
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/Firmware.cmake b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/Firmware.cmake
+index 4dade6080..8ec4ae3da 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/Firmware.cmake
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/Firmware.cmake
+@@ -34,6 +34,8 @@ list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/tfm_clock")
+ list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/tfm_mbx")
+ list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/tfm_reset")
+ list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/tfm_console")
++list(PREPEND SCP_MODULE_PATHS "${CMAKE_CURRENT_LIST_DIR}/../module/tfm_smt")
++
+ 
+ # The order of the modules in the following list is the order in which the
+ # modules are initialized, bound, started during the pre-runtime phase.
+@@ -46,6 +48,7 @@ list(APPEND SCP_MODULES "tfm-clock")
+ list(APPEND SCP_MODULES "clock")
+ list(APPEND SCP_MODULES "scmi-clock")
+ list(APPEND SCP_MODULES "tfm-regu-consumer")
++list(APPEND SCP_MODULES "tfm-smt")
+ list(APPEND SCP_MODULES "voltage-domain")
+ list(APPEND SCP_MODULES "scmi-voltage-domain")
+ list(APPEND SCP_MODULES "tfm-reset")
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
+index 726ad44c4..09cdcc565 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/fw/config_all.c
+@@ -18,6 +18,9 @@
+ #include <mod_msg_smt.h>
+ #include <mod_tfm_clock.h>
+ #include <mod_tfm_mbx.h>
++#ifdef CFG_SCPFW_MOD_TFM_SMT
++#include <mod_tfm_smt.h>
++#endif
+ #include <mod_tfm_reset.h>
+ #include <mod_reset_domain.h>
+ #include <mod_scmi.h>
+@@ -40,10 +43,16 @@ static struct mod_scmi_config scmi_data;
+ static struct fwk_element *scmi_service_elt;
+ 
+ /* SCMI channel mailbox/shmem */
++#ifdef CFG_SCPFW_MOD_MSG_SMT
+ static struct fwk_element *msg_smt_elt;
+ static struct mod_msg_smt_channel_config *msg_smt_data;
++#endif
+ static struct fwk_element *tfm_mbx_elt;
+ static struct mod_tfm_mbx_channel_config *tfm_mbx_data;
++#ifdef CFG_SCPFW_MOD_TFM_SMT
++static struct fwk_element *tfm_smt_elt;
++static struct mod_tfm_smt_channel_config *tfm_smt_data;
++#endif
+ 
+ #ifdef CFG_SCPFW_MOD_SCMI_CLOCK
+ /* SCMI clock generic */
+@@ -52,10 +61,10 @@ static struct mod_scmi_clock_agent *scmi_clk_agent_tbl;
+ 
+ #ifdef CFG_SCPFW_MOD_CLOCK
+ /* Clocks and tfm/clock, same number/indices. Elements and configuration data */
+-static struct fwk_element *tfm_clock_elt;		/* Optee/clock elements */
+-static struct mod_tfm_clock_config *tfm_clock_cfg;	/* Config data for tfm/clock elements */
+-static struct fwk_element *clock_elt;			/* Clock elements */
+-static struct mod_clock_dev_config *clock_data;		/* Config data for clock elements */
++static struct fwk_element *tfm_clock_elt;               /* tfm/clock elements */
++static struct mod_tfm_clock_config *tfm_clock_cfg;      /* Config data for tfm/clock elements */
++static struct fwk_element *clock_elt;                   /* Clock elements */
++static struct mod_clock_dev_config *clock_data;         /* Config data for clock elements */
+ #endif
+ 
+ #ifdef CFG_SCPFW_MOD_RESET_DOMAIN
+@@ -96,6 +105,7 @@ static const struct fwk_element *tfm_mbx_get_element_table(fwk_id_t module_id)
+ struct fwk_module_config config_tfm_mbx = {
+     .elements = FWK_MODULE_DYNAMIC_ELEMENTS(tfm_mbx_get_element_table),
+ };
++#ifdef CFG_SCPFW_MOD_MSG_SMT
+ 
+ /* Config data for msg_smt module */
+ static const struct fwk_element *msg_smt_get_element_table(fwk_id_t module_id)
+@@ -107,13 +117,26 @@ static const struct fwk_element *msg_smt_get_element_table(fwk_id_t module_id)
+ struct fwk_module_config config_msg_smt = {
+     .elements = FWK_MODULE_DYNAMIC_ELEMENTS(msg_smt_get_element_table),
+ };
++#endif
+ 
++#ifdef CFG_SCPFW_MOD_TFM_SMT
++/* Config data for tfm_smt module */
++static const struct fwk_element *tfm_smt_get_element_table(fwk_id_t module_id)
++{
++    fwk_assert(fwk_id_get_module_idx(module_id) == FWK_MODULE_IDX_TFM_SMT);
++    return (const struct fwk_element *)tfm_smt_elt;
++};
++
++struct fwk_module_config config_tfm_smt = {
++    .elements = FWK_MODULE_DYNAMIC_ELEMENTS(tfm_smt_get_element_table),
++};
++#endif
+ /* Config data for scmi_clock, clock and tfm_clock modules */
+ #ifdef CFG_SCPFW_MOD_SCMI_CLOCK
+ struct fwk_module_config config_scmi_clock = {
+     .data = &((struct mod_scmi_clock_config){
+-        .agent_table = NULL,			/* Allocated during initialization */
+-        .agent_count = 0,			/* Set during initialization */
++        .agent_table = NULL,                    /* Allocated during initialization */
++        .agent_count = 0,                       /* Set during initialization */
+     }),
+ };
+ #endif
+@@ -144,8 +167,8 @@ struct fwk_module_config config_tfm_clock = {
+ #ifdef CFG_SCPFW_MOD_RESET_DOMAIN
+ struct fwk_module_config config_scmi_reset_domain = {
+     .data = &((struct mod_scmi_reset_domain_config){
+-        .agent_table = NULL,			/* Allocated during initialization */
+-        .agent_count = 0,			/* Set during initialization */
++        .agent_table = NULL,                    /* Allocated during initialization */
++        .agent_count = 0,                       /* Set during initialization */
+     }),
+ };
+ 
+@@ -174,8 +197,8 @@ struct fwk_module_config config_tfm_reset = {
+ /* Config data for scmi_voltage_domain, voltage_domain and tfm_regu modules */
+ struct fwk_module_config config_scmi_voltage_domain = {
+     .data = &((struct mod_scmi_voltd_config){
+-        .agent_table = NULL,			/* Allocated during initialization */
+-        .agent_count = 0,			/* Set during initialization */
++        .agent_table = NULL,                    /* Allocated during initialization */
++        .agent_count = 0,                       /* Set during initialization */
+     }),
+ };
+ 
+@@ -333,6 +356,7 @@ static void allocate_global_resources(struct scpfw_config *cfg)
+ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+ {
+     unsigned int channel_index;
++    unsigned int __maybe_unused msg_smt_index = 0, tfm_smt_index = 0;
+     size_t i, j;
+     /* @cfg does not consider agent #0 this the reserved platform/server agent */
+     size_t scmi_agent_count = cfg->agent_count + 1;
+@@ -343,10 +367,19 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+     scmi_service_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
+                                      sizeof(*scmi_service_elt));
+ 
++#ifdef CFG_SCPFW_MOD_MSG_SMT
+     msg_smt_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
+                                 sizeof(*msg_smt_elt));
+     msg_smt_data = fwk_mm_calloc(scpfw_resource_counter.channel_count,
+                                  sizeof(*msg_smt_data));
++#endif
++
++#ifdef CFG_SCPFW_MOD_TFM_SMT
++    tfm_smt_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
++                                  sizeof(*tfm_smt_elt));
++    tfm_smt_data = fwk_mm_calloc(scpfw_resource_counter.channel_count,
++                                   sizeof(*tfm_smt_data));
++#endif
+ 
+     tfm_mbx_elt = fwk_mm_calloc(scpfw_resource_counter.channel_count + 1,
+                                   sizeof(*tfm_mbx_elt));
+@@ -361,7 +394,6 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+         .vendor_identifier = "STMicroelectronics",
+         .sub_vendor_identifier = "STMicroelectronics",
+     };
+-
+     channel_index = 0;
+ 
+     for (i = 0; i < cfg->agent_count; i++) {
+@@ -376,39 +408,76 @@ static void set_scmi_comm_resources(struct scpfw_config *cfg)
+             struct mod_scmi_service_config *service_data;
+ 
+             service_data = fwk_mm_calloc(1, sizeof(*service_data));
+-            *service_data = (struct mod_scmi_service_config){
+-                .transport_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT, channel_index),
+-                .transport_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
+-                                                              MOD_MSG_SMT_API_IDX_SCMI_TRANSPORT),
+-                .scmi_agent_id = agent_cfg->agent_id,
+-                .scmi_p2a_id = FWK_ID_NONE_INIT,
+-            };
+-
+-            fwk_assert((service_data->scmi_agent_id == STM32MP25_AGENT_ID_M33_NS)||
+-                       (service_data->scmi_agent_id == STM32MP25_AGENT_ID_CA35));
+-
+             scmi_service_elt[channel_index].name = channel_cfg->name;
+             scmi_service_elt[channel_index].data = service_data;
+ 
+-            msg_smt_elt[channel_index].name = channel_cfg->name;
+-            msg_smt_elt[channel_index].data = (void *)(msg_smt_data + channel_index);
+-
+-            msg_smt_data[channel_index] = (struct mod_msg_smt_channel_config){
+-                .type = MOD_MSG_SMT_CHANNEL_TYPE_REQUESTER,
+-                .mailbox_size = 128,
+-                .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_MBX,
+-                                                           channel_index),
+-                .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_MBX, 0),
+-            };
+-
+             tfm_mbx_elt[channel_index].name = channel_cfg->name;
+             tfm_mbx_elt[channel_index].data = (void *)(tfm_mbx_data + channel_index);
+-
+-            tfm_mbx_data[channel_index] = (struct mod_tfm_mbx_channel_config){
+-                .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT, channel_index),
+-                .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
+-                                                           MOD_MSG_SMT_API_IDX_DRIVER_INPUT),
+-            };
++            switch  (agent_cfg->agent_id) {
++#ifdef CFG_SCPFW_MOD_MSG_SMT
++            case STM32MP25_AGENT_ID_M33_NS:
++                *service_data = (struct mod_scmi_service_config){
++                    .transport_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT, msg_smt_index),
++                    .transport_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
++                                                                  MOD_MSG_SMT_API_IDX_SCMI_TRANSPORT),
++                    .scmi_agent_id = agent_cfg->agent_id,
++                    .scmi_p2a_id = FWK_ID_NONE_INIT,
++                };
++
++                msg_smt_elt[msg_smt_index].name = channel_cfg->name;
++                msg_smt_elt[msg_smt_index].data = (void *)(msg_smt_data + msg_smt_index);
++
++                msg_smt_data[msg_smt_index] = (struct mod_msg_smt_channel_config){
++                    .type = MOD_MSG_SMT_CHANNEL_TYPE_REQUESTER,
++                    .mailbox_size = 128,
++                    .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_MBX,
++                                                               channel_index),
++                    .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_MBX, 0),
++                };
++                tfm_mbx_data[channel_index] = (struct mod_tfm_mbx_channel_config){
++                    .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_MSG_SMT, msg_smt_index),
++                    .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_MSG_SMT,
++                                                               MOD_MSG_SMT_API_IDX_DRIVER_INPUT),
++                };
++                msg_smt_index++;
++                break;
++#endif
++#ifdef CFG_SCPFW_MOD_TFM_SMT
++            case STM32MP25_AGENT_ID_CA35 :
++                *service_data = (struct mod_scmi_service_config){
++                    .transport_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_SMT, tfm_smt_index),
++                    .transport_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_SMT,
++                                                                  MOD_TFM_SMT_API_IDX_SCMI_TRANSPORT),
++                    .scmi_agent_id = agent_cfg->agent_id,
++                    .scmi_p2a_id = FWK_ID_NONE_INIT,
++                };
++
++                tfm_smt_elt[tfm_smt_index].name = channel_cfg->name;
++                tfm_smt_elt[tfm_smt_index ].data = (void *)(tfm_smt_data + tfm_smt_index);
++
++                tfm_smt_data[tfm_smt_index] = (struct mod_tfm_smt_channel_config){
++                    .type = MOD_TFM_SMT_CHANNEL_TYPE_REQUESTER,
++                        .policies = MOD_SMT_POLICY_NONE,
++                        .mailbox_address = (unsigned int)channel_cfg->shm.area,
++                        .mailbox_size = 128,
++                        .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_MBX,
++                                                                   channel_index),
++                        .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_MBX, 0),
++                };
++
++                tfm_mbx_data[channel_index] =
++                    (struct mod_tfm_mbx_channel_config){
++                        .driver_id = (fwk_id_t)FWK_ID_ELEMENT_INIT(FWK_MODULE_IDX_TFM_SMT, tfm_smt_index),
++                        .driver_api_id = (fwk_id_t)FWK_ID_API_INIT(FWK_MODULE_IDX_TFM_SMT,
++                                                                   MOD_TFM_SMT_API_IDX_DRIVER_INPUT),
++                    };
++                tfm_smt_index++;
++                break;
++#endif
++            default:
++                FWK_LOG_ERR("agent transport un supported");
++                panic();
++            }
+ 
+             channel_index++;
+         }
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/CMakeLists.txt
+index 8af17e3b8..ca2a94165 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/CMakeLists.txt
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/CMakeLists.txt
+@@ -21,7 +21,8 @@ target_include_directories(${SCP_MODULE_TARGET}
+ target_link_libraries(${SCP_MODULE_TARGET}
+                       PRIVATE
+                               module-msg-smt
+-                              module-scmi)
++                              module-scmi
++                              module-tfm-smt)
+ 
+ target_sources(${SCP_MODULE_TARGET}
+                PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/mod_tfm_mbx.c")
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/src/mod_tfm_mbx.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/src/mod_tfm_mbx.c
+index 062097506..f7c08227c 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/src/mod_tfm_mbx.c
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_mbx/src/mod_tfm_mbx.c
+@@ -19,6 +19,7 @@
+ #include <fwk_module_idx.h>
+ #include <fwk_status.h>
+ #include <mod_tfm_mbx.h>
++#include <mod_tfm_smt.h>
+ #include <mod_msg_smt.h>
+ #include <cmsis_compiler.h>
+ #define COMPILER_BARRIER() __ASM volatile("" : : : "memory")
+@@ -127,6 +128,46 @@ fwk_id_t tfm_mbx_get_device(unsigned int id)
+ /*
+  * Mailbox module driver API
+  */
++#ifdef BUILD_HAS_MOD_TFM_SMT
++void tfm_mbx_signal_smt_message(fwk_id_t device_id)
++{
++    struct mbx_device_ctx *device_ctx;
++    unsigned int device_idx = fwk_id_get_element_idx(device_id);
++
++    if (device_idx < mbx_ctx.device_count) {
++        device_ctx = &mbx_ctx.device_ctx_table[device_idx];
++
++        fwk_assert(fwk_id_get_module_idx(device_ctx->shmem_id) ==
++                   FWK_MODULE_IDX_TFM_SMT);
++
++        /* Lock the channel until the message has been processed */
++        mutex_lock(&device_ctx->lock);
++
++        device_ctx->shmem_api.smt->signal_message(device_ctx->shmem_id);
++    } else {
++        fwk_unexpected();
++    }
++}
++/*
++ * Provide a raise interrupt interface to the Mailbox driver
++ */
++static int raise_smt_interrupt(fwk_id_t channel_id)
++{
++    size_t idx = fwk_id_get_element_idx(channel_id);
++    struct mbx_device_ctx *channel_ctx = &mbx_ctx.device_ctx_table[idx];
++
++    /* Release the channel as the message has been processed */
++    mutex_unlock(&channel_ctx->lock);
++
++    /* There should be a message in the mailbox */
++    return FWK_SUCCESS;
++}
++
++
++const struct mod_tfm_smt_driver_api mbx_smt_api = {
++    .raise_interrupt = raise_smt_interrupt,
++};
++#endif
+ 
+ #ifdef BUILD_HAS_MOD_MSG_SMT
+ static int raise_shm_notification(fwk_id_t channel_id, size_t size)
+@@ -228,7 +269,11 @@ static int mbx_process_bind_request(fwk_id_t source_id,
+     }
+ 
+     switch (fwk_id_get_module_idx(source_id)) {
+-
++#ifdef BUILD_HAS_MOD_TFM_SMT
++    case FWK_MODULE_IDX_TFM_SMT:
++        *api = &mbx_smt_api;
++        break;
++#endif
+ #ifdef BUILD_HAS_MOD_MSG_SMT
+     case FWK_MODULE_IDX_MSG_SMT:
+         *api = &mbx_shm_api;
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/CMakeLists.txt b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/CMakeLists.txt
+new file mode 100644
+index 000000000..b4849c852
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/CMakeLists.txt
+@@ -0,0 +1,15 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2022, Linaro Limited and Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++add_library(${SCP_MODULE_TARGET} SCP_MODULE)
++
++target_include_directories(${SCP_MODULE_TARGET}
++                           PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
++target_sources(${SCP_MODULE_TARGET}
++               PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/mod_tfm_smt.c")
++
++target_link_libraries(${SCP_MODULE_TARGET} PRIVATE module-scmi)
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/Module.cmake b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/Module.cmake
+new file mode 100644
+index 000000000..d7b4ef6d5
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/Module.cmake
+@@ -0,0 +1,9 @@
++#
++# Arm SCP/MCP Software
++# Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++#
++
++set(SCP_MODULE "tfm-smt")
++set(SCP_MODULE_TARGET "module-tfm-smt")
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/include/internal/tfm_smt.h b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/include/internal/tfm_smt.h
+new file mode 100644
+index 000000000..42f518945
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/include/internal/tfm_smt.h
+@@ -0,0 +1,44 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2022, Linaro Limited and Contributors. All rights reserved.
++ * Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++ * 
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef INTERNAL_TFM_SMT_H
++#define INTERNAL_TFM_SMT_H
++
++#include <stdint.h>
++
++struct __attribute((packed)) mod_tfm_smt_memory {
++    uint32_t reserved0;
++    uint32_t status;
++    uint64_t reserved1;
++    uint32_t flags;
++    uint32_t length; /* message_header + payload */
++    uint32_t message_header;
++    uint32_t payload[];
++};
++
++#define MOD_TFM_SMT_MAX_CHANNELS 8
++
++#define MOD_TFM_SMT_MAILBOX_STATUS_FREE_POS 0
++#define MOD_TFM_SMT_MAILBOX_STATUS_FREE_MASK \
++    (UINT32_C(0x1) << MOD_TFM_SMT_MAILBOX_STATUS_FREE_POS)
++
++#define MOD_TFM_SMT_MAILBOX_STATUS_ERROR_POS 1
++#define MOD_TFM_SMT_MAILBOX_STATUS_ERROR_MASK \
++    (UINT32_C(0x1) << MOD_TFM_SMT_MAILBOX_STATUS_ERROR_POS)
++
++#define MOD_TFM_SMT_MAILBOX_FLAGS_IENABLED_POS 0
++#define MOD_TFM_SMT_MAILBOX_FLAGS_IENABLED_MASK \
++    (UINT32_C(0x1) << MOD_TFM_SMT_MAILBOX_FLAGS_IENABLED_POS)
++
++#define MOD_TFM_SMT_MIN_PAYLOAD_SIZE \
++    sizeof(((struct mod_tfm_smt_memory *)NULL)->payload[0])
++
++#define MOD_TFM_SMT_MIN_MAILBOX_SIZE \
++    (sizeof(struct mod_tfm_smt_memory) + MOD_TFM_SMT_MIN_PAYLOAD_SIZE)
++
++#endif /* INTERNAL_TFM_SMT_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/include/mod_tfm_smt.h b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/include/mod_tfm_smt.h
+new file mode 100644
+index 000000000..904aa2ee0
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/include/mod_tfm_smt.h
+@@ -0,0 +1,123 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2022, Linaro Limited and Contributors. All rights reserved.
++ * Copyright (c) 2024, STMicroelectronics and the Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef MOD_TFM_SMT_H
++#define MOD_TFM_SMT_H
++
++#include <fwk_id.h>
++#include <fwk_module_idx.h>
++
++#include <stddef.h>
++#include <stdint.h>
++
++/*!
++ * \name Channel policies
++ *
++ * \details These policies define attributes that affect how the channel is
++ *      treated by the SMT component.
++ *
++ * \{
++ */
++
++/*! No policies */
++#define MOD_SMT_POLICY_NONE         0
++
++/*! This channel is secure */
++#define MOD_SMT_POLICY_SECURE       (1U << 0)
++
++/*! The mailbox for this channel requires initialization */
++#define MOD_SMT_POLICY_INIT_MAILBOX (1U << 1)
++
++/*!
++ * \}
++ */
++
++/*!
++ * \brief Channel type
++ *
++ * \details Defines the role of an entity in a channel
++ */
++enum mod_tfm_smt_channel_type {
++    /*! Requester channel */
++    MOD_TFM_SMT_CHANNEL_TYPE_REQUESTER,
++
++    /*! Completer channel */
++    MOD_TFM_SMT_CHANNEL_TYPE_COMPLETER,
++
++    /*! Channel type count */
++    MOD_TFM_SMT_CHANNEL_TYPE_COUNT,
++};
++
++/*!
++ * \brief Channel config.
++ */
++struct mod_tfm_smt_channel_config {
++    /*! Channel role (requester or completer) */
++    enum mod_tfm_smt_channel_type type;
++
++    /*! Channel policies */
++    uint32_t policies;
++
++    /*! Shared mailbox address */
++    uintptr_t mailbox_address;
++
++    /*! Shared mailbox size in bytes */
++    size_t mailbox_size;
++
++    /*! Identifier of the driver */
++    fwk_id_t driver_id;
++
++    /*! Identifier of the driver API to bind to */
++    fwk_id_t driver_api_id;
++};
++
++/*!
++ * \brief Driver API
++ */
++struct mod_tfm_smt_driver_api {
++    /*!
++     * \brief Raise an interrupt on the receiver
++     *
++     * \param device_id Device identifier
++     *
++     * \retval ::FWK_SUCCESS The operation succeeded
++     * \retval ::FWK_E_PARAM The device_id parameter is invalid
++     * \return One of the standard error codes for implementation-defined
++     *      errors
++     */
++    int (*raise_interrupt)(fwk_id_t device_id);
++};
++
++/*!
++ * \brief Driver input API (Implemented by SMT)
++ *
++ * \details Interface used for driver -> SMT communication.
++ */
++struct mod_tfm_smt_driver_input_api {
++    /*!
++     * \brief Signal an incoming message in the mailbox
++     *
++     * \param device_id Channel identifier
++     *
++     * \retval ::FWK_SUCCESS The operation succeeded.
++     * \return One of the standard error codes for implementation-defined
++     *      errors.
++     */
++    int (*signal_message)(fwk_id_t channel_id);
++};
++
++/*!
++ * \brief Type of the interfaces exposed by the TFM_SMT module.
++ */
++enum mod_tfm_smt_api_idx {
++    MOD_TFM_SMT_API_IDX_DRIVER_INPUT,
++    MOD_TFM_SMT_API_IDX_SCMI_TRANSPORT,
++    MOD_TFM_SMT_API_IDX_COUNT,
++};
++
++#endif /* MOD_TFM_SMT_H */
+diff --git a/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/src/mod_tfm_smt.c b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/src/mod_tfm_smt.c
+new file mode 100644
+index 000000000..1469b1eac
+--- /dev/null
++++ b/core/lib/scmi-server/SCP-firmware/product/tfm-stm32mp2/module/tfm_smt/src/mod_tfm_smt.c
+@@ -0,0 +1,539 @@
++/*
++ * Arm SCP/MCP Software
++ * Copyright (c) 2022, Linaro Limited and Contributors. All rights
++ * reserved.
++ * Copyright (c) 2024, STMicroelectronics and the Contributors. All
++ * rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ *
++ * Description:
++ *     Parse the messages pushed on static memory.
++ */
++
++#include <internal/tfm_smt.h>
++#include <tfm_scmi.h>
++
++#include <mod_scmi.h>
++#include <mod_tfm_smt.h>
++
++#include <fwk_assert.h>
++#include <fwk_interrupt.h>
++#include <fwk_log.h>
++#include <fwk_mm.h>
++#include <fwk_macros.h>
++#include <fwk_module.h>
++#include <fwk_module_idx.h>
++#include <fwk_status.h>
++#include <fwk_string.h>
++
++#include <stdbool.h>
++
++struct smt_channel_ctx {
++    /* Channel identifier */
++    fwk_id_t id;
++
++    /* Channel configuration data */
++    struct mod_tfm_smt_channel_config *config;
++
++    /* Channel mailbox mem*/
++    struct mod_tfm_smt_memory *mailbox_mem;
++
++    /* Channel read and write cache memory areas */
++    struct mod_tfm_smt_memory *in, *out;
++
++    /* Message processing in progrees flag */
++    volatile bool locked;
++
++    /* Maximum payload size of the channel */
++    size_t max_payload_size;
++
++    /* Driver entity identifier */
++    fwk_id_t driver_id;
++
++    /* SCMI module service bound to the channel */
++    fwk_id_t scmi_service_id;
++
++    /* Driver API */
++    struct mod_tfm_smt_driver_api *driver_api;
++
++    /* SCMI service API */
++    struct mod_scmi_from_transport_api *scmi_api;
++
++    /* Flag indicating the mailbox is ready */
++    bool tfm_smt_mailbox_ready;
++};
++
++struct mod_smt_ctx {
++    /* Table of channel contexts */
++    struct smt_channel_ctx *channel_ctx_table;
++
++    /* Number of channels */
++    unsigned int channel_count;
++};
++
++static struct mod_smt_ctx smt_ctx;
++
++/*
++ * SCMI Transport API
++ */
++static int smt_get_secure(fwk_id_t channel_id, bool *secure)
++{
++    struct smt_channel_ctx *channel_ctx;
++
++    if (secure == NULL) {
++        fwk_unexpected();
++        return FWK_E_PARAM;
++    }
++
++    channel_ctx =
++        &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
++
++    *secure =
++        ((channel_ctx->config->policies & MOD_SMT_POLICY_SECURE) !=
++         (uint32_t)0);
++
++    return FWK_SUCCESS;
++}
++
++static int smt_get_max_payload_size(fwk_id_t channel_id, size_t *size)
++{
++    struct smt_channel_ctx *channel_ctx;
++
++    if (size == NULL) {
++        fwk_unexpected();
++        return FWK_E_PARAM;
++    }
++
++    channel_ctx =
++        &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
++
++    *size = channel_ctx->max_payload_size;
++
++    return FWK_SUCCESS;
++}
++
++static int smt_get_message_header(fwk_id_t channel_id, uint32_t *header)
++{
++    struct smt_channel_ctx *channel_ctx;
++
++    if (header == NULL) {
++        fwk_unexpected();
++        return FWK_E_PARAM;
++    }
++
++    channel_ctx =
++        &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
++
++    if (!channel_ctx->locked) {
++        return FWK_E_ACCESS;
++    }
++
++    *header = channel_ctx->in->message_header;
++
++    return FWK_SUCCESS;
++}
++
++static int smt_get_payload(fwk_id_t channel_id,
++                           const void **payload,
++                           size_t *size)
++{
++    struct smt_channel_ctx *channel_ctx;
++
++    if (payload == NULL) {
++        fwk_unexpected();
++        return FWK_E_PARAM;
++    }
++
++    channel_ctx =
++        &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
++
++    if (!channel_ctx->locked) {
++        return FWK_E_ACCESS;
++    }
++
++    *payload = channel_ctx->in->payload;
++
++    if (size != NULL) {
++        *size = channel_ctx->in->length -
++            sizeof(channel_ctx->in->message_header);
++    }
++
++    return FWK_SUCCESS;
++}
++
++static int smt_write_payload(fwk_id_t channel_id,
++                             size_t offset,
++                             const void *payload,
++                             size_t size)
++{
++    struct smt_channel_ctx *channel_ctx;
++
++    channel_ctx =
++        &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
++
++    if ((payload == NULL)                         ||
++        (offset  > channel_ctx->max_payload_size) ||
++        ((offset + size) > channel_ctx->max_payload_size)) {
++        fwk_unexpected();
++        return FWK_E_PARAM;
++    }
++
++    if (!channel_ctx->locked) {
++        return FWK_E_ACCESS;
++    }
++
++    fwk_str_memcpy(
++        ((uint8_t *)channel_ctx->out->payload) + offset, payload, size);
++
++    return FWK_SUCCESS;
++}
++
++static int smt_respond(fwk_id_t channel_id, const void *payload, size_t size)
++{
++    struct smt_channel_ctx *channel_ctx;
++    struct mod_tfm_smt_memory *memory;
++
++    channel_ctx = &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
++    memory = channel_ctx->mailbox_mem;
++
++    /* Copy the header from the write buffer */
++    *memory = *channel_ctx->out;
++
++    /* Copy the payload from either the write buffer or the payload parameter */
++    fwk_str_memcpy(
++        memory->payload,
++        (payload == NULL ? channel_ctx->out->payload : payload),
++        size);
++
++    channel_ctx->locked = false;
++
++    memory->length = sizeof(memory->message_header) + size;
++    memory->status |= MOD_TFM_SMT_MAILBOX_STATUS_FREE_MASK;
++
++    channel_ctx->driver_api->raise_interrupt(channel_ctx->driver_id);
++
++    return FWK_SUCCESS;
++}
++
++static int smt_transmit(fwk_id_t channel_id, uint32_t message_header,
++    const void *payload, size_t size, bool request_ack_by_interrupt)
++{
++    struct smt_channel_ctx *channel_ctx;
++    struct mod_tfm_smt_memory *memory;
++
++    if (payload == NULL) {
++        fwk_unexpected();
++        return FWK_E_DATA;
++    }
++
++    channel_ctx = &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
++    memory = channel_ctx->mailbox_mem;
++
++    if (!channel_ctx->locked) {
++        return FWK_SUCCESS;
++    }
++
++    memory->message_header = message_header;
++
++    /*
++     * we do not want the agent to send an interrupt when it receives
++     * the message.
++     */
++    memory->flags = 0;
++
++    /* Copy the payload */
++    fwk_str_memcpy(memory->payload, payload, size);
++
++    memory->length = sizeof(memory->message_header) + size;
++    memory->status &= ~MOD_TFM_SMT_MAILBOX_STATUS_FREE_MASK;
++
++    /* Release the channel */
++    channel_ctx->locked = false;
++
++    /* Notify the agent */
++    channel_ctx->driver_api->raise_interrupt(channel_ctx->driver_id);
++
++    return FWK_SUCCESS;
++}
++
++static const struct mod_scmi_to_transport_api smt_mod_scmi_to_transport_api = {
++    .get_secure = smt_get_secure,
++    .get_max_payload_size = smt_get_max_payload_size,
++    .get_message_header = smt_get_message_header,
++    .get_payload = smt_get_payload,
++    .write_payload = smt_write_payload,
++    .respond = smt_respond,
++    .transmit = smt_transmit,
++};
++
++/*
++ * Driver handler API
++ */
++static int smt_requester_handler(struct smt_channel_ctx *channel_ctx)
++{
++    struct mod_tfm_smt_memory *memory;
++    struct mod_tfm_smt_memory *in;
++    struct mod_tfm_smt_memory *out;
++    size_t payload_size;
++    int status;
++
++    /* Commit to sending a response */
++    channel_ctx->locked = true;
++
++    memory = channel_ctx->mailbox_mem;
++
++    in = channel_ctx->in;
++    out = channel_ctx->out;
++
++    /* Mirror mailbox contents in read and write buffers (Payload not copied) */
++    *in  = *memory;
++    *out = *memory;
++
++    /* Ensure error bit is not set */
++    out->status &= ~MOD_TFM_SMT_MAILBOX_STATUS_ERROR_MASK;
++
++    /*
++     * Verify:
++     * 1. The length is at least as large as the message header
++     * 2. The length, minus the size of the message header, is less than or
++     *         equal to the maximum payload size
++     *
++     * Note: the payload size is permitted to be of size zero.
++     */
++    if ((in->length < sizeof(in->message_header)) ||
++        ((in->length - sizeof(in->message_header))
++         > channel_ctx->max_payload_size)) {
++
++        out->status |= MOD_TFM_SMT_MAILBOX_STATUS_ERROR_MASK;
++        return smt_respond(channel_ctx->id,
++                           &(int32_t){ SCMI_PROTOCOL_ERROR },
++                           sizeof(int32_t));
++    }
++
++    /* Copy payload from shared memory to read buffer */
++    payload_size = in->length - sizeof(in->message_header);
++    fwk_str_memcpy(in->payload, memory->payload, payload_size);
++
++    /* Let SCMI handle the message */
++    status =
++        channel_ctx->scmi_api->signal_message(channel_ctx->scmi_service_id);
++    if (status != FWK_SUCCESS) {
++        return FWK_E_HANDLER;
++    }
++
++    return FWK_SUCCESS;
++}
++
++static int smt_completer_handler(struct smt_channel_ctx *channel_ctx)
++{
++    /* Commit to sending a response */
++    channel_ctx->locked = true;
++
++    return FWK_SUCCESS;
++}
++
++static int smt_signal_message(fwk_id_t channel_id)
++{
++    struct smt_channel_ctx *channel_ctx;
++
++    channel_ctx =
++        &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(channel_id)];
++
++    if (!channel_ctx->tfm_smt_mailbox_ready) {
++        /* Discard any message in the mailbox when not ready */
++        FWK_LOG_ERR("[TFM_SMT] Message not valid\n");
++
++        return FWK_SUCCESS;
++    }
++
++    /* Check if we are already processing */
++    if (channel_ctx->locked) {
++        return FWK_E_STATE;
++    }
++
++    switch (channel_ctx->config->type) {
++    case MOD_TFM_SMT_CHANNEL_TYPE_COMPLETER:
++        return smt_completer_handler(channel_ctx);
++    case MOD_TFM_SMT_CHANNEL_TYPE_REQUESTER:
++        return smt_requester_handler(channel_ctx);
++    default:
++        /* Invalid config */
++        fwk_unexpected();
++        break;
++    }
++
++    return FWK_SUCCESS;
++}
++
++static const struct mod_tfm_smt_driver_input_api driver_input_api = {
++    .signal_message = smt_signal_message,
++};
++
++/*
++ * Framework API
++ */
++static int mailbox_init(fwk_id_t module_id, unsigned int element_count,
++                        const void *data)
++{
++
++    if (element_count == 0) {
++        return FWK_E_PARAM;
++    }
++
++    smt_ctx.channel_ctx_table =
++        fwk_mm_calloc(element_count, sizeof(*smt_ctx.channel_ctx_table));
++
++    smt_ctx.channel_count = element_count;
++
++    return FWK_SUCCESS;
++}
++
++static int mailbox_channel_init(fwk_id_t channel_id, unsigned int slot_count,
++                            const void *data)
++{
++    size_t elt_idx = fwk_id_get_element_idx(channel_id);
++    struct smt_channel_ctx *channel_ctx = &smt_ctx.channel_ctx_table[elt_idx];
++    struct mod_tfm_smt_channel_config *config;
++    struct mod_tfm_smt_memory *memory;
++
++    config = (struct mod_tfm_smt_channel_config*)data;
++
++    /* Validate channel config */
++    if ((config->type >= MOD_TFM_SMT_CHANNEL_TYPE_COUNT) ||
++        (config->mailbox_address == 0) || (config->mailbox_size == 0)) {
++        fwk_unexpected();
++        return FWK_E_DATA;
++    }
++
++    channel_ctx->mailbox_mem = (struct mod_tfm_smt_memory *)config->mailbox_address;
++    channel_ctx->id = channel_id;
++    channel_ctx->in = fwk_mm_alloc(1, config->mailbox_size);
++    channel_ctx->out = fwk_mm_alloc(1, config->mailbox_size);
++
++    channel_ctx->max_payload_size = config->mailbox_size -
++                                    sizeof(struct mod_tfm_smt_memory);
++
++    memory = channel_ctx->mailbox_mem;
++    memory->status = MOD_TFM_SMT_MAILBOX_STATUS_FREE_MASK;
++
++    channel_ctx->config = config;
++    channel_ctx->tfm_smt_mailbox_ready = true;
++
++    return FWK_SUCCESS;
++}
++
++static int mailbox_smt_bind(fwk_id_t id, unsigned int round)
++{
++    int status;
++    struct smt_channel_ctx *channel_ctx;
++
++    if (fwk_id_is_type(id, FWK_ID_TYPE_MODULE)) {
++        return FWK_SUCCESS;
++    }
++
++    channel_ctx = &smt_ctx.channel_ctx_table[fwk_id_get_element_idx(id)];
++
++    if (round == 0) {
++
++        status = fwk_module_bind(channel_ctx->config->driver_id,
++                                 channel_ctx->config->driver_api_id,
++                                 &channel_ctx->driver_api);
++        if (status != FWK_SUCCESS) {
++            return status;
++        }
++
++        channel_ctx->driver_id = channel_ctx->config->driver_id;
++
++    } else if (round == 1) {
++
++        status = fwk_module_bind(channel_ctx->scmi_service_id,
++                                 FWK_ID_API(FWK_MODULE_IDX_SCMI,
++                                            MOD_SCMI_API_IDX_TRANSPORT),
++                                 &channel_ctx->scmi_api);
++        if (status != FWK_SUCCESS) {
++            return status;
++        }
++    }
++
++    return FWK_SUCCESS;
++}
++
++static int mailbox_smt_process_bind_request(fwk_id_t source_id,
++                                            fwk_id_t target_id,
++                                            fwk_id_t api_id,
++                                            const void **api)
++{
++    struct smt_channel_ctx *channel_ctx = NULL;
++    size_t elt_idx;
++
++    /* Only bind to a channel (not the whole module) */
++    if (!fwk_id_is_type(target_id, FWK_ID_TYPE_ELEMENT)) {
++        /* Tried to bind to something other than a specific channel */
++        fwk_unexpected();
++        return FWK_E_PARAM;
++    }
++
++    elt_idx = fwk_id_get_element_idx(target_id);
++    if (elt_idx >= smt_ctx.channel_count) {
++        return FWK_E_ACCESS;
++    }
++
++    channel_ctx = &smt_ctx.channel_ctx_table[elt_idx];
++
++    switch (fwk_id_get_api_idx(api_id)) {
++    case MOD_TFM_SMT_API_IDX_DRIVER_INPUT:
++        /* Driver input API */
++
++        /*
++         * Make sure that the element that is trying to bind to us is the
++         * same element that we previously bound to.
++         *
++         * NOTE: We bound to an element but a sub-element should be binding
++         * back to us. This means we cannot use fwk_id_is_equal() because
++         * the IDs have different types. For now we compare the indices
++         * manually.
++         */
++        if (fwk_id_get_module_idx(channel_ctx->driver_id) ==
++            fwk_id_get_module_idx(source_id) &&
++            fwk_id_get_element_idx(channel_ctx->driver_id) ==
++            fwk_id_get_element_idx(source_id)) {
++
++            /* IDs are equal */
++            *api = &driver_input_api;
++        } else {
++            /* A module that we did not bind to is trying to bind to us */
++            fwk_unexpected();
++            return FWK_E_ACCESS;
++        }
++        break;
++
++    case MOD_TFM_SMT_API_IDX_SCMI_TRANSPORT:
++        /* SCMI transport API */
++        *api = &smt_mod_scmi_to_transport_api;
++        channel_ctx->scmi_service_id = source_id;
++        break;
++
++    default:
++        /* Invalid API */
++        fwk_unexpected();
++        return FWK_E_PARAM;
++    }
++
++    return FWK_SUCCESS;
++}
++
++static int mailbox_start(fwk_id_t id)
++{
++    return FWK_SUCCESS;
++}
++
++const struct fwk_module module_tfm_smt = {
++    .type = FWK_MODULE_TYPE_SERVICE,
++    .api_count = MOD_TFM_SMT_API_IDX_COUNT,
++    .init = mailbox_init,
++    .element_init = mailbox_channel_init,
++    .bind = mailbox_smt_bind,
++    .start = mailbox_start,
++    .process_bind_request = mailbox_smt_process_bind_request,
++};
+-- 
+2.47.2
+

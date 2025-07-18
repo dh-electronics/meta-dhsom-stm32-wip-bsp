@@ -1,0 +1,64 @@
+From a98ca65483327a7a28bc285fa5b1fb96f7554cd0 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Fri, 31 Jan 2025 11:22:28 +0100
+Subject: [PATCH 1493/1695] core: plat-stm32mp2: retrieve chip device id from
+ syscfg for STM32MP2
+
+Chip ID is read from SYSCFG. Add the associated read function
+stm32mp_syscfg_get_chip_dev_id() the same way it is already defined for
+STM32MP1.
+
+Use the chip device id for authenticated debug certificate validation.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 56a69fcde40c32e44089a0d1232e39985e5552b1 core: plat-stm32mp2: retrieve chip device id from syscfg for STM32MP2]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: Id0b94ce53f5dd687813eb015038ff275fb639837
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/433592
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c | 11 +++++++++++
+ core/arch/arm/plat-stm32mp2/stm32_util.h              |  2 ++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
+index 70fc1bb37..e0d4e286e 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_syscfg.c
+@@ -52,6 +52,10 @@ struct io_pa_va syscfg_base[SYSCON_NB_BANKS] = {
+ #define SYSCFG_SAFERSTCR		SYSCON_ID(SYSCON_SYSCFG, 0x2018U)
+ #define SYSCFG_SAFERSTCR_EN		BIT(0)
+ 
++/* SYSCFG device ID register definition */
++#define SYSCFG_IDC			SYSCON_ID(SYSCON_SYSCFG, 0x6400U)
++#define SYSCFG_IDC_DEV_ID_MASK		GENMASK_32(11, 0)
++
+ /*
+  * SYSCFG IO compensation register offsets (base relative)
+  */
+@@ -183,3 +187,10 @@ void stm32mp25_syscfg_set_safe_reset(bool status)
+ 	else
+ 		io_clrbits32(addr, SYSCFG_SAFERSTCR_EN);
+ }
++
++uint32_t stm32mp_syscfg_get_chip_dev_id(void)
++{
++	vaddr_t addr = stm32mp_syscfg_base(SYSCON_SYSCFG) + SYSCFG_IDC;
++
++	return io_read32(addr) & SYSCFG_IDC_DEV_ID_MASK;
++}
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+index e994ffe69..cda6c7826 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -34,4 +34,6 @@ void stm32_debug_suspend(unsigned long a0);
+ 
+ bool stm32mp_allow_probe_shared_device(const void *fdt, int node);
+ 
++/* Get device ID from SYSCFG registers */
++uint32_t stm32mp_syscfg_get_chip_dev_id(void);
+ #endif /*__STM32_UTIL_H__*/
+-- 
+2.47.2
+

@@ -1,0 +1,120 @@
+From b21b419a594b87fe135842711aaafa4ebe4fd4dc Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Tue, 7 Nov 2023 15:28:31 +0100
+Subject: [PATCH 0030/1695] core: interrupt: halt other cores when one is
+ panicking
+
+When one core panics, send an SGI (CFG_CORE_HALT_CORES_ON_PANIC_SGI)
+to halt other cores if CFG_CORE_HALT_CORES_ON_PANIC is enabled.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1ca7271e1f6ccc2486386a8f12593a4e6594a312 core: interrupt: halt other cores when one is panicking]
+Change-Id: I1b76ebc420bab7b081f8ee176558d36fb82f1d73
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+[etienne: cherry-picked from 2b719df0fc1c2fc22ee5fa94bcd0dafd696f1384]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/kernel/panic.c | 53 +++++++++++++++++++++++++++++++++++++++++++--
+ mk/config.mk        |  7 ++++++
+ 2 files changed, 58 insertions(+), 2 deletions(-)
+
+diff --git a/core/kernel/panic.c b/core/kernel/panic.c
+index 18028fbfd..7939854bb 100644
+--- a/core/kernel/panic.c
++++ b/core/kernel/panic.c
+@@ -4,11 +4,58 @@
+  * Copyright (c) 2014, STMicroelectronics International N.V.
+  */
+ 
++#include <initcall.h>
++#include <kernel/interrupt.h>
++#include <kernel/misc.h>
+ #include <kernel/panic.h>
+ #include <kernel/thread.h>
+ #include <kernel/unwind.h>
+ #include <trace.h>
+ 
++/* SGI number chosen to halt other cores must be in the secure SGI range */
++static_assert(!IS_ENABLED(CFG_HALT_CORES_ON_PANIC) ||
++	      (CFG_HALT_CORES_ON_PANIC_SGI >= 8 &&
++	       CFG_HALT_CORES_ON_PANIC_SGI < 16));
++
++static enum itr_return __noreturn
++multi_core_panic_it_handler(struct itr_handler *hdl __unused)
++{
++	IMSG("Halting CPU %zu", get_core_pos());
++
++	while (true)
++		cpu_idle();
++}
++
++static struct itr_handler multi_core_panic_handler = {
++	.it = CFG_HALT_CORES_ON_PANIC_SGI,
++	.handler = multi_core_panic_it_handler,
++};
++DECLARE_KEEP_PAGER(multi_core_panic_handler);
++
++static void notify_other_cores(void)
++{
++	interrupt_raise_sgi(interrupt_get_main_chip(),
++			    CFG_HALT_CORES_ON_PANIC_SGI,
++			    ITR_CPU_MASK_TO_OTHER_CPUS);
++}
++
++static TEE_Result init_multi_core_panic_handler(void)
++{
++	if (!IS_ENABLED(CFG_HALT_CORES_ON_PANIC) || CFG_TEE_CORE_NB_CORE == 1)
++		return TEE_SUCCESS;
++
++	if (interrupt_add_handler_with_chip(interrupt_get_main_chip(),
++					    &multi_core_panic_handler))
++		panic();
++
++	interrupt_enable(interrupt_get_main_chip(),
++			 multi_core_panic_handler.it);
++
++	return TEE_SUCCESS;
++}
++
++boot_final(init_multi_core_panic_handler);
++
+ void __do_panic(const char *file __maybe_unused,
+ 		const int line __maybe_unused,
+ 		const char *func __maybe_unused,
+@@ -17,8 +64,6 @@ void __do_panic(const char *file __maybe_unused,
+ 	/* disable prehemption */
+ 	(void)thread_mask_exceptions(THREAD_EXCP_ALL);
+ 
+-	/* TODO: notify other cores */
+-
+ 	/* trace: Panic ['panic-string-message' ]at FILE:LINE [<FUNCTION>]" */
+ 	if (!file && !func && !msg)
+ 		EMSG_RAW("Panic");
+@@ -29,6 +74,10 @@ void __do_panic(const char *file __maybe_unused,
+ 			 func ? "<" : "", func ? func : "", func ? ">" : "");
+ 
+ 	print_kernel_stack();
++
++	if (IS_ENABLED(CFG_HALT_CORES_ON_PANIC) && CFG_TEE_CORE_NB_CORE > 1)
++		notify_other_cores();
++
+ 	/* abort current execution */
+ 	while (1)
+ 		cpu_idle();
+diff --git a/mk/config.mk b/mk/config.mk
+index a9a68e3a4..3adbab34c 100644
+--- a/mk/config.mk
++++ b/mk/config.mk
+@@ -1063,3 +1063,10 @@ CFG_HMAC_64_1024_RANGE ?= n
+ # By default use standard pbkdf2 implementation
+ CFG_CRYPTO_HW_PBKDF2 ?= n
+ $(eval $(call cfg-depends-all,CFG_CRYPTO_HW_PBKDF2,CFG_CRYPTO_PBKDF2))
++
++# CFG_HALT_CORES_ON_PANIC, when enabled, makes any call to panic() halt the
++# other cores. The feature currently relies on GIC device to trap the other
++# cores using an SGI interrupt specified by CFG_HALT_CORES_ON_PANIC_SGI.
++CFG_HALT_CORES_ON_PANIC ?= n
++CFG_HALT_CORES_ON_PANIC_SGI ?= 15
++$(eval $(call cfg-depends-all,CFG_HALT_CORES_ON_PANIC,CFG_GIC))
+-- 
+2.47.2
+
