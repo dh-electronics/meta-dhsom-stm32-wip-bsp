@@ -1,0 +1,66 @@
+From 7730f97fc52ed1edde74252134c9e00a6a9db84a Mon Sep 17 00:00:00 2001
+From: Patrice Chotard <patrice.chotard@foss.st.com>
+Date: Wed, 10 Apr 2024 15:40:15 +0200
+Subject: [PATCH 23/39] phy: stm32: Use regulator_set_enable_if_allowed()
+
+In case of an always-on regulator, trying to disable it
+return the following error :
+
+stm32-usb2phy usb2-phy2: can't disable regulators (-13)
+stm32-usb2phy usb2-phy2: PHY: Failed to exit usb2-phy2: -13.
+
+Then we return directly from stm32_usb2phy_regulators_disable()
+without performing the reset_assert(&phy_dev->reset) which let
+the phy in an unstable state which can lead to a USB not functional.
+
+Make usage of regulator_set_enable_if_allowed() instead of
+regulator_set_enable() fixed it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 1738d768a41c208aa7ef4fc1b44bbf93534b6ff4 phy: stm32: Use regulator_set_enable_if_allowed()]
+Signed-off-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Change-Id: I6bd0a07df6cc3049a8db90109852b3dd7d568f4e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/372788
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/phy/phy-stm32-usb2phy.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/phy/phy-stm32-usb2phy.c b/drivers/phy/phy-stm32-usb2phy.c
+index 1a046d5df12..91f37dc5c1c 100644
+--- a/drivers/phy/phy-stm32-usb2phy.c
++++ b/drivers/phy/phy-stm32-usb2phy.c
+@@ -156,12 +156,12 @@ static int stm32_usb2phy_regulators_enable(struct phy *phy)
+ 	int ret;
+ 	struct stm32_usb2phy *phy_dev = dev_get_priv(phy->dev);
+ 
+-	ret = regulator_set_enable(phy_dev->vdd33, true);
++	ret = regulator_set_enable_if_allowed(phy_dev->vdd33, true);
+ 	if (ret)
+ 		return ret;
+ 
+ 	if (phy_dev->vdda18) {
+-		ret = regulator_set_enable(phy_dev->vdda18, true);
++		ret = regulator_set_enable_if_allowed(phy_dev->vdda18, true);
+ 		if (ret)
+ 			goto vdd33_disable;
+ 	}
+@@ -180,12 +180,12 @@ static int stm32_usb2phy_regulators_disable(struct phy *phy)
+ 	struct stm32_usb2phy *phy_dev = dev_get_priv(phy->dev);
+ 
+ 	if (phy_dev->vdda18) {
+-		ret = regulator_set_enable(phy_dev->vdda18, false);
++		ret = regulator_set_enable_if_allowed(phy_dev->vdda18, false);
+ 		if (ret)
+ 			return ret;
+ 	}
+ 
+-	ret = regulator_set_enable(phy_dev->vdd33, false);
++	ret = regulator_set_enable_if_allowed(phy_dev->vdd33, false);
+ 	if (ret)
+ 		return ret;
+ 
+-- 
+2.53.0
+

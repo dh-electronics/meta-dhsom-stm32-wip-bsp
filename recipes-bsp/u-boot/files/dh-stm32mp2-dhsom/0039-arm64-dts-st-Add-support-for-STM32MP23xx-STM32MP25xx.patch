@@ -1,0 +1,2131 @@
+From 94a04dd0cd3bb5847ee80e73033dbf774dcccd5b Mon Sep 17 00:00:00 2001
+From: Marek Vasut <marex@nabladev.com>
+Date: Sun, 6 Jul 2025 19:18:19 +0200
+Subject: [PATCH 39/39] arm64: dts: st: Add support for STM32MP23xx/STM32MP25xx
+ DHCOS SoM and Breakout Board and DHSBC
+
+This stm32mp25xx-dhcos-bb board is a stack of DHCOS SoM based on
+STM32MP25xx SoC (1200MHz / crypto capabilities) populated on SoM
+Breakout Board, the stm32mp255c-dhcos-dhsbc is the SoM populated
+on DHSBC carrier board. The stm32mp23xx-dhcos-bb is a stack with
+STM32MP23xx SoC.
+
+The SoM contains the following peripherals:
+- STPMIC (power delivery)
+- 4GiB LPDDR4 memory
+- eMMC and SDIO WiFi module
+
+The Breakout Board carrier board contains the following peripherals:
+- USB-C peripheral port, power supply plug
+
+The DHSBC carrier board contains the following peripherals:
+- Two RGMII Ethernet ports
+- MicroSD slot
+- LVDS connector
+- MIPI CSI2 connector
+- USB-A Host port, USB-C power supply plug
+- USB-C / DP port
+- Expansion connector
+
+Upstream-Status: Pending
+Signed-off-by: Marek Vasut <marex@nabladev.com>
+---
+ arch/arm/dts/Makefile                         |   5 +
+ arch/arm/dts/stm32mp23xx-dhcos-bb-u-boot.dtsi |   7 +
+ arch/arm/dts/stm32mp23xx-dhcos-bb.dts         |  16 +
+ .../arm/dts/stm32mp23xx-dhcos-som-u-boot.dtsi |   7 +
+ arch/arm/dts/stm32mp23xx-dhcos-som.dtsi       |  17 +
+ .../dts/stm32mp255c-dhcos-dhsbc-u-boot.dtsi   |  19 +
+ arch/arm/dts/stm32mp255c-dhcos-dhsbc.dts      | 292 ++++++++
+ arch/arm/dts/stm32mp25xx-dhcos-bb-u-boot.dtsi |   7 +
+ arch/arm/dts/stm32mp25xx-dhcos-bb.dts         |  15 +
+ ...tm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi | 188 +++++
+ .../arm/dts/stm32mp25xx-dhcos-som-u-boot.dtsi |   7 +
+ arch/arm/dts/stm32mp25xx-dhcos-som.dtsi       |  17 +
+ arch/arm/dts/stm32mp2xxx-dhcos-bb-u-boot.dtsi |  17 +
+ arch/arm/dts/stm32mp2xxx-dhcos-bb.dtsi        |  20 +
+ .../arm/dts/stm32mp2xxx-dhcos-som-u-boot.dtsi |  36 +
+ arch/arm/dts/stm32mp2xxx-dhcos-som.dtsi       | 673 ++++++++++++++++++
+ arch/arm/mach-stm32mp/Kconfig.25x             |   8 +
+ arch/arm/mach-stm32mp/dram_init.c             |   7 +
+ board/dhelectronics/dh_stm32mp2/Kconfig       |  13 +
+ board/dhelectronics/dh_stm32mp2/MAINTAINERS   |   6 +
+ board/dhelectronics/dh_stm32mp2/Makefile      |   6 +
+ board/dhelectronics/dh_stm32mp2/board.c       | 262 +++++++
+ configs/stm32mp23_dhcos_bb_defconfig          |   7 +
+ configs/stm32mp25_dhcos.config                | 162 +++++
+ configs/stm32mp25_dhcos_bb_defconfig          |   6 +
+ configs/stm32mp25_dhcos_dhsbc_defconfig       |   6 +
+ include/configs/stm32mp2_dh_common.h          |  19 +
+ 27 files changed, 1845 insertions(+)
+ create mode 100644 arch/arm/dts/stm32mp23xx-dhcos-bb-u-boot.dtsi
+ create mode 100644 arch/arm/dts/stm32mp23xx-dhcos-bb.dts
+ create mode 100644 arch/arm/dts/stm32mp23xx-dhcos-som-u-boot.dtsi
+ create mode 100644 arch/arm/dts/stm32mp23xx-dhcos-som.dtsi
+ create mode 100644 arch/arm/dts/stm32mp255c-dhcos-dhsbc-u-boot.dtsi
+ create mode 100644 arch/arm/dts/stm32mp255c-dhcos-dhsbc.dts
+ create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-bb-u-boot.dtsi
+ create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-bb.dts
+ create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi
+ create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-som-u-boot.dtsi
+ create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-som.dtsi
+ create mode 100644 arch/arm/dts/stm32mp2xxx-dhcos-bb-u-boot.dtsi
+ create mode 100644 arch/arm/dts/stm32mp2xxx-dhcos-bb.dtsi
+ create mode 100644 arch/arm/dts/stm32mp2xxx-dhcos-som-u-boot.dtsi
+ create mode 100644 arch/arm/dts/stm32mp2xxx-dhcos-som.dtsi
+ create mode 100644 board/dhelectronics/dh_stm32mp2/Kconfig
+ create mode 100644 board/dhelectronics/dh_stm32mp2/MAINTAINERS
+ create mode 100644 board/dhelectronics/dh_stm32mp2/Makefile
+ create mode 100644 board/dhelectronics/dh_stm32mp2/board.c
+ create mode 100644 configs/stm32mp23_dhcos_bb_defconfig
+ create mode 100644 configs/stm32mp25_dhcos.config
+ create mode 100644 configs/stm32mp25_dhcos_bb_defconfig
+ create mode 100644 configs/stm32mp25_dhcos_dhsbc_defconfig
+ create mode 100644 include/configs/stm32mp2_dh_common.h
+
+diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
+index 2b65cd9105c..4d4c8023e33 100644
+--- a/arch/arm/dts/Makefile
++++ b/arch/arm/dts/Makefile
+@@ -1053,6 +1053,11 @@ dtb-$(CONFIG_ASPEED_AST2600) += \
+ dtb-$(CONFIG_STM32MP15X) += \
+ 	stm32mp157c-odyssey.dtb
+ 
++dtb-$(CONFIG_STM32MP25X) += \
++	stm32mp23xx-dhcos-bb.dtb \
++	stm32mp255c-dhcos-dhsbc.dtb \
++	stm32mp25xx-dhcos-bb.dtb
++
+ dtb-$(CONFIG_SOC_K3_AM654) += \
+ 	k3-am654-r5-base-board.dtb
+ 
+diff --git a/arch/arm/dts/stm32mp23xx-dhcos-bb-u-boot.dtsi b/arch/arm/dts/stm32mp23xx-dhcos-bb-u-boot.dtsi
+new file mode 100644
+index 00000000000..c1bb329102f
+--- /dev/null
++++ b/arch/arm/dts/stm32mp23xx-dhcos-bb-u-boot.dtsi
+@@ -0,0 +1,7 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
++/*
++ * Copyright (C) 2026 Marek Vasut <marex@nabladev.com>
++ */
++
++#include "stm32mp23xx-dhcos-som-u-boot.dtsi"
++#include "stm32mp2xxx-dhcos-bb-u-boot.dtsi"
+diff --git a/arch/arm/dts/stm32mp23xx-dhcos-bb.dts b/arch/arm/dts/stm32mp23xx-dhcos-bb.dts
+new file mode 100644
+index 00000000000..4f3e3259e60
+--- /dev/null
++++ b/arch/arm/dts/stm32mp23xx-dhcos-bb.dts
+@@ -0,0 +1,16 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) 2026 Marek Vasut <marex@nabladev.com>
++ */
++
++/dts-v1/;
++
++/* FIXME: Temporarily pull in STM32MP25xx content because STM32MP23xx support is limited */
++#include "stm32mp251.dtsi"
++#include "stm32mp23xx-dhcos-som.dtsi"
++#include "stm32mp2xxx-dhcos-bb.dtsi"
++
++/ {
++	model = "DH electronics STM32MP23xx DHCOS Breakout Board";
++	compatible = "dh,stm32mp23xx-dhcos-bb", "dh,stm32mp231a-dhcos-som", "st,stm32mp231";
++};
+diff --git a/arch/arm/dts/stm32mp23xx-dhcos-som-u-boot.dtsi b/arch/arm/dts/stm32mp23xx-dhcos-som-u-boot.dtsi
+new file mode 100644
+index 00000000000..2e9ac41f702
+--- /dev/null
++++ b/arch/arm/dts/stm32mp23xx-dhcos-som-u-boot.dtsi
+@@ -0,0 +1,7 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
++/*
++ * Copyright (C) 2026 Marek Vasut <marex@nabladev.com>
++ */
++
++#include "stm32mp23-u-boot.dtsi"
++#include "stm32mp2xxx-dhcos-som-u-boot.dtsi"
+diff --git a/arch/arm/dts/stm32mp23xx-dhcos-som.dtsi b/arch/arm/dts/stm32mp23xx-dhcos-som.dtsi
+new file mode 100644
+index 00000000000..9b3f6702263
+--- /dev/null
++++ b/arch/arm/dts/stm32mp23xx-dhcos-som.dtsi
+@@ -0,0 +1,17 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/leds/common.h>
++#include "stm32mp25-pinctrl.dtsi"
++#include "stm32mp25xxak-pinctrl.dtsi"
++#include "stm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi"
++#include "stm32mp2xxx-dhcos-som.dtsi"
++
++/ {
++	model = "DH electronics STM32MP23xx DHCOS SoM";
++	compatible = "dh,stm32mp231a-dhcos-som", "st,stm32mp231";
++};
+diff --git a/arch/arm/dts/stm32mp255c-dhcos-dhsbc-u-boot.dtsi b/arch/arm/dts/stm32mp255c-dhcos-dhsbc-u-boot.dtsi
+new file mode 100644
+index 00000000000..b020cde9103
+--- /dev/null
++++ b/arch/arm/dts/stm32mp255c-dhcos-dhsbc-u-boot.dtsi
+@@ -0,0 +1,19 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++#include "stm32mp25xx-dhcos-som-u-boot.dtsi"
++
++/ {
++	/* Temporarily force USB-A Vbus active */
++	regulator-usb-host-vbus {
++		compatible = "regulator-fixed";
++		regulator-name = "usb-host";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		gpio = <&ioexp 4 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++	};
++};
+diff --git a/arch/arm/dts/stm32mp255c-dhcos-dhsbc.dts b/arch/arm/dts/stm32mp255c-dhcos-dhsbc.dts
+new file mode 100644
+index 00000000000..0f100d571dc
+--- /dev/null
++++ b/arch/arm/dts/stm32mp255c-dhcos-dhsbc.dts
+@@ -0,0 +1,292 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++/dts-v1/;
++
++#include "stm32mp255.dtsi"
++#include "stm32mp25xx-dhcos-som.dtsi"
++
++/ {
++	model = "DH electronics STM32MP255C DHCOS DHSBC";
++	compatible = "dh,stm32mp255c-dhcos-dhsbc", "dh,stm32mp255c-dhcos-som", "st,stm32mp251";
++
++	aliases {
++		ethernet0 = &ethernet1;
++		ethernet1 = &ethernet2;
++	};
++};
++
++&eth1_rgmii_pins_a {
++	pins1 {
++		st,io-retime = <1>;
++		st,io-clk-edge = <1>;
++	};
++
++	pins3 {
++		st,io-retime = <1>;
++		st,io-clk-edge = <1>;
++	};
++};
++
++&ethernet1 {
++	phy-handle = <&ethphy1>;
++	phy-mode = "rgmii-id";
++	pinctrl-0 = <&eth1_mdio_pins_a &eth1_rgmii_pins_a>;
++	pinctrl-1 = <&eth1_mdio_sleep_pins_a &eth1_rgmii_sleep_pins_a>;
++	pinctrl-names = "default", "sleep";
++	st,ext-phyclk;
++	status = "okay";
++
++	mdio {
++		#address-cells = <1>;
++		#size-cells = <0>;
++		compatible = "snps,dwmac-mdio";
++
++		ethphy1: ethernet-phy@1 {
++			/* RTL8211F */
++			compatible = "ethernet-phy-id001c.c916";
++			interrupt-parent = <&gpioc>;
++			interrupts = <6 IRQ_TYPE_LEVEL_LOW>;
++			reg = <1>;
++			realtek,clkout-disable;
++			reset-assert-us = <15000>;
++			reset-deassert-us = <55000>;
++			reset-gpios = <&ioexp 1 GPIO_ACTIVE_LOW>;
++
++			leds {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				led@0 {
++					reg = <0>;
++					color = <LED_COLOR_ID_GREEN>;
++					function = LED_FUNCTION_WAN;
++					linux,default-trigger = "netdev";
++				};
++
++				led@1 {
++					reg = <1>;
++					color = <LED_COLOR_ID_YELLOW>;
++					function = LED_FUNCTION_WAN;
++					linux,default-trigger = "netdev";
++				};
++			};
++		};
++	};
++};
++
++&ethernet2 {
++	phy-handle = <&ethphy2>;
++	phy-mode = "rgmii-id";
++	pinctrl-0 = <&eth2_mdio_pins_a &eth2_rgmii_pins_b>;
++	pinctrl-1 = <&eth2_mdio_sleep_pins_a &eth2_rgmii_sleep_pins_b>;
++	pinctrl-names = "default", "sleep";
++	st,ext-phyclk;
++	status = "okay";
++
++	mdio {
++		#address-cells = <1>;
++		#size-cells = <0>;
++		compatible = "snps,dwmac-mdio";
++
++		ethphy2: ethernet-phy@1 {
++			/* RTL8211F */
++			compatible = "ethernet-phy-id001c.c916";
++			interrupt-parent = <&gpiog>;
++			interrupts = <3 IRQ_TYPE_LEVEL_LOW>;
++			reg = <1>;
++			realtek,clkout-disable;
++			reset-assert-us = <15000>;
++			reset-deassert-us = <55000>;
++			reset-gpios = <&ioexp 0 GPIO_ACTIVE_LOW>;
++
++			leds {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				led@0 {
++					reg = <0>;
++					color = <LED_COLOR_ID_GREEN>;
++					function = LED_FUNCTION_LAN;
++					linux,default-trigger = "netdev";
++				};
++
++				led@1 {
++					reg = <1>;
++					color = <LED_COLOR_ID_YELLOW>;
++					function = LED_FUNCTION_LAN;
++					linux,default-trigger = "netdev";
++				};
++			};
++		};
++	};
++};
++
++&sdmmc1 {
++	pinctrl-names = "default", "opendrain", "sleep";
++	pinctrl-0 = <&sdmmc1_b4_pins_b>;
++	pinctrl-1 = <&sdmmc1_b4_od_pins_b>;
++	pinctrl-2 = <&sdmmc1_b4_sleep_pins_a>;
++	cd-gpios = <&gpiod 11 GPIO_ACTIVE_HIGH>;
++	disable-wp;
++	st,neg-edge;
++	bus-width = <4>;
++	vmmc-supply = <&scmi_vdd_sdcard>;
++	vqmmc-supply = <&scmi_vddio1>;
++	sd-uhs-sdr12;
++	sd-uhs-sdr25;
++	sd-uhs-sdr50;
++	sd-uhs-ddr50;
++	sd-uhs-sdr104;
++	status = "okay";
++};
++
++&usbh {
++	status = "okay";
++};
++
++&usbh_ehci {
++	status = "okay";
++};
++
++&usbh_ohci {
++	status = "okay";
++};
++
++&usb2_phy1 {
++	status = "okay";
++};
++
++&pinctrl {
++	eth2_mdio_pins_a: eth2-mdio-0 {
++		pins1 {
++			pinmux = <STM32_PINMUX('G', 4, AF11)>; /* ETH_MDC */
++			bias-disable;
++			drive-push-pull;
++			slew-rate = <3>;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('C', 5, AF10)>; /* ETH_MDIO */
++			bias-disable;
++			drive-push-pull;
++			slew-rate = <0>;
++		};
++	};
++
++	eth2_mdio_sleep_pins_a: eth2-mdio-sleep-0 {
++		pins {
++			pinmux = <STM32_PINMUX('C', 6, ANALOG)>, /* ETH_MDC */
++				 <STM32_PINMUX('C', 5, ANALOG)>; /* ETH_MDIO */
++		};
++	};
++
++	eth2_rgmii_pins_b: eth2-rgmii-1 {
++		pins1 {
++			pinmux = <STM32_PINMUX('C', 7, AF10)>, /* ETH_RGMII_TXD0 */
++				 <STM32_PINMUX('C', 8, AF10)>, /* ETH_RGMII_TXD1 */
++				 <STM32_PINMUX('C', 9, AF10)>, /* ETH_RGMII_TXD2 */
++				 <STM32_PINMUX('C', 10, AF10)>, /* ETH_RGMII_TXD3 */
++				 <STM32_PINMUX('C', 4, AF10)>; /* ETH_RGMII_TX_CTL */
++			bias-disable;
++			drive-push-pull;
++			slew-rate = <3>;
++			st,io-retime = <1>;
++			st,io-clk-edge = <1>;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('F', 8, AF10)>, /* ETH_RGMII_CLK125 */
++				 <STM32_PINMUX('F', 7, AF10)>; /* ETH_MDC */
++			bias-disable;
++			drive-push-pull;
++			slew-rate = <3>;
++		};
++		pins3 {
++			pinmux = <STM32_PINMUX('G', 0, AF10)>, /* ETH_RGMII_RXD0 */
++				 <STM32_PINMUX('C', 12, AF10)>, /* ETH_RGMII_RXD1 */
++				 <STM32_PINMUX('F', 9, AF10)>, /* ETH_RGMII_RXD2 */
++				 <STM32_PINMUX('C', 11, AF10)>, /* ETH_RGMII_RXD3 */
++				 <STM32_PINMUX('C', 3, AF10)>; /* ETH_RGMII_RX_CTL */
++			bias-disable;
++			st,io-retime = <1>;
++			st,io-clk-edge = <1>;
++		};
++		pins4 {
++			pinmux = <STM32_PINMUX('F', 6, AF10)>; /* ETH_RGMII_RX_CLK */
++			bias-disable;
++		};
++	};
++
++	eth2_rgmii_sleep_pins_b: eth2-rgmii-sleep-1 {
++		pins {
++			pinmux = <STM32_PINMUX('C', 7, ANALOG)>, /* ETH_RGMII_TXD0 */
++				 <STM32_PINMUX('C', 8, ANALOG)>, /* ETH_RGMII_TXD1 */
++				 <STM32_PINMUX('C', 9, ANALOG)>, /* ETH_RGMII_TXD2 */
++				 <STM32_PINMUX('C', 10, ANALOG)>, /* ETH_RGMII_TXD3 */
++				 <STM32_PINMUX('C', 4, ANALOG)>, /* ETH_RGMII_TX_CTL */
++				 <STM32_PINMUX('F', 8, ANALOG)>, /* ETH_RGMII_CLK125 */
++				 <STM32_PINMUX('F', 7, ANALOG)>, /* ETH_RGMII_GTX_CLK */
++				 <STM32_PINMUX('G', 0, ANALOG)>, /* ETH_RGMII_RXD0 */
++				 <STM32_PINMUX('C', 12, ANALOG)>, /* ETH_RGMII_RXD1 */
++				 <STM32_PINMUX('F', 9, ANALOG)>, /* ETH_RGMII_RXD2 */
++				 <STM32_PINMUX('C', 11, ANALOG)>, /* ETH_RGMII_RXD3 */
++				 <STM32_PINMUX('C', 3, ANALOG)>, /* ETH_RGMII_RX_CTL */
++				 <STM32_PINMUX('F', 6, ANALOG)>; /* ETH_RGMII_RX_CLK */
++		};
++	};
++
++	sdmmc1_b4_pins_b: sdmmc1-b4-1 {
++		pins1 {
++			pinmux = <STM32_PINMUX('E', 4, AF10)>, /* SDMMC1_D0 */
++				 <STM32_PINMUX('E', 5, AF10)>, /* SDMMC1_D1 */
++				 <STM32_PINMUX('E', 0, AF10)>, /* SDMMC1_D2 */
++				 <STM32_PINMUX('E', 1, AF10)>, /* SDMMC1_D3 */
++				 <STM32_PINMUX('E', 2, AF10)>; /* SDMMC1_CMD */
++			slew-rate = <1>;
++			drive-push-pull;
++			bias-disable;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('E', 3, AF10)>; /* SDMMC1_CK */
++			slew-rate = <2>;
++			drive-push-pull;
++			bias-disable;
++		};
++	};
++
++	sdmmc1_b4_od_pins_b: sdmmc1-b4-od-1 {
++		pins1 {
++			pinmux = <STM32_PINMUX('E', 4, AF10)>, /* SDMMC1_D0 */
++				 <STM32_PINMUX('E', 5, AF10)>, /* SDMMC1_D1 */
++				 <STM32_PINMUX('E', 0, AF10)>, /* SDMMC1_D2 */
++				 <STM32_PINMUX('E', 1, AF10)>; /* SDMMC1_D3 */
++			slew-rate = <1>;
++			drive-push-pull;
++			bias-disable;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('E', 3, AF10)>; /* SDMMC1_CK */
++			slew-rate = <2>;
++			drive-push-pull;
++			bias-disable;
++		};
++		pins3 {
++			pinmux = <STM32_PINMUX('E', 2, AF10)>; /* SDMMC1_CMD */
++			slew-rate = <1>;
++			drive-open-drain;
++			bias-disable;
++		};
++	};
++
++	sdmmc1_b4_sleep_pins_a: sdmmc1-b4-sleep-0 {
++		pins {
++			pinmux = <STM32_PINMUX('E', 4, ANALOG)>, /* SDMMC1_D0 */
++				 <STM32_PINMUX('E', 5, ANALOG)>, /* SDMMC1_D1 */
++				 <STM32_PINMUX('E', 0, ANALOG)>, /* SDMMC1_D2 */
++				 <STM32_PINMUX('E', 1, ANALOG)>, /* SDMMC1_D3 */
++				 <STM32_PINMUX('E', 3, ANALOG)>, /* SDMMC1_CK */
++				 <STM32_PINMUX('E', 2, ANALOG)>; /* SDMMC1_CMD */
++		};
++	};
++};
+diff --git a/arch/arm/dts/stm32mp25xx-dhcos-bb-u-boot.dtsi b/arch/arm/dts/stm32mp25xx-dhcos-bb-u-boot.dtsi
+new file mode 100644
+index 00000000000..fe53147fa45
+--- /dev/null
++++ b/arch/arm/dts/stm32mp25xx-dhcos-bb-u-boot.dtsi
+@@ -0,0 +1,7 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++#include "stm32mp25xx-dhcos-som-u-boot.dtsi"
++#include "stm32mp2xxx-dhcos-bb-u-boot.dtsi"
+diff --git a/arch/arm/dts/stm32mp25xx-dhcos-bb.dts b/arch/arm/dts/stm32mp25xx-dhcos-bb.dts
+new file mode 100644
+index 00000000000..f0b108fc045
+--- /dev/null
++++ b/arch/arm/dts/stm32mp25xx-dhcos-bb.dts
+@@ -0,0 +1,15 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++/dts-v1/;
++
++#include "stm32mp251.dtsi"
++#include "stm32mp25xx-dhcos-som.dtsi"
++#include "stm32mp2xxx-dhcos-bb.dtsi"
++
++/ {
++	model = "DH electronics STM32MP25xx DHCOS Breakout Board";
++	compatible = "dh,stm32mp25xx-dhcos-bb", "dh,stm32mp251a-dhcos-som", "st,stm32mp251";
++};
+diff --git a/arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi b/arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi
+new file mode 100644
+index 00000000000..9b8a41cd7b0
+--- /dev/null
++++ b/arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi
+@@ -0,0 +1,188 @@
++// SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++/ {
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		/* Internal RAM reserved memory declaration */
++		tfa_bl31: tfa-bl31@a000000 {
++			reg = <0x0 0xa000000 0x0 0x20000>;
++			no-map;
++		};
++
++		hpdma1_lli: hpdma1-lli@a020000 {
++			reg = <0x0 0xa020000 0x0 0xf0f0>;
++			no-map;
++		};
++
++		hpdma2_lli: hpdma2-lli@a02f0f0 {
++			reg = <0x0 0xa02f0f0 0x0 0xf0f0>;
++			no-map;
++		};
++
++		hpdma3_lli: hpdma3-lli@a03e1e0 {
++			reg = <0x0 0xa03e1e0 0x0 0x1e20>;
++			no-map;
++		};
++
++		bsec_mirror: bsec-mirror@a040000 {
++			reg = <0x0 0xa040000 0x0 0x1000>;
++			no-map;
++		};
++
++		scmi_cid2_s: scmi-cid2-s@a041000 {
++			reg = <0x0 0xa041000 0x0 0x1000>;
++			no-map;
++		};
++
++		scmi_cid2_ns: scmi-cid2-ns@a042000 {
++			reg = <0x0 0xa042000 0x0 0x1000>;
++			no-map;
++		};
++
++		cm33_sram1: cm33-sram1@a043000 {
++			reg = <0x0 0xa043000 0x0 0x1d000>;
++			no-map;
++		};
++
++		cm33_sram2: cm33-sram2@a060000 {
++			reg = <0x0 0xa060000 0x0 0x20000>;
++			no-map;
++		};
++
++		cm33_retram: cm33-retram@a080000 {
++			reg = <0x0 0xa080000 0x0 0x1f000>;
++			no-map;
++		};
++
++		ddr_param: ddr-param@a09f000 {
++			reg = <0x0 0xa09f000 0x0 0x1000>;
++			no-map;
++		};
++
++		cm0_cube_fw: cm0-cube-fw@200C0000 {
++			compatible = "shared-dma-pool";
++			reg = <0x0 0x200C0000 0x0 0x4000>;
++			no-map;
++		};
++
++		cm0_cube_data: cm0-cube-data@200C4000 {
++			compatible = "shared-dma-pool";
++			reg = <0x0 0x200C4000 0x0 0x2000>;
++			no-map;
++		};
++
++		ipc_shmem_2: ipc-shmem-2@200C6000{
++			compatible = "shared-dma-pool";
++			reg = <0x0 0x200C6000 0x0 0x2000>;
++			no-map;
++		};
++
++		/* Backup RAM reserved memory declaration */
++		bl31_lowpower: bl31-lowpower@42000000 {
++			reg = <0x0 0x42000000 0x0 0x1000>;
++			no-map;
++		};
++
++		tfm_its: tfm-its@42001000 {
++			reg = <0x0 0x42001000 0x0 0x1000>;
++			no-map;
++		};
++
++		/* Octo Memory Manager reserved memory declaration */
++		mm_ospi1: mm-ospi@60000000 {
++			reg = <0x0 0x60000000 0x0 0x10000000>;
++			no-map;
++		};
++
++		/* DDR reserved memory declaration */
++		tfm_code: tfm-code@80000000 {
++			reg = <0x0 0x80000000 0x0 0x100000>;
++			no-map;
++		};
++
++		cm33_cube_fw: cm33-cube-fw@80100000 {
++			reg = <0x0 0x80100000 0x0 0x800000>;
++			no-map;
++		};
++
++		tfm_data: tfm-data@80900000 {
++			reg = <0x0 0x80900000 0x0 0x100000>;
++			no-map;
++		};
++
++		cm33_cube_data: cm33-cube-data@80a00000 {
++			reg = <0x0 0x80a00000 0x0 0x800000>;
++			no-map;
++		};
++
++		ipc_shmem_1: ipc-shmem-1@81200000 {
++			compatible = "shared-dma-pool";
++			reg = <0x0 0x81200000 0x0 0xf8000>;
++			no-map;
++		};
++
++		vdev0vring0: vdev0vring0@812f8000 {
++			compatible = "shared-dma-pool";
++			reg = <0x0 0x812f8000 0x0 0x1000>;
++			no-map;
++		};
++
++		vdev0vring1: vdev0vring1@812f9000 {
++			compatible = "shared-dma-pool";
++			reg = <0x0 0x812f9000 0x0 0x1000>;
++			no-map;
++		};
++
++		vdev0buffer: vdev0buffer@812fa000 {
++			compatible = "shared-dma-pool";
++			reg = <0x0 0x812fa000 0x0 0x6000>;
++			no-map;
++		};
++
++		spare1: spare1@81300000 {
++			reg = <0x0 0x81300000 0x0 0xcc0000>;
++			no-map;
++		};
++
++		bl31_context: bl31-context@81fc0000 {
++			reg = <0x0 0x81fc0000 0x0 0x40000>;
++			no-map;
++		};
++
++		op_tee: op-tee@82000000 {
++			reg = <0x0 0x82000000 0x0 0x2000000>;
++			no-map;
++		};
++
++		gpu_reserved: gpu-reserved@fa800000 {
++			reg = <0x0 0xfa800000 0x0 0x4000000>;
++			no-map;
++		};
++
++		ltdc_sec_layer: ltdc-sec-layer@fe800000 {
++			reg = <0x0 0xfe800000 0x0 0x800000>;
++			no-map;
++		};
++
++		ltdc_sec_rotation: ltdc-sec-rotation@ff000000 {
++			reg = <0x0 0xff000000 0x0 0x1000000>;
++			no-map;
++		};
++
++		/* global autoconfigured region for contiguous allocations */
++		linux,cma {
++			compatible = "shared-dma-pool";
++			reusable;
++			alloc-ranges = <0 0x80000000 0 0x80000000>;
++			size = <0x0 0x8000000>;
++			alignment = <0x0 0x2000>;
++			linux,cma-default;
++		};
++	};
++};
+diff --git a/arch/arm/dts/stm32mp25xx-dhcos-som-u-boot.dtsi b/arch/arm/dts/stm32mp25xx-dhcos-som-u-boot.dtsi
+new file mode 100644
+index 00000000000..704a98c290f
+--- /dev/null
++++ b/arch/arm/dts/stm32mp25xx-dhcos-som-u-boot.dtsi
+@@ -0,0 +1,7 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++#include "stm32mp25-u-boot.dtsi"
++#include "stm32mp2xxx-dhcos-som-u-boot.dtsi"
+diff --git a/arch/arm/dts/stm32mp25xx-dhcos-som.dtsi b/arch/arm/dts/stm32mp25xx-dhcos-som.dtsi
+new file mode 100644
+index 00000000000..f8ea0ef33ac
+--- /dev/null
++++ b/arch/arm/dts/stm32mp25xx-dhcos-som.dtsi
+@@ -0,0 +1,17 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/leds/common.h>
++#include "stm32mp25-pinctrl.dtsi"
++#include "stm32mp25xxak-pinctrl.dtsi"
++#include "stm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi"
++#include "stm32mp2xxx-dhcos-som.dtsi"
++
++/ {
++	model = "DH electronics STM32MP25xx DHCOS SoM";
++	compatible = "dh,stm32mp251a-dhcos-som", "st,stm32mp251";
++};
+diff --git a/arch/arm/dts/stm32mp2xxx-dhcos-bb-u-boot.dtsi b/arch/arm/dts/stm32mp2xxx-dhcos-bb-u-boot.dtsi
+new file mode 100644
+index 00000000000..5c6dc4001a9
+--- /dev/null
++++ b/arch/arm/dts/stm32mp2xxx-dhcos-bb-u-boot.dtsi
+@@ -0,0 +1,17 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++/ {
++	/* Temporarily force USB-A Vbus active */
++	regulator-usb-host-vbus {
++		compatible = "regulator-fixed";
++		regulator-name = "usb-host";
++		regulator-min-microvolt = <5000000>;
++		regulator-max-microvolt = <5000000>;
++		gpio = <&ioexp 4 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++	};
++};
+diff --git a/arch/arm/dts/stm32mp2xxx-dhcos-bb.dtsi b/arch/arm/dts/stm32mp2xxx-dhcos-bb.dtsi
+new file mode 100644
+index 00000000000..02880e05f25
+--- /dev/null
++++ b/arch/arm/dts/stm32mp2xxx-dhcos-bb.dtsi
+@@ -0,0 +1,20 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) 2026 Marek Vasut <marex@nabladev.com>
++ */
++
++&usbh {
++	status = "okay";
++};
++
++&usbh_ehci {
++	status = "okay";
++};
++
++&usbh_ohci {
++	status = "okay";
++};
++
++&usb2_phy1 {
++	status = "okay";
++};
+diff --git a/arch/arm/dts/stm32mp2xxx-dhcos-som-u-boot.dtsi b/arch/arm/dts/stm32mp2xxx-dhcos-som-u-boot.dtsi
+new file mode 100644
+index 00000000000..345b68ff750
+--- /dev/null
++++ b/arch/arm/dts/stm32mp2xxx-dhcos-som-u-boot.dtsi
+@@ -0,0 +1,36 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++/ {
++	aliases {
++		spi0 = &ospi1;
++	};
++};
++
++&dwc3 {
++	phys = <&usb2_phy2>;
++	phy-names = "usb2-phy";
++	dr_mode = "peripheral";
++	maximum-speed = "high-speed";
++	/delete-node/ port;
++};
++
++&sdmmc3 {
++	status = "disabled";
++};
++
++&usart6 {
++	bootph-all;
++};
++
++&usart6_pins_a {
++	bootph-all;
++	pins1 {
++		bootph-all;
++	};
++	pins2 {
++		bootph-all;
++	};
++};
+diff --git a/arch/arm/dts/stm32mp2xxx-dhcos-som.dtsi b/arch/arm/dts/stm32mp2xxx-dhcos-som.dtsi
+new file mode 100644
+index 00000000000..7f15035a77e
+--- /dev/null
++++ b/arch/arm/dts/stm32mp2xxx-dhcos-som.dtsi
+@@ -0,0 +1,673 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
++ */
++
++#define USB2_R                62
++
++/ {
++	aliases {
++		mmc0 = &sdmmc1;
++		mmc1 = &sdmmc2;
++		serial0 = &usart6;
++		eeprom0 = &eeprom0;
++		eeprom0wl = &eeprom0wl;
++		rtc0 = &rv3032;
++		rtc1 = &rtc;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++	};
++
++	memory@80000000 {
++		device_type = "memory";
++		reg = <0x0 0x80000000 0x1 0x0>;
++	};
++
++	sdio_pwrseq: sdio-pwrseq {
++		compatible = "mmc-pwrseq-simple";
++		post-power-on-delay-ms = <50>;
++		reset-gpios = <&ioexp 3 GPIO_ACTIVE_LOW>;
++	};
++
++	/* This is here until upstreamed in Linux DTs */
++	usb2_phy1: usb2-phy1 {
++		compatible      = "st,stm32mp25-usb2phy";
++		#phy-cells      = <0>;
++		#clock-cells    = <0>;
++		st,syscfg       = <&syscfg 0x2400>;
++		clocks          = <&rcc CK_KER_USB2PHY1>;
++		resets          = <&rcc USB2PHY1_R>;
++		status          = "disabled";
++	};
++
++	usb2_phy2: usb2-phy2 {
++		compatible      = "st,stm32mp25-usb2phy";
++		#phy-cells      = <0>;
++		#clock-cells    = <0>;
++		st,syscfg       = <&syscfg 0x2800>;
++		clocks          = <&rcc CK_KER_USB2PHY2EN>;
++		resets          = <&rcc USB2PHY2_R>;
++		status          = "disabled";
++	};
++};
++
++&rifsc {
++	/* This is here until upstreamed in Linux DTs */
++	sdmmc2: mmc@48230000 {
++		compatible = "st,stm32mp25-sdmmc2", "arm,pl18x", "arm,primecell";
++		arm,primecell-periphid = <0x00353180>;
++		reg = <0x48230000 0x400>, <0x44230800 0x8>;
++		interrupts = <GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>;
++		clocks = <&rcc CK_KER_SDMMC2>;
++		clock-names = "apb_pclk";
++		resets = <&rcc SDMMC2_R>;
++		cap-sd-highspeed;
++		cap-mmc-highspeed;
++		max-frequency = <166000000>;
++		access-controllers = <&rifsc 77>;
++		status = "disabled";
++	};
++
++	sdmmc3: mmc@48240000 {
++		compatible = "st,stm32mp25-sdmmc2", "arm,pl18x", "arm,primecell";
++		arm,primecell-periphid = <0x00353180>;
++		reg = <0x48240000 0x400>, <0x44230c00 0x8>;
++		interrupts = <GIC_SPI 214 IRQ_TYPE_LEVEL_HIGH>;
++		clocks = <&rcc CK_KER_SDMMC3>;
++		clock-names = "apb_pclk";
++		resets = <&rcc SDMMC3_R>;
++		cap-sd-highspeed;
++		cap-mmc-highspeed;
++		max-frequency = <166000000>;
++		access-controllers = <&rifsc 78>;
++		status = "disabled";
++	};
++
++	usbh: usb@482e0000 {
++		compatible = "st,stm32mp25-usbh";
++		st,syscfg = <&syscfg 0x2420>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges = <0x482e0000 0x482e0000 0x20000>;
++		access-controllers = <&rifsc 63>;
++		wakeup-source;
++		interrupts-extended = <&exti1 43 IRQ_TYPE_EDGE_RISING>;
++		status = "disabled";
++
++		usbh_ohci: usb@482e0000 {
++			compatible = "generic-ohci";
++			reg = <0x482e0000 0x1000>;
++			clocks = <&usb2_phy1>, <&rcc CK_BUS_USB2OHCI>;
++			resets = <&rcc USB2_R>;
++			interrupts = <GIC_SPI 140 IRQ_TYPE_LEVEL_HIGH>;
++			phys = <&usb2_phy1>;
++			phy-names = "usb";
++			wakeup-source;
++		};
++
++		usbh_ehci: usb@482f0000 {
++			compatible = "generic-ehci";
++			reg = <0x482f0000 0x1000>;
++			clocks = <&rcc CK_BUS_USB2EHCI>;
++			resets = <&rcc USB2_R>;
++			interrupts = <GIC_SPI 139 IRQ_TYPE_LEVEL_HIGH>;
++			companion = <&usbh_ohci>;
++			phys = <&usb2_phy1>;
++			phy-names = "usb";
++			wakeup-source;
++		};
++	};
++
++	usb3dr: usb@48300000 {
++		compatible = "st,stm32mp25-dwc3";
++		st,syscfg = <&syscfg 0x4800>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges = <0x48300000 0x48300000 0x100000>;
++		access-controllers = <&rifsc 66>;
++		wakeup-source;
++		interrupts-extended = <&exti1 44 IRQ_TYPE_EDGE_RISING>;
++		status = "disabled";
++
++		dwc3: usb@48300000 {
++			compatible = "snps,dwc3";
++			reg = <0x48300000 0x100000>;
++			interrupts = <GIC_SPI 228 IRQ_TYPE_LEVEL_HIGH>;
++			clock-names = "ref", "bus_early", "suspend";
++			clocks = <&rcc CK_KER_USB2PHY2>, <&rcc CK_BUS_USB3DR>,
++				 <&rcc CK_KER_USB2PHY2>;
++			resets = <&rcc USB3DR_R>;
++			phys = <&usb2_phy2>;
++			phy-names = "usb2-phy";
++			wakeup-source;
++		};
++	};
++};
++
++&dwc3 {
++	dr_mode = "peripheral";
++	maximum-speed = "high-speed";
++	/delete-node/ port;
++};
++
++&usb2_phy1 {
++	vdd33-supply = <&scmi_vdd3v3_usb>;
++	status = "okay";
++};
++
++&usb2_phy2 {
++	vdd33-supply = <&scmi_vdd3v3_usb>;
++	status = "okay";
++};
++
++&usb3dr {
++	status = "okay";
++};
++
++&usbh {
++	status = "okay";
++};
++
++&usbh_ehci {
++	status = "okay";
++};
++
++&usbh_ohci {
++	status = "okay";
++};
++
++&arm_wdt {
++	timeout-sec = <32>;
++	status = "okay";
++};
++
++&combophy {
++	st,ssc-on;
++	status = "okay";
++};
++
++&gpioa {
++	gpio-line-names = "", "DHCOS-M", "DHCOS-K", "DHCOS-L",
++			  "DHCOS-E", "DHCOS-J", "", "",
++			  "DHCOS-D", "", "", "",
++			  "", "", "", "";
++};
++
++&gpiof {
++	gpio-line-names = "", "", "", "",
++			  "", "", "", "",
++			  "", "", "", "",
++			  "", "", "", "DHCOS_RAM-CODE_2";
++};
++
++&gpiog {
++	gpio-line-names = "", "", "", "",
++			  "", "", "", "",
++			  "", "DHCOS_RAM-CODE_0", "DHCOS_RAM-CODE_1", "",
++			  "", "", "DHCOS-F", "DHCOS_HW-CODE_0";
++};
++
++&gpioh {
++	gpio-line-names = "", "", "DHCOS-I", "DHCOS-N",
++			  "", "", "DHCOS-O", "DHCOS-H",
++			  "DHCOS-G", "", "", "",
++			  "", "", "", "";
++};
++
++&gpioi {
++	gpio-line-names = "DHCOS_HW-CODE_1", "DHCOS_HW-CODE_2", "", "",
++			  "", "", "", "",
++			  "", "DHCOS-C", "", "",
++			  "", "", "", "";
++};
++
++&gpioz {
++	gpio-line-names = "", "", "DHCOS-A", "DHCOS-B",
++			  "", "", "", "",
++			  "", "", "", "",
++			  "", "", "", "";
++};
++
++&hpdma {
++	memory-region = <&hpdma1_lli>;
++};
++
++&hpdma2 {
++	memory-region = <&hpdma2_lli>;
++};
++
++&hpdma3 {
++	memory-region = <&hpdma3_lli>;
++};
++
++&i2c8 {
++	pinctrl-names = "default", "sleep";
++	pinctrl-0 = <&i2c8_pins_b>;
++	pinctrl-1 = <&i2c8_sleep_pins_b>;
++	i2c-scl-rising-time-ns = <57>;
++	i2c-scl-falling-time-ns = <7>;
++	clock-frequency = <400000>;
++	status = "okay";
++
++	ioexp: gpio@20 {
++		compatible = "kinetic,kts1622", "ti,tca6416";
++		reg = <0x20>;
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupts-extended = <&gpiod 11 IRQ_TYPE_LEVEL_LOW>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		wakeup-source;
++
++		gpio-line-names =
++			"#ETH1_RST_P0_0", "#ETH0_RST_P0_1",
++			"BT_REG_ON_P0_2", "WL_REG_ON_P0_3",
++			"USB1_PWR_EN_P0_4", "USB1_PWR_STAT_P0_5",
++			"USB0_PWR_EN_P0_6", "USB0_PWR_STAT_P0_7",
++			"SDIO0_CD_P1_0", "USB0_SS_SEL_P1_1",
++			"#PCIe_RST_1_2", "#PCIe_Wake_P1_3",
++			"#QSPI_RST_P1_4", "#CSI0_PWDN_P1_5",
++			"#CSI0_RST_P1_6", "#ETH3_RST_P1_7";
++	};
++
++	tmp110: temperature-sensor@40 {
++		compatible = "ti,tmp110", "ti,tmp102";
++		reg = <0x40>;
++		#thermal-sensor-cells = <1>;
++	};
++
++	eeprom0: eeprom@50 {
++		compatible = "atmel,24c256";	/* ST M24256 */
++		reg = <0x50>;
++		pagesize = <64>;
++	};
++
++	rv3032: rtc@51 {
++		compatible = "microcrystal,rv3032";
++		reg = <0x51>;
++		interrupts-extended = <&gpioi 10 IRQ_TYPE_EDGE_FALLING>;
++		wakeup-source;
++	};
++
++	eeprom0wl: eeprom@58 {
++		compatible = "st,24256e-wl";	/* ST M24256E WL page of 0x50 */
++		pagesize = <64>;
++		reg = <0x58>;
++	};
++};
++
++/* use LPTIMER with tick broadcast for suspend mode */
++&lptimer3 {
++	status = "okay";
++
++	timer {
++		status = "okay";
++	};
++};
++
++&ommanager {
++	reg-names = "regs", "memory_map";
++	clocks = <&rcc CK_BUS_OSPIIOM>,
++		 <&scmi_clk CK_SCMI_OSPI1>,
++		 <&scmi_clk CK_SCMI_OSPI2>;
++	clock-names = "omm", "ospi1", "ospi2";
++	resets = <&rcc OSPIIOM_R>,
++		 <&scmi_reset RST_SCMI_OSPI1>,
++		 <&scmi_reset RST_SCMI_OSPI2>;
++	reset-names = "omm", "ospi1", "ospi2";
++	memory-region = <&mm_ospi1>;
++	memory-region-names = "mm_ospi1";
++	pinctrl-names = "default", "sleep";
++	pinctrl-0 = <&ospi_port1_clk_pins_a
++		     &ospi_port1_io03_pins_a
++		     &ospi_port1_cs0_pins_a>;
++	pinctrl-1 = <&ospi_port1_clk_sleep_pins_a
++		     &ospi_port1_io03_sleep_pins_a
++		     &ospi_port1_cs0_sleep_pins_a>;
++	status = "okay";
++};
++
++&ospi1 {
++	compatible = "st,stm32mp25-ospi";
++	memory-region = <&mm_ospi1>;
++	#address-cells = <1>;
++	#size-cells = <0>;
++	status = "okay";
++
++	flash0: flash@0 {
++		compatible = "jedec,spi-nor";
++		reg = <0>;
++		spi-rx-bus-width = <4>;
++		spi-tx-bus-width = <4>;
++		spi-max-frequency = <84000000>;
++	};
++};
++
++&ospi2 {
++	compatible = "st,stm32mp25-ospi";
++};
++
++&rtc {
++	status = "okay";
++};
++
++&scmi_regu {
++	scmi_vddcore: regulator@b {
++		reg = <VOLTD_SCMI_STPMIC2_BUCK2>;
++		regulator-name = "vddcore";
++	};
++
++	regulator@c {
++		reg = <VOLTD_SCMI_STPMIC2_BUCK3>;
++		regulator-name = "vddgpu";
++		regulator-always-on;
++	};
++
++	scmi_v1v8: regulator@e {
++		reg = <VOLTD_SCMI_STPMIC2_BUCK5>;
++		regulator-name = "v1v8";
++		regulator-always-on;
++	};
++
++	scmi_v3v3: regulator@10 {
++		reg = <VOLTD_SCMI_STPMIC2_BUCK7>;
++		regulator-name = "v3v3";
++		regulator-always-on;
++	};
++
++	scmi_vdd_emmc: regulator@12 {
++		reg = <VOLTD_SCMI_STPMIC2_LDO2>;
++		regulator-name = "vdd_emmc";
++	};
++
++	scmi_vdd3v3_usb: regulator@14 {
++		reg = <VOLTD_SCMI_STPMIC2_LDO4>;
++		regulator-name = "vdd3v3_usb";
++	};
++
++	scmi_vdd_sdcard: regulator@17 {
++		reg = <VOLTD_SCMI_STPMIC2_LDO7>;
++		regulator-name = "vdd_sdcard";
++	};
++};
++
++&scmi_vddio3 {
++	regulator-always-on;
++};
++
++&scmi_vddio4 {
++	regulator-always-on;
++};
++
++&sdmmc2 {
++	pinctrl-names = "default", "opendrain", "sleep";
++	pinctrl-0 = <&sdmmc2_b4_pins_a &sdmmc2_d47_pins_a>;
++	pinctrl-1 = <&sdmmc2_b4_od_pins_a &sdmmc2_d47_pins_a>;
++	pinctrl-2 = <&sdmmc2_b4_sleep_pins_a &sdmmc2_d47_sleep_pins_a>;
++	non-removable;
++	no-sd;
++	no-sdio;
++	st,neg-edge;
++	bus-width = <8>;
++	vmmc-supply = <&scmi_vdd_emmc>;
++	vqmmc-supply = <&scmi_vddio2>;
++	mmc-ddr-1_8v;
++	mmc-hs200-1_8v;
++	status = "okay";
++};
++
++&sdmmc3 {
++	pinctrl-names = "default", "opendrain", "sleep";
++	pinctrl-0 = <&sdmmc3_b4_pins_b>;
++	pinctrl-1 = <&sdmmc3_b4_od_pins_b>;
++	pinctrl-2 = <&sdmmc3_b4_sleep_pins_b>;
++	bus-width = <4>;
++	keep-power-in-suspend;
++	non-removable;
++	no-sd;
++	no-mmc;
++	st,neg-edge;
++	vmmc-supply = <&scmi_v3v3>;
++	vqmmc-supply = <&scmi_v1v8>;
++	mmc-pwrseq = <&sdio_pwrseq>;
++	status = "okay";
++
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	brcmf: wifi@1 {	/* muRata 2FY */
++		reg = <1>;
++		compatible = "brcm,bcm4329-fmac";
++	};
++};
++
++&usart6 {
++	pinctrl-names = "default", "idle", "sleep";
++	pinctrl-0 = <&usart6_pins_b>;
++	pinctrl-1 = <&usart6_idle_pins_b>;
++	pinctrl-2 = <&usart6_sleep_pins_b>;
++	/delete-property/dmas;
++	/delete-property/dma-names;
++	status = "okay";
++};
++
++&usb2_phy2 {
++	vdd33-supply = <&scmi_vdd3v3_usb>;
++	status = "okay";
++};
++
++&usb3dr {
++	status = "okay";
++
++	dwc3: usb@48300000 {
++		phys = <&usb2_phy2>, <&combophy PHY_TYPE_USB3>;
++		phy-names = "usb2-phy", "usb3-phy";
++		usb-role-switch;
++		port {
++			dwc3_ep: endpoint {
++				remote-endpoint = <&typec_ep>;
++			};
++		};
++	};
++};
++
++&pinctrl {
++	sdmmc2_b4_pins_a: sdmmc2-b4-0 {
++		pins1 {
++			pinmux = <STM32_PINMUX('E', 13, AF12)>, /* SDMMC2_D0 */
++				 <STM32_PINMUX('E', 11, AF12)>, /* SDMMC2_D1 */
++				 <STM32_PINMUX('E', 8, AF12)>, /* SDMMC2_D2 */
++				 <STM32_PINMUX('E', 12, AF12)>, /* SDMMC2_D3 */
++				 <STM32_PINMUX('E', 15, AF12)>; /* SDMMC2_CMD */
++			slew-rate = <1>;
++			drive-push-pull;
++			bias-pull-up;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('E', 14, AF12)>; /* SDMMC2_CK */
++			slew-rate = <2>;
++			drive-push-pull;
++			bias-pull-up;
++		};
++	};
++
++	sdmmc2_b4_od_pins_a: sdmmc2-b4-od-0 {
++		pins1 {
++			pinmux = <STM32_PINMUX('E', 13, AF12)>, /* SDMMC2_D0 */
++				 <STM32_PINMUX('E', 11, AF12)>, /* SDMMC2_D1 */
++				 <STM32_PINMUX('E', 8, AF12)>, /* SDMMC2_D2 */
++				 <STM32_PINMUX('E', 12, AF12)>; /* SDMMC2_D3 */
++			slew-rate = <1>;
++			drive-push-pull;
++			bias-pull-up;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('E', 14, AF12)>; /* SDMMC2_CK */
++			slew-rate = <2>;
++			drive-push-pull;
++			bias-pull-up;
++		};
++		pins3 {
++			pinmux = <STM32_PINMUX('E', 15, AF12)>; /* SDMMC2_CMD */
++			slew-rate = <1>;
++			drive-open-drain;
++			bias-pull-up;
++		};
++	};
++
++	sdmmc2_b4_sleep_pins_a: sdmmc2-b4-sleep-0 {
++		pins {
++			pinmux = <STM32_PINMUX('E', 13, ANALOG)>, /* SDMMC2_D0 */
++				 <STM32_PINMUX('E', 11, ANALOG)>, /* SDMMC2_D1 */
++				 <STM32_PINMUX('E', 8, ANALOG)>, /* SDMMC2_D2 */
++				 <STM32_PINMUX('E', 12, ANALOG)>, /* SDMMC2_D3 */
++				 <STM32_PINMUX('E', 14, ANALOG)>, /* SDMMC2_CK */
++				 <STM32_PINMUX('E', 15, ANALOG)>; /* SDMMC2_CMD */
++		};
++	};
++
++	sdmmc2_d47_pins_a: sdmmc2-d47-0 {
++		pins {
++			pinmux = <STM32_PINMUX('E', 10, AF12)>, /* SDMMC2_D4 */
++				 <STM32_PINMUX('E', 9, AF12)>, /* SDMMC2_D5 */
++				 <STM32_PINMUX('E', 6, AF12)>, /* SDMMC2_D6 */
++				 <STM32_PINMUX('E', 7, AF12)>; /* SDMMC2_D7 */
++			slew-rate = <1>;
++			drive-push-pull;
++			bias-pull-up;
++		};
++	};
++
++	sdmmc2_d47_sleep_pins_a: sdmmc2-d47-sleep-0 {
++		pins {
++			pinmux = <STM32_PINMUX('E', 10, ANALOG)>, /* SDMMC2_D4 */
++				 <STM32_PINMUX('E', 9, ANALOG)>, /* SDMMC2_D5 */
++				 <STM32_PINMUX('E', 6, ANALOG)>, /* SDMMC2_D6 */
++				 <STM32_PINMUX('E', 7, ANALOG)>; /* SDMMC2_D7 */
++		};
++	};
++
++	sdmmc3_b4_pins_a: sdmmc3-b4-0 {
++		pins1 {
++			pinmux = <STM32_PINMUX('B', 14, AF10)>, /* SDMMC3_D0 */
++				 <STM32_PINMUX('D', 13, AF10)>, /* SDMMC3_D1 */
++				 <STM32_PINMUX('B', 12, AF10)>, /* SDMMC3_D2 */
++				 <STM32_PINMUX('I', 11, AF10)>, /* SDMMC3_D3 */
++				 <STM32_PINMUX('D', 12, AF10)>; /* SDMMC3_CMD */
++			slew-rate = <0>;
++			drive-push-pull;
++			bias-pull-up;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('B', 13, AF10)>; /* SDMMC3_CK */
++			slew-rate = <1>;
++			drive-push-pull;
++			bias-pull-up;
++		};
++	};
++
++	sdmmc3_b4_pins_b: sdmmc3-b4-1 {
++		pins1 {
++			pinmux = <STM32_PINMUX('B', 14, AF10)>, /* SDMMC3_D0 */
++				 <STM32_PINMUX('D', 13, AF10)>, /* SDMMC3_D1 */
++				 <STM32_PINMUX('B', 12, AF10)>, /* SDMMC3_D2 */
++				 <STM32_PINMUX('D', 14, AF12)>, /* SDMMC3_D3 */
++				 <STM32_PINMUX('D', 12, AF10)>; /* SDMMC3_CMD */
++			slew-rate = <0>;
++			drive-push-pull;
++			bias-pull-up;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('B', 13, AF10)>; /* SDMMC3_CK */
++			slew-rate = <1>;
++			drive-push-pull;
++			bias-pull-up;
++		};
++	};
++
++	sdmmc3_b4_od_pins_b: sdmmc3-b4-od-1 {
++		pins1 {
++			pinmux = <STM32_PINMUX('B', 14, AF10)>, /* SDMMC3_D0 */
++				 <STM32_PINMUX('D', 13, AF10)>, /* SDMMC3_D1 */
++				 <STM32_PINMUX('B', 12, AF10)>, /* SDMMC3_D2 */
++				 <STM32_PINMUX('D', 14, AF10)>; /* SDMMC3_D3 */
++			slew-rate = <2>;
++			drive-push-pull;
++			bias-disable;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('B', 13, AF10)>; /* SDMMC3_CK */
++			slew-rate = <3>;
++			drive-push-pull;
++			bias-disable;
++		};
++		pins3 {
++			pinmux = <STM32_PINMUX('D', 12, AF10)>; /* SDMMC3_CMD */
++			slew-rate = <2>;
++			drive-open-drain;
++			bias-disable;
++		};
++	};
++
++	sdmmc3_b4_sleep_pins_b: sdmmc3-b4-sleep-1 {
++		pins {
++			pinmux = <STM32_PINMUX('B', 14, ANALOG)>, /* SDMMC3_D0 */
++				 <STM32_PINMUX('D', 13, ANALOG)>, /* SDMMC3_D1 */
++				 <STM32_PINMUX('B', 12, ANALOG)>, /* SDMMC3_D2 */
++				 <STM32_PINMUX('D', 14, ANALOG)>, /* SDMMC3_D3 */
++				 <STM32_PINMUX('B', 13, ANALOG)>, /* SDMMC3_CK */
++				 <STM32_PINMUX('D', 12, ANALOG)>; /* SDMMC3_CMD */
++		};
++	};
++
++	usart6_pins_b: usart6-1 {
++		pins1 {
++			pinmux = <STM32_PINMUX('F', 5, AF6)>; /* USART6_TX */
++			bias-disable;
++			drive-push-pull;
++			slew-rate = <0>;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('F', 4, AF6)>; /* USART6_RX */
++			bias-pull-up;
++		};
++	};
++
++	usart6_idle_pins_b: usart6-idle-1 {
++		pins1 {
++			pinmux = <STM32_PINMUX('F', 5, ANALOG)>; /* USART6_TX */
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('F', 4, AF6)>; /* USART6_RX */
++			bias-pull-up;
++		};
++	};
++
++	usart6_sleep_pins_b: usart6-sleep-1 {
++		pins {
++			pinmux = <STM32_PINMUX('F', 5, ANALOG)>, /* USART6_TX */
++				 <STM32_PINMUX('F', 4, ANALOG)>; /* USART6_RX */
++		};
++	};
++};
++
++&pinctrl_z {
++	i2c8_pins_b: i2c8-1 {
++		pins {
++			pinmux = <STM32_PINMUX('Z', 4, AF8)>, /* I2C1_SCL */
++				 <STM32_PINMUX('Z', 9, AF8)>; /* I2C1_SDA */
++			bias-disable;
++			drive-open-drain;
++			slew-rate = <0>;
++		};
++	};
++
++	i2c8_sleep_pins_b: i2c8-sleep-1 {
++		pins {
++			pinmux = <STM32_PINMUX('Z', 4, ANALOG)>, /* I2C1_SCL */
++				 <STM32_PINMUX('Z', 9, ANALOG)>; /* I2C1_SDA */
++		};
++	};
++};
+diff --git a/arch/arm/mach-stm32mp/Kconfig.25x b/arch/arm/mach-stm32mp/Kconfig.25x
+index 7d2d8171845..0a395201bfc 100644
+--- a/arch/arm/mach-stm32mp/Kconfig.25x
++++ b/arch/arm/mach-stm32mp/Kconfig.25x
+@@ -13,6 +13,13 @@ config TARGET_ST_STM32MP25X
+ 		managed by board/st/stm32mp2
+ 		The difference between board are managed with devicetree
+ 
++config TARGET_DH_STM32MP2XX
++	bool "DH electronics STM32MP23x/STM32MP25x boards"
++	imply BOOTSTAGE
++	imply CMD_BOOTSTAGE
++	help
++		Target the DH DHSBC development kit with STM32MP23x/STM32MP25x SoM.
++
+ endchoice
+ 
+ config TEXT_BASE
+@@ -35,6 +42,7 @@ config DEBUG_UART_BASE
+ 
+ endif
+ 
++source "board/dhelectronics/dh_stm32mp2/Kconfig"
+ source "board/st/stm32mp2/Kconfig"
+ 
+ endif
+diff --git a/arch/arm/mach-stm32mp/dram_init.c b/arch/arm/mach-stm32mp/dram_init.c
+index 1dc9e0f5809..898a66594d9 100644
+--- a/arch/arm/mach-stm32mp/dram_init.c
++++ b/arch/arm/mach-stm32mp/dram_init.c
+@@ -13,6 +13,7 @@
+ #include <log.h>
+ #include <ram.h>
+ #include <asm/global_data.h>
++#include <asm/io.h>
+ #include <asm/system.h>
+ #include <mach/stm32mp.h>
+ 
+@@ -41,6 +42,7 @@ int dram_init(void)
+ {
+ 	struct ram_info ram;
+ 	struct udevice *dev;
++	u32 tamp_ram;
+ 	int ret;
+ 
+ 	ret = uclass_get_device(UCLASS_RAM, 0, &dev);
+@@ -49,6 +51,11 @@ int dram_init(void)
+ 		ret = fdtdec_setup_mem_size_base();
+ 		if (ret)
+ 			return ret;
++
++		tamp_ram = readl(0x46010290);
++		if (tamp_ram)
++			gd->ram_size = ((u64)tamp_ram) << 16ULL;
++
+ 		if (gd->ram_size > STM32_DDR_SIZE)
+ 			return -EINVAL;
+ 		return 0;
+diff --git a/board/dhelectronics/dh_stm32mp2/Kconfig b/board/dhelectronics/dh_stm32mp2/Kconfig
+new file mode 100644
+index 00000000000..22090e0c50f
+--- /dev/null
++++ b/board/dhelectronics/dh_stm32mp2/Kconfig
+@@ -0,0 +1,13 @@
++if TARGET_DH_STM32MP2XX
++
++config SYS_BOARD
++	default "dh_stm32mp2"
++
++config SYS_VENDOR
++	default "dhelectronics"
++
++config SYS_CONFIG_NAME
++	default "stm32mp2_dh_common"
++
++source "board/st/common/Kconfig"
++endif
+diff --git a/board/dhelectronics/dh_stm32mp2/MAINTAINERS b/board/dhelectronics/dh_stm32mp2/MAINTAINERS
+new file mode 100644
+index 00000000000..b2a89b32884
+--- /dev/null
++++ b/board/dhelectronics/dh_stm32mp2/MAINTAINERS
+@@ -0,0 +1,6 @@
++DH_STM32MP2 BOARD
++M:	Marek Vasut <marex@nabladev.com>
++L:	u-boot@dh-electronics.com
++S:	Maintained
++N:	stm32mp.*dh[cs]o
++N:	dh_stm32
+diff --git a/board/dhelectronics/dh_stm32mp2/Makefile b/board/dhelectronics/dh_stm32mp2/Makefile
+new file mode 100644
+index 00000000000..eb4f53c647e
+--- /dev/null
++++ b/board/dhelectronics/dh_stm32mp2/Makefile
+@@ -0,0 +1,6 @@
++# SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
++#
++# Copyright (C) 2026 Marek Vasut
++#
++
++obj-y += board.o
+diff --git a/board/dhelectronics/dh_stm32mp2/board.c b/board/dhelectronics/dh_stm32mp2/board.c
+new file mode 100644
+index 00000000000..eb0530f03c9
+--- /dev/null
++++ b/board/dhelectronics/dh_stm32mp2/board.c
+@@ -0,0 +1,262 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
++/*
++ * Copyright (C) 2026 Marek Vasut
++ */
++
++#define LOG_CATEGORY LOGC_BOARD
++
++#include <config.h>
++#include <dm/device.h>
++#include <dm/ofnode.h>
++#include <dm/uclass.h>
++#include <env_internal.h>
++#include <fdt_support.h>
++#include <g_dnl.h>
++#include <i2c.h>
++#include <i2c_eeprom.h>
++#include <log.h>
++#include <misc.h>
++#include <mmc.h>
++#include <net.h>
++
++#include <asm/arch/sys_proto.h>
++
++#include "../common/dh_common.h"
++
++static int dh_stm32_get_mac_from_fuse(unsigned char *enetaddr, int index)
++{
++	struct udevice *dev;
++	u8 otp[12];
++	int ret;
++
++	ret = uclass_get_device_by_driver(UCLASS_MISC,
++					  DM_DRIVER_GET(stm32mp_bsec),
++					  &dev);
++	if (ret)
++		return ret;
++
++	ret = misc_read(dev, STM32_BSEC_SHADOW(BSEC_OTP_MAC), otp, sizeof(otp));
++	if (ret < 0)
++		return ret;
++
++	memcpy(enetaddr, otp + ARP_HLEN * index, ARP_HLEN);
++	if (!is_valid_ethaddr(enetaddr))
++		return -EINVAL;
++
++	return 0;
++}
++
++static int dh_stm32_setup_ethaddr(struct eeprom_id_page *eip)
++{
++	unsigned char enetaddr[6];
++
++	if (dh_mac_is_in_env("ethaddr"))
++		return 0;
++
++	if (dh_get_mac_is_enabled("ethernet0"))
++		return 0;
++
++	if (!dh_stm32_get_mac_from_fuse(enetaddr, 0))
++		goto out;
++
++	if (!dh_get_value_from_eeprom_buffer(DH_MAC0, enetaddr, sizeof(enetaddr), eip))
++		goto out;
++
++	if (!dh_get_mac_from_eeprom(enetaddr, "eeprom0"))
++		goto out;
++
++	return -ENXIO;
++
++out:
++	return eth_env_set_enetaddr("ethaddr", enetaddr);
++}
++
++static int dh_stm32_setup_eth1addr(struct eeprom_id_page *eip)
++{
++	unsigned char enetaddr[6];
++
++	if (dh_mac_is_in_env("eth1addr"))
++		return 0;
++
++	if (dh_get_mac_is_enabled("ethernet1"))
++		return 0;
++
++	if (!dh_stm32_get_mac_from_fuse(enetaddr, 1))
++		goto out;
++
++	if (!dh_get_value_from_eeprom_buffer(DH_MAC1, enetaddr, sizeof(enetaddr), eip))
++		goto out;
++
++	if (!dh_get_mac_from_eeprom(enetaddr, "eeprom0"))
++		goto increment_out;
++
++	return -ENXIO;
++
++increment_out:
++	enetaddr[5]++;
++
++out:
++	return eth_env_set_enetaddr("eth1addr", enetaddr);
++}
++
++int setup_mac_address(void)
++{
++	u8 eeprom_buffer[DH_EEPROM_ID_PAGE_MAX_SIZE] = { 0 };
++	struct eeprom_id_page *eip = (struct eeprom_id_page *)eeprom_buffer;
++	int ret;
++
++	ret = dh_read_eeprom_id_page(eeprom_buffer, "eeprom0wl");
++	if (ret) {
++		/*
++		 * The EEPROM ID page is available on SoM rev. 200 and greater.
++		 * For SoM rev. 100 the return value will be -ENODEV. Suppress
++		 * the error message for that, because the absence cannot be
++		 * treated as an error.
++		 */
++		if (ret != -ENODEV)
++			printf("%s: Cannot read valid data from EEPROM ID page! ret = %d\n",
++			       __func__, ret);
++		eip = NULL;
++	} else {
++		dh_add_item_number_and_serial_to_env(eip);
++	}
++
++	if (dh_stm32_setup_ethaddr(eip))
++		log_err("%s: Unable to setup ethaddr!\n", __func__);
++
++	if (dh_stm32_setup_eth1addr(eip))
++		log_err("%s: Unable to setup eth1addr!\n", __func__);
++
++	return 0;
++}
++
++
++int checkboard(void)
++{
++	const char *fdt_compat;
++	int fdt_compat_len;
++
++	fdt_compat = ofnode_get_property(ofnode_root(), "compatible", &fdt_compat_len);
++
++	log_info("Board: DH STM32MP2 (%s)\n", fdt_compat && fdt_compat_len ? fdt_compat : "");
++
++	return 0;
++}
++
++/* board dependent setup after realloc */
++int board_init(void)
++{
++	return 0;
++}
++
++enum env_location env_get_location(enum env_operation op, int prio)
++{
++	u32 bootmode = get_bootmode();
++
++	if (prio)
++		return ENVL_UNKNOWN;
++
++	switch (bootmode & TAMP_BOOT_DEVICE_MASK) {
++	case BOOT_FLASH_SD:
++	case BOOT_FLASH_EMMC:
++		if (CONFIG_IS_ENABLED(ENV_IS_IN_MMC))
++			return ENVL_MMC;
++		else
++			return ENVL_NOWHERE;
++
++	case BOOT_FLASH_NAND:
++	case BOOT_FLASH_SPINAND:
++		if (CONFIG_IS_ENABLED(ENV_IS_IN_UBI))
++			return ENVL_UBI;
++		else
++			return ENVL_NOWHERE;
++
++	case BOOT_FLASH_NOR:
++		if (CONFIG_IS_ENABLED(ENV_IS_IN_SPI_FLASH))
++			return ENVL_SPI_FLASH;
++		else
++			return ENVL_NOWHERE;
++	default:
++		return ENVL_NOWHERE;
++	}
++}
++
++int mmc_get_boot(void)
++{
++	struct udevice *dev;
++	u32 boot_mode = get_bootmode();
++	unsigned int instance = (boot_mode & TAMP_BOOT_INSTANCE_MASK) - 1;
++	char cmd[20];
++	const u32 sdmmc_addr[] = {
++		STM32_SDMMC1_BASE,
++		STM32_SDMMC2_BASE,
++		STM32_SDMMC3_BASE
++	};
++
++	if (instance > ARRAY_SIZE(sdmmc_addr))
++		return 0;
++
++	/* search associated sdmmc node in devicetree */
++	snprintf(cmd, sizeof(cmd), "mmc@%x", sdmmc_addr[instance]);
++	if (uclass_get_device_by_name(UCLASS_MMC, cmd, &dev)) {
++		log_err("mmc%d = %s not found in device tree!\n", instance, cmd);
++		return 0;
++	}
++
++	return dev_seq(dev);
++};
++
++int mmc_get_env_dev(void)
++{
++	const int mmc_env_dev = CONFIG_IS_ENABLED(ENV_IS_IN_MMC, (CONFIG_ENV_MMC_DEVICE_INDEX), (-1));
++
++	if (mmc_env_dev >= 0)
++		return mmc_env_dev;
++
++	/* use boot instance to select the correct mmc device identifier */
++	return mmc_get_boot();
++}
++
++int board_late_init(void)
++{
++	return 0;
++}
++
++/* weak function called from env/sf.c */
++void *env_sf_get_env_addr(void)
++{
++	return NULL;
++}
++
++int ft_board_setup(void *blob, struct bd_info *bd)
++{
++	return 0;
++}
++
++#ifdef CONFIG_USB_GADGET_DOWNLOAD
++#define STM32MP1_G_DNL_DFU_PRODUCT_NUM 0xdf11
++int g_dnl_bind_fixup(struct usb_device_descriptor *dev, const char *name)
++{
++	if (IS_ENABLED(CONFIG_DFU_OVER_USB) &&
++	    !strcmp(name, "usb_dnl_dfu"))
++		put_unaligned(STM32MP1_G_DNL_DFU_PRODUCT_NUM, &dev->idProduct);
++	else
++		put_unaligned(CONFIG_USB_GADGET_PRODUCT_NUM, &dev->idProduct);
++
++	return 0;
++}
++#endif /* CONFIG_USB_GADGET_DOWNLOAD */
++
++#if defined(CONFIG_USB_DWC3) && defined(CONFIG_CMD_STM32PROG_USB)
++#include <dfu.h>
++/*
++ * TEMP: force USB BUS reset forced to false, because it is not supported
++ *       in DWC3 USB driver
++ * avoid USB bus reset support in DFU stack is required to reenumeration in
++ * stm32prog command after flashlayout load or after "dfu-util -e -R"
++ */
++bool dfu_usb_get_reset(void)
++{
++	return false;
++}
++#endif
+diff --git a/configs/stm32mp23_dhcos_bb_defconfig b/configs/stm32mp23_dhcos_bb_defconfig
+new file mode 100644
+index 00000000000..7dbc9dbb1b0
+--- /dev/null
++++ b/configs/stm32mp23_dhcos_bb_defconfig
+@@ -0,0 +1,7 @@
++#include <configs/stm32mp25_dhcos.config>
++
++CONFIG_ARM=y
++CONFIG_ARCH_STM32MP=y
++# FIXME: Temporarily pull in STM32MP25xx content because STM32MP23xx support is limited
++CONFIG_STM32MP25X=y
++CONFIG_DEFAULT_DEVICE_TREE="stm32mp23xx-dhcos-bb"
+diff --git a/configs/stm32mp25_dhcos.config b/configs/stm32mp25_dhcos.config
+new file mode 100644
+index 00000000000..234194fa3a6
+--- /dev/null
++++ b/configs/stm32mp25_dhcos.config
+@@ -0,0 +1,162 @@
++CONFIG_ARM=y
++CONFIG_ARCH_STM32MP=y
++CONFIG_TARGET_DH_STM32MP2XX=y
++CONFIG_BOOTCOMMAND="run dh_update_env ; run bootcmd_stm32mp"
++CONFIG_SYS_PROMPT="STM32MP> "
++
++# CONFIG_CMD_ELF is not set
++# CONFIG_EFI_LOADER is not set
++# CONFIG_OF_UPSTREAM is not set
++# CONFIG_OPTEE_TA_AVB is not set
++# CONFIG_SPI_FLASH_USE_4K_SECTORS is not set
++# CONFIG_STM32MP1_DDR is not set
++# CONFIG_VIDEO_LOGO is not set
++CONFIG_BOOTCOUNT_ALTBOOTCMD="run bootcmd"
++CONFIG_BOOTCOUNT_BOOTLIMIT=3
++CONFIG_BOOTCOUNT_LIMIT=y
++CONFIG_BOOTDELAY=1
++CONFIG_BOOTSTAGE_RECORD_COUNT=30
++CONFIG_CMD_ADTIMG=y
++CONFIG_CMD_BDINFO_EXTRA=y
++CONFIG_CMD_BMP=y
++CONFIG_CMD_BOOTCOUNT=y
++CONFIG_CMD_BOOTZ=y
++CONFIG_CMD_CACHE=y
++CONFIG_CMD_CLK=y
++CONFIG_CMD_CLS=y
++CONFIG_CMD_DFU=y
++CONFIG_CMD_EEPROM=y
++CONFIG_CMD_ERASEENV=y
++CONFIG_CMD_EXT4_WRITE=y
++CONFIG_CMD_FUSE=y
++CONFIG_CMD_GPIO=y
++CONFIG_CMD_I2C=y
++CONFIG_CMD_LOG=y
++CONFIG_CMD_LSBLK=y
++CONFIG_CMD_MEMINFO=y
++CONFIG_CMD_MEMTEST=y
++CONFIG_CMD_MMC=y
++CONFIG_CMD_MTDPARTS=y
++CONFIG_CMD_REGULATOR=y
++CONFIG_CMD_RNG=y
++CONFIG_CMD_SCMI=y
++CONFIG_CMD_SMC=y
++CONFIG_CMD_SPI=y
++CONFIG_CMD_STM32KEY=y
++CONFIG_CMD_STM32PROG=y
++CONFIG_CMD_TIME=y
++CONFIG_CMD_TIMER=y
++CONFIG_CMD_USB=y
++CONFIG_CMD_USB_MASS_STORAGE=y
++CONFIG_CONSOLE_MUX=y
++CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0x90000000
++CONFIG_DFU_TFTP=y
++CONFIG_DISTRO_DEFAULTS=y
++CONFIG_DM_I2C=y
++CONFIG_DM_MAILBOX=y
++CONFIG_DM_MTD=y
++CONFIG_DM_PCA953X=y
++CONFIG_DM_REGULATOR_FIXED=y
++CONFIG_DM_REGULATOR_GPIO=y
++CONFIG_DM_RNG=y
++CONFIG_DM_RTC=y
++CONFIG_DM_SPI=y
++CONFIG_DM_SPI_FLASH=y
++CONFIG_DM_USB_GADGET=y
++CONFIG_DWC_ETH_QOS=y
++CONFIG_ENV_ADDR=0x60900000
++CONFIG_ENV_IS_IN_MMC=y
++CONFIG_ENV_IS_NOWHERE=y
++CONFIG_ENV_MMC_DEVICE_INDEX=1
++CONFIG_ENV_MMC_EMMC_HW_PARTITION=1
++CONFIG_ENV_OFFSET=0x3FE000
++CONFIG_ENV_OFFSET_REDUND=0x3FE000
++CONFIG_ENV_REDUNDANT=y
++CONFIG_ENV_SECT_SIZE=0x2000
++CONFIG_ENV_SIZE=0x2000
++CONFIG_ERRNO_STR=y
++CONFIG_FASTBOOT_BUF_ADDR=0x84000000
++CONFIG_FASTBOOT_BUF_SIZE=0x2000000
++CONFIG_FASTBOOT_CMD_OEM_BOOTBUS=y
++CONFIG_FASTBOOT_CMD_OEM_FORMAT=y
++CONFIG_FASTBOOT_CMD_OEM_PARTCONF=y
++CONFIG_FASTBOOT_FLASH=y
++CONFIG_FASTBOOT_FLASH_MMC_DEV=1
++CONFIG_FASTBOOT_MMC_BOOT1_NAME="mmc1boot0"
++CONFIG_FASTBOOT_MMC_BOOT2_NAME="mmc1boot1"
++CONFIG_FASTBOOT_MMC_BOOT_SUPPORT=y
++CONFIG_FASTBOOT_MMC_USER_NAME="mmc1"
++CONFIG_FASTBOOT_MMC_USER_SUPPORT=y
++CONFIG_FDT_SIMPLEFB=y
++CONFIG_FIT=y
++CONFIG_FIT_SIGNATURE=y
++CONFIG_GPIO_HOG=y
++CONFIG_GPIO_SCMI=y
++CONFIG_I2C_EEPROM=y
++CONFIG_LED=y
++CONFIG_LED_GPIO=y
++CONFIG_LZO=y
++CONFIG_MTD=y
++CONFIG_NET_RANDOM_ETHADDR=y
++CONFIG_OF_LIVE=y
++CONFIG_PHY=y
++CONFIG_PHY_REALTEK=y
++CONFIG_PHY_STM32_USB2PHY=y
++CONFIG_PINCONF=y
++CONFIG_PINCTRL_SCMI=y
++CONFIG_RAM=y
++CONFIG_RNG_STM32=y
++CONFIG_RTC_STM32=y
++CONFIG_SCMI_FIRMWARE=y
++CONFIG_SERIAL_RX_BUFFER=y
++CONFIG_SPI=y
++CONFIG_SPI_FLASH_MTD=y
++CONFIG_SPI_FLASH_SFDP_SUPPORT=y
++CONFIG_SPI_FLASH_SOFT_RESET=y
++CONFIG_SPI_FLASH_WINBOND=y
++CONFIG_STM32MP25X=y
++CONFIG_STM32_FMC2_EBI=y
++CONFIG_STM32_IPCC=y
++CONFIG_STM32_OMM=y
++CONFIG_STM32_OSPI=y
++CONFIG_STM32_SDMMC2=y
++CONFIG_STM32_SPI=y
++CONFIG_SUPPORT_EMMC_BOOT=y
++CONFIG_SYS_64BIT_LBA=y
++CONFIG_SYS_BOOTCOUNT_ADDR=0x4601028C
++CONFIG_SYS_BOOTCOUNT_MAGIC=0xB0C40000
++CONFIG_SYS_BOOTCOUNT_SINGLEWORD=y
++CONFIG_SYS_BOOTM_LEN=0x10000000
++CONFIG_SYS_CONSOLE_IS_IN_ENV=y
++CONFIG_SYS_DISABLE_AUTOLOAD=y
++CONFIG_SYS_I2C_EEPROM_ADDR=0x50
++CONFIG_SYS_I2C_STM32F7=y
++CONFIG_SYS_LOAD_ADDR=0x84000000
++CONFIG_SYS_MALLOC_F_LEN=0x500000
++CONFIG_SYS_MEMTEST_END=0x88000000
++CONFIG_SYS_MEMTEST_START=0x84000000
++CONFIG_SYS_MMC_MAX_DEVICE=3
++CONFIG_USB=y
++CONFIG_USB_DWC3=y
++CONFIG_USB_DWC3_GENERIC=y
++CONFIG_USB_ETHER=y
++CONFIG_USB_ETHER_ASIX88179=y
++CONFIG_USB_ETHER_ASIX=y
++CONFIG_USB_ETHER_MCS7830=y
++CONFIG_USB_ETHER_RTL8152=y
++CONFIG_USB_ETHER_SMSC95XX=y
++CONFIG_USB_FUNCTION_FASTBOOT=y
++CONFIG_USB_GADGET=y
++CONFIG_USB_GADGET_MANUFACTURER="STMicroelectronics"
++CONFIG_USB_GADGET_PRODUCT_NUM=0x5720
++CONFIG_USB_GADGET_VENDOR_NUM=0x0483
++CONFIG_USB_HOST_ETHER=y
++CONFIG_USB_STM32_USBH=y
++CONFIG_USB_XHCI_DWC3=y
++CONFIG_USB_XHCI_HCD=y
++CONFIG_USE_ARCH_MEMCPY=y
++CONFIG_USE_SERVERIP=y
++CONFIG_USE_SYS_MAX_FLASH_BANKS=y
++CONFIG_WDT=y
++CONFIG_WDT_ARM_SMC=y
++CONFIG_WDT_STM32MP=y
+diff --git a/configs/stm32mp25_dhcos_bb_defconfig b/configs/stm32mp25_dhcos_bb_defconfig
+new file mode 100644
+index 00000000000..ec8af408db9
+--- /dev/null
++++ b/configs/stm32mp25_dhcos_bb_defconfig
+@@ -0,0 +1,6 @@
++#include <configs/stm32mp25_dhcos.config>
++
++CONFIG_ARM=y
++CONFIG_ARCH_STM32MP=y
++CONFIG_STM32MP25X=y
++CONFIG_DEFAULT_DEVICE_TREE="stm32mp25xx-dhcos-bb"
+diff --git a/configs/stm32mp25_dhcos_dhsbc_defconfig b/configs/stm32mp25_dhcos_dhsbc_defconfig
+new file mode 100644
+index 00000000000..e179a048399
+--- /dev/null
++++ b/configs/stm32mp25_dhcos_dhsbc_defconfig
+@@ -0,0 +1,6 @@
++#include <configs/stm32mp25_dhcos.config>
++
++CONFIG_ARM=y
++CONFIG_ARCH_STM32MP=y
++CONFIG_STM32MP25X=y
++CONFIG_DEFAULT_DEVICE_TREE="stm32mp255c-dhcos-dhsbc"
+diff --git a/include/configs/stm32mp2_dh_common.h b/include/configs/stm32mp2_dh_common.h
+new file mode 100644
+index 00000000000..66fe70d1834
+--- /dev/null
++++ b/include/configs/stm32mp2_dh_common.h
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause */
++/*
++ * Copyright (C) 2026 Marek Vasut
++ *
++ * Configuration settings for the DH electronics STM32MP2xx boards
++ */
++
++#ifndef __CONFIG_STM32MP2_DH_COMMON_H__
++#define __CONFIG_STM32MP2_DH_COMMON_H__
++
++#include "stm32mp25_st_common.h"
++
++#undef STM32MP_BOARD_EXTRA_ENV
++#define STM32MP_BOARD_EXTRA_ENV						\
++	"usb_pgood_delay=2000\0"					\
++	"console=ttySTM0\0"						\
++	"dh_update_env=env set dh_update_env true ; env save ; env save\0"
++
++#endif
+-- 
+2.53.0
+
