@@ -1,0 +1,174 @@
+From 814978375dcab65e62d1716c471be7fb27e2a291 Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Mon, 28 Nov 2022 21:51:37 +0530
+Subject: [PATCH 55/65] usb: usb2h: add STM32 usb2h glue layer to manage
+ usb2host ctrl
+
+This patch adds the STM32 family glue logic to manage the usb2 host ctrl
+Currently Only supported for STM32MP25, glue logic contains :
+1. Setting polarity of VBUSEN (O)
+2. Setting polarity of OVRCUR (I)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git d4d9a27d6ff32e76545a361c190db749fc4a4cd3 usb: usb2h: add STM32 usb2h glue layer to manage usb2host ctrl]
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Change-Id: Id1146fd729ad9154877f1e75f76880d71f897821
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/303896
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+---
+ drivers/usb/host/Kconfig      |  14 +++++
+ drivers/usb/host/Makefile     |   3 +
+ drivers/usb/host/usbh-stm32.c | 107 ++++++++++++++++++++++++++++++++++
+ 3 files changed, 124 insertions(+)
+ create mode 100644 drivers/usb/host/usbh-stm32.c
+
+diff --git a/drivers/usb/host/Kconfig b/drivers/usb/host/Kconfig
+index 99f381db9f9..d28c948c479 100644
+--- a/drivers/usb/host/Kconfig
++++ b/drivers/usb/host/Kconfig
+@@ -465,3 +465,17 @@ config USB_MAX_CONTROLLER_COUNT
+ 	depends on USB_EHCI_FSL || USB_XHCI_FSL || \
+ 		(SPL_USB_HOST && !DM_SPL_USB) || (USB_HOST && !DM_USB)
+ 	default 1
++
++config USB_STM32_USBH
++	bool "Support for STMicroelectronics STM32 Family USBH controller"
++	depends on DM && OF_CONTROL
++	select USB_HOST
++	select USB_EHCI_HCD
++	select USB_EHCI_GENERIC
++	select USB_OHCI_HCD
++	select USB_OHCI_GENERIC
++	help
++	  STM32 Family USB 2.0 Host Controller includes generic EHCI and OHCI
++	  controller blocks to support High-Speed and Full+Low-Speed respectively
++	  This driver is to configure the glue logic to enable EHCI+OHCI controllers
++	  inside the USBH block.
+diff --git a/drivers/usb/host/Makefile b/drivers/usb/host/Makefile
+index ef4ce62a680..0d972efa602 100644
+--- a/drivers/usb/host/Makefile
++++ b/drivers/usb/host/Makefile
+@@ -58,3 +58,6 @@ obj-$(CONFIG_USB_XHCI_OCTEON) += dwc3-octeon-glue.o
+ 
+ # designware
+ obj-$(CONFIG_USB_DWC2) += dwc2.o
++
++# STM32
++obj-$(CONFIG_USB_STM32_USBH) += usbh-stm32.o
+diff --git a/drivers/usb/host/usbh-stm32.c b/drivers/usb/host/usbh-stm32.c
+new file mode 100644
+index 00000000000..e69d648afd5
+--- /dev/null
++++ b/drivers/usb/host/usbh-stm32.c
+@@ -0,0 +1,107 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * STM32 USB2 EHCI/OHCI (USBH) controller glue driver
++ *
++ * Copyright (C) 2023 STMicroelectronics – All Rights Reserved
++ *
++ * Author: Pankaj Dev <pankaj.dev@st.com>
++ */
++
++#define LOG_CATEGORY UCLASS_USB
++
++#include <dm/device.h>
++#include <dm/device_compat.h>
++#include <dm/devres.h>
++#include <dm/ofnode.h>
++#include <linux/bitfield.h>
++#include <regmap.h>
++#include <reset.h>
++#include <syscon.h>
++
++#define SYSCFG_USBHCR_OVRCUR_POLARITY_MASK      BIT(0)
++#define SYSCFG_USBHCR_VBUSEN_POLARITY_MASK      BIT(1)
++
++/**
++ * struct stm32_usbh_data - usbh-stm32 driver private structure
++ * @dev:		device pointer
++ * @regmap:		regmap pointer for getting syscfg
++ * @syscfg_usbhcr_reg_off:	usbhcr syscfg control offset
++ * @vbusen_polarity_low:	vbusen signal polarity
++ * @ovrcur_polarity_low:	ovrcur signal polarity
++ */
++struct stm32_usbh_data {
++	struct udevice *dev;
++	struct regmap *regmap;
++	int syscfg_usbhcr_reg_off;
++	bool vbusen_polarity_low;
++	bool ovrcur_polarity_low;
++};
++
++/**
++ * stm32_usbh_init: init the controller via glue logic
++ * @usbh_data: driver private structure
++ */
++static int stm32_usbh_init(struct stm32_usbh_data *usbh_data)
++{
++	return regmap_update_bits(usbh_data->regmap, usbh_data->syscfg_usbhcr_reg_off,
++				  SYSCFG_USBHCR_OVRCUR_POLARITY_MASK |
++				  SYSCFG_USBHCR_VBUSEN_POLARITY_MASK,
++				  FIELD_PREP(SYSCFG_USBHCR_OVRCUR_POLARITY_MASK,
++					     usbh_data->ovrcur_polarity_low) |
++				  FIELD_PREP(SYSCFG_USBHCR_VBUSEN_POLARITY_MASK,
++					     usbh_data->vbusen_polarity_low));
++}
++
++static int stm32_usbh_probe(struct udevice *dev)
++{
++	ofnode node = dev_ofnode(dev);
++	struct regmap *regmap;
++	struct stm32_usbh_data *usbh_data = dev_get_plat(dev);
++	int ret;
++
++	regmap = syscon_regmap_lookup_by_phandle(dev, "st,syscfg");
++	if (IS_ERR(regmap)) {
++		dev_err(dev, "no st,syscfg node found(%ld)\n", PTR_ERR(regmap));
++		ret = PTR_ERR(regmap);
++		return ret;
++	}
++
++	ret = ofnode_read_u32_index(node, "st,syscfg", 1, &usbh_data->syscfg_usbhcr_reg_off);
++	if (ret) {
++		dev_err(dev, "can't get usbhcr offset(%d)\n", ret);
++		return ret;
++	}
++
++	dev_vdbg(dev, "syscfg-usbhcr-reg offset 0x%x\n", usbh_data->syscfg_usbhcr_reg_off);
++
++	usbh_data->dev = dev;
++	usbh_data->regmap = regmap;
++
++	if (ofnode_read_bool(node, "st,vbusen-active-low"))
++		usbh_data->vbusen_polarity_low = true;
++	if (ofnode_read_bool(node, "st,ovrcur-active-low"))
++		usbh_data->ovrcur_polarity_low = true;
++
++	/* ST USBH glue logic init */
++	ret = stm32_usbh_init(usbh_data);
++	if (ret) {
++		dev_err(dev, "err setting syscfg_usbhcr_reg(%d)\n", ret);
++		return ret;
++	}
++
++	return 0;
++}
++
++static const struct udevice_id stm32_usbh_ids[] = {
++	{ .compatible = "st,stm32mp25-usbh" },
++	{ /* sentinel */ },
++};
++
++U_BOOT_DRIVER(stm32_usbh_glue) = {
++	.name = "stm32-usbh-glue",
++	.id = UCLASS_NOP,
++	.of_match = stm32_usbh_ids,
++	.bind = dm_scan_fdt_dev,
++	.probe = stm32_usbh_probe,
++	.plat_auto = sizeof(struct stm32_usbh_data),
++};
+-- 
+2.51.0
+

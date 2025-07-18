@@ -1,0 +1,210 @@
+From 0d8631abf857e94e31ef6f4f2edb696d10f2ff6e Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Tue, 4 Jul 2023 19:25:47 +0200
+Subject: [PATCH 09/65] gpio: stm32_gpio: support RIF semaphore handling
+
+GPIO is a RIF-aware IP, meaning it has to handle its RIF configuration
+by its own. This patch adds RIF semaphore handling when initializing
+GPIO valid mask in stm32_gpio_init_valid_mask().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git 3977bb8925dd1903e2a458bc5db178123ed2c170 gpio: stm32_gpio: support RIF semaphore handling]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Icdef70293c910519e5ccf98dd7ea487891abb20d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/316370
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Amelie DELAUNAY <amelie.delaunay@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Patrice CHOTARD <patrice.chotard@foss.st.com>
+---
+ drivers/gpio/stm32_gpio.c       | 61 +++++++++++++++++++++++++++++++++
+ drivers/gpio/stm32_gpio_priv.h  |  7 ++++
+ drivers/pinctrl/pinctrl_stm32.c | 11 ++++++
+ 3 files changed, 79 insertions(+)
+
+diff --git a/drivers/gpio/stm32_gpio.c b/drivers/gpio/stm32_gpio.c
+index 18ef484bc34..6a0d3b453ac 100644
+--- a/drivers/gpio/stm32_gpio.c
++++ b/drivers/gpio/stm32_gpio.c
+@@ -14,6 +14,7 @@
+ #include <asm/gpio.h>
+ #include <asm/io.h>
+ #include <dm/device_compat.h>
++#include <linux/bitfield.h>
+ #include <linux/bitops.h>
+ #include <linux/errno.h>
+ #include <linux/io.h>
+@@ -35,6 +36,16 @@
+ #define SECCFG_BITS(gpio_pin)		(gpio_pin)
+ #define SECCFG_MSK			1
+ 
++#define STM32_GPIO_CID1			1
++
++#define STM32_GPIO_CIDCFGR_CFEN		BIT(0)
++#define STM32_GPIO_CIDCFGR_SEMEN	BIT(1)
++#define STM32_GPIO_CIDCFGR_SCID_MASK	GENMASK(5, 4)
++#define STM32_GPIO_CIDCFGR_SEMWL_CID1	BIT(16 + STM32_GPIO_CID1)
++
++#define STM32_GPIO_SEMCR_SEM_MUTEX	BIT(0)
++#define STM32_GPIO_SEMCR_SEMCID_MASK	GENMASK(5, 4)
++
+ static void stm32_gpio_set_moder(struct stm32_gpio_regs *regs,
+ 				 int idx,
+ 				 int mode)
+@@ -92,6 +103,43 @@ static bool stm32_gpio_is_mapped(struct udevice *dev, int offset)
+ 	return !!(priv->gpio_range & BIT(offset));
+ }
+ 
++bool stm32_gpio_rif_valid(struct stm32_gpio_regs *regs, unsigned int offset)
++{
++	u32 cid, sem;
++
++	cid = readl(&regs->rif[offset].cidcfgr);
++
++	if (!(cid & STM32_GPIO_CIDCFGR_CFEN))
++		return true;
++
++	if (!(cid & STM32_GPIO_CIDCFGR_SEMEN)) {
++		if (FIELD_GET(STM32_GPIO_CIDCFGR_SCID_MASK, cid) == STM32_GPIO_CID1)
++			return true;
++
++		return false;
++	}
++
++	if (!(cid & STM32_GPIO_CIDCFGR_SEMWL_CID1))
++		return false;
++
++	sem = readl(&regs->rif[offset].semcr);
++
++	if (sem & STM32_GPIO_SEMCR_SEM_MUTEX) {
++		if (FIELD_GET(STM32_GPIO_SEMCR_SEMCID_MASK, sem) == STM32_GPIO_CID1)
++			return true;
++
++		return false;
++	}
++
++	writel(STM32_GPIO_SEMCR_SEM_MUTEX, &regs->rif[offset].semcr);
++	sem = readl(&regs->rif[offset].semcr);
++	if (sem & STM32_GPIO_SEMCR_SEM_MUTEX &&
++	    FIELD_GET(STM32_GPIO_SEMCR_SEMCID_MASK, sem) == STM32_GPIO_CID1)
++		return true;
++
++	return false;
++}
++
+ static int stm32_gpio_request(struct udevice *dev, unsigned offset, const char *label)
+ {
+ 	struct stm32_gpio_priv *priv = dev_get_priv(dev);
+@@ -110,6 +158,14 @@ static int stm32_gpio_request(struct udevice *dev, unsigned offset, const char *
+ 		return -EACCES;
+ 	}
+ 
++	/* Deny request access if IO RIF configuration forbids access */
++	if ((drv_data & STM32_GPIO_FLAG_RIF_CTRL) &&
++	    !stm32_gpio_rif_valid(regs, offset)) {
++		dev_err(dev, "Failed to acquire RIF access on IO %s %d @ %p\n",
++			uc_priv->bank_name, offset, regs);
++		return -EACCES;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -183,6 +239,11 @@ static int stm32_gpio_get_function(struct udevice *dev, unsigned int offset)
+ 	    ((readl(&regs->seccfgr) >> SECCFG_BITS(offset)) & SECCFG_MSK))
+ 		return GPIOF_PROTECTED;
+ 
++	/* Return 'protected' if the IO RIF semaphore is not available */
++	if ((drv_data & STM32_GPIO_FLAG_RIF_CTRL) &&
++	    !stm32_gpio_rif_valid(regs, offset))
++		return GPIOF_PROTECTED;
++
+ 	bits_index = MODE_BITS(offset);
+ 	mask = MODE_BITS_MASK << bits_index;
+ 
+diff --git a/drivers/gpio/stm32_gpio_priv.h b/drivers/gpio/stm32_gpio_priv.h
+index 69868787af0..1da066dec3e 100644
+--- a/drivers/gpio/stm32_gpio_priv.h
++++ b/drivers/gpio/stm32_gpio_priv.h
+@@ -90,6 +90,7 @@ enum stm32_gpio_delay {
+ 
+ #define STM32_GPIO_FLAG_SEC_CTRL	BIT(0)
+ #define STM32_GPIO_FLAG_IO_SYNC_CTRL	BIT(1)
++#define STM32_GPIO_FLAG_RIF_CTRL	BIT(2)
+ 
+ struct stm32_gpio_dsc {
+ 	u8	port;
+@@ -127,6 +128,10 @@ struct stm32_gpio_regs {
+ 	u32 rfu4;	/* Reserved */
+ 	u32 delayr[2];	/* GPIO port delay */
+ 	u32 advcfgr[2];	/* GPIO port PIO control */
++	struct {
++		u32 cidcfgr;	/* GPIO RIF CID configuration */
++		u32 semcr;	/* GPIO RIF semaphore */
++	} rif[16];
+ };
+ 
+ struct stm32_gpio_priv {
+@@ -134,4 +139,6 @@ struct stm32_gpio_priv {
+ 	unsigned int gpio_range;
+ };
+ 
++bool stm32_gpio_rif_valid(struct stm32_gpio_regs *regs, unsigned int offset);
++
+ #endif /* _STM32_GPIO_PRIV_H_ */
+diff --git a/drivers/pinctrl/pinctrl_stm32.c b/drivers/pinctrl/pinctrl_stm32.c
+index 3d97bf84fd4..8135e2828b8 100644
+--- a/drivers/pinctrl/pinctrl_stm32.c
++++ b/drivers/pinctrl/pinctrl_stm32.c
+@@ -50,6 +50,7 @@ struct stm32_gpio_bank {
+ struct stm32_pinctrl_data {
+ 	bool secure_control;
+ 	bool io_sync_control;
++	bool rif_control;
+ };
+ 
+ static int stm32_pinctrl_get_access(struct udevice *gpio_dev, unsigned int gpio_idx);
+@@ -284,6 +285,11 @@ static int stm32_pinctrl_get_access(struct udevice *gpio_dev, unsigned int gpio_
+ 	    ((readl(&regs->seccfgr) >> gpio_idx) & SECCFG_MSK))
+ 		return -EACCES;
+ 
++	/* Deny request access if IO RIF semaphore is not available */
++	if ((drv_data & STM32_GPIO_FLAG_RIF_CTRL) &&
++	    !stm32_gpio_rif_valid(regs, gpio_idx))
++		return -EACCES;
++
+ 	return 0;
+ }
+ 
+@@ -513,6 +519,8 @@ static int stm32_pinctrl_bind(struct udevice *dev)
+ 		gpio_data |= STM32_GPIO_FLAG_SEC_CTRL;
+ 	if (drv_data->io_sync_control)
+ 		gpio_data |= STM32_GPIO_FLAG_IO_SYNC_CTRL;
++	if (drv_data->rif_control)
++		gpio_data |= STM32_GPIO_FLAG_RIF_CTRL;
+ 
+ 	dev_for_each_subnode(node, dev) {
+ 		dev_dbg(dev, "bind %s\n", ofnode_get_name(node));
+@@ -595,16 +603,19 @@ static struct pinctrl_ops stm32_pinctrl_ops = {
+ static const struct stm32_pinctrl_data stm32_pinctrl_base = {
+ 	.secure_control = false,
+ 	.io_sync_control = false,
++	.rif_control = false,
+ };
+ 
+ static const struct stm32_pinctrl_data stm32_pinctrl_sec = {
+ 	.secure_control = true,
+ 	.io_sync_control = false,
++	.rif_control = false,
+ };
+ 
+ static const struct stm32_pinctrl_data stm32_pinctrl_sec_iosync = {
+ 	.secure_control = true,
+ 	.io_sync_control = true,
++	.rif_control = true,
+ };
+ 
+ static const struct udevice_id stm32_pinctrl_ids[] = {
+-- 
+2.51.0
+

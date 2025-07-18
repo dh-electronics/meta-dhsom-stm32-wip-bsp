@@ -1,0 +1,86 @@
+From 3322ccbdd8198bc7eabafca4354484f5ac03f8f0 Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Thu, 2 Feb 2023 09:31:17 +0530
+Subject: [PATCH 42/65] generic-phy: add set_mode operation
+
+Add the PHY set_mode op callback to the generic PHY uclass to permit
+setting the phy mode. Useful for PHYs supporting multiple modes of
+operation (like stm32-usb2-femtophy, stm32-usb2-combophy)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/u-boot.git dea32192511bb93ec5dae7b5b1f13efb014e11e5 generic-phy: add set_mode operation]
+Change-Id: Ie8ab8cc1fada07572b5971b96b22f8755900b550
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/u-boot/+/303892
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+Reviewed-by: Patrice CHOTARD <patrice.chotard@foss.st.com>
+Domain-Review: Fabrice GASNIER <fabrice.gasnier@foss.st.com>
+---
+ drivers/phy/phy-uclass.c | 16 ++++++++++++++++
+ include/generic-phy.h    | 16 ++++++++++++++++
+ 2 files changed, 32 insertions(+)
+
+diff --git a/drivers/phy/phy-uclass.c b/drivers/phy/phy-uclass.c
+index f8d4fb3b41b..75949f76437 100644
+--- a/drivers/phy/phy-uclass.c
++++ b/drivers/phy/phy-uclass.c
+@@ -549,6 +549,22 @@ int generic_shutdown_phy(struct phy *phy)
+ 	return generic_phy_exit(phy);
+ }
+ 
++int generic_phy_set_mode_bulk(struct phy_bulk *bulk, enum phy_mode mode, int submode)
++{
++	struct phy *phys = bulk->phys;
++	int i, ret;
++
++	for (i = 0; i < bulk->count; i++) {
++		ret = generic_phy_set_mode(&phys[i], mode, submode);
++		if (ret) {
++			pr_err("Can't set mode on PHY%d\n", i);
++			return ret;
++		}
++	}
++
++	return 0;
++}
++
+ UCLASS_DRIVER(phy) = {
+ 	.id		= UCLASS_PHY,
+ 	.name		= "phy",
+diff --git a/include/generic-phy.h b/include/generic-phy.h
+index ba3321f4849..5950279bf64 100644
+--- a/include/generic-phy.h
++++ b/include/generic-phy.h
+@@ -432,6 +432,17 @@ int generic_setup_phy(struct udevice *dev, struct phy *phy, int index,
+  */
+ int generic_shutdown_phy(struct phy *phy);
+ 
++/**
++ * generic_phy_set_mode_bulk() - Set Mode on all phys in a phy bulk struct.
++ *
++ * @bulk:	A phy bulk struct that was previously successfully requested
++ *		by generic_phy_get_bulk().
++ * @mode:	PHY mode, enum phy_mode
++ * @submode:	submode, underlying data is specific to the PHY function
++ * Return 0 if OK, or negative error code.
++ */
++int generic_phy_set_mode_bulk(struct phy_bulk *bulk, enum phy_mode mode, int submode);
++
+ #else /* CONFIG_PHY */
+ 
+ static inline int generic_phy_init(struct phy *phy)
+@@ -523,6 +534,11 @@ static inline int generic_shutdown_phy(struct phy *phy)
+ 	return 0;
+ }
+ 
++static inline int generic_phy_set_mode_bulk(struct phy_bulk *bulk, enum phy_mode mode, int submode)
++{
++	return 0;
++}
++
+ #endif /* CONFIG_PHY */
+ 
+ /**
+-- 
+2.51.0
+
