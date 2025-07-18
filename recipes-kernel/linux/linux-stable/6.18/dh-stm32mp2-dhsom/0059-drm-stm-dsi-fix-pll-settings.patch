@@ -1,0 +1,106 @@
+From 4ff56a28ad2db7aa0bd0b25e6dce0c75618359ef Mon Sep 17 00:00:00 2001
+From: Yannick Fertre <yannick.fertre@foss.st.com>
+Date: Tue, 1 Apr 2025 16:42:31 +0200
+Subject: [PATCH 59/95] drm/stm: dsi: fix pll settings
+
+The DSI_WRPCR1 register contains the odf field, set between 0 and 3.
+It also corrects the lane data rate, which is twice of PLL output.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git 809ea016de40c07d258c8d08a22a1646e84468bb drm/stm: dsi: fix pll settings]
+Change-Id: I86b3fb7a5ad5791af2b606f328177e2d80d2ad9a
+Signed-off-by: Yannick Fertre <yannick.fertre@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/451887
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/gpu/drm/stm/dw_mipi_dsi-stm.c | 30 ++++++++++++++++++++-------
+ 1 file changed, 23 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c b/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
+index b6990e6e49343..cca890cfec39c 100644
+--- a/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
++++ b/drivers/gpu/drm/stm/dw_mipi_dsi-stm.c
+@@ -338,6 +338,7 @@ static int dsi_phy_141_pll_get_params(struct dw_mipi_dsi_stm *dsi,
+ {
+ 	int i, n;
+ 	int delta, best_delta; /* all in khz */
++	int lane_mbps = 2 * clkout_khz / 1000; /* in Mhz */
+ 
+ 	/* Early checks preventing division by 0 & odd results */
+ 	if (clkin_khz <= 0 || clkout_khz <= 0)
+@@ -345,10 +346,9 @@ static int dsi_phy_141_pll_get_params(struct dw_mipi_dsi_stm *dsi,
+ 
+ 	/* find frequency mapping */
+ 	for (i = 0; i < ARRAY_SIZE(dppa_map); i++) {
+-		if (dsi->lane_mbps < dppa_map[i].data_rate) {
++		if (lane_mbps < dppa_map[i].data_rate) {
+ 			if (i == ARRAY_SIZE(dppa_map) - 1)
+ 				DRM_WARN("Could not find frequency mapped index\n");
+-			i--;
+ 			break;
+ 		}
+ 	}
+@@ -357,7 +357,17 @@ static int dsi_phy_141_pll_get_params(struct dw_mipi_dsi_stm *dsi,
+ 	if (index)
+ 		*index = i;
+ 
+-	*odf = int_pow(2, ((dppa_map[i].odf & WRPCR1_ODF) >> 28));
++	/* ODF: Output division factor */
++	switch (dppa_map[i].odf) {
++	case(3):
++		*odf = 8; break;
++	case(2):
++		*odf = 4; break;
++	case(1):
++		*odf = 2; break;
++	default:
++		*odf = 1; break;
++	}
+ 
+ 	best_delta = 1000000; /* big started value (1000000khz) */
+ 
+@@ -605,7 +615,10 @@ static unsigned long dw_mipi_dsi_clk_recalc_rate(struct clk_hw *hw,
+ 
+ 	clk_disable_unprepare(dsi->pclk);
+ 
+-	return (unsigned long)pll_out_khz * 1000;
++	if (dsi->hw_version == HWVER_141)
++		return (unsigned long)pll_out_khz * 2 * 1000;
++	else
++		return (unsigned long)pll_out_khz * 1000;
+ }
+ 
+ static long dw_mipi_dsi_clk_round_rate(struct clk_hw *hw, unsigned long rate,
+@@ -644,7 +657,10 @@ static long dw_mipi_dsi_clk_round_rate(struct clk_hw *hw, unsigned long rate,
+ 
+ 	clk_disable_unprepare(dsi->pclk);
+ 
+-	return pll_out_khz * 1000;
++	if (dsi->hw_version == HWVER_141)
++		return pll_out_khz * 2 * 1000;
++	else
++		return pll_out_khz * 1000;
+ }
+ 
+ static int dw_mipi_dsi_clk_set_rate(struct clk_hw *hw, unsigned long rate,
+@@ -687,6 +703,7 @@ static int dw_mipi_dsi_clk_set_rate(struct clk_hw *hw, unsigned long rate,
+ 		int1 = 0x00;
+ 		gmp = 0x01;
+ 		prop = dppa_map[dppa_index].prop;
++		odf = dppa_map[dppa_index].odf;
+ 
+ 		/* set DLD, HSFR & CCF */
+ 		val = (hsfreq << 8) | ccf;
+@@ -695,8 +712,7 @@ static int dw_mipi_dsi_clk_set_rate(struct clk_hw *hw, unsigned long rate,
+ 		val = ((ndiv - 2) << 4) | (idf - 1);
+ 		dsi_write(dsi, DSI_WRPCR0, val);
+ 
+-		val = ((odf - 1) << 28) | (vco << 24) | (bias << 16)
+-		       | (int1 << 8) | (gmp << 6) | prop;
++		val = (odf << 28) | (vco << 24) | (bias << 16) | (int1 << 8) | (gmp << 6) | prop;
+ 		dsi_write(dsi, DSI_WRPCR1, val);
+ 
+ 		dsi_write(dsi, DSI_PCTLR, PCTLR_CKEN);
+-- 
+2.51.0
+

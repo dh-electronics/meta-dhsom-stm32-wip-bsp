@@ -1,0 +1,125 @@
+From 834b40cefb61d7958c561a980cbf17c4e4905ab9 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Thu, 23 Oct 2025 15:26:59 +0200
+Subject: [PATCH 156/156] dt-bindings: pinctrl: stm32: Support I/O
+ synchronization parameters
+
+Document the support of the I/O synchronization parameters:
+- skew-delay-input-ps;
+- skew-delay-output-ps;
+- st,io-sync.
+
+Forbid 'skew-delay-input-ps' and 'skew-delay-output-ps' to be both
+present on the same pin.
+Allow the new properties only with compatibles that support them.
+Add an example that uses the new properties.
+
+Upstream-Status: Backport [a730bf753eae64c6e7dcaf5d4a5c5d0ac0f76f95]
+Co-developed-by: Fabien Dessenne <fabien.dessenne@foss.st.com>
+Signed-off-by: Fabien Dessenne <fabien.dessenne@foss.st.com>
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Reviewed-by: Conor Dooley <conor.dooley@microchip.com>
+Signed-off-by: Linus Walleij <linus.walleij@linaro.org>
+---
+ .../bindings/pinctrl/st,stm32-pinctrl.yaml    | 74 +++++++++++++++++++
+ 1 file changed, 74 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/pinctrl/st,stm32-pinctrl.yaml b/Documentation/devicetree/bindings/pinctrl/st,stm32-pinctrl.yaml
+index 27c0dd7a8df01..76d956b4a5372 100644
+--- a/Documentation/devicetree/bindings/pinctrl/st,stm32-pinctrl.yaml
++++ b/Documentation/devicetree/bindings/pinctrl/st,stm32-pinctrl.yaml
+@@ -220,12 +220,65 @@ patternProperties:
+             minimum: 0
+             maximum: 3
+ 
++          skew-delay-input-ps:
++            description: |
++              IO synchronization skew rate applied to the input path
++            enum: [0, 300, 500, 750, 1000, 1250, 1500, 1750, 2000, 2250, 2500, 2750, 3000, 3250]
++
++          skew-delay-output-ps:
++            description: |
++              IO synchronization latch delay applied to the output path
++            enum: [0, 300, 500, 750, 1000, 1250, 1500, 1750, 2000, 2250, 2500, 2750, 3000, 3250]
++
++          st,io-sync:
++            $ref: /schemas/types.yaml#/definitions/string
++            enum:
++              - pass-through
++              - clock inverted
++              - data on rising edge
++              - data on falling edge
++              - data on both edges
++            description: |
++              IO synchronization through re-sampling or inversion
++              "pass-through"         - data or clock GPIO pass-through
++              "clock inverted"       - clock GPIO inverted
++              "data on rising edge"  - data GPIO re-sampled on clock rising edge
++              "data on falling edge" - data GPIO re-sampled on clock falling edge
++              "data on both edges"   - data GPIO re-sampled on both clock edges
++            default: pass-through
++
+         required:
+           - pinmux
+ 
++        # Not allowed both skew-delay-input-ps and skew-delay-output-ps
++        if:
++          required:
++            - skew-delay-input-ps
++        then:
++          properties:
++            skew-delay-output-ps: false
++
+ allOf:
+   - $ref: pinctrl.yaml#
+ 
++  - if:
++      not:
++        properties:
++          compatible:
++            contains:
++              enum:
++                - st,stm32mp257-pinctrl
++                - st,stm32mp257-z-pinctrl
++    then:
++      patternProperties:
++        '-[0-9]*$':
++          patternProperties:
++            '^pins':
++              properties:
++                skew-delay-input-ps: false
++                skew-delay-output-ps: false
++                st,io-sync: false
++
+ required:
+   - compatible
+   - '#address-cells'
+@@ -306,4 +359,25 @@ examples:
+                 pinctrl-names = "default";
+     };
+ 
++  - |
++    #include <dt-bindings/pinctrl/stm32-pinfunc.h>
++    //Example 4 skew-delay and st,io-sync
++      pinctrl: pinctrl@44240000 {
++              compatible = "st,stm32mp257-pinctrl";
++              #address-cells = <1>;
++              #size-cells = <1>;
++              ranges = <0 0x44240000 0xa0400>;
++
++              eth3_rgmii_pins_a: eth3-rgmii-0 {
++                      pins1 {
++                              pinmux = <STM32_PINMUX('A', 6, AF14)>;
++                              st,io-sync = "data on both edges";
++                      };
++                      pins2 {
++                              pinmux = <STM32_PINMUX('H', 2, AF14)>;
++                              skew-delay-output-ps = <500>;
++                      };
++              };
++      };
++
+ ...
+-- 
+2.53.0
+
