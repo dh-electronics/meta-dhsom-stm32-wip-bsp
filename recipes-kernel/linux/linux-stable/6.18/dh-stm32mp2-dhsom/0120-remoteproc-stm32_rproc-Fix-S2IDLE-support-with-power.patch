@@ -1,0 +1,51 @@
+From 2115b3caf4607e41c3c683b7c245be0995799997 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 28 Jan 2025 15:31:53 +0100
+Subject: [PATCH 120/140] remoteproc: stm32_rproc: Fix S2IDLE support with
+ power domain
+
+On platforms using suspend-to-idle, use device_set_wakeup_path()
+to keep the associated domain not powered off.
+
+For the S2IDLE mode the call of pm_runtime_resume_and_get() is not
+enough, this API controls the activated power domain only during runtime
+with genpd, for example with PSCI OSI CPUIdle.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/linux.git f082e70027265f9447aef1771e03a5023ec6fc17 remoteproc: stm32_rproc: Fix S2IDLE support with power domain]
+Fixes: e53a496b5d86 ("remoteproc: stm32_rproc: Add cluster and retention PM domains")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/418956
+Change-Id: I6cb732ecba5f4ca67c92f1ec79dc4136c1d11386
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/linux-stm32/+/432417
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/remoteproc/stm32_rproc.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/remoteproc/stm32_rproc.c b/drivers/remoteproc/stm32_rproc.c
+index 9691b4404f3f0..3bda8c690dbbe 100644
+--- a/drivers/remoteproc/stm32_rproc.c
++++ b/drivers/remoteproc/stm32_rproc.c
+@@ -1340,9 +1340,14 @@ static int stm32_rproc_suspend(struct device *dev)
+ 	if (rproc->state == RPROC_CRASHED)
+ 		return -EBUSY;
+ 
+-	if (ddata->genpd_dev && rproc->state != RPROC_OFFLINE &&
+-	    !device_property_present(dev, "keep-power-in-suspend"))
+-		return -EBUSY;
++	if (ddata->genpd_dev && rproc->state != RPROC_OFFLINE) {
++		if (!device_property_present(dev, "keep-power-in-suspend")) {
++			dev_err(dev, "remote fw is still running\n");
++			return -EBUSY;
++		}
++		/* wakeup path used by power domain for S2IDLE */
++		device_set_wakeup_path(ddata->genpd_dev);
++	}
+ 
+ 	if (device_may_wakeup(dev))
+ 		return enable_irq_wake(ddata->wdg_irq);
+-- 
+2.51.0
+

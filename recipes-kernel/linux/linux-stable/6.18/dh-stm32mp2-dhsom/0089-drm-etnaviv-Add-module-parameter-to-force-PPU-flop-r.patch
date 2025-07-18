@@ -1,0 +1,52 @@
+From 42df1ff7c71f378a74d8cc7db48c84e6deb0eb93 Mon Sep 17 00:00:00 2001
+From: Gert Wollny <gert.wollny@collabora.com>
+Date: Mon, 30 Jun 2025 22:26:31 +0200
+Subject: [PATCH 89/95] drm/etnaviv: Add module parameter to force PPU flop
+ reset
+
+v2: Check for feature PIPE_3D when forcing PPU flop reset (Lucas)
+
+Upstream-Status: Pending [https://lore.kernel.org/all/20250630202703.13844-6-gert.wollny@collabora.com/]
+Signed-off-by: Gert Wollny <gert.wollny@collabora.com>
+---
+ drivers/gpu/drm/etnaviv/etnaviv_flop_reset.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/drivers/gpu/drm/etnaviv/etnaviv_flop_reset.c b/drivers/gpu/drm/etnaviv/etnaviv_flop_reset.c
+index 138af3c33b5d8..ec32128ebac5f 100644
+--- a/drivers/gpu/drm/etnaviv/etnaviv_flop_reset.c
++++ b/drivers/gpu/drm/etnaviv/etnaviv_flop_reset.c
+@@ -16,6 +16,9 @@ enum etnaviv_flop_reset_type {
+ 	flop_reset_tp = 1 << 2
+ };
+ 
++static int etnaviv_force_flop_reset = 0;
++module_param_named(force_flop_reset, etnaviv_force_flop_reset, int , 0);
++
+ #define PPU_IMAGE_STRIDE 64
+ #define PPU_IMAGE_XSIZE 64
+ #define PPU_IMAGE_YSIZE 6
+@@ -151,6 +154,20 @@ etnaviv_flop_reset_ppu_require(const struct etnaviv_chip_identity *chip_id)
+ 			return (e->flags & flop_reset_ppu) != 0;
+ 	}
+ 
++	if (etnaviv_force_flop_reset & flop_reset_ppu) {
++
++		if (!(chip_id->features & chipFeatures_PIPE_3D)) {
++			pr_warn("Feature PIPE_3D not supported, ignore request to force "
++				"PPU flop reset for model: 0x%04x, revision: 0x%04x\n",
++				chip_id->model, chip_id->revision);
++			return false;
++		}
++
++		pr_info("Force PPU flop reset for model: 0x%04x, revision: 0x%04x\n",
++			chip_id->model, chip_id->revision);
++		return true;
++	}
++
+ 	return false;
+ }
+ 
+-- 
+2.51.0
+

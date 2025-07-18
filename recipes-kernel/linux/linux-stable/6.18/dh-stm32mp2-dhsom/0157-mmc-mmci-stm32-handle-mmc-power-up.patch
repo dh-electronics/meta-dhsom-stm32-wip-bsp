@@ -1,0 +1,36 @@
+From 6c568ead5d2cf3e6d38bd7c3fc6a4b4405a1f1fc Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Tue, 17 Dec 2024 10:03:05 +0100
+Subject: [PATCH] mmc: mmci: stm32: handle mmc power up
+
+Manage MMC POWER UP state like MMC POWER OFF state. In case of low
+power use cases, it will avoid random initialization timeout. This
+fixes a failure to switch DDR52 eMMC to 8 bit mode due to -EILSEQ
+returned from mmc_get_ext_csd() in mmc_compare_ext_csds() called
+from mmc_select_bus_width() after Standby1 suspend/resume cycle.
+
+Upstream-Status: Submitted [https://lore.kernel.org/linux-mmc/20261030215427.488298-1-marex@nabladev.com/]
+Fixes: 46b723dd867d ("mmc: mmci: add stm32 sdmmc variant")
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Signed-off-by: Marek Vasut <marex@nabladev.com>
+---
+ drivers/mmc/host/mmci_stm32_sdmmc.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mmc/host/mmci_stm32_sdmmc.c b/drivers/mmc/host/mmci_stm32_sdmmc.c
+index 9dc51859c2e51..659a5040729e9 100644
+--- a/drivers/mmc/host/mmci_stm32_sdmmc.c
++++ b/drivers/mmc/host/mmci_stm32_sdmmc.c
+@@ -368,7 +368,8 @@ static void mmci_sdmmc_set_pwrreg(struct mmci_host *host, unsigned int pwr)
+ 	if (dlyb && dlyb->ops->set_input_ck)
+ 		dlyb->ops->set_input_ck(dlyb);
+ 
+-	if (ios.power_mode == MMC_POWER_OFF) {
++	if (ios.power_mode == MMC_POWER_OFF ||
++	    ios.power_mode == MMC_POWER_UP) {
+ 		/* Only a reset could power-off sdmmc */
+ 		reset_control_assert(host->rst);
+ 		udelay(2);
+-- 
+2.53.0
+

@@ -1,0 +1,170 @@
+From be66d5991075031b0bb2ca17ed91a2c5ccf866ac Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Thu, 23 Oct 2025 15:26:50 +0200
+Subject: [PATCH 147/156] pinctrl: pinconf-generic: Handle string values for
+ generic properties
+
+Allow a generic pinconf property to specify its argument as one of
+the strings in a match list.
+Convert the matching string to an integer value using the index in
+the list, then keep using this value in the generic pinconf code.
+
+Upstream-Status: Backport [90a18c512884adb49ddc2fb30e94594169aae808]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Signed-off-by: Linus Walleij <linus.walleij@linaro.org>
+---
+ drivers/pinctrl/pinconf-generic.c       | 57 ++++++++++++++++++-------
+ include/linux/pinctrl/pinconf-generic.h | 11 ++++-
+ 2 files changed, 50 insertions(+), 18 deletions(-)
+
+diff --git a/drivers/pinctrl/pinconf-generic.c b/drivers/pinctrl/pinconf-generic.c
+index c58a9b9557d4c..556bafb9bb4f4 100644
+--- a/drivers/pinctrl/pinconf-generic.c
++++ b/drivers/pinctrl/pinconf-generic.c
+@@ -65,11 +65,12 @@ static void pinconf_generic_dump_one(struct pinctrl_dev *pctldev,
+ 	int i;
+ 
+ 	for (i = 0; i < nitems; i++) {
++		const struct pin_config_item *item = &items[i];
+ 		unsigned long config;
+ 		int ret;
+ 
+ 		/* We want to check out this parameter */
+-		config = pinconf_to_config_packed(items[i].param, 0);
++		config = pinconf_to_config_packed(item->param, 0);
+ 		if (gname)
+ 			ret = pin_config_group_get(dev_name(pctldev->dev),
+ 						   gname, &config);
+@@ -86,15 +87,22 @@ static void pinconf_generic_dump_one(struct pinctrl_dev *pctldev,
+ 		if (*print_sep)
+ 			seq_puts(s, ", ");
+ 		*print_sep = 1;
+-		seq_puts(s, items[i].display);
++		seq_puts(s, item->display);
+ 		/* Print unit if available */
+-		if (items[i].has_arg) {
++		if (item->has_arg) {
+ 			u32 val = pinconf_to_config_argument(config);
+ 
+-			if (items[i].format)
+-				seq_printf(s, " (%u %s)", val, items[i].format);
++			if (item->format)
++				seq_printf(s, " (%u %s)", val, item->format);
+ 			else
+ 				seq_printf(s, " (0x%x)", val);
++
++			if (item->values && item->num_values) {
++				if (val < item->num_values)
++					seq_printf(s, " \"%s\"", item->values[val]);
++				else
++					seq_puts(s, " \"(unknown)\"");
++			}
+ 		}
+ 	}
+ }
+@@ -205,10 +213,10 @@ static const struct pinconf_generic_params dt_params[] = {
+  * @ncfg. @ncfg is updated to reflect the number of entries after parsing. @cfg
+  * needs to have enough memory allocated to hold all possible entries.
+  */
+-static void parse_dt_cfg(struct device_node *np,
+-			 const struct pinconf_generic_params *params,
+-			 unsigned int count, unsigned long *cfg,
+-			 unsigned int *ncfg)
++static int parse_dt_cfg(struct device_node *np,
++			const struct pinconf_generic_params *params,
++			unsigned int count, unsigned long *cfg,
++			unsigned int *ncfg)
+ {
+ 	int i;
+ 
+@@ -217,7 +225,19 @@ static void parse_dt_cfg(struct device_node *np,
+ 		int ret;
+ 		const struct pinconf_generic_params *par = &params[i];
+ 
+-		ret = of_property_read_u32(np, par->property, &val);
++		if (par->values && par->num_values) {
++			ret = fwnode_property_match_property_string(of_fwnode_handle(np),
++								    par->property,
++								    par->values, par->num_values);
++			if (ret == -ENOENT)
++				return ret;
++			if (ret >= 0) {
++				val = ret;
++				ret = 0;
++			}
++		} else {
++			ret = of_property_read_u32(np, par->property, &val);
++		}
+ 
+ 		/* property not found */
+ 		if (ret == -EINVAL)
+@@ -231,6 +251,8 @@ static void parse_dt_cfg(struct device_node *np,
+ 		cfg[*ncfg] = pinconf_to_config_packed(par->param, val);
+ 		(*ncfg)++;
+ 	}
++
++	return 0;
+ }
+ 
+ /**
+@@ -328,13 +350,16 @@ int pinconf_generic_parse_dt_config(struct device_node *np,
+ 	if (!cfg)
+ 		return -ENOMEM;
+ 
+-	parse_dt_cfg(np, dt_params, ARRAY_SIZE(dt_params), cfg, &ncfg);
++	ret = parse_dt_cfg(np, dt_params, ARRAY_SIZE(dt_params), cfg, &ncfg);
++	if (ret)
++		return ret;
+ 	if (pctldev && pctldev->desc->num_custom_params &&
+-		pctldev->desc->custom_params)
+-		parse_dt_cfg(np, pctldev->desc->custom_params,
+-			     pctldev->desc->num_custom_params, cfg, &ncfg);
+-
+-	ret = 0;
++		pctldev->desc->custom_params) {
++		ret = parse_dt_cfg(np, pctldev->desc->custom_params,
++				   pctldev->desc->num_custom_params, cfg, &ncfg);
++		if (ret)
++			return ret;
++	}
+ 
+ 	/* no configs found at all */
+ 	if (ncfg == 0) {
+diff --git a/include/linux/pinctrl/pinconf-generic.h b/include/linux/pinctrl/pinconf-generic.h
+index 4e22aa44bcd4c..d99cfffa74f47 100644
+--- a/include/linux/pinctrl/pinconf-generic.h
++++ b/include/linux/pinctrl/pinconf-generic.h
+@@ -181,21 +181,28 @@ static inline unsigned long pinconf_to_config_packed(enum pin_config_param param
+ 	return PIN_CONF_PACKED(param, argument);
+ }
+ 
+-#define PCONFDUMP(a, b, c, d) {					\
+-	.param = a, .display = b, .format = c, .has_arg = d	\
++#define PCONFDUMP_WITH_VALUES(a, b, c, d, e, f) {		\
++	.param = a, .display = b, .format = c, .has_arg = d,	\
++	.values = e, .num_values = f				\
+ 	}
+ 
++#define PCONFDUMP(a, b, c, d)	PCONFDUMP_WITH_VALUES(a, b, c, d, NULL, 0)
++
+ struct pin_config_item {
+ 	const enum pin_config_param param;
+ 	const char * const display;
+ 	const char * const format;
+ 	bool has_arg;
++	const char * const *values;
++	size_t num_values;
+ };
+ 
+ struct pinconf_generic_params {
+ 	const char * const property;
+ 	enum pin_config_param param;
+ 	u32 default_value;
++	const char * const *values;
++	size_t num_values;
+ };
+ 
+ int pinconf_generic_dt_subnode_to_map(struct pinctrl_dev *pctldev,
+-- 
+2.53.0
+
