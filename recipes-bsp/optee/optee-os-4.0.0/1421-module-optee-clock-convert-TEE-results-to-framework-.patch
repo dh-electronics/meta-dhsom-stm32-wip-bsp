@@ -1,0 +1,86 @@
+From db9d20ecc72363bb90f938b9e8e609f15119474e Mon Sep 17 00:00:00 2001
+From: Theo GOUREAU <theo.goureau-ext@st.com>
+Date: Tue, 5 Nov 2024 14:43:31 +0100
+Subject: [PATCH 1421/1695] module: optee: clock: convert TEE results to
+ framework error statuses
+
+Use scmi_tee_result_to_fwk_status() to convert TEE results into
+framework errors in module OP-TEE clock.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1869e2405f909927c3ea4455f6e223f946f66e76 module: optee: clock: convert TEE results to framework error statuses]
+Change-Id: Iac2dff5de004bfd6a9275c159e0a43cf8c8f2d39
+Signed-off-by: Theo GOUREAU <theo.goureau-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/416526
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../module/optee/clock/src/mod_optee_clock.c     | 16 +++++++---------
+ 1 file changed, 7 insertions(+), 9 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c b/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c
+index fff6cba2f..ccc863ed7 100644
+--- a/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c
++++ b/core/lib/scmi-server/SCP-firmware/module/optee/clock/src/mod_optee_clock.c
+@@ -209,7 +209,7 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
+             range->max = range->min;
+             range->rate_count = 1;
+         } else if (res != TEE_SUCCESS) {
+-            return FWK_E_DEVICE;
++            return scmi_tee_result_to_fwk_status(res);
+         }
+ 
+         range->rate_type = MOD_CLOCK_RATE_TYPE_CONTINUOUS;
+@@ -219,7 +219,7 @@ static int get_range(fwk_id_t dev_id, struct mod_clock_range *range)
+ 
+         return FWK_SUCCESS;
+     } else if (res != TEE_SUCCESS) {
+-        return FWK_E_DEVICE;
++        return scmi_tee_result_to_fwk_status(res);
+     }
+ 
+     range->rate_type = MOD_CLOCK_RATE_TYPE_DISCRETE;
+@@ -253,10 +253,8 @@ static int set_rate(fwk_id_t dev_id, uint64_t rate,
+     }
+ 
+     res = clk_set_rate(ctx->clk, rate);
+-    if (res == TEE_ERROR_NOT_SUPPORTED) {
+-        return FWK_E_SUPPORT;
+-    } else if (res != TEE_SUCCESS) {
+-        return FWK_E_DEVICE;
++    if (res) {
++        return scmi_tee_result_to_fwk_status(res);
+     }
+ 
+     FWK_LOG_DEBUG(
+@@ -294,7 +292,7 @@ static int get_rate_from_index(fwk_id_t dev_id,
+         *rate = clk_get_rate(ctx->clk);
+         return FWK_SUCCESS;
+     } else if (res != TEE_SUCCESS) {
+-        return FWK_E_DEVICE;
++        return scmi_tee_result_to_fwk_status(res);
+     }
+ 
+     if (rate_index > rate_count) {
+@@ -346,7 +344,7 @@ static int get_duty_cycle(fwk_id_t dev_id, uint32_t *num, uint32_t *den)
+         /* Assume a 50% duty cycle */
+         duty = (struct clk_duty){ .num = 1, .den = 2 };
+     } else if (res != TEE_SUCCESS) {
+-        return FWK_E_DEVICE;
++        return scmi_tee_result_to_fwk_status(res);
+     }
+ 
+     *num = duty.num;
+@@ -430,7 +428,7 @@ static int optee_clock_element_init(fwk_id_t element_id, unsigned int dev_count,
+         if (ctx->enabled) {
+             res = clk_enable(ctx->clk);
+             if (res) {
+-                return FWK_E_DEVICE;
++                return scmi_tee_result_to_fwk_status(res);
+             }
+         }
+     }
+-- 
+2.47.2
+

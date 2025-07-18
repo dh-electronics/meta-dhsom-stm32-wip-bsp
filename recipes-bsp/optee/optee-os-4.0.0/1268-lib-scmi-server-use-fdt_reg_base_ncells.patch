@@ -1,0 +1,197 @@
+From 780843c4a1be43a8c578fbf152fd69432f5ce0cf Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 30 Sep 2024 17:57:27 +0200
+Subject: [PATCH 1268/1695] lib: scmi-server: use fdt_reg_base_ncells()
+
+Use fdt_reg_base_ncells() instead of fdt_reg_base_address() since
+by definition an SCMI IDs are defined by a 32bit value. This change
+speeds up the SCMI server configuration DT nodes parsing since we don't
+need to look-up parent cells to get the related #address-cells property.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 56d38adf3e269615bd5e8b3ab105a4d3a36687b5 lib: scmi-server: use fdt_reg_base_ncells()]
+Change-Id: Iabc714e6b5014850597674f42f8c17cd8cd16a0c
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/408094
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/lib/scmi-server/scmi_clock_consumer.c     | 15 ++++++++++++---
+ core/lib/scmi-server/scmi_pd_consumer.c        | 15 +++++++++++----
+ core/lib/scmi-server/scmi_regulator_consumer.c | 14 +++++++++++---
+ core/lib/scmi-server/scmi_reset_consumer.c     | 14 +++++++++++---
+ 4 files changed, 45 insertions(+), 13 deletions(-)
+
+diff --git a/core/lib/scmi-server/scmi_clock_consumer.c b/core/lib/scmi-server/scmi_clock_consumer.c
+index 32450cd66..428792e21 100644
+--- a/core/lib/scmi-server/scmi_clock_consumer.c
++++ b/core/lib/scmi-server/scmi_clock_consumer.c
+@@ -7,6 +7,7 @@
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+ #include <kernel/boot.h>
++#include <kernel/dt.h>
+ #include <kernel/panic.h>
+ #include <libfdt.h>
+ #include <malloc.h>
+@@ -131,9 +132,14 @@ TEE_Result optee_scmi_server_init_clocks(const void *fdt, int node,
+ 
+ 	/* Compute the number of domains to allocate */
+ 	fdt_for_each_subnode(subnode, fdt, item_node) {
+-		paddr_t reg = fdt_reg_base_address(fdt, subnode);
++		paddr_t reg = fdt_reg_base_ncells(fdt, subnode, 1);
++
++		if (reg == DT_INFO_INVALID_REG) {
++			EMSG("Can't get SCMI clock ID for node %s, skipped",
++			     fdt_get_name(fdt, subnode, NULL));
++			continue;
++		}
+ 
+-		assert(reg != DT_INFO_INVALID_REG);
+ 		if ((size_t)reg > s_clocks_count)
+ 			s_clocks_count = (uint32_t)reg;
+ 
+@@ -163,6 +169,10 @@ TEE_Result optee_scmi_server_init_clocks(const void *fdt, int node,
+ 		struct clk *clock = NULL;
+ 		uint32_t domain_id = 0;
+ 
++		domain_id = fdt_reg_base_ncells(fdt, subnode, 1);
++		if (domain_id == (uint32_t)DT_INFO_INVALID_REG)
++			continue;
++
+ 		res = clk_dt_get_by_index(fdt, subnode, 0, &clock);
+ 		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
+ 			panic("Unexpected init deferral");
+@@ -172,7 +182,6 @@ TEE_Result optee_scmi_server_init_clocks(const void *fdt, int node,
+ 			continue;
+ 		}
+ 
+-		domain_id = (uint32_t)fdt_reg_base_address(fdt, subnode);
+ 		s_clock = s_clocks + domain_id;
+ 		s_clock->domain_id = domain_id;
+ 
+diff --git a/core/lib/scmi-server/scmi_pd_consumer.c b/core/lib/scmi-server/scmi_pd_consumer.c
+index 297bc71ea..50f257f06 100644
+--- a/core/lib/scmi-server/scmi_pd_consumer.c
++++ b/core/lib/scmi-server/scmi_pd_consumer.c
+@@ -30,9 +30,14 @@ TEE_Result optee_scmi_server_init_pd(const void *fdt, int node,
+ 
+ 	/* Compute the number of domains to allocate */
+ 	fdt_for_each_subnode(subnode, fdt, item_node) {
+-		paddr_t reg = fdt_reg_base_address(fdt, subnode);
++		paddr_t reg = fdt_reg_base_ncells(fdt, subnode, 1);
++
++		if (reg == DT_INFO_INVALID_REG) {
++			EMSG("Can't get SCMI domain ID for node %s, skipped",
++			     fdt_get_name(fdt, subnode, NULL));
++			continue;
++		}
+ 
+-		assert(reg != DT_INFO_INVALID_REG);
+ 		if ((size_t)reg > channel_cfg->pd_count)
+ 			channel_cfg->pd_count = (uint32_t)reg;
+ 
+@@ -55,6 +60,10 @@ TEE_Result optee_scmi_server_init_pd(const void *fdt, int node,
+ 		struct clk *clock = NULL;
+ 		uint32_t domain_id = 0;
+ 
++		domain_id = fdt_reg_base_ncells(fdt, subnode, 1);
++		if (domain_id == (uint32_t)DT_INFO_INVALID_REG)
++			continue;
++
+ 		res = regulator_dt_get_supply(fdt, subnode, "voltd",
+ 					      &regulator);
+ 		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
+@@ -74,8 +83,6 @@ TEE_Result optee_scmi_server_init_pd(const void *fdt, int node,
+ 			continue;
+ 		}
+ 
+-		domain_id = (uint32_t)fdt_reg_base_address(fdt, subnode);
+-
+ 		cuint = fdt_getprop(fdt, subnode, "domain-name", NULL);
+ 		if (cuint)
+ 			domain_name = (char *)cuint;
+diff --git a/core/lib/scmi-server/scmi_regulator_consumer.c b/core/lib/scmi-server/scmi_regulator_consumer.c
+index 22e560f8a..6645e8509 100644
+--- a/core/lib/scmi-server/scmi_regulator_consumer.c
++++ b/core/lib/scmi-server/scmi_regulator_consumer.c
+@@ -47,9 +47,14 @@ TEE_Result optee_scmi_server_init_regulators(const void *fdt, int node,
+ 
+ 	/* Compute the number of domains to allocate */
+ 	fdt_for_each_subnode(subnode, fdt, item_node) {
+-		paddr_t reg = fdt_reg_base_address(fdt, subnode);
++		paddr_t reg = fdt_reg_base_ncells(fdt, subnode, 1);
++
++		if (reg == DT_INFO_INVALID_REG) {
++			EMSG("Can't get SCMI clock ID for node %s, skipped",
++			     fdt_get_name(fdt, subnode, NULL));
++			continue;
++		}
+ 
+-		assert(reg != DT_INFO_INVALID_REG);
+ 		if ((size_t)reg > voltd_domain_count)
+ 			voltd_domain_count = (uint32_t)reg;
+ 
+@@ -70,6 +75,10 @@ TEE_Result optee_scmi_server_init_regulators(const void *fdt, int node,
+ 		struct regulator *regulator = NULL;
+ 		uint32_t domain_id = 0;
+ 
++		domain_id = fdt_reg_base_ncells(fdt, subnode, 1);
++		if (domain_id == (uint32_t)DT_INFO_INVALID_REG)
++			continue;
++
+ 		res = regulator_dt_get_supply(fdt, subnode, "voltd",
+ 					      &regulator);
+ 		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
+@@ -80,7 +89,6 @@ TEE_Result optee_scmi_server_init_regulators(const void *fdt, int node,
+ 			continue;
+ 		}
+ 
+-		domain_id = (uint32_t)fdt_reg_base_address(fdt, subnode);
+ 		regu = s_regu + domain_id;
+ 		regu->domain_id = domain_id;
+ 
+diff --git a/core/lib/scmi-server/scmi_reset_consumer.c b/core/lib/scmi-server/scmi_reset_consumer.c
+index c3251ae53..1d92bcb83 100644
+--- a/core/lib/scmi-server/scmi_reset_consumer.c
++++ b/core/lib/scmi-server/scmi_reset_consumer.c
+@@ -45,9 +45,14 @@ TEE_Result optee_scmi_server_init_resets(const void *fdt, int node,
+ 
+ 	/* Compute the number of domains to allocate */
+ 	fdt_for_each_subnode(subnode, fdt, item_node) {
+-		paddr_t reg = fdt_reg_base_address(fdt, subnode);
++		paddr_t reg = fdt_reg_base_ncells(fdt, subnode, 1);
++
++		if (reg == DT_INFO_INVALID_REG) {
++			EMSG("Can't get SCMI clock ID for node %s, skipped",
++			     fdt_get_name(fdt, subnode, NULL));
++			continue;
++		}
+ 
+-		assert(reg != DT_INFO_INVALID_REG);
+ 		if ((size_t)reg > s_resets_count)
+ 			s_resets_count = (uint32_t)reg;
+ 
+@@ -68,6 +73,10 @@ TEE_Result optee_scmi_server_init_resets(const void *fdt, int node,
+ 		const fdt32_t *cuint = NULL;
+ 		uint32_t domain_id = 0;
+ 
++		domain_id = fdt_reg_base_ncells(fdt, subnode, 1);
++		if (domain_id == (uint32_t)DT_INFO_INVALID_REG)
++			continue;
++
+ 		res = rstctrl_dt_get_by_index(fdt, subnode, 0, &reset);
+ 		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
+ 			panic("Unexpected init deferral");
+@@ -77,7 +86,6 @@ TEE_Result optee_scmi_server_init_resets(const void *fdt, int node,
+ 			continue;
+ 		}
+ 
+-		domain_id = (uint32_t)fdt_reg_base_address(fdt, subnode);
+ 		s_reset = s_resets + domain_id;
+ 		s_reset->domain_id = domain_id;
+ 
+-- 
+2.47.2
+

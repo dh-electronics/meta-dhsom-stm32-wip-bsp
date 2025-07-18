@@ -1,0 +1,452 @@
+From 9f31fa8d943fb3a6a42c827cf8da688cf381bae6 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Mon, 30 Oct 2023 14:26:35 +0100
+Subject: [PATCH 0021/1695] plat-stm32mp2: add new platform support
+
+Initial configuration for STM32MP2x platforms.
+Add the initial memory layout and the MMU bus reference
+addresses. Default RAM size is 4GBytes
+It adds also the console initialization and GIC support.
+
+There are no shared resources on STM32MP25x platforms. Use
+stm32_pinctrl_set_secure_cfg() API in the STM32 UART driver for now.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 84e8c194be91384b8983c600e6ab4201c5c29c62 plat-stm32mp2: add new platform support]
+Change-Id: I4bad0f87a24db8826c4b6568e279ab960dd5c924
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+[etienne: cherry-picked from bd1fffe512ce1b216d60dfc98845aa1c057ac3a9]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/conf.mk           |  59 +++++++
+ core/arch/arm/plat-stm32mp2/main.c            | 144 ++++++++++++++++++
+ core/arch/arm/plat-stm32mp2/platform_config.h | 108 +++++++++++++
+ core/arch/arm/plat-stm32mp2/stm32_util.h      |  25 +++
+ core/arch/arm/plat-stm32mp2/sub.mk            |   3 +
+ core/drivers/stm32_uart.c                     |  18 ++-
+ 6 files changed, 353 insertions(+), 4 deletions(-)
+ create mode 100644 core/arch/arm/plat-stm32mp2/conf.mk
+ create mode 100644 core/arch/arm/plat-stm32mp2/main.c
+ create mode 100644 core/arch/arm/plat-stm32mp2/platform_config.h
+ create mode 100644 core/arch/arm/plat-stm32mp2/stm32_util.h
+ create mode 100644 core/arch/arm/plat-stm32mp2/sub.mk
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+new file mode 100644
+index 000000000..3cc30fce7
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -0,0 +1,59 @@
++flavor_dts_file-257F_EV1 = stm32mp257f-ev1.dts
++
++flavorlist-MP25 = $(flavor_dts_file-257F_EV1)
++
++ifneq ($(PLATFORM_FLAVOR),)
++ifeq ($(flavor_dts_file-$(PLATFORM_FLAVOR)),)
++$(error Invalid platform flavor $(PLATFORM_FLAVOR))
++endif
++CFG_EMBED_DTB_SOURCE_FILE ?= $(flavor_dts_file-$(PLATFORM_FLAVOR))
++endif
++CFG_EMBED_DTB_SOURCE_FILE ?= stm32mp257f-ev1.dts
++
++ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-MP25)),)
++$(call force,CFG_STM32MP25,y)
++endif
++
++ifneq ($(CFG_STM32MP25),y)
++$(error STM32 Platform must be defined)
++endif
++
++include core/arch/arm/cpu/cortex-armv8-0.mk
++supported-ta-targets ?= ta_arm64
++
++$(call force,CFG_ARM64_core,y)
++$(call force,CFG_DRIVERS_CLK,y)
++$(call force,CFG_DRIVERS_CLK_DT,y)
++$(call force,CFG_DRIVERS_GPIO,y)
++$(call force,CFG_DRIVERS_PINCTRL,y)
++$(call force,CFG_DT,y)
++$(call force,CFG_GIC,y)
++$(call force,CFG_INIT_CNTVOFF,y)
++$(call force,CFG_SECURE_TIME_SOURCE_CNTPCT,y)
++$(call force,CFG_WITH_ARM_TRUSTED_FW,y)
++$(call force,CFG_WITH_LPAE,y)
++
++CFG_TZDRAM_START ?= 0x82000000
++CFG_TZDRAM_SIZE  ?= 0x02000000
++
++CFG_CORE_HEAP_SIZE ?= 262144
++CFG_CORE_RESERVED_SHM ?= n
++CFG_DTB_MAX_SIZE ?= 262144
++CFG_MMAP_REGIONS ?= 30
++CFG_NUM_THREADS ?= 5
++CFG_TEE_CORE_NB_CORE ?= 2
++
++CFG_STM32_GPIO ?= y
++CFG_STM32_UART ?= y
++
++# Default enable some test facitilites
++CFG_WITH_STATS ?= y
++
++# Default disable ASLR
++CFG_CORE_ASLR ?= n
++
++# UART instance used for early console (0 disables early console)
++CFG_STM32_EARLY_CONSOLE_UART ?= 2
++
++# Default disable external DT support
++CFG_EXTERNAL_DT ?= n
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+new file mode 100644
+index 000000000..14a97b85b
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -0,0 +1,144 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2023, STMicroelectronics
++ */
++
++#include <config.h>
++#include <console.h>
++#include <drivers/gic.h>
++#include <drivers/stm32_uart.h>
++#include <initcall.h>
++#include <kernel/boot.h>
++#include <kernel/dt.h>
++#include <kernel/interrupt.h>
++#include <kernel/misc.h>
++#include <kernel/spinlock.h>
++#include <mm/core_memprot.h>
++#include <platform_config.h>
++#include <stm32_util.h>
++#include <trace.h>
++
++register_phys_mem_pgdir(MEM_AREA_IO_NSEC, APB1_BASE, APB1_SIZE);
++
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB1_BASE, APB1_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB2_BASE, APB2_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB3_BASE, APB3_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB4_BASE, APB4_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, AHB2_BASE, AHB2_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, AHB3_BASE, AHB3_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, AHB4_BASE, AHB4_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, AHB5_BASE, AHB5_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, SAPB_BASE, SAPB_SIZE);
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, SAHB_BASE, SAHB_SIZE);
++
++register_phys_mem_pgdir(MEM_AREA_IO_SEC, GIC_BASE, GIC_SIZE);
++
++#define _ID2STR(id)		(#id)
++#define ID2STR(id)		_ID2STR(id)
++
++static TEE_Result platform_banner(void)
++{
++	IMSG("Platform stm32mp2: flavor %s - DT %s", ID2STR(PLATFORM_FLAVOR),
++	     ID2STR(CFG_EMBED_DTB_SOURCE_FILE));
++
++	return TEE_SUCCESS;
++}
++
++service_init(platform_banner);
++
++/*
++ * Console
++ *
++ * CFG_STM32_EARLY_CONSOLE_UART specifies the ID of the UART used for
++ * trace console. Value 0 disables the early console.
++ *
++ * We cannot use the generic serial_console support since probing
++ * the console requires the platform clock driver to be already
++ * up and ready which is done only once service_init are completed.
++ */
++static struct stm32_uart_pdata console_data;
++
++void console_init(void)
++{
++#ifdef CFG_STM32_UART
++	/* Early console initialization before MMU setup */
++	struct uart {
++		paddr_t pa;
++		bool secure;
++	} uarts[] = {
++		[0] = { .pa = 0 },
++		[1] = { .pa = USART1_BASE, .secure = true, },
++		[2] = { .pa = USART2_BASE, .secure = false, },
++		[3] = { .pa = USART3_BASE, .secure = false, },
++		[4] = { .pa = UART4_BASE, .secure = false, },
++		[5] = { .pa = UART5_BASE, .secure = false, },
++		[6] = { .pa = USART6_BASE, .secure = false, },
++		[7] = { .pa = UART7_BASE, .secure = false, },
++		[8] = { .pa = UART8_BASE, .secure = false, },
++		[9] = { .pa = UART9_BASE, .secure = false, },
++	};
++
++	static_assert(ARRAY_SIZE(uarts) > CFG_STM32_EARLY_CONSOLE_UART);
++
++	if (!uarts[CFG_STM32_EARLY_CONSOLE_UART].pa)
++		return;
++
++	/* No clock yet bound to the UART console */
++	console_data.clock = NULL;
++	console_data.secure = uarts[CFG_STM32_EARLY_CONSOLE_UART].secure;
++	stm32_uart_init(&console_data, uarts[CFG_STM32_EARLY_CONSOLE_UART].pa);
++	register_serial_console(&console_data.chip);
++
++	IMSG("Early console on UART#%u", CFG_STM32_EARLY_CONSOLE_UART);
++#endif
++}
++
++#ifdef CFG_STM32_UART
++static TEE_Result init_console_from_dt(void)
++{
++	struct stm32_uart_pdata *pd = NULL;
++	void *fdt = NULL;
++	int node = 0;
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	fdt = get_embedded_dt();
++	res = get_console_node_from_dt(fdt, &node, NULL, NULL);
++	if (res == TEE_ERROR_ITEM_NOT_FOUND) {
++		fdt = get_external_dt();
++		res = get_console_node_from_dt(fdt, &node, NULL, NULL);
++		if (res == TEE_ERROR_ITEM_NOT_FOUND)
++			return TEE_SUCCESS;
++		if (res != TEE_SUCCESS)
++			return res;
++	}
++
++	pd = stm32_uart_init_from_dt_node(fdt, node);
++	if (!pd) {
++		IMSG("DTB disables console");
++		register_serial_console(NULL);
++		return TEE_SUCCESS;
++	}
++
++	/* Replace early console with the new one */
++	console_flush();
++	console_data = *pd;
++	register_serial_console(&console_data.chip);
++	IMSG("DTB enables console (%ssecure)", pd->secure ? "" : "non-");
++	free(pd);
++
++	return TEE_SUCCESS;
++}
++
++/* Probe console from DT once clock inits (service init level) are completed */
++service_init_late(init_console_from_dt);
++#endif /*STM32_UART*/
++
++void boot_primary_init_intc(void)
++{
++	gic_init(GIC_BASE + GICC_OFFSET, GIC_BASE + GICD_OFFSET);
++}
++
++void boot_secondary_init_intc(void)
++{
++	gic_cpu_init();
++}
+diff --git a/core/arch/arm/plat-stm32mp2/platform_config.h b/core/arch/arm/plat-stm32mp2/platform_config.h
+new file mode 100644
+index 000000000..4d7af4a8c
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/platform_config.h
+@@ -0,0 +1,108 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2023, STMicroelectronics
++ */
++
++#ifndef PLATFORM_CONFIG_H
++#define PLATFORM_CONFIG_H
++
++#include <mm/generic_ram_layout.h>
++
++/* Make stacks aligned to data cache line length */
++#define STACK_ALIGNMENT			32
++
++/* SoC interface registers base address ranges */
++#define APB1_BASE			0x40000000
++#define APB1_SIZE			0x00200000
++#define APB2_BASE			0x40200000
++#define APB2_SIZE			0x00040000
++#define AHB2_BASE			0x40400000
++#define AHB2_SIZE			0x01c00000
++#define AHB3_BASE			0x42000000
++#define AHB3_SIZE			0x02000000
++#define APB3_BASE			0x44000000
++#define APB3_SIZE			0x001f0000
++#define AHB4_BASE			0x44200000
++#define AHB4_SIZE			0x01e00000
++#define SAPB_BASE			0x46000000
++#define SAPB_SIZE			0x00200000
++#define SAHB_BASE			0x46200000
++#define SAHB_SIZE			0x01e00000
++#define APB4_BASE			0x48000000
++#define APB4_SIZE			0x00200000
++#define AHB5_BASE			0x48200000
++#define AHB5_SIZE			0x01e00000
++
++/* SoC interface registers base address */
++#define UART2_BASE			0x400e0000
++#define UART3_BASE			0x400f0000
++#define UART4_BASE			0x40100000
++#define UART5_BASE			0x40110000
++#define I2C4_BASE			0x40150000
++#define I2C6_BASE			0x40170000
++#define UART6_BASE			0x40220000
++#define UART9_BASE			0x402c0000
++#define UART1_BASE			0x40330000
++#define SPI6_BASE			0x40350000
++#define UART7_BASE			0x40370000
++#define UART8_BASE			0x40380000
++#define OSPI1_BASE			0x40430000
++#define OSPI2_BASE			0x40440000
++#define HASH1_BASE			0x42010000
++#define RNG1_BASE			0x42020000
++#define CRYP1_BASE			0x42030000
++#define SAES_BASE			0x42050000
++#define PKA_BASE			0x42060000
++#define RIFSC_BASE			0x42080000
++#define RISAF5_BASE			0x420e0000
++#define RISAB6_BASE			0x42140000
++#define BSEC3_BASE			0x44000000
++#define IWDG2_BASE			0x44002000
++#define IWDG1_BASE			0x44010000
++#define RCC_BASE			0x44200000
++#define PWR_BASE			0x44210000
++#define SYSCFG_BASE			0x44230000
++#define GPIOA_BASE			0x44240000
++#define GPIOB_BASE			0x44250000
++#define GPIOC_BASE			0x44260000
++#define GPIOD_BASE			0x44270000
++#define GPIOE_BASE			0x44280000
++#define GPIOF_BASE			0x44290000
++#define GPIOG_BASE			0x442a0000
++#define GPIOH_BASE			0x442b0000
++#define GPIOI_BASE			0x442c0000
++#define GPIOJ_BASE			0x442d0000
++#define GPIOK_BASE			0x442e0000
++#define RTC_BASE			0x46000000
++#define TAMP_BASE			0x46010000
++#define GPIOZ_BASE			0x46200000
++#define STGEN_BASE			0x48080000
++#define FMC_BASE			0x48200000
++#define PCIE_BASE			0x48400000
++#define A35SSC_BASE			0x48800000
++#define GIC_BASE			0x4ac00000
++#define DDR_BASE			UL(0x80000000)
++
++#define SYSRAM_BASE			0x0e000000
++
++#define SRAM1_BASE			0x0e040000
++
++/* GIC resources */
++#define GIC_SIZE			0x80000
++#define GICC_OFFSET			0x20000
++#define GICD_OFFSET			0x10000
++
++/* Console configuration */
++#define GIC_SPI_UART4			126
++
++#define TARGET_CPU0_GIC_MASK		BIT(0)
++#define TARGET_CPU1_GIC_MASK		BIT(1)
++#define TARGET_CPUS_GIC_MASK		GENMASK_32(CFG_TEE_CORE_NB_CORE - 1, 0)
++
++/* USART/UART resources */
++#define USART1_BASE			UART1_BASE
++#define USART2_BASE			UART2_BASE
++#define USART3_BASE			UART3_BASE
++#define USART6_BASE			UART6_BASE
++
++#endif /*PLATFORM_CONFIG_H*/
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+new file mode 100644
+index 000000000..2575f0a5c
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -0,0 +1,25 @@
++/* SPDX-License-Identifier: BSD-3-Clause */
++/*
++ * Copyright (c) 2023, STMicroelectronics
++ */
++
++#ifndef __STM32_UTIL_H__
++#define __STM32_UTIL_H__
++
++#include <kernel/spinlock.h>
++#include <stdint.h>
++#include <types_ext.h>
++
++static inline void stm32mp_register_secure_periph_iomem(vaddr_t base __unused)
++{
++}
++
++static inline void stm32mp_register_non_secure_periph_iomem(vaddr_t base
++							    __unused) { }
++
++static inline void stm32mp_register_gpioz_pin_count(size_t count __unused) { }
++
++#define may_spin_lock(lock)		  cpu_spin_lock_xsave(lock)
++#define may_spin_unlock(lock, exceptions) cpu_spin_unlock_xrestore(lock, \
++								   exceptions)
++#endif /*__STM32_UTIL_H__*/
+diff --git a/core/arch/arm/plat-stm32mp2/sub.mk b/core/arch/arm/plat-stm32mp2/sub.mk
+new file mode 100644
+index 000000000..b5d5551e7
+--- /dev/null
++++ b/core/arch/arm/plat-stm32mp2/sub.mk
+@@ -0,0 +1,3 @@
++global-incdirs-y += .
++
++srcs-y += main.c
+diff --git a/core/drivers/stm32_uart.c b/core/drivers/stm32_uart.c
+index 3862b607c..4a7675962 100644
+--- a/core/drivers/stm32_uart.c
++++ b/core/drivers/stm32_uart.c
+@@ -8,6 +8,7 @@
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+ #include <drivers/serial.h>
++#include <drivers/stm32_gpio.h>
+ #include <drivers/stm32_uart.h>
+ #include <io.h>
+ #include <keep.h>
+@@ -110,22 +111,31 @@ void stm32_uart_init(struct stm32_uart_pdata *pd, vaddr_t base)
+ 
+ static void register_secure_uart(struct stm32_uart_pdata *pd)
+ {
+-	size_t __maybe_unused n = 0;
+-
++#ifndef CFG_STM32MP25
+ 	stm32mp_register_secure_periph_iomem(pd->base.pa);
+ 	stm32mp_register_secure_pinctrl(pd->pinctrl);
+ 	if (pd->pinctrl_sleep)
+ 		stm32mp_register_secure_pinctrl(pd->pinctrl_sleep);
++#else
++	stm32_pinctrl_set_secure_cfg(pd->pinctrl, true);
++	if (pd->pinctrl_sleep)
++		stm32_pinctrl_set_secure_cfg(pd->pinctrl, true);
++#endif
+ }
+ 
+ static void register_non_secure_uart(struct stm32_uart_pdata *pd)
+ {
+-	size_t __maybe_unused n = 0;
+-
++#ifndef CFG_STM32MP25
+ 	stm32mp_register_non_secure_periph_iomem(pd->base.pa);
+ 	stm32mp_register_non_secure_pinctrl(pd->pinctrl);
+ 	if (pd->pinctrl_sleep)
+ 		stm32mp_register_non_secure_pinctrl(pd->pinctrl_sleep);
++#else
++	stm32_pinctrl_set_secure_cfg(pd->pinctrl, false);
++	if (pd->pinctrl_sleep)
++		stm32_pinctrl_set_secure_cfg(pd->pinctrl, false);
++#endif
++
+ }
+ 
+ struct stm32_uart_pdata *stm32_uart_init_from_dt_node(void *fdt, int node)
+-- 
+2.47.2
+

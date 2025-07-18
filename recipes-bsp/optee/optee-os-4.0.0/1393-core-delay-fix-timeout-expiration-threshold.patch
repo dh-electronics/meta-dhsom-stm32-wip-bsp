@@ -1,0 +1,45 @@
+From 2b84a62b7c1bb8ec2e84a2f716581b432d975884 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 18 Sep 2024 09:52:13 +0200
+Subject: [PATCH 1393/1695] core: delay: fix timeout expiration threshold
+
+Fix timeout threshold that should return once the time expires,
+not 1 tick after it has expired. This change makes udelay(0) to
+immediately return and not wait a generic timer counter increment.
+
+This change fixes an issue where a driver stops the counter feeding
+Arm generic timer counter and indirectly calls IO_READ32_POLL_TIMEOUT()
+with a delay of 0us. In that case, since counter never increments, the
+udelay(0) call in IO_READ32_POLL_TIMEOUT() never returns while we expect
+the macro to endlessly poll (as timeout would never be detected) until
+poll condition is met or system watchdog is triggered.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8ad0eb566f12cadcd2fcf56cb3f571f8f5db8cd5 core: delay: fix timeout expiration threshold]
+Change-Id: If8039bc7a18a28888fe77ada6bec988b21eecef4
+Link: https://github.com/OP-TEE/optee_os/pull/7044
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/405224
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/include/kernel/delay_arch.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/core/arch/arm/include/kernel/delay_arch.h b/core/arch/arm/include/kernel/delay_arch.h
+index 12a2080ff..f470f1371 100644
+--- a/core/arch/arm/include/kernel/delay_arch.h
++++ b/core/arch/arm/include/kernel/delay_arch.h
+@@ -46,7 +46,7 @@ static inline uint64_t timeout_init_us(uint32_t us)
+ 
+ static inline bool timeout_elapsed(uint64_t expire)
+ {
+-	return barrier_read_counter_timer() > expire;
++	return barrier_read_counter_timer() >= expire;
+ }
+ 
+ #endif
+-- 
+2.47.2
+

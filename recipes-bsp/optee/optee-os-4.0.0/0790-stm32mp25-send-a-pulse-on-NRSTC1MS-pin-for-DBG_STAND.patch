@@ -1,0 +1,245 @@
+From d09c268a71e12fce165810c636e6210f46e671c0 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 19 Mar 2024 18:12:49 +0100
+Subject: [PATCH 0790/1695] stm32mp25: send a pulse on NRSTC1MS pin for
+ DBG_STANDBY
+
+A debugger can program DBGMCU_CR.DBG_STANDBY to keep enabled
+power and clocks during standby and to stay connected.
+
+But in this case the PWR lines, as PWR_CPU_ON and PWR_ON, are not managed
+and the ROM code hangs at standby wake-up because the regulators used
+by the boot devices are not available; normally they are re-enabled by
+STPMIC25  based on its pwrctl lines connected to PWR_ON.
+
+So OP-TEE need to send a reset pulse on NRSTC1MS pin at suspend as
+workaround of to this issue; this pulse guarantees that the power
+sequence requested by the software is performed by STPMIC25 even if the
+low power modes is simulated in PWR and the sequence not performed by the
+hardware.
+
+The pulse duration is configured in suspend of RCC clock driver, with
+C1MSRD in RCC_C1MSRDCR register and default value 0x0: No pulse.
+
+This patch also add a message once to inform the simulated low power mode
+because this simulated mode requested for debugger connection can cause or
+mask issues.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a74f9b2497b780e560f0032eaf7235061cd27274 stm32mp25: send a pulse on NRSTC1MS pin for DBG_STANDBY]
+Change-Id: I91081add72dde14d2466faa04587f5c55c94b9ad
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/364374
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373588
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/373700
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ .../arm/plat-stm32mp2/drivers/stm32mp2_pmic.c |  8 +++
+ core/arch/arm/plat-stm32mp2/main.c            | 59 +++++++++++++++++++
+ core/arch/arm/plat-stm32mp2/platform_config.h |  4 ++
+ core/arch/arm/plat-stm32mp2/stm32_util.h      | 12 ++++
+ core/arch/arm/plat-stm32mp2/stm32mp_pm.c      |  5 +-
+ core/arch/arm/plat-stm32mp2/stm32mp_pm.h      |  2 +-
+ 6 files changed, 88 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
+index 9dd4cdde2..06289cf68 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp2_pmic.c
+@@ -27,6 +27,8 @@
+ #define PMIC_I2C_TRIALS			U(1)
+ #define PMIC_I2C_TIMEOUT_BUSY_MS	U(5)
+ 
++static bool stm32_pmic2;
++
+ /*
+  * Low power configurations:
+  *
+@@ -880,6 +882,8 @@ static TEE_Result stm32_pmic2_probe(const void *fdt, int node,
+ 	if (res)
+ 		panic();
+ 
++	stm32_pmic2 = true;
++
+ 	return TEE_SUCCESS;
+ }
+ 
+@@ -894,3 +898,7 @@ DEFINE_DT_DRIVER(stm32_pmic2_dt_driver) = {
+ 	.probe = stm32_pmic2_probe,
+ };
+ 
++bool stm32_pmic2_is_present(void)
++{
++	return stm32_pmic2;
++}
+diff --git a/core/arch/arm/plat-stm32mp2/main.c b/core/arch/arm/plat-stm32mp2/main.c
+index b1032f68a..90b840ec7 100644
+--- a/core/arch/arm/plat-stm32mp2/main.c
++++ b/core/arch/arm/plat-stm32mp2/main.c
+@@ -30,8 +30,16 @@
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
+ #include <stm32_util.h>
++#include <stm32mp_pm.h>
+ #include <trace.h>
+ 
++/* DBGMCU registers */
++#define DBGMCU_CR			U(0x4)
++
++#define DBGMCU_CR_DBG_SLEEP		BIT(0)
++#define DBGMCU_CR_DBG_STOP		BIT(1)
++#define DBGMCU_CR_DBG_STANDBY		BIT(2)
++
+ register_phys_mem_pgdir(MEM_AREA_IO_NSEC, APB1_BASE, APB1_SIZE);
+ 
+ register_phys_mem_pgdir(MEM_AREA_IO_SEC, APB1_BASE, APB1_SIZE);
+@@ -47,6 +55,8 @@ register_phys_mem_pgdir(MEM_AREA_IO_SEC, SAHB_BASE, SAHB_SIZE);
+ 
+ register_phys_mem_pgdir(MEM_AREA_IO_SEC, GIC_BASE, GIC_SIZE);
+ 
++register_phys_mem_pgdir(MEM_AREA_IO_NSEC, DBGMCU_BASE, DBGMCU_SIZE);
++
+ /* Map beginning SRAM1 as read write for BSEC shadow */
+ register_phys_mem_pgdir(MEM_AREA_RAM_SEC, SRAM1_BASE, SIZE_4K);
+ 
+@@ -420,3 +430,52 @@ static TEE_Result stm32_hse_monitoring(void)
+ 
+ driver_init_late(stm32_hse_monitoring);
+ #endif /* CFG_STM32_HSE_MONITORING */
++
++static uintptr_t stm32_dbgmcu_base(void)
++{
++	static struct io_pa_va dbgmcu_base = { .pa = DBGMCU_BASE };
++
++	return io_pa_or_va_nsec(&dbgmcu_base, 1);
++}
++
++/*
++ * Handle low-power emulation mode
++ * In PWR debug Standby mode, the low power modes is not signaled to external
++ * regulators with the SOC signals PWR_CPU_ON and PWR_ON so the regulators
++ * required by the boot devices are not restored after the simulated low power
++ * modes.
++ * On reference design with STPMIC25, the NRSTC1MS signals are connected to
++ * pins PWRCTRL3 and to used to drive the PMIC regulators required by ROM code
++ * to reboot for external mass-storage (D1 domain exits DStandby, not Standby).
++ * To avoid a wake-up issue in ROM Code in simulated STANDBY low power mode,
++ * we force the STPMIC25 regulators configuration with a pulse on NRSTC1MS pin
++ * as a workaround.
++ */
++void stm32_debug_suspend(unsigned long a0)
++{
++	struct clk *dbgmcu_clk = stm32mp_rcc_clock_id_to_clk(CK_ICN_APBDBG);
++	uint32_t dbgmcu_cr = U(0);
++	static bool info_displayed;
++
++	if (clk_enable(dbgmcu_clk))
++		return;
++
++	dbgmcu_cr = io_read32(stm32_dbgmcu_base() + DBGMCU_CR);
++
++	/* WARN ONCE when emulation debug is activated */
++	if (!info_displayed &&
++	    dbgmcu_cr & (DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STOP |
++			 DBGMCU_CR_DBG_STANDBY)) {
++		MSG("Low power emulation mode enable (DBGMCU_CR=%#"PRIx32")",
++		    dbgmcu_cr);
++		info_displayed = true;
++	}
++
++	/* Pulse on NRSTC1MS pin for standby request when PMIC is used */
++	if (dbgmcu_cr & DBGMCU_CR_DBG_STANDBY && a0 >= PM_D2_LPLV_LEVEL &&
++	    stm32_pmic2_is_present())
++		io_setbits32(stm32_rcc_base() + RCC_C1MSRDCR,
++			     RCC_C1MSRDCR_C1MSRST);
++
++	clk_disable(dbgmcu_clk);
++}
+diff --git a/core/arch/arm/plat-stm32mp2/platform_config.h b/core/arch/arm/plat-stm32mp2/platform_config.h
+index 40977cb53..72a0676e9 100644
+--- a/core/arch/arm/plat-stm32mp2/platform_config.h
++++ b/core/arch/arm/plat-stm32mp2/platform_config.h
+@@ -81,6 +81,7 @@
+ #define FMC_BASE			0x48200000
+ #define PCIE_BASE			0x48400000
+ #define A35SSC_BASE			0x48800000
++#define DBGMCU_BASE			0x4a010000
+ #define GIC_BASE			0x4ac00000
+ #define DDR_BASE			UL(0x80000000)
+ 
+@@ -92,6 +93,9 @@
+ #define SRAM1_BASE			0x0e040000
+ #endif
+ 
++/* DBGCMU */
++#define DBGMCU_SIZE			0x10000
++
+ /* GIC resources */
+ #define GIC_SIZE			0x80000
+ #define GICC_OFFSET			0x20000
+diff --git a/core/arch/arm/plat-stm32mp2/stm32_util.h b/core/arch/arm/plat-stm32mp2/stm32_util.h
+index 8089d1b01..c86091730 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32_util.h
++++ b/core/arch/arm/plat-stm32mp2/stm32_util.h
+@@ -31,4 +31,16 @@ TEE_Result stm32_activate_internal_tamper(int id);
+ #ifdef CFG_STM32_CPU_OPP
+ bool stm32mp_supports_cpu_opp(uint32_t opp_id);
+ #endif /*CFG_STM32_CPU_OPP*/
++
++#ifdef CFG_STPMIC2
++bool stm32_pmic2_is_present(void);
++#else
++static inline bool stm32_pmic2_is_present(void)
++{
++	return false;
++}
++#endif
++
++void stm32_debug_suspend(unsigned long a0);
++
+ #endif /*__STM32_UTIL_H__*/
+diff --git a/core/arch/arm/plat-stm32mp2/stm32mp_pm.c b/core/arch/arm/plat-stm32mp2/stm32mp_pm.c
+index e93ca15de..8822eefa7 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32mp_pm.c
++++ b/core/arch/arm/plat-stm32mp2/stm32mp_pm.c
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: BSD-2-Clause
+ /*
+- * Copyright (c) 2023, STMicroelectronics
++ * Copyright (c) 2023-2024, STMicroelectronics
+  */
+ 
+ #include <kernel/misc.h>
+@@ -8,6 +8,7 @@
+ #include <kernel/thread.h>
+ #include <sm/psci.h>
+ #include <stm32mp_pm.h>
++#include <stm32_util.h>
+ 
+ /**
+  * @brief   Handler for system off
+@@ -87,6 +88,8 @@ unsigned long thread_cpu_suspend_handler(unsigned long a0,
+ 
+ 	retstatus = pm_change_state(PM_OP_SUSPEND, get_pm_hint(a0));
+ 
++	stm32_debug_suspend(a0);
++
+ 	/*
+ 	 * Returned value to the TF-A.
+ 	 * If it is not 0, the system will panic
+diff --git a/core/arch/arm/plat-stm32mp2/stm32mp_pm.h b/core/arch/arm/plat-stm32mp2/stm32mp_pm.h
+index 45fec0940..d8ac02dc4 100644
+--- a/core/arch/arm/plat-stm32mp2/stm32mp_pm.h
++++ b/core/arch/arm/plat-stm32mp2/stm32mp_pm.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: BSD-2-Clause */
+ /*
+- * Copyright (c) 2023, STMicroelectronics
++ * Copyright (c) 2023-2024, STMicroelectronics
+  */
+ 
+ #ifndef __STM32MP_PM_H__
+-- 
+2.47.2
+

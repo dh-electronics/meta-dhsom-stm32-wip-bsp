@@ -1,0 +1,131 @@
+From 432e03dc009558973862625a6520aa8405af5b83 Mon Sep 17 00:00:00 2001
+From: Theo GOUREAU <theo.goureau-ext@st.com>
+Date: Tue, 12 Nov 2024 11:31:01 +0100
+Subject: [PATCH 1423/1695] product: optee-stm32mp2: convert TEE results to
+ framework error statuses
+
+Use scmi_tee_result_to_fwk_status() to convert TEE results into
+framework errors in product optee-stm32mp2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8d5d8052cb1f2fc3193136d2cd70f72cb4ea9a0e product: optee-stm32mp2: convert TEE results to framework error statuses]
+Change-Id: Ie037f7ac60737e5992245f8966c455e82ae2992d
+Signed-off-by: Theo GOUREAU <theo.goureau-ext@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/SCP-firmware/+/417802
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ .../src/mod_psu_optee_regulator.c             | 15 +++------
+ .../module/stm32_pd/src/mod_stm32_pd.c        | 33 +++++++++++++------
+ 2 files changed, 27 insertions(+), 21 deletions(-)
+
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c
+index ad94f0320..89e909461 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/psu_optee_regulator/src/mod_psu_optee_regulator.c
+@@ -15,6 +15,8 @@
+ #include <mod_psu_optee_regulator.h>
+ #include <mod_scmi_std.h>
+ 
++#include <arch_main.h>
++
+ #include <assert.h>
+ #include <config.h>
+ #include <drivers/regulator.h>
+@@ -73,11 +75,7 @@ static int psu_optee_regulator_set_enabled(fwk_id_t id, bool enabled)
+         res = regulator_disable(regulator);
+     }
+ 
+-    if (res) {
+-        return FWK_E_HANDLER;
+-    } else {
+-        return FWK_SUCCESS;
+-    }
++    return scmi_tee_result_to_fwk_status(res);
+ }
+ 
+ static int psu_optee_regulator_get_enabled(fwk_id_t id, bool *enabled)
+@@ -112,12 +110,7 @@ static int psu_optee_regulator_set_voltage(fwk_id_t id, uint32_t voltage)
+ 
+     res = regulator_set_voltage(regulator, (int)voltage * 1000);
+ 
+-    if (res) {
+-        return FWK_E_HANDLER;
+-    } else {
+-
+-        return FWK_SUCCESS;
+-    }
++    return scmi_tee_result_to_fwk_status(res);
+ }
+ 
+ static int psu_optee_regulator_get_voltage(fwk_id_t id, uint32_t *voltage)
+diff --git a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+index 4e6795986..c2a9c502b 100644
+--- a/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
++++ b/core/lib/scmi-server/SCP-firmware/product/optee-stm32mp2/module/stm32_pd/src/mod_stm32_pd.c
+@@ -14,6 +14,8 @@
+ #include <fwk_mm.h>
+ #include <fwk_module.h>
+ 
++#include <arch_main.h>
++
+ struct mod_stm32_pd {
+     const struct mod_stm32_pd_config *config;
+     unsigned int current_state;
+@@ -52,6 +54,7 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
+     struct clk *clk = ctx->config->clk;
+     struct regulator *regu = ctx->config->regu;
+     int status;
++    TEE_Result res;
+ 
+     fwk_assert(ctx->pd_driver_input_api != NULL);
+     fwk_assert(fwk_id_get_element_idx(pd_id) == PD_SCMI_GPU);
+@@ -63,24 +66,34 @@ static int stm32_pd_set_state_gpu(fwk_id_t pd_id, unsigned int state)
+ 
+     switch (state) {
+         case MOD_PD_STATE_ON:
+-            if (regu != NULL && regulator_enable(regu) != TEE_SUCCESS) {
+-                return FWK_E_DEVICE;
++            if (regu != NULL) {
++                res = regulator_enable(regu);
++                if (res != TEE_SUCCESS) {
++                    return scmi_tee_result_to_fwk_status(res);
++                }
+             }
+-            if (clk != NULL && clk_enable(clk) != TEE_SUCCESS) {
+-                if (regu != NULL)
+-                    regulator_disable(regu);
+-                return FWK_E_DEVICE;
++            if (clk != NULL) {
++                res = clk_enable(clk);
++                if (res != TEE_SUCCESS) {
++                    if (regu != NULL) {
++                        regulator_disable(regu);
++                    }
++                    return scmi_tee_result_to_fwk_status(res);
++                }
+             }
+             break;
+         case MOD_PD_STATE_OFF:
+             if (clk != NULL) {
+                 clk_disable(clk);
+             }
+-            if (regu != NULL && regulator_disable(regu) != TEE_SUCCESS) {
+-                if (clk != NULL) {
+-                    clk_enable(clk);
++            if (regu != NULL) {
++                res = regulator_disable(regu);
++                if (res != TEE_SUCCESS) {
++                    if (clk != NULL) {
++                        clk_enable(clk);
++                    }
++                    return scmi_tee_result_to_fwk_status(res);
+                 }
+-                return FWK_E_DEVICE;
+             }
+             break;
+         default:
+-- 
+2.47.2
+

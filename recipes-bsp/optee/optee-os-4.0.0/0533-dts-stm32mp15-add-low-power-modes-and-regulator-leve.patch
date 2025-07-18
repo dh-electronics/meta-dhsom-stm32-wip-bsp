@@ -1,0 +1,430 @@
+From fa52e45ef6678c1f9bed2b5b6f4ef01ef3cba33a Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Wed, 31 Jan 2024 15:42:07 +0100
+Subject: [PATCH 0533/1695] dts: stm32mp15: add low power modes and regulator
+ levels
+
+Add to the boards the pwr node to define the supported low
+power mode and the specific low power states of all
+board regulators.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 33c84c25984ff983e41e07a1d2f29bc531181a4b dts: stm32mp15: add low power modes and regulator levels]
+Change-Id: I71687404231680e93ae00b0b6b6ab39ab9a4ce3d
+Signed-off-by: Lionel Debieve <lionel.debieve@foss.st.com>
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/358379
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp157a-ed1.dts  |   8 ++
+ core/arch/arm/dts/stm32mp157c-ed1.dts  | 147 +++++++++++++++++++++++++
+ core/arch/arm/dts/stm32mp157d-ed1.dts  |   8 ++
+ core/arch/arm/dts/stm32mp157f-ed1.dts  |   8 ++
+ core/arch/arm/dts/stm32mp15xx-dkx.dtsi | 132 ++++++++++++++++++++++
+ 5 files changed, 303 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp157a-ed1.dts b/core/arch/arm/dts/stm32mp157a-ed1.dts
+index b56b2d3c2..7cf554dc3 100644
+--- a/core/arch/arm/dts/stm32mp157a-ed1.dts
++++ b/core/arch/arm/dts/stm32mp157a-ed1.dts
+@@ -8,6 +8,7 @@
+ 
+ #include <dt-bindings/clock/stm32mp1-clksrc.h>
+ #include <dt-bindings/mfd/st,stpmic1.h>
++#include <dt-bindings/power/stm32mp1-power.h>
+ #include <dt-bindings/soc/stm32mp15-etzpc.h>
+ 
+ #include "stm32mp157.dtsi"
+@@ -215,6 +216,13 @@
+ };
+ 
+ &pwr_regulators {
++	system_suspend_supported_soc_modes = <
++		STM32_PM_CSLEEP_RUN
++		STM32_PM_CSTOP_ALLOW_LP_STOP
++		STM32_PM_CSTOP_ALLOW_LPLV_STOP
++		STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR
++	>;
++	system_off_soc_mode = <STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF>;
+ 	vdd-supply = <&vdd>;
+ 	vdd_3v3_usbfs-supply = <&vdd_usb>;
+ };
+diff --git a/core/arch/arm/dts/stm32mp157c-ed1.dts b/core/arch/arm/dts/stm32mp157c-ed1.dts
+index 7b65f0d33..d0786952b 100644
+--- a/core/arch/arm/dts/stm32mp157c-ed1.dts
++++ b/core/arch/arm/dts/stm32mp157c-ed1.dts
+@@ -8,6 +8,7 @@
+ #include <dt-bindings/clock/stm32mp1-clksrc.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/mfd/st,stpmic1.h>
++#include <dt-bindings/power/stm32mp1-power.h>
+ #include <dt-bindings/soc/stm32mp15-etzpc.h>
+ 
+ #include "stm32mp157.dtsi"
+@@ -360,6 +361,13 @@
+ };
+ 
+ &pwr_regulators {
++	system_suspend_supported_soc_modes = <
++		STM32_PM_CSLEEP_RUN
++		STM32_PM_CSTOP_ALLOW_LP_STOP
++		STM32_PM_CSTOP_ALLOW_LPLV_STOP
++		STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR
++	>;
++	system_off_soc_mode = <STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF>;
+ 	vdd-supply = <&vdd>;
+ 	vdd_3v3_usbfs-supply = <&vdd_usb>;
+ };
+@@ -568,3 +576,142 @@
+ &usbphyc_port1 {
+ 	phy-supply = <&vdd_usb>;
+ };
++
++/* Low-power states of regulators */
++&v1v8 {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&v2v8 {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&v3v3 {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vdd {
++	lp-stop {
++		regulator-suspend-microvolt = <3300000>;
++		regulator-on-in-suspend;
++	};
++	lplv-stop {
++		regulator-suspend-microvolt = <3300000>;
++		regulator-on-in-suspend;
++	};
++	standby-ddr-sr {
++		regulator-suspend-microvolt = <3300000>;
++		regulator-on-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-suspend-microvolt = <3300000>;
++		regulator-on-in-suspend;
++	};
++};
++
++&vdda {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vddcore {
++	lp-stop {
++		regulator-on-in-suspend;
++		regulator-suspend-microvolt = <1200000>;
++	};
++	lplv-stop {
++		regulator-on-in-suspend;
++		regulator-suspend-microvolt = <900000>;
++	};
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vdd_ddr {
++	lp-stop {
++		regulator-suspend-microvolt = <1350000>;
++		regulator-on-in-suspend;
++	};
++	lplv-stop {
++		regulator-suspend-microvolt = <1350000>;
++		regulator-on-in-suspend;
++	};
++	standby-ddr-sr {
++		regulator-suspend-microvolt = <1350000>;
++		regulator-on-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vdd_sd {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vdd_usb {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vref_ddr {
++	lp-stop {
++		regulator-on-in-suspend;
++	};
++	lplv-stop {
++		regulator-on-in-suspend;
++	};
++	standby-ddr-sr {
++		regulator-on-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vtt_ddr {
++	lp-stop {
++		regulator-off-in-suspend;
++	};
++	lplv-stop {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
+diff --git a/core/arch/arm/dts/stm32mp157d-ed1.dts b/core/arch/arm/dts/stm32mp157d-ed1.dts
+index 6a100adb4..c657ce879 100644
+--- a/core/arch/arm/dts/stm32mp157d-ed1.dts
++++ b/core/arch/arm/dts/stm32mp157d-ed1.dts
+@@ -8,6 +8,7 @@
+ 
+ #include <dt-bindings/clock/stm32mp1-clksrc.h>
+ #include <dt-bindings/mfd/st,stpmic1.h>
++#include <dt-bindings/power/stm32mp1-power.h>
+ #include <dt-bindings/soc/stm32mp15-etzpc.h>
+ 
+ #include "stm32mp157.dtsi"
+@@ -214,6 +215,13 @@
+ };
+ 
+ &pwr_regulators {
++	system_suspend_supported_soc_modes = <
++		STM32_PM_CSLEEP_RUN
++		STM32_PM_CSTOP_ALLOW_LP_STOP
++		STM32_PM_CSTOP_ALLOW_LPLV_STOP
++		STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR
++	>;
++	system_off_soc_mode = <STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF>;
+ 	vdd-supply = <&vdd>;
+ 	vdd_3v3_usbfs-supply = <&vdd_usb>;
+ };
+diff --git a/core/arch/arm/dts/stm32mp157f-ed1.dts b/core/arch/arm/dts/stm32mp157f-ed1.dts
+index 10b9b9b14..e3f443d87 100644
+--- a/core/arch/arm/dts/stm32mp157f-ed1.dts
++++ b/core/arch/arm/dts/stm32mp157f-ed1.dts
+@@ -8,6 +8,7 @@
+ 
+ #include <dt-bindings/clock/stm32mp1-clksrc.h>
+ #include <dt-bindings/mfd/st,stpmic1.h>
++#include <dt-bindings/power/stm32mp1-power.h>
+ #include <dt-bindings/soc/stm32mp15-etzpc.h>
+ 
+ #include "stm32mp157.dtsi"
+@@ -215,6 +216,13 @@
+ };
+ 
+ &pwr_regulators {
++	system_suspend_supported_soc_modes = <
++		STM32_PM_CSLEEP_RUN
++		STM32_PM_CSTOP_ALLOW_LP_STOP
++		STM32_PM_CSTOP_ALLOW_LPLV_STOP
++		STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR
++	>;
++	system_off_soc_mode = <STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF>;
+ 	vdd-supply = <&vdd>;
+ 	vdd_3v3_usbfs-supply = <&vdd_usb>;
+ };
+diff --git a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+index 9ad2de50a..714f3745a 100644
+--- a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
++++ b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+@@ -6,6 +6,7 @@
+ 
+ #include <dt-bindings/clock/stm32mp1-clksrc.h>
+ #include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/power/stm32mp1-power.h>
+ #include <dt-bindings/mfd/st,stpmic1.h>
+ #include <dt-bindings/soc/stm32mp15-etzpc.h>
+ #include <dt-bindings/tamper/st,stm32-tamp.h>
+@@ -498,6 +499,12 @@
+ };
+ 
+ &pwr_regulators {
++	system_suspend_supported_soc_modes = <
++		STM32_PM_CSLEEP_RUN
++		STM32_PM_CSTOP_ALLOW_LP_STOP
++		STM32_PM_CSTOP_ALLOW_STANDBY_DDR_SR
++	>;
++	system_off_soc_mode = <STM32_PM_CSTOP_ALLOW_STANDBY_DDR_OFF>;
+ 	vdd-supply = <&vdd>;
+ 	vdd_3v3_usbfs-supply = <&vdd_usb>;
+ };
+@@ -888,3 +895,128 @@
+ 	vdda-supply = <&vdd>;
+ 	status = "disabled";
+ };
++
++/* Low-power states of regulators */
++&v1v2_hdmi {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&v1v8_audio {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&v3v3 {
++	lp-stop {
++		regulator-suspend-microvolt = <3300000>;
++		regulator-on-in-suspend;
++	};
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&v3v3_hdmi {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vdd {
++	lp-stop {
++		regulator-suspend-microvolt = <3300000>;
++		regulator-on-in-suspend;
++	};
++	standby-ddr-sr {
++		regulator-suspend-microvolt = <3300000>;
++		regulator-on-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-suspend-microvolt = <3300000>;
++		regulator-on-in-suspend;
++	};
++};
++
++&vdda {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vddcore {
++	lp-stop {
++		regulator-on-in-suspend;
++		regulator-suspend-microvolt = <1200000>;
++	};
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vdd_ddr {
++	lp-stop {
++		regulator-suspend-microvolt = <1350000>;
++		regulator-on-in-suspend;
++	};
++	standby-ddr-sr {
++		regulator-suspend-microvolt = <1350000>;
++		regulator-on-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vdd_usb {
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vref_ddr {
++	lp-stop {
++		regulator-on-in-suspend;
++	};
++	standby-ddr-sr {
++		regulator-on-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
++
++&vtt_ddr {
++	lp-stop {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-sr {
++		regulator-off-in-suspend;
++	};
++	standby-ddr-off {
++		regulator-off-in-suspend;
++	};
++};
+-- 
+2.47.2
+

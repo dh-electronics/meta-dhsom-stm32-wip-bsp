@@ -1,0 +1,182 @@
+From ab3350210597ed592e5ea8f2937d8b678afb62dd Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 5 Feb 2025 15:21:42 +0100
+Subject: [PATCH 1591/1695] dts: stm32: add generic interrupt bindings for PWR
+ IRQ
+
+To prepare for the rework of PWR drivers to use the interrupt
+framework, add:
+- interrupt-controller property to PWR nodes;
+- interrupts-extended and wakeup-source properties to the client
+  nodes of PWR;
+- interrupts property to PWR node of stm32mp131.
+
+These changes are not used yet by the drivers that rely on the old
+properties still present in the nodes.
+The old properties would be dropped when will become unused due to
+the rework of the drivers.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 1f37ae53e46997fbc3be96010f4ab54e7f457e4a dts: stm32: add generic interrupt bindings for PWR IRQ]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Ib4ac9ee259f6608ef05fc11b8a8d721800df081c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/392425
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/441911
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/dts/stm32mp131.dtsi     | 3 +++
+ core/arch/arm/dts/stm32mp135f-dk.dts  | 6 ++++++
+ core/arch/arm/dts/stm32mp211.dtsi     | 2 ++
+ core/arch/arm/dts/stm32mp215f-dk.dts  | 2 ++
+ core/arch/arm/dts/stm32mp231.dtsi     | 2 ++
+ core/arch/arm/dts/stm32mp235f-dk.dts  | 2 ++
+ core/arch/arm/dts/stm32mp251.dtsi     | 2 ++
+ core/arch/arm/dts/stm32mp257f-dk.dts  | 2 ++
+ core/arch/arm/dts/stm32mp257f-ev1.dts | 2 ++
+ 9 files changed, 23 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp131.dtsi b/core/arch/arm/dts/stm32mp131.dtsi
+index b191dd230..83ad680db 100644
+--- a/core/arch/arm/dts/stm32mp131.dtsi
++++ b/core/arch/arm/dts/stm32mp131.dtsi
+@@ -294,6 +294,9 @@
+ 		pwr_irq: pwr@50001010 {
+ 			compatible = "st,stm32mp1-pwr-irq";
+ 			wakeup-parent = <&exti 0xffff 0>;
++			interrupts = <GIC_SPI 125 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
+ 			wakeup-gpios = <0>, <0>, <0>, <0>, <0>, <0>;
+ 			status = "disabled";
+ 		};
+diff --git a/core/arch/arm/dts/stm32mp135f-dk.dts b/core/arch/arm/dts/stm32mp135f-dk.dts
+index 94531dcc8..d394c4cd4 100644
+--- a/core/arch/arm/dts/stm32mp135f-dk.dts
++++ b/core/arch/arm/dts/stm32mp135f-dk.dts
+@@ -37,6 +37,8 @@
+ 		compatible = "st,stm32mp1-pwr-irq-user";
+ 		wakeup-parent = <&pwr_irq>;
+ 		st,wakeup-pin-number = <2>;
++		interrupts-extended = <&pwr_irq 1 IRQ_TYPE_EDGE_FALLING>;
++		wakeup-source;
+ 		status = "okay";
+ 	};
+ 
+@@ -70,6 +72,8 @@
+ 		compatible = "st,stm32mp1-pwr-irq-user";
+ 		wakeup-parent = <&pwr_irq>;
+ 		st,wakeup-pin-number = <5>;
++		interrupts-extended = <&pwr_irq 4 IRQ_TYPE_EDGE_FALLING>;
++		wakeup-source;
+ 		st,notif-it-id = <1>;
+ 		status = "okay";
+ 	};
+@@ -209,6 +213,8 @@
+ 		status = "okay";
+ 		wakeup-parent = <&pwr_irq>;
+ 		st,wakeup-pin-number = <1>;
++		interrupts-extended = <&pwr_irq 0 IRQ_TYPE_EDGE_FALLING>;
++		wakeup-source;
+ 		st,pmic-it-id = <IT_PONKEY_F IT_PONKEY_R>;
+ 		st,notif-it-id = <0 2>;
+ 
+diff --git a/core/arch/arm/dts/stm32mp211.dtsi b/core/arch/arm/dts/stm32mp211.dtsi
+index 42467845c..ddc9feb57 100644
+--- a/core/arch/arm/dts/stm32mp211.dtsi
++++ b/core/arch/arm/dts/stm32mp211.dtsi
+@@ -765,6 +765,8 @@
+ 			reg = <0x44210000 0x400>;
+ 			wakeup-parent = <&exti1 0xffff 0>;
+ 			interrupts = <GIC_SPI 190 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
+ 			wakeup-gpios = <0>, <0>, <0>, <0>, <0>, <0>;
+ 			status = "disabled";
+ 
+diff --git a/core/arch/arm/dts/stm32mp215f-dk.dts b/core/arch/arm/dts/stm32mp215f-dk.dts
+index 6e1fa9114..0969d1973 100644
+--- a/core/arch/arm/dts/stm32mp215f-dk.dts
++++ b/core/arch/arm/dts/stm32mp215f-dk.dts
+@@ -69,7 +69,9 @@
+ 	pmic2: pmic@33 {
+ 		compatible = "st,stpmic2l";
+ 		reg = <0x33>;
++		interrupts-extended = <&pwr 0 IRQ_TYPE_EDGE_FALLING>;
+ 		st,wakeup-pin-number = <1>;
++		wakeup-source;
+ 		st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
+ 		st,notif-it-id = <0 1>;
+ 		wakeup-parent = <&pwr>;
+diff --git a/core/arch/arm/dts/stm32mp231.dtsi b/core/arch/arm/dts/stm32mp231.dtsi
+index 2520ac962..94c39b6b7 100644
+--- a/core/arch/arm/dts/stm32mp231.dtsi
++++ b/core/arch/arm/dts/stm32mp231.dtsi
+@@ -829,6 +829,8 @@
+ 			reg = <0x44210000 0x400>;
+ 			wakeup-parent = <&exti1 0xffff 0>;
+ 			interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
+ 			wakeup-gpios = <0>, <0>, <0>, <0>, <0>, <0>;
+ 			status = "disabled";
+ 
+diff --git a/core/arch/arm/dts/stm32mp235f-dk.dts b/core/arch/arm/dts/stm32mp235f-dk.dts
+index ad5864741..16a8a0822 100644
+--- a/core/arch/arm/dts/stm32mp235f-dk.dts
++++ b/core/arch/arm/dts/stm32mp235f-dk.dts
+@@ -72,7 +72,9 @@
+ 	pmic2: stpmic2@33 {
+ 		compatible = "st,stpmic2";
+ 		reg = <0x33>;
++		interrupts-extended = <&pwr 0 IRQ_TYPE_EDGE_FALLING>;
+ 		st,wakeup-pin-number = <1>;
++		wakeup-source;
+ 		st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
+ 		st,notif-it-id = <0 1>;
+ 		wakeup-parent = <&pwr>;
+diff --git a/core/arch/arm/dts/stm32mp251.dtsi b/core/arch/arm/dts/stm32mp251.dtsi
+index cd699ad57..bd64f7e8e 100644
+--- a/core/arch/arm/dts/stm32mp251.dtsi
++++ b/core/arch/arm/dts/stm32mp251.dtsi
+@@ -916,6 +916,8 @@
+ 			reg = <0x44210000 0x400>;
+ 			wakeup-parent = <&exti1 0xffff 0>;
+ 			interrupts = <GIC_SPI 226 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
+ 			wakeup-gpios = <0>, <0>, <0>, <0>, <0>, <0>;
+ 			status = "disabled";
+ 
+diff --git a/core/arch/arm/dts/stm32mp257f-dk.dts b/core/arch/arm/dts/stm32mp257f-dk.dts
+index aab9c8800..d698edf28 100644
+--- a/core/arch/arm/dts/stm32mp257f-dk.dts
++++ b/core/arch/arm/dts/stm32mp257f-dk.dts
+@@ -72,7 +72,9 @@
+ 	pmic2: stpmic2@33 {
+ 		compatible = "st,stpmic2";
+ 		reg = <0x33>;
++		interrupts-extended = <&pwr 0 IRQ_TYPE_EDGE_FALLING>;
+ 		st,wakeup-pin-number = <1>;
++		wakeup-source;
+ 		st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
+ 		st,notif-it-id = <0 1>;
+ 		wakeup-parent = <&pwr>;
+diff --git a/core/arch/arm/dts/stm32mp257f-ev1.dts b/core/arch/arm/dts/stm32mp257f-ev1.dts
+index 677a5ec41..548a3e137 100644
+--- a/core/arch/arm/dts/stm32mp257f-ev1.dts
++++ b/core/arch/arm/dts/stm32mp257f-ev1.dts
+@@ -72,7 +72,9 @@
+ 	pmic2: stpmic2@33 {
+ 		compatible = "st,stpmic2";
+ 		reg = <0x33>;
++		interrupts-extended = <&pwr 0 IRQ_TYPE_EDGE_FALLING>;
+ 		st,wakeup-pin-number = <1>;
++		wakeup-source;
+ 		st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
+ 		st,notif-it-id = <0 1>;
+ 		wakeup-parent = <&pwr>;
+-- 
+2.47.2
+

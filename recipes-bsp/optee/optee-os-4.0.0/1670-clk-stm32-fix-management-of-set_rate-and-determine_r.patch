@@ -1,0 +1,152 @@
+From 206ccd25f1a178372f4dc9ed23b7982abdf5db2b Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Mon, 31 Mar 2025 20:02:45 +0200
+Subject: [PATCH 1670/1695] clk: stm32: fix management of set_rate and
+ determine_rate
+
+When .determine_rate handler is implemented, the parent clock
+and the actual clock are always computed and are applied by
+clk_set_rate_no_lock(). Therefore the clock must implement .set_rate
+handler instead of relying on CLK_SET_RATE_PARENT flag.
+
+For cpu1/mpu clock it is not the case, so add the required ops set_rate()
+to check the parent clock is the expected one after the call of
+determine_rate().
+
+Moreover for clocks with determine_rate ops, the flags CLK_SET_RATE_PARENT
+is not needed (only used when determine_rate is absent), so we removes
+this flags it when is possible.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 412bf635b760ccb577260f0153e970d01491a23c clk: stm32: fix management of set_rate and determine_rate]
+Change-Id: Iddf9c4df4a439afaa1084938396bf181976bde45
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/447772
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/drivers/clk/clk-stm32mp13.c | 17 ++++++++++++++---
+ core/drivers/clk/clk-stm32mp21.c | 12 +++++++++++-
+ core/drivers/clk/clk-stm32mp25.c | 12 +++++++++++-
+ 3 files changed, 36 insertions(+), 5 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index dbb1a2c66..a5d633068 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -2151,8 +2151,19 @@ static TEE_Result clk_stm32_mpu_determine_rate(struct clk *clk,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result clk_stm32_mpu_set_rate(struct clk *clk __unused,
++					 unsigned long rate,
++					 unsigned long parent_rate)
++{
++	if (rate == parent_rate)
++		return TEE_SUCCESS;
++
++	return TEE_ERROR_GENERIC;
++}
++
+ static const struct clk_ops clk_stm32_mpu_ops = {
+ 	.determine_rate = clk_stm32_mpu_determine_rate,
++	.set_rate	= clk_stm32_mpu_set_rate,
+ 	.get_parent	= clk_stm32_composite_get_parent,
+ 	.set_parent	= clk_stm32_composite_set_parent,
+ };
+@@ -2449,7 +2460,7 @@ static struct clk ck_mpu = {
+ 		.mux_id	= MUX_MPU,
+ 	},
+ 	.name		= "ck_mpu",
+-	.flags		= CLK_OPS_PARENT_ENABLE | CLK_SET_RATE_PARENT,
++	.flags		= CLK_OPS_PARENT_ENABLE,
+ 	.num_parents	= 4,
+ 	.parents	= { &ck_hsi, &ck_hse, &ck_pll1p, &ck_pll1p_div },
+ };
+@@ -2461,7 +2472,7 @@ static struct clk ck_axi = {
+ 		.div_id	= DIV_AXI,
+ 	},
+ 	.name		= "ck_axi",
+-	.flags		= CLK_OPS_PARENT_ENABLE | CLK_SET_RATE_PARENT,
++	.flags		= CLK_OPS_PARENT_ENABLE,
+ 	.num_parents	= 3,
+ 	.parents	= { &ck_hsi, &ck_hse, &ck_pll2p },
+ };
+@@ -2473,7 +2484,7 @@ static struct clk ck_mlahb = {
+ 		.div_id	= DIV_MLAHB,
+ 	},
+ 	.name		= "ck_mlahb",
+-	.flags		= CLK_OPS_PARENT_ENABLE | CLK_SET_RATE_PARENT,
++	.flags		= CLK_OPS_PARENT_ENABLE,
+ 	.num_parents	= 4,
+ 	.parents	= { &ck_hsi, &ck_hse, &ck_csi, &ck_pll3p },
+ };
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index 2182c11a5..78cd2a2e7 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -3042,8 +3042,19 @@ static TEE_Result clk_cpu1_determine_rate(struct clk *clk,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result clk_cpu1_set_rate(struct clk *clk __unused,
++				    unsigned long rate,
++				    unsigned long parent_rate)
++{
++	if (rate == parent_rate)
++		return TEE_SUCCESS;
++
++	return TEE_ERROR_GENERIC;
++}
++
+ static const struct clk_ops clk_stm32_cpu1_ops = {
+ 	.determine_rate = clk_cpu1_determine_rate,
++	.set_rate	= clk_cpu1_set_rate,
+ 	.get_parent	= clk_cpu1_get_parent,
+ };
+ 
+@@ -3532,7 +3543,6 @@ static STM32_FLEXGEN(ck_flexgen_63, 0, 63);
+ static struct clk ck_cpu1 = {
+ 	.ops		= &clk_stm32_cpu1_ops,
+ 	.name		= "ck_cpu1",
+-	.flags		= CLK_SET_RATE_PARENT,
+ 	.num_parents	= 2,
+ 	.parents	= { &ck_pll1, &ck_flexgen_63 },
+ };
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 6f675969f..296350dbc 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -3305,8 +3305,19 @@ static TEE_Result clk_cpu1_determine_rate(struct clk *clk,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result clk_cpu1_set_rate(struct clk *clk __unused,
++				    unsigned long rate,
++				    unsigned long parent_rate)
++{
++	if (rate == parent_rate)
++		return TEE_SUCCESS;
++
++	return TEE_ERROR_GENERIC;
++}
++
+ static const struct clk_ops clk_stm32_cpu1_ops = {
+ 	.determine_rate = clk_cpu1_determine_rate,
++	.set_rate	= clk_cpu1_set_rate,
+ 	.get_parent	= clk_cpu1_get_parent,
+ };
+ 
+@@ -3812,7 +3823,6 @@ static STM32_FLEXGEN(ck_flexgen_63, 0, 63);
+ static struct clk ck_cpu1 = {
+ 	.ops		= &clk_stm32_cpu1_ops,
+ 	.name		= "ck_cpu1",
+-	.flags		= CLK_SET_RATE_PARENT,
+ 	.num_parents	= 2,
+ 	.parents	= { &ck_pll1, &ck_flexgen_63 },
+ };
+-- 
+2.47.2
+

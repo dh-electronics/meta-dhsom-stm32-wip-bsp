@@ -1,0 +1,77 @@
+From 21b58209005dc3d538c4778f22663e6360c17a70 Mon Sep 17 00:00:00 2001
+From: Jacob Kroon <jacobkr@axis.com>
+Date: Mon, 19 Aug 2024 08:24:18 +0200
+Subject: [PATCH 1556/1695] core: mbedtls: Fix build
+
+The macro 'MBEDTLS_INTERNAL_VALIDATE_RET()' was removed in upstream commit
+https://github.com/Mbed-TLS/mbedtls/commit/cc0fd47531ffeffb3185db77a17ee113
+
+The macro was a no-op, so just remove the checks.
+
+This fixes building OP-TEE with:
+
+make PLATFORM=vexpress \
+     PLATFORM_FLAVOR=juno \
+     CFG_CRYPTOLIB_NAME=mbedtls \
+     CFG_CRYPTOLIB_DIR=lib/libmbedtls
+...
+lib/libmbedtls/core/hash.c: In function 'mbedtls_internal_sha1_process':
+lib/libmbedtls/core/hash.c:205:9: error: implicit declaration of function 'MBEDTLS_INTERNAL_VALIDATE_RET'
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git afdb08be0cb7596762f0281214d612ac2156af14 core: mbedtls: Fix build]
+Change-Id: I351d4a0086ad88ac03144f7078d3acbb290fa43d
+Signed-off-by: Jacob Kroon <jacobkr@axis.com>
+Reviewed-by: Jerome Forissier <jerome.forissier@linaro.org>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/437593
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Michel JAOUEN <michel.jaouen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Michel JAOUEN <michel.jaouen@st.com>
+---
+ lib/libmbedtls/core/hash.c | 15 ---------------
+ 1 file changed, 15 deletions(-)
+
+diff --git a/lib/libmbedtls/core/hash.c b/lib/libmbedtls/core/hash.c
+index 651a9bf4e..d342c2471 100644
+--- a/lib/libmbedtls/core/hash.c
++++ b/lib/libmbedtls/core/hash.c
+@@ -202,11 +202,6 @@ TEE_Result hash_sha256_check(const uint8_t *hash, const uint8_t *data,
+ int mbedtls_internal_sha1_process(mbedtls_sha1_context *ctx,
+ 				  const unsigned char data[64])
+ {
+-	MBEDTLS_INTERNAL_VALIDATE_RET(ctx != NULL,
+-				      MBEDTLS_ERR_SHA1_BAD_INPUT_DATA);
+-	MBEDTLS_INTERNAL_VALIDATE_RET((const unsigned char *)data != NULL,
+-				      MBEDTLS_ERR_SHA1_BAD_INPUT_DATA);
+-
+ 	crypto_accel_sha1_compress(ctx->state, data, 1);
+ 
+ 	return 0;
+@@ -217,11 +212,6 @@ int mbedtls_internal_sha1_process(mbedtls_sha1_context *ctx,
+ int mbedtls_internal_sha256_process(mbedtls_sha256_context *ctx,
+ 				    const unsigned char data[64])
+ {
+-	MBEDTLS_INTERNAL_VALIDATE_RET(ctx != NULL,
+-				      MBEDTLS_ERR_SHA256_BAD_INPUT_DATA);
+-	MBEDTLS_INTERNAL_VALIDATE_RET((const unsigned char *)data != NULL,
+-				      MBEDTLS_ERR_SHA256_BAD_INPUT_DATA);
+-
+ 	crypto_accel_sha256_compress(ctx->state, data, 1);
+ 
+ 	return 0;
+@@ -232,11 +222,6 @@ int mbedtls_internal_sha256_process(mbedtls_sha256_context *ctx,
+ int mbedtls_internal_sha512_process(mbedtls_sha512_context *ctx,
+ 				    const unsigned char data[64])
+ {
+-	MBEDTLS_INTERNAL_VALIDATE_RET(ctx != NULL,
+-				      MBEDTLS_ERR_SHA512_BAD_INPUT_DATA);
+-	MBEDTLS_INTERNAL_VALIDATE_RET((const unsigned char *)data != NULL,
+-				      MBEDTLS_ERR_SHA512_BAD_INPUT_DATA);
+-
+ 	crypto_accel_sha512_compress(ctx->state, data, 1);
+ 
+ 	return 0;
+-- 
+2.47.2
+

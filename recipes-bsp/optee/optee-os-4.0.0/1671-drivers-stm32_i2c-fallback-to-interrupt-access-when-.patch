@@ -1,0 +1,368 @@
+From 615687b4056f6e18a0193cd9b4a2ceca792dcd1d Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 26 Feb 2025 14:32:16 +0100
+Subject: [PATCH 1671/1695] drivers: stm32_i2c: fallback to interrupt access
+ when no bottom half
+
+Change stm32_i2c driver to allow I2C transfers in interrupt context
+before bottom half thread is initialized and after it's released.
+
+Thread accesses to the bus still start by locking the I2C bus mutex.
+Before using the bus, the sequence also masks the PMIC interrupt and
+pulls (with timeout) on added I2C bus access atomic lock. This lock
+maybe held by a currently executed I2C transfer in a pending interrupt
+notification. A 100ms timeout is short enough to also allow
+debug console traces in the interrupt sequence. Masking the interrupt
+before polling the lock ensures no new pending interrupt will interrupt
+us (and execute a I2C transfer) while the thread context accessed the
+I2C bus.
+
+Interrupt accesses to the bus atomically set/clear the I2C bus access
+lock while executing the interrupt sequence.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git bd10fb5a274357e51388cbfc92c052ac381709e7 drivers: stm32_i2c: fallback to interrupt access when no bottom half]
+Change-Id: Ica8d51beb78afb22a3bd6d74abbcbc3a12d80ebc
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/443451
+Domain-Review: Amelie DELAUNAY <amelie.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_i2c.c         | 137 ++++++++++++++++++++++++++++---
+ core/include/drivers/stm32_i2c.h |  43 +++++++++-
+ 2 files changed, 166 insertions(+), 14 deletions(-)
+
+diff --git a/core/drivers/stm32_i2c.c b/core/drivers/stm32_i2c.c
+index fc1421a2c..57c33851c 100644
+--- a/core/drivers/stm32_i2c.c
++++ b/core/drivers/stm32_i2c.c
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <arm.h>
++#include <atomic.h>
+ #include <drivers/clk.h>
+ #include <drivers/clk_dt.h>
+ #include <drivers/pinctrl.h>
+@@ -20,8 +21,11 @@
+ #include <kernel/delay.h>
+ #include <kernel/dt.h>
+ #include <kernel/dt_driver.h>
++#include <kernel/interrupt.h>
+ #include <kernel/mutex_pm_aware.h>
++#include <kernel/notif.h>
+ #include <kernel/panic.h>
++#include <kernel/thread.h>
+ #include <libfdt.h>
+ #include <stdbool.h>
+ #include <stdlib.h>
+@@ -164,6 +168,7 @@
+ #define I2C_TIMEOUT_BUSY_MS		25
+ #define I2C_TIMEOUT_BUSY_US		(I2C_TIMEOUT_BUSY_MS * 1000)
+ #define I2C_TIMEOUT_RXNE_MS		5
++#define I2C_TIMEOUT_ITR_LOCKED_MS	100
+ 
+ #define I2C_TIMEOUT_DEFAULT_MS		100
+ 
+@@ -758,6 +763,97 @@ TEE_Result stm32_i2c_get_setup_from_fdt(void *fdt, int node,
+ 	return TEE_SUCCESS;
+ }
+ 
++static void init_i2c_bus_access_lock(struct i2c_handle_s *hi2c)
++{
++	mutex_pm_aware_init(&hi2c->mu);
++	hi2c->consumer_itr_lock = 0;
++}
++
++static bool is_thread_context(void)
++{
++	return thread_is_in_normal_mode() && thread_get_id_may_fail() >= 0;
++}
++
++static void lock_i2c_bus_access(struct i2c_handle_s *hi2c)
++{
++	/*
++	 * In order to support cases when a PMIC interrupt triggers
++	 * before async notif is supported, we allow I2C access under
++	 * interrupt context. To do so, thread context ensures PMIC
++	 * interrupt (actually the related PWR interrupt) is masked
++	 * while we're accessing the I2C from a thread context. We
++	 * must also make sure any pending interrupts under execution
++	 * complete before accessing the bus on async notif enable
++	 * transition.
++	 */
++	if (is_thread_context()) {
++		struct stm32_itr_dep *itr_dep = NULL;
++		uint32_t exceptions = 0;
++		uint64_t timeout = 0;
++
++		/* Lock thread access */
++		mutex_pm_aware_lock(&hi2c->mu);
++		FMSG("thread access");
++
++		/*
++		 * When async notif is not started, mask registered consumer
++		 * interrupt during the thread context I2C access so we don't
++		 * conflict with a interrupt access to the I2C bus. When async
++		 * notif is started, all PMIC interrupts are routed to a thread
++		 * execution context so we don't need to mask them.
++		 */
++		if (!notif_async_is_started()) {
++			exceptions = thread_mask_exceptions(THREAD_EXCP_ALL);
++
++			hi2c->consumer_itr_masked = true;
++
++			/* Ensure next pending interrupts are masked */
++			SLIST_FOREACH(itr_dep, &hi2c->consumer_itr_head, link)
++				interrupt_mask(itr_dep->chip, itr_dep->num);
++
++			thread_unmask_exceptions(exceptions);
++		}
++
++		/* Wait possibly executing interrupt transfer completion */
++		timeout = timeout_init_us(I2C_TIMEOUT_ITR_LOCKED_MS * 1000);
++		while (!timeout_elapsed(timeout))
++			if (!atomic_load_int(&hi2c->consumer_itr_lock))
++				break;
++
++		if (atomic_load_int(&hi2c->consumer_itr_lock)) {
++			DMSG("Unexpected lengthy I2C xfer, base PA %"PRIxPA,
++			     hi2c->base.pa);
++			panic();
++		}
++	} else {
++		FMSG("interrupt access");
++		atomic_store_int(&hi2c->consumer_itr_lock, 1);
++	}
++}
++
++static void unlock_i2c_bus_access(struct i2c_handle_s *hi2c)
++{
++	if (is_thread_context()) {
++		FMSG("thread access completed");
++
++		if (hi2c->consumer_itr_masked) {
++			struct stm32_itr_dep *itr_dep = NULL;
++
++			/* Unmask possibly pending interrupts */
++			SLIST_FOREACH(itr_dep, &hi2c->consumer_itr_head, link)
++				interrupt_unmask(itr_dep->chip, itr_dep->num);
++
++			hi2c->consumer_itr_masked = false;
++		}
++
++		/* Unlock thread access */
++		mutex_pm_aware_unlock(&hi2c->mu);
++	} else {
++		FMSG("interrupt access completed");
++		atomic_store_int(&hi2c->consumer_itr_lock, 0);
++	}
++}
++
+ int stm32_i2c_init(struct i2c_handle_s *hi2c,
+ 		   struct stm32_i2c_init_s *init_data)
+ {
+@@ -766,7 +862,7 @@ int stm32_i2c_init(struct i2c_handle_s *hi2c,
+ 	vaddr_t base = 0;
+ 	uint32_t val = 0;
+ 
+-	mutex_pm_aware_init(&hi2c->mu);
++	init_i2c_bus_access_lock(hi2c);
+ 
+ 	rc = i2c_setup_timing(hi2c, init_data, &timing);
+ 	if (rc)
+@@ -1085,10 +1181,10 @@ static int do_write(struct i2c_handle_s *hi2c, struct i2c_request *request,
+ 	if (!p_data || !size)
+ 		return -1;
+ 
+-	mutex_pm_aware_lock(&hi2c->mu);
++	lock_i2c_bus_access(hi2c);
+ 
+ 	if (hi2c->i2c_state != I2C_STATE_READY) {
+-		mutex_pm_aware_unlock(&hi2c->mu);
++		unlock_i2c_bus_access(hi2c);
+ 		return -1;
+ 	}
+ 
+@@ -1180,7 +1276,7 @@ static int do_write(struct i2c_handle_s *hi2c, struct i2c_request *request,
+ 
+ bail:
+ 	clk_disable(hi2c->clock);
+-	mutex_pm_aware_unlock(&hi2c->mu);
++	unlock_i2c_bus_access(hi2c);
+ 
+ 	return rc;
+ }
+@@ -1223,10 +1319,10 @@ int stm32_i2c_read_write_membyte(struct i2c_handle_s *hi2c, uint16_t dev_addr,
+ 	uint8_t *p_buff = p_data;
+ 	uint32_t event_mask = 0;
+ 
+-	mutex_pm_aware_lock(&hi2c->mu);
++	lock_i2c_bus_access(hi2c);
+ 
+ 	if (hi2c->i2c_state != I2C_STATE_READY || !p_data) {
+-		mutex_pm_aware_unlock(&hi2c->mu);
++		unlock_i2c_bus_access(hi2c);
+ 		return -1;
+ 	}
+ 
+@@ -1288,7 +1384,7 @@ int stm32_i2c_read_write_membyte(struct i2c_handle_s *hi2c, uint16_t dev_addr,
+ 
+ bail:
+ 	clk_disable(hi2c->clock);
+-	mutex_pm_aware_unlock(&hi2c->mu);
++	unlock_i2c_bus_access(hi2c);
+ 
+ 	return rc;
+ }
+@@ -1318,10 +1414,10 @@ static int do_read(struct i2c_handle_s *hi2c, struct i2c_request *request,
+ 	if (!p_data || !size)
+ 		return -1;
+ 
+-	mutex_pm_aware_lock(&hi2c->mu);
++	lock_i2c_bus_access(hi2c);
+ 
+ 	if (hi2c->i2c_state != I2C_STATE_READY) {
+-		mutex_pm_aware_unlock(&hi2c->mu);
++		unlock_i2c_bus_access(hi2c);
+ 		return -1;
+ 	}
+ 
+@@ -1408,7 +1504,7 @@ static int do_read(struct i2c_handle_s *hi2c, struct i2c_request *request,
+ 
+ bail:
+ 	clk_disable(hi2c->clock);
+-	mutex_pm_aware_unlock(&hi2c->mu);
++	unlock_i2c_bus_access(hi2c);
+ 
+ 	return rc;
+ }
+@@ -1490,10 +1586,10 @@ bool stm32_i2c_is_device_ready(struct i2c_handle_s *hi2c, uint32_t dev_addr,
+ 	unsigned int i2c_trials = 0U;
+ 	bool rc = false;
+ 
+-	mutex_pm_aware_lock(&hi2c->mu);
++	lock_i2c_bus_access(hi2c);
+ 
+ 	if (hi2c->i2c_state != I2C_STATE_READY) {
+-		mutex_pm_aware_unlock(&hi2c->mu);
++		unlock_i2c_bus_access(hi2c);
+ 		return rc;
+ 	}
+ 
+@@ -1570,11 +1666,26 @@ bool stm32_i2c_is_device_ready(struct i2c_handle_s *hi2c, uint32_t dev_addr,
+ 
+ bail:
+ 	clk_disable(hi2c->clock);
+-	mutex_pm_aware_unlock(&hi2c->mu);
++	unlock_i2c_bus_access(hi2c);
+ 
+ 	return rc;
+ }
+ 
++void stm32_i2c_interrupt_access_lockdeps(struct i2c_handle_s *hi2c,
++					 struct itr_chip *itr_chip,
++					 size_t itr_num)
++{
++	struct stm32_itr_dep *itr_dep = NULL;
++
++	itr_dep = calloc(1, sizeof(*itr_dep));
++	if (!itr_dep)
++		panic();
++
++	itr_dep->chip = itr_chip;
++	itr_dep->num = itr_num;
++	SLIST_INSERT_HEAD(&hi2c->consumer_itr_head, itr_dep, link);
++}
++
+ void stm32_i2c_resume(struct i2c_handle_s *hi2c)
+ {
+ 	if (hi2c->i2c_state == I2C_STATE_READY)
+diff --git a/core/include/drivers/stm32_i2c.h b/core/include/drivers/stm32_i2c.h
+index f78a9966f..150d5b073 100644
+--- a/core/include/drivers/stm32_i2c.h
++++ b/core/include/drivers/stm32_i2c.h
+@@ -15,6 +15,7 @@
+ #include <mm/core_memprot.h>
+ #include <stdbool.h>
+ #include <stdint.h>
++#include <sys/queue.h>
+ #include <util.h>
+ #include <types_ext.h>
+ 
+@@ -101,7 +102,26 @@ struct i2c_cfg {
+ };
+ 
+ /*
+- * I2C bus device
++ * struct stm32_itr_dep - Interrupts requesting atomic access
++ *
++ * @chip: Interrupt chip reference
++ * @num: Target tnterrupt number in @chip context
++ * @link: Link in registered consumer list
++ *
++ * Consumer requesting interrupt accesses to the I2C bus
++ * while exucting in interrupt context, to handle external
++ * device events before a thread context like the bottom
++ * half is ready.
++ */
++struct stm32_itr_dep {
++	struct itr_chip *chip;
++	size_t num;
++	SLIST_ENTRY(stm32_itr_dep) link;
++};
++
++/*
++ * struct i2c_handle_s - I2C bus device
++ *
+  * @base: I2C SoC registers base address
+  * @reg_size: I2C SoC registers address map size
+  * @clock: clock ID
+@@ -114,6 +134,9 @@ struct i2c_cfg {
+  * @pinctrl_sleep: Pin control configuration for the I2C bus in standby state
+  * @mu: Protection on concurrent access to the I2C bus considering PM context
+  * @i2c_secure: Indicates that the I2C is secure
++ * @consumer_itr_lock: 1 when an interrupt handler accesses the I2C bus
++ * @consumer_itr_head: List head of interrupts registered for interrupt accesses
++ * @consumer_itr_masked: True if consumer interrupts were masked
+  */
+ struct i2c_handle_s {
+ 	struct io_pa_va base;
+@@ -128,10 +151,14 @@ struct i2c_handle_s {
+ 	struct pinctrl_state *pinctrl_sleep;
+ 	struct mutex_pm_aware mu;
+ 	bool i2c_secure;
++	int consumer_itr_lock;
++	SLIST_HEAD(, stm32_itr_dep) consumer_itr_head;
++	bool consumer_itr_masked;
+ };
+ 
+ /*
+  * struct stm32_i2c_dev - Bus consumer device over an STM32 I2C bus
++ *
+  * @i2c_dev: I2C consumer instance
+  * @i2c_ctrl: I2C bus control operation
+  * @handle: Handle on a single STM32 I2C bus interface
+@@ -279,4 +306,18 @@ static inline bool i2c_is_secure(struct i2c_handle_s *hi2c)
+ 	return hi2c->i2c_secure;
+ }
+ 
++/*
++ * Register interrupt for possible I2C bus accesses in interrupt context
++ *
++ * @hi2c: STM32 I2C handle of the bus
++ * @itr_chip: Interrupt chip for the interrupt context access
++ * @itr_num: Interrupt number in @itr_chip for the access
++ *
++ * Register an interrupt (chip and number) for which I2C accesses
++ * must be handled from the interrupt when non-secure world has not
++ * registered for thread execution as the bottom half.
++ */
++void stm32_i2c_interrupt_access_lockdeps(struct i2c_handle_s *hi2c,
++					 struct itr_chip *itr_chip,
++					 size_t itr_num);
+ #endif /* __DRIVERS_STM32_I2C_H*/
+-- 
+2.47.2
+

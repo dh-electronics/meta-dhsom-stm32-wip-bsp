@@ -1,0 +1,201 @@
+From aab341ca893dca8833505d4110afbd72370b393f Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Tue, 3 Sep 2024 18:31:48 +0200
+Subject: [PATCH 1211/1695] pta: remoteproc: Update
+ PTA_RPROC_LOAD_SEGMENT_SHA256 command
+
+Make the command more generic by providing the hash computation
+algorithm in parameter.
+This match with the possibility to provide the HASH type in the TLV
+blob of the remoteproc signed image.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 2324ae36d999f3e3ce87ebaed14d179fe0abfe53 pta: remoteproc: Update PTA_RPROC_LOAD_SEGMENT_SHA256 command]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I57486bb7442cf87a6760ac90c9409411c8a39442
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/403799
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/pta/stm32mp/remoteproc_pta.c    | 11 +++++++----
+ lib/libutee/include/remoteproc_pta.h | 19 ++++++++++++++++---
+ ta/remoteproc/src/remoteproc_core.c  | 18 ++++++++++--------
+ 3 files changed, 33 insertions(+), 15 deletions(-)
+
+diff --git a/core/pta/stm32mp/remoteproc_pta.c b/core/pta/stm32mp/remoteproc_pta.c
+index 47f74388c..b65b31ec7 100644
+--- a/core/pta/stm32mp/remoteproc_pta.c
++++ b/core/pta/stm32mp/remoteproc_pta.c
+@@ -75,21 +75,24 @@ static TEE_Result rproc_pta_load_segment(uint32_t pt,
+ 						TEE_PARAM_TYPE_MEMREF_INPUT,
+ 						TEE_PARAM_TYPE_VALUE_INPUT,
+ 						TEE_PARAM_TYPE_MEMREF_INPUT);
++	struct rproc_pta_seg_info *seg_info = params[3].memref.buffer;
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	paddr_t pa = 0;
+ 	void *dst = NULL;
+ 	uint8_t *src = params[1].memref.buffer;
+ 	size_t size = params[1].memref.size;
+-	uint8_t *hash = params[3].memref.buffer;
+ 	paddr_t da = (paddr_t)reg_pair_to_64(params[2].value.b,
+ 					     params[2].value.a);
+ 
+ 	if (pt != exp_pt)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	if (!hash || params[3].memref.size != TEE_SHA256_HASH_SIZE)
++	if (!seg_info || params[3].memref.size != sizeof(*seg_info))
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
++	if (seg_info->hash_algo != TEE_ALG_SHA256)
++		return TEE_ERROR_NOT_SUPPORTED;
++
+ 	if (rproc_ta_state != REMOTEPROC_OFF)
+ 		return TEE_ERROR_BAD_STATE;
+ 
+@@ -107,7 +110,7 @@ static TEE_Result rproc_pta_load_segment(uint32_t pt,
+ 	memcpy(dst, src, size);
+ 
+ 	/* Verify that loaded segment is valid */
+-	res = hash_sha256_check(hash, dst, size);
++	res = hash_sha256_check(seg_info->hash, dst, size);
+ 	if (res)
+ 		memset(dst, 0, size);
+ 
+@@ -397,7 +400,7 @@ static TEE_Result rproc_pta_invoke_command(void *session __unused,
+ 	switch (cmd_id) {
+ 	case PTA_RPROC_HW_CAPABILITIES:
+ 		return rproc_pta_capabilities(param_types, params);
+-	case PTA_RPROC_LOAD_SEGMENT_SHA256:
++	case PTA_RPROC_LOAD_SEGMENT:
+ 		return rproc_pta_load_segment(param_types, params);
+ 	case PTA_RPROC_SET_MEMORY:
+ 		return rproc_pta_set_memory(param_types, params);
+diff --git a/lib/libutee/include/remoteproc_pta.h b/lib/libutee/include/remoteproc_pta.h
+index 85ea4122c..25e6853c4 100644
+--- a/lib/libutee/include/remoteproc_pta.h
++++ b/lib/libutee/include/remoteproc_pta.h
+@@ -7,6 +7,7 @@
+ #define __REMOTEPROC_PTA_H
+ 
+ #include <stdint.h>
++#include <utee_defines.h>
+ #include <util.h>
+ 
+ /*
+@@ -34,6 +35,8 @@
+ #define PTA_REMOTEPROC_TLV_BOOTADDR_LGTH	U(4)
+ #define PTA_REMOTEPROC_TLV_BOOT_SEC_LGTH	U(4)
+ 
++#define PTA_REMOTEPROC_MAX_HASH_SIZE	U(64)
++
+ /**
+  * struct rproc_pta_key_info - public key information
+  * @algo:	Algorithm, defined by public key algorithms TEE_ALG_*
+@@ -46,6 +49,16 @@ struct rproc_pta_key_info {
+ 	uint8_t info[];
+ };
+ 
++/*
++ * struct rproc_pta_seg_info -  segment info for authentication and decryption
++ * @hash_algo: Algorithm used for hash calculation
++ * @hash:      Hash associated to the program segment.
++ */
++struct rproc_pta_seg_info {
++	uint32_t hash_algo;
++	uint8_t hash[PTA_REMOTEPROC_MAX_HASH_SIZE];
++};
++
+ static inline size_t rproc_pta_keyinfo_size(struct rproc_pta_key_info *keyinf)
+ {
+ 	size_t s = 0;
+@@ -78,7 +91,7 @@ static inline size_t rproc_pta_keyinfo_size(struct rproc_pta_key_info *keyinf)
+ #define PTA_RPROC_FIRMWARE_LOAD		2
+ 
+ /*
+- * Load a segment with a SHA256 hash.
++ * Load a segment with a hash.
+  *
+  * This command is used when the platform secure memory is too constrained to
+  * save the whole firmware image. Upon segment load, a successful completion
+@@ -88,9 +101,9 @@ static inline size_t rproc_pta_keyinfo_size(struct rproc_pta_key_info *keyinf)
+  * [in]  params[1].memref:	Section data to load
+  * [in]  params[2].value.a:	32bit LSB load device segment address
+  * [in]  params[2].value.b:	32bit MSB load device segment address
+- * [in]  params[3].memref:	Expected hash (SHA256) of the payload
++ * [in]  params[3].memref:	Segment information (struct rproc_pta_seg_info)
+  */
+-#define PTA_RPROC_LOAD_SEGMENT_SHA256	3
++#define PTA_RPROC_LOAD_SEGMENT		3
+ 
+ /*
+  * Memory set.
+diff --git a/ta/remoteproc/src/remoteproc_core.c b/ta/remoteproc/src/remoteproc_core.c
+index 136f5f874..2624d0c23 100644
+--- a/ta/remoteproc/src/remoteproc_core.c
++++ b/ta/remoteproc/src/remoteproc_core.c
+@@ -720,9 +720,10 @@ static TEE_Result get_tlv_images_size(struct remoteproc_context *ctx,
+ 	return TEE_SUCCESS;
+ }
+ 
+-static TEE_Result get_segment_hash(struct remoteproc_context *ctx, uint8_t *src,
+-				   uint32_t size, uint32_t da,
+-				   uint32_t mem_size, uint8_t **hash)
++static TEE_Result get_hash_seg_info(struct remoteproc_context *ctx,
++				    uint8_t *src, uint32_t size, uint32_t da,
++				    uint32_t mem_size,
++				    struct rproc_pta_seg_info *seg_info)
+ {
+ 	struct remoteproc_segment *peh = NULL;
+ 	unsigned int i = 0;
+@@ -749,7 +750,8 @@ static TEE_Result get_segment_hash(struct remoteproc_context *ctx, uint8_t *src,
+ 		    (src + peh->phdr.p_filesz) > (ctx->fw_img + ctx->fw_img_sz))
+ 			return TEE_ERROR_BAD_PARAMETERS;
+ 
+-		*hash = peh->hash;
++		memcpy(seg_info->hash, peh->hash, TEE_SHA256_HASH_SIZE);
++		seg_info->hash_algo = TEE_ALG_SHA256;
+ 
+ 		return TEE_SUCCESS;
+ 	}
+@@ -816,9 +818,9 @@ static TEE_Result remoteproc_load_segment(uint8_t *src, uint32_t size,
+ 					       TEE_PARAM_TYPE_MEMREF_INPUT,
+ 					       TEE_PARAM_TYPE_VALUE_INPUT,
+ 					       TEE_PARAM_TYPE_MEMREF_INPUT);
++	struct rproc_pta_seg_info seg_info = { };
+ 	TEE_Param params[TEE_NUM_PARAMS] = { };
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+-	uint8_t *hash = NULL;
+ 
+ 	/*
+ 	 * Invoke platform remoteproc PTA to load the segment in remote
+@@ -828,7 +830,7 @@ static TEE_Result remoteproc_load_segment(uint8_t *src, uint32_t size,
+ 	DMSG("Load segment %#"PRIx32" size %"PRIu32" (%"PRIu32")", da, size,
+ 	     mem_size);
+ 
+-	res = get_segment_hash(ctx, src, size, da, mem_size, &hash);
++	res = get_hash_seg_info(ctx, src, size, da, mem_size, &seg_info);
+ 	if (res)
+ 		return res;
+ 
+@@ -836,12 +838,12 @@ static TEE_Result remoteproc_load_segment(uint8_t *src, uint32_t size,
+ 	params[1].memref.buffer = src;
+ 	params[1].memref.size = size;
+ 	params[2].value.a = da;
+-	params[3].memref.buffer = hash;
++	params[3].memref.buffer = &seg_info;
+ 	params[3].memref.size = TEE_SHA256_HASH_SIZE;
+ 
+ 	if (size) {
+ 		res = TEE_InvokeTACommand(pta_session, TEE_TIMEOUT_INFINITE,
+-					  PTA_RPROC_LOAD_SEGMENT_SHA256,
++					  PTA_RPROC_LOAD_SEGMENT,
+ 					  param_types, params, NULL);
+ 		if (res != TEE_SUCCESS) {
+ 			EMSG("Fails to load segment, res = 0x%#"PRIx32, res);
+-- 
+2.47.2
+

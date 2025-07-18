@@ -1,0 +1,49 @@
+From 2e4084e026c580fcf44b8122e9dd8de51c1f79ee Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 3 Nov 2023 14:34:31 +0100
+Subject: [PATCH 0035/1695] plat-stm32mp1: CFG_INSECURE=y allows insecure RCC
+ configuration
+
+Changes STM32MP1 shared resources to allow insecure RCC protection
+with peripherals assigned to secure world when CFG_INSECURE is
+enabled. This means for example that some SoC resources can be assigned
+to OP-TEE without their clock and reset controllers being effectively
+protected from non-secure accesses. Such configuration can be useful
+for development and test purposes.
+
+This change does not affect devices provisioned with secret that are
+in so-called SEC_CLOSED state (BSEC fuses). Indeed this device state
+currently requires RCC protection to be enabled as already implemented
+in function check_rcc_secure_configuration().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f3c38b8aeba3a2af33751763d8272e1192cf0a38 plat-stm32mp1: CFG_INSECURE=y allows insecure RCC configuration]
+Change-Id: I4780fa8dffc6e9c3edf59b9f2d05b4b9868139e3
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from d3406677fffa219e1836cc9c5791b8d7ac7a1879]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/shared_resources.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/shared_resources.c b/core/arch/arm/plat-stm32mp1/shared_resources.c
+index b85a1304a..76ce64859 100644
+--- a/core/arch/arm/plat-stm32mp1/shared_resources.c
++++ b/core/arch/arm/plat-stm32mp1/shared_resources.c
+@@ -692,8 +692,12 @@ static void check_rcc_secure_configuration(void)
+ 		}
+ 	}
+ 
+-	if (have_error)
+-		panic();
++	if (have_error) {
++		if (IS_ENABLED(CFG_INSECURE))
++			EMSG("WARNING: CFG_INSECURE allows insecure RCC configuration");
++		else
++			panic();
++	}
+ }
+ 
+ static void set_gpio_secure_configuration(void)
+-- 
+2.47.2
+

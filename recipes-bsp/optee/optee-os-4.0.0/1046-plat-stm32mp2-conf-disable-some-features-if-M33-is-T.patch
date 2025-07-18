@@ -1,0 +1,74 @@
+From 4b32db2147199b0f00c61a05a77ff2d3014d41ec Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 7 Nov 2023 18:34:51 +0100
+Subject: [PATCH 1046/1695] plat-stm32mp2: conf: disable some features if M33
+ is TDCID
+
+Default disable some features that can only be managed by the TDCID.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 59baf10af6bfba2e47210358ba037774723c3789 plat-stm32mp2: conf: disable some features if M33 is TDCID]
+Change-Id: I9b6d17f917e06ba53758ba4777806f6c7dd37eb5
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/397750
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp2/conf.mk | 22 ++++++++++++++++++----
+ 1 file changed, 18 insertions(+), 4 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index ada8197eb..ce0ddd0c7 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -83,7 +83,20 @@ supported-ta-targets ?= ta_arm64
+ ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-M33-TDCID)),)
+ $(call force,CFG_STM32_CM33TDCID,y)
+ endif
++
+ CFG_STM32_CM33TDCID ?= n
++ifeq ($(CFG_STM32_CM33TDCID),y)
++$(call force,CFG_SCMI_CORTEXM_AGENT,n)
++$(call force,CFG_SCMI_MSG_DRIVERS,n)
++$(call force,CFG_SCMI_PTA,n)
++$(call force,CFG_SCMI_SCPFW,n)
++$(call force,CFG_SCMI_SERVER_REGULATOR_CONSUMER,n)
++$(call force,CFG_STM32_BSEC_PTA,n)
++$(call force,CFG_STM32_BSEC3,n)
++$(call force,CFG_STM32_BSEC_WRITE,n)
++$(call force,CFG_STM32MP_PROVISIONING,n)
++$(call force,CFG_TA_STM32MP_NVMEM,n)
++endif
+ 
+ $(call force,CFG_ARM_GIC_PM,y)
+ $(call force,CFG_ARM64_core,y)
+@@ -99,11 +112,7 @@ $(call force,CFG_DT,y)
+ $(call force,CFG_GIC,y)
+ $(call force,CFG_HALT_CORES_ON_PANIC_SGI,15)
+ $(call force,CFG_INIT_CNTVOFF,y)
+-$(call force,CFG_SCMI_MSG_DRIVERS,n)
+-$(call force,CFG_SCMI_PTA,y)
+-$(call force,CFG_SCMI_SCPFW,y)
+ $(call force,CFG_SCMI_SCPFW_PRODUCT,optee-stm32mp2)
+-$(call force,CFG_SCMI_SERVER_REGULATOR_CONSUMER,y)
+ $(call force,CFG_SECURE_TIME_SOURCE_CNTPCT,y)
+ $(call force,CFG_STM32_SHARED_IO,y)
+ $(call force,CFG_STM32_HSE_MONITORING,y)
+@@ -180,6 +189,11 @@ CFG_STM32_VREFBUF ?= y
+ CFG_STPMIC2 ?= y
+ CFG_WITH_TUI ?= y
+ 
++CFG_SCMI_MSG_DRIVERS ?= n
++CFG_SCMI_PTA ?= y
++CFG_SCMI_SCPFW ?= y
++CFG_SCMI_SERVER_REGULATOR_CONSUMER ?= y
++
+ CFG_DRIVERS_I2C ?= $(CFG_STM32_I2C)
+ CFG_REGULATOR_FIXED ?= y
+ CFG_REGULATOR_GPIO ?= y
+-- 
+2.47.2
+

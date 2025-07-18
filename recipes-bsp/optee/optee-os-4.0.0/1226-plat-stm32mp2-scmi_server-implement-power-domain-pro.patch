@@ -1,0 +1,233 @@
+From 3b99195d1436458c6e3705b32c3bfc9d78724d1c Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Mon, 2 Sep 2024 15:12:23 +0200
+Subject: [PATCH 1226/1695] plat-stm32mp2: scmi_server: implement power domain
+ protocol
+
+scmi_server_scpfw can now retrieve power domains description from DT.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0b4219387b4ba25e35707bb655acd6c469fae1a9 plat-stm32mp2: scmi_server: implement power domain protocol]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I46f30e603cf9517eafbf6911297a5d19a392fb4d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/401860
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp2/conf.mk           |   2 +
+ .../arm/plat-stm32mp2/scmi_server_scpfw.c     |   9 ++
+ .../scmi-server/include/scmi_pd_consumer.h    |  33 ++++++
+ core/lib/scmi-server/scmi_pd_consumer.c       | 102 ++++++++++++++++++
+ core/lib/scmi-server/sub.mk                   |   1 +
+ 5 files changed, 147 insertions(+)
+ create mode 100644 core/lib/scmi-server/include/scmi_pd_consumer.h
+ create mode 100644 core/lib/scmi-server/scmi_pd_consumer.c
+
+diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
+index 4b039ab6f..6d31971ca 100644
+--- a/core/arch/arm/plat-stm32mp2/conf.mk
++++ b/core/arch/arm/plat-stm32mp2/conf.mk
+@@ -90,6 +90,7 @@ $(call force,CFG_SCMI_CORTEXM_AGENT,n)
+ $(call force,CFG_SCMI_MSG_DRIVERS,n)
+ $(call force,CFG_SCMI_PTA,n)
+ $(call force,CFG_SCMI_SCPFW,n)
++$(call force,CFG_SCMI_SERVER_PD_CONSUMER,n)
+ $(call force,CFG_SCMI_SERVER_REGULATOR_CONSUMER,n)
+ $(call force,CFG_STM32_BSEC_PTA,n)
+ $(call force,CFG_STM32_BSEC3,n)
+@@ -191,6 +192,7 @@ CFG_WITH_TUI ?= y
+ CFG_SCMI_MSG_DRIVERS ?= n
+ CFG_SCMI_PTA ?= y
+ CFG_SCMI_SCPFW ?= y
++CFG_SCMI_SERVER_PD_CONSUMER ?= y
+ CFG_SCMI_SERVER_REGULATOR_CONSUMER ?= y
+ 
+ CFG_DRIVERS_I2C ?= $(CFG_STM32_I2C)
+diff --git a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+index 4e60c3f9c..442a9e73d 100644
+--- a/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
++++ b/core/arch/arm/plat-stm32mp2/scmi_server_scpfw.c
+@@ -15,6 +15,7 @@
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <mm/core_mmu.h>
++#include <scmi_pd_consumer.h>
+ #include <scmi/scmi_server.h>
+ #include <tee_api_types.h>
+ #include <tee_api_defines.h>
+@@ -403,6 +404,14 @@ static TEE_Result optee_scmi_server_probe(const void *fdt, int parent_node,
+ 
+ 		SIMPLEQ_FOREACH(protocol_ctx, &agent_ctx->protocol_list, link) {
+ 			switch (protocol_ctx->protocol_id) {
++			case SCMI_PROTOCOL_ID_POWER_DOMAIN:
++				res = optee_scmi_server_init_pd(fdt,
++					protocol_ctx->dt_node,
++					agent_cfg, channel_cfg);
++				if (res)
++					panic("Error during power domains init"
++					      );
++				break;
+ 			default:
+ 				EMSG("%s Unknown protocol ID: %#x",
+ 				     protocol_ctx->dt_name,
+diff --git a/core/lib/scmi-server/include/scmi_pd_consumer.h b/core/lib/scmi-server/include/scmi_pd_consumer.h
+new file mode 100644
+index 000000000..0b6e6db44
+--- /dev/null
++++ b/core/lib/scmi-server/include/scmi_pd_consumer.h
+@@ -0,0 +1,33 @@
++/* SPDX-License-Identifier: BSD-2-Clause */
++/*
++ * Copyright (c) 2024, STMicroelectronics
++ */
++
++#ifndef SCMI_SERVER_PD_CONSUMER_H
++#define SCMI_SERVER_PD_CONSUMER_H
++
++#include <stdint.h>
++#include <tee_api_types.h>
++#include <scmi_agent_configuration.h>
++
++#ifdef CFG_SCMI_SERVER_PD_CONSUMER
++/*
++ * Initialize SCMI power domain from power domain consumer information from DT.
++ * Returns a TEE_Result compliant value
++ */
++TEE_Result optee_scmi_server_init_pd(const void *fdt, int node,
++				     struct scpfw_agent_config *agent_cfg,
++				     struct scpfw_channel_config *channel_cfg);
++#else
++static inline TEE_Result
++	optee_scmi_server_init_pd(const void *fdt __unused,
++				  int node __unused,
++				  struct scpfw_agent_config *agent_cfg
++					__unused,
++				  struct scpfw_channel_config *channel_cfg
++					__unused)
++{
++	return TEE_SUCCESS;
++}
++#endif /* CFG_SCMI_SERVER_PD_CONSUMER */
++#endif /* SCMI_SERVER_PD_CONSUMER_H */
+diff --git a/core/lib/scmi-server/scmi_pd_consumer.c b/core/lib/scmi-server/scmi_pd_consumer.c
+new file mode 100644
+index 000000000..297bc71ea
+--- /dev/null
++++ b/core/lib/scmi-server/scmi_pd_consumer.c
+@@ -0,0 +1,102 @@
++// SPDX-License-Identifier: BSD-2-Clause
++/*
++ * Copyright (c) 2024, STMicroelectronics
++ */
++
++#include <assert.h>
++#include <drivers/clk.h>
++#include <drivers/clk_dt.h>
++#include <drivers/regulator.h>
++#include <kernel/dt.h>
++#include <kernel/panic.h>
++#include <libfdt.h>
++#include <malloc.h>
++#include <scmi_agent_configuration.h>
++#include <scmi_pd_consumer.h>
++#include <tee_api_defines_extensions.h>
++#include <trace.h>
++
++TEE_Result optee_scmi_server_init_pd(const void *fdt, int node,
++				     struct scpfw_agent_config *agent_cfg,
++				     struct scpfw_channel_config *channel_cfg)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	int subnode = 0, item_node = 0;
++	bool have_subnodes = false;
++
++	item_node = fdt_subnode_offset(fdt, node, "power-domains");
++	if (item_node < 0)
++		return TEE_SUCCESS;
++
++	/* Compute the number of domains to allocate */
++	fdt_for_each_subnode(subnode, fdt, item_node) {
++		paddr_t reg = fdt_reg_base_address(fdt, subnode);
++
++		assert(reg != DT_INFO_INVALID_REG);
++		if ((size_t)reg > channel_cfg->pd_count)
++			channel_cfg->pd_count = (uint32_t)reg;
++
++		have_subnodes = true;
++	}
++
++	if (!have_subnodes)
++		return TEE_SUCCESS;
++
++	channel_cfg->pd_count++;
++	channel_cfg->pd = calloc(channel_cfg->pd_count,
++				 sizeof(*channel_cfg->pd));
++	if (!channel_cfg->pd)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	fdt_for_each_subnode(subnode, fdt, item_node) {
++		struct regulator *regulator = NULL;
++		const char *domain_name = NULL;
++		const fdt32_t *cuint = NULL;
++		struct clk *clock = NULL;
++		uint32_t domain_id = 0;
++
++		res = regulator_dt_get_supply(fdt, subnode, "voltd",
++					      &regulator);
++		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
++			panic("Unexpected init deferral");
++		} else if (res) {
++			EMSG("Can't get regulator for power domain %s (%#"PRIx32"), skipped",
++			     fdt_get_name(fdt, subnode, NULL), res);
++			continue;
++		}
++
++		res = clk_dt_get_by_index(fdt, subnode, 0, &clock);
++		if (res == TEE_ERROR_DEFER_DRIVER_INIT) {
++			panic("Unexpected init deferral");
++		} else if (res) {
++			EMSG("Can't get clock for power domain %s (%#"PRIx32"), skipped",
++			     fdt_get_name(fdt, subnode, NULL), res);
++			continue;
++		}
++
++		domain_id = (uint32_t)fdt_reg_base_address(fdt, subnode);
++
++		cuint = fdt_getprop(fdt, subnode, "domain-name", NULL);
++		if (cuint)
++			domain_name = (char *)cuint;
++		else
++			domain_name = fdt_get_name(fdt, subnode, NULL);
++
++		domain_name = strdup(domain_name);
++		if (!domain_name) {
++			free(channel_cfg->pd);
++			return TEE_ERROR_OUT_OF_MEMORY;
++		}
++
++		channel_cfg->pd[domain_id] = (struct scmi_pd){
++			.name = domain_name,
++			.regu = regulator,
++			.clk = clock,
++		};
++
++		DMSG("scmi power domain shares %s on domain ID %"PRIu32,
++		     channel_cfg->pd->name, domain_id);
++	}
++
++	return TEE_SUCCESS;
++}
+diff --git a/core/lib/scmi-server/sub.mk b/core/lib/scmi-server/sub.mk
+index 4fdcda70a..13b9974c2 100644
+--- a/core/lib/scmi-server/sub.mk
++++ b/core/lib/scmi-server/sub.mk
+@@ -26,6 +26,7 @@ scpfw-integ-version-pat = 0
+ scpfw-integ-version = $(scpfw-integ-version-maj).$(scpfw-integ-version-min).$(scpfw-integ-version-pat)
+ 
+ srcs-y += scmi_server.c
++srcs-$(CFG_SCMI_SERVER_PD_CONSUMER) += scmi_pd_consumer.c
+ srcs-$(CFG_SCMI_SERVER_REGULATOR_CONSUMER) += scmi_regulator_consumer.c
+ global-incdirs-y += include
+ 
+-- 
+2.47.2
+

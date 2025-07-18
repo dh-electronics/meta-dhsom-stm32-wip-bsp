@@ -1,0 +1,61 @@
+From 1eba7772fa037232a2ca46ecb17a50edf479f3b6 Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Wed, 12 Feb 2025 09:14:15 +0100
+Subject: [PATCH 1495/1695] drivers: stm32_bsec3: add
+ stm32_bsec_mp21_ap0_unlock()
+
+DBGMCU_APB_AP is open under reset, closed immediately after SYSTEM_RST is
+released, until AP_UNLOCK is configured with 0xB4, so at least DBGMCU
+authentication registers are accessible.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b9150748f5ffdc5255c108a9c74208b27be96659 drivers: stm32_bsec3: add stm32_bsec_mp21_ap0_unlock()]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: Ib414146f057627506b97bde0b78b305bc36bac18
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/436411
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/stm32_bsec3.c        | 9 +++++++++
+ core/include/drivers/stm32_bsec.h | 5 +++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/core/drivers/stm32_bsec3.c b/core/drivers/stm32_bsec3.c
+index 6b73f56a3..0a8244d73 100644
+--- a/core/drivers/stm32_bsec3.c
++++ b/core/drivers/stm32_bsec3.c
+@@ -652,6 +652,15 @@ void stm32_bsec_mp21_dummy_adac(void)
+ 	io_write32(bsec_base() + BSEC_AP_UNLOCK, BSEC_AP_UNLOCK_DUMMY_ADAC);
+ }
+ 
++/*
++ * DBGMCU_APB_AP is open under reset, closed immediately after SYSTEM_RST is
++ * released, until AP_UNLOCKED is configured.
++ */
++void stm32_bsec_mp21_ap0_unlock(void)
++{
++	io_write32(bsec_base() + BSEC_AP_UNLOCK, BSEC_AP_UNLOCK_DUMMY_ADAC);
++}
++
+ /*
+  * bsec_get_version: return BSEC version.
+  */
+diff --git a/core/include/drivers/stm32_bsec.h b/core/include/drivers/stm32_bsec.h
+index 2153dac15..effad82bc 100644
+--- a/core/include/drivers/stm32_bsec.h
++++ b/core/include/drivers/stm32_bsec.h
+@@ -203,6 +203,11 @@ bool stm32_bsec_self_hosted_debug_is_enabled(void);
+  */
+ void stm32_bsec_mp21_dummy_adac(void);
+ 
++/*
++ * Program BSEC to open DBGMCU_APB_AP (AP0)
++ */
++void stm32_bsec_mp21_ap0_unlock(void);
++
+ /*
+  * Find and get OTP location from its name.
+  * @name: sub-node name to look up.
+-- 
+2.47.2
+

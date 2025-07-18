@@ -1,0 +1,54 @@
+From ee6d6ad7e2bccff04ccceda88725f02ea680da94 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 8 Nov 2023 17:26:40 +0100
+Subject: [PATCH 0028/1695] core: pta: attestation: fix calls to tee_pobj_get()
+
+Fixes calls to tee_pobj_get() that use boolean value false as argument
+where an enum tee_pobj_usage argument is expected.
+
+Between OP-TEE release tags 2.4.0 and 3.11.0, tee_pobj_get() used to
+take a boolean @temporary argument. The function prototype changed in
+commit 6885abf2f7ef ("core: tee_pobj_get() takes an enum tee_pobj_usage")
+and was merged in release tag 3.11.0 but attestation PTA initial
+implementation of StMM sadly used the old prototype, using false (0)
+instead of TEE_POBJ_USAGE_OPEN (0).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b5f6b22e66c1ae1810dcc8a00eeeef64381215d9 core: pta: attestation: fix calls to tee_pobj_get()]
+Change-Id: Id8ec2d997f2e587150fbd17004245fff80e58290
+Fixes: 7e05ec25bd68 ("core: pta: add remote attestation PTA")
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+[etienne: cherry-picked from ce0d3a4655bda0c3f2c5df54cc3a1ac3e9089995]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+---
+ core/pta/attestation.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/core/pta/attestation.c b/core/pta/attestation.c
+index ab5a3bcc1..d8a410758 100644
+--- a/core/pta/attestation.c
++++ b/core/pta/attestation.c
+@@ -228,8 +228,8 @@ static TEE_Result sec_storage_obj_read(TEE_UUID *uuid, uint32_t storage_id,
+ 	if (obj_id_len > TEE_OBJECT_ID_MAX_LEN)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	res = tee_pobj_get(uuid, (void *)obj_id, obj_id_len, flags, false, fops,
+-			   &po);
++	res = tee_pobj_get(uuid, (void *)obj_id, obj_id_len, flags,
++			   TEE_POBJ_USAGE_OPEN, fops, &po);
+ 	if (res)
+ 		return res;
+ 
+@@ -272,8 +272,8 @@ static TEE_Result sec_storage_obj_write(TEE_UUID *uuid, uint32_t storage_id,
+ 	if (obj_id_len > TEE_OBJECT_ID_MAX_LEN)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	res = tee_pobj_get(uuid, (void *)obj_id, obj_id_len, flags, false,
+-			   fops, &po);
++	res = tee_pobj_get(uuid, (void *)obj_id, obj_id_len, flags,
++			   TEE_POBJ_USAGE_OPEN, fops, &po);
+ 	if (res)
+ 		return res;
+ 
+-- 
+2.47.2
+

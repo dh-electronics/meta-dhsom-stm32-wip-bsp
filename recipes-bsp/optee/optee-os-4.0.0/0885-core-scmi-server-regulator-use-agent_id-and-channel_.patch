@@ -1,0 +1,99 @@
+From d06871299932bc15b11d36ed60c25e789c4edeac Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Thu, 16 May 2024 09:57:07 +0200
+Subject: [PATCH 0885/1695] core: scmi-server: regulator: use agent_id and
+ channel_id from parent
+
+A node regulator consumer could be inserted into a node that handle the
+SCMI channel. In this condition there is no need to declare again
+scmi-agent-id and scmi-channel-id properties, just take the values defined
+into the parent node.
+
+scmi_cm33_agent: scmi-cm-agent@0 {
+	compatible = "st,scmi-cortexm-agent";
+	scmi-agent-id = <1>;
+	scmi-channel-id = <0>;
+
+	scmi_regu_cm33: scmi-regu-cm33 {
+		compatible = "st,scmi-regulator-consumer";
+	};
+};
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git b99449e88b6bdf8701d1cd30cc78eda46000c125 core: scmi-server: regulator: use agent_id and channel_id from parent]
+Co-developed-by: Raphael Gallais-Pou <raphael.gallais-pou@foss.st.com>
+Signed-off-by: Raphael Gallais-Pou <raphael.gallais-pou@foss.st.com>
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: Ib682e35864a7e4adaa0518f8dfe92f92063331f6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/380389
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../include/scmi_regulator_consumer.h         |  1 +
+ .../lib/scmi-server/scmi_regulator_consumer.c | 26 ++++++++++++++++---
+ 2 files changed, 23 insertions(+), 4 deletions(-)
+
+diff --git a/core/lib/scmi-server/include/scmi_regulator_consumer.h b/core/lib/scmi-server/include/scmi_regulator_consumer.h
+index 1648ffb81..274e75044 100644
+--- a/core/lib/scmi-server/include/scmi_regulator_consumer.h
++++ b/core/lib/scmi-server/include/scmi_regulator_consumer.h
+@@ -18,6 +18,7 @@ struct scmi_server_regu {
+ };
+ 
+ struct scmi_server_regu_channel {
++	unsigned int agent_id;
+ 	unsigned int channel_id;
+ 	struct scmi_server_regu *regu;
+ 	size_t regu_count;
+diff --git a/core/lib/scmi-server/scmi_regulator_consumer.c b/core/lib/scmi-server/scmi_regulator_consumer.c
+index 0366c4684..9ffd1961e 100644
+--- a/core/lib/scmi-server/scmi_regulator_consumer.c
++++ b/core/lib/scmi-server/scmi_regulator_consumer.c
+@@ -22,13 +22,30 @@ static TEE_Result init_channel(void *fdt, int node)
+ 	struct scmi_server_regu_channel voltd_channel = { };
+ 	size_t voltd_domain_count = 0;
+ 	const fdt32_t *cuint = NULL;
++	int parent_node = 0;
+ 	int subnode = 0;
+ 	size_t n = 0;
+ 
+-	cuint = fdt_getprop(fdt, node, "scmi-channel-id", NULL);
+-	if (!cuint)
+-		panic("Can't read property scmi-channel-id");
++	parent_node = fdt_parent_offset(fdt, node);
+ 
++	/*
++	 * First try to get agent-id and channel-id from node,
++	 * and then from the parent node.
++	 */
++	cuint = fdt_getprop(fdt, node, "scmi-agent-id", NULL);
++	if (!cuint) {
++		cuint = fdt_getprop(fdt, parent_node, "scmi-agent-id", NULL);
++		if (!cuint)
++			return TEE_ERROR_BAD_PARAMETERS;
++	}
++	voltd_channel.agent_id = fdt32_to_cpu(*cuint);
++
++	cuint = fdt_getprop(fdt, node, "scmi-channel-id", NULL);
++	if (!cuint) {
++		cuint = fdt_getprop(fdt, parent_node, "scmi-channel-id", NULL);
++		if (!cuint)
++			return TEE_ERROR_BAD_PARAMETERS;
++	}
+ 	voltd_channel.channel_id = fdt32_to_cpu(*cuint);
+ 
+ 	/* Compute the number of domains to allocate */
+@@ -103,7 +120,8 @@ static TEE_Result init_channel(void *fdt, int node)
+ 			voltd_channel.regu[n].domain_id = n;
+ 	}
+ 
+-	res = scmi_scpfw_cfg_add_regu(0/*agent*/, voltd_channel.channel_id,
++	res = scmi_scpfw_cfg_add_regu(voltd_channel.agent_id,
++				      voltd_channel.channel_id,
+ 				      voltd_channel.regu,
+ 				      voltd_channel.regu_count);
+ 	/*
+-- 
+2.47.2
+

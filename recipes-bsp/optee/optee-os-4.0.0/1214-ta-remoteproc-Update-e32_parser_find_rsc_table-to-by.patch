@@ -1,0 +1,124 @@
+From 6f5ba8f89686efc7fdc5f94c135331ca08595b1b Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Wed, 11 Sep 2024 15:05:16 +0200
+Subject: [PATCH 1214/1695] ta: remoteproc: Update e32_parser_find_rsc_table to
+ bypass cheader check
+
+The function performs basic checks of the resource table header.
+
+This check is not possible in the case of encryption, as the segment
+is encrypted.
+
+Anyway, this check is optional because:
+- it is not safe, the resource table is in shared memory that could
+  be updated by another context before used.
+- Linux checks it before using it.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a1a5ab8f78c0d95f411124ea9e145901c9627a61 ta: remoteproc: Update e32_parser_find_rsc_table to bypass cheader check]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: Ib9181d89ea8bccd72895bdaeb014eff0a1e62128
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/403802
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ ta/remoteproc/src/elf_parser.c      | 38 ++++++++++++++++-------------
+ ta/remoteproc/src/elf_parser.h      |  4 ++-
+ ta/remoteproc/src/remoteproc_core.c |  2 +-
+ 3 files changed, 25 insertions(+), 19 deletions(-)
+
+diff --git a/ta/remoteproc/src/elf_parser.c b/ta/remoteproc/src/elf_parser.c
+index 0cd0bc67d..11e62930c 100644
+--- a/ta/remoteproc/src/elf_parser.c
++++ b/ta/remoteproc/src/elf_parser.c
+@@ -95,7 +95,7 @@ TEE_Result e32_parser_load_elf_image(uint8_t *fw, size_t fw_size,
+ 
+ TEE_Result e32_parser_find_rsc_table(uint8_t *fw, size_t fw_size,
+ 				     Elf32_Addr *rsc_addr,
+-				     Elf32_Word *rsc_size)
++				     Elf32_Word *rsc_size, bool verif_hdr)
+ {
+ 	Elf32_Shdr *shdr = NULL;
+ 	unsigned int i = 0;
+@@ -144,22 +144,26 @@ TEE_Result e32_parser_find_rsc_table(uint8_t *fw, size_t fw_size,
+ 		if (!IS_ALIGNED_WITH_TYPE(table, uint32_t))
+ 			return TEE_ERROR_CORRUPT_OBJECT;
+ 
+-		if (table->ver != 1) {
+-			EMSG("Unsupported firmware version %"PRId32,
+-			     table->ver);
+-			return TEE_ERROR_BAD_FORMAT;
+-		}
+-
+-		if (table->reserved[0] || table->reserved[1]) {
+-			EMSG("Non zero reserved bytes");
+-			return TEE_ERROR_BAD_FORMAT;
+-		}
+-
+-		if (MUL_OVERFLOW(table->num, sizeof(*table->offset), &s) ||
+-		    ADD_OVERFLOW(s, sizeof(struct resource_table), &s) ||
+-		    s > size) {
+-			EMSG("Resource table incomplete");
+-			return TEE_ERROR_BAD_FORMAT;
++		if (verif_hdr) {
++			if (table->ver != 1) {
++				EMSG("Unsupported firmware version %"PRId32,
++				     table->ver);
++				return TEE_ERROR_BAD_FORMAT;
++			}
++
++			if (table->reserved[0] || table->reserved[1]) {
++				EMSG("Non zero reserved bytes");
++				return TEE_ERROR_BAD_FORMAT;
++			}
++
++			if (MUL_OVERFLOW(table->num, sizeof(*table->offset),
++					 &s) ||
++			    ADD_OVERFLOW(s, sizeof(struct resource_table),
++					 &s) ||
++			    s > size) {
++				EMSG("Resource table incomplete");
++				return TEE_ERROR_BAD_FORMAT;
++			}
+ 		}
+ 
+ 		DMSG("Resource table address %#"PRIx32", size %"PRIu32,
+diff --git a/ta/remoteproc/src/elf_parser.h b/ta/remoteproc/src/elf_parser.h
+index 1bd658feb..2a9bdc0d7 100644
+--- a/ta/remoteproc/src/elf_parser.h
++++ b/ta/remoteproc/src/elf_parser.h
+@@ -80,12 +80,14 @@ TEE_Result e32_parser_load_elf_image(uint8_t *fw, size_t fw_size,
+  * @fw_size:	Firmware ELF file image byte size
+  * @rsc_addr:	Output resource table address from the remote proc perspective
+  * @rsc_size:	Output resource table size
++ * @verif_hdr:	If false, the check of the resource table header is bypassed,
++ *              typically set to false when the resource table is encrypted.
+  * Return TEE_SUCCESS if found,
+  *        TEE_ERROR_NO_DATA if not found,
+  *        or appropriate error.
+  */
+ TEE_Result e32_parser_find_rsc_table(uint8_t *fw, size_t fw_size,
+ 				     Elf32_Addr *rsc_addr,
+-				     Elf32_Word *rsc_size);
++				     Elf32_Word *rsc_size, bool verif_hdr);
+ 
+ #endif /*ELF_PARSER_H*/
+diff --git a/ta/remoteproc/src/remoteproc_core.c b/ta/remoteproc/src/remoteproc_core.c
+index 8f77c9c2c..a04c9fc6d 100644
+--- a/ta/remoteproc/src/remoteproc_core.c
++++ b/ta/remoteproc/src/remoteproc_core.c
+@@ -695,7 +695,7 @@ static TEE_Result remoteproc_parse_rsc_table(struct remoteproc_context *ctx,
+ 	TEE_Result res = TEE_ERROR_GENERIC;
+ 	Elf32_Word size = 0;
+ 
+-	res = e32_parser_find_rsc_table(fw_img, fw_img_sz, &da, &size);
++	res = e32_parser_find_rsc_table(fw_img, fw_img_sz, &da, &size, true);
+ 	if (res)
+ 		return res;
+ 
+-- 
+2.47.2
+

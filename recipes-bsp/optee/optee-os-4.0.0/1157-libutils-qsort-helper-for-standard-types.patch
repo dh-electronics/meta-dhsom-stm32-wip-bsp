@@ -1,0 +1,275 @@
+From 8bf682e950f7f20189c9e61b9840070eee78b43b Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 12 Jul 2024 08:44:17 +0200
+Subject: [PATCH 1157/1695] libutils: qsort helper for standard types
+
+Add qsort_int(), qsort_uint(), qsort_u32() and friends as qsort() helper
+functions to sort standard typed arrays.
+
+[picked from pull request https://github.com/OP-TEE/optee_os/pull/6944]
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 141f4ce7c8e0955e7978bc2e3c4d573405cfe607 libutils: qsort helper for standard types]
+Change-Id: I8e4d29c50623afe8d86539f857e6f7a54d4ecb3d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/393542
+Tested-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ lib/libutils/ext/include/util.h  |  20 ++++
+ lib/libutils/ext/qsort_helpers.c | 189 +++++++++++++++++++++++++++++++
+ lib/libutils/ext/sub.mk          |   1 +
+ 3 files changed, 210 insertions(+)
+ create mode 100644 lib/libutils/ext/qsort_helpers.c
+
+diff --git a/lib/libutils/ext/include/util.h b/lib/libutils/ext/include/util.h
+index aedd50804..ba83a673b 100644
+--- a/lib/libutils/ext/include/util.h
++++ b/lib/libutils/ext/include/util.h
+@@ -8,6 +8,10 @@
+ #include <compiler.h>
+ #include <inttypes.h>
+ 
++#ifndef __ASSEMBLER__
++#include <stddef.h>
++#endif
++
+ #define SIZE_4K	UINTPTR_C(0x1000)
+ #define SIZE_1M	UINTPTR_C(0x100000)
+ #define SIZE_2M	UINTPTR_C(0x200000)
+@@ -203,6 +207,22 @@ static inline uint64_t set_field_u64(uint64_t reg, uint64_t mask, uint64_t val)
+ {
+ 	return (reg & ~mask) | (val * (mask & ~(mask - 1)));
+ }
++
++/* Helper function for qsort with standard types */
++void qsort_int(int *aa, size_t n);
++void qsort_uint(unsigned int *aa, size_t n);
++void qsort_long(long int *aa, size_t n);
++void qsort_ul(unsigned long int *aa, size_t n);
++void qsort_ll(long long *aa, size_t n);
++void qsort_ull(unsigned long long int *aa, size_t n);
++void qsort_s8(int8_t *aa, size_t n);
++void qsort_u8(uint8_t *aa, size_t n);
++void qsort_s16(int16_t *aa, size_t n);
++void qsort_u16(uint16_t *aa, size_t n);
++void qsort_s32(int32_t *aa, size_t n);
++void qsort_u32(uint32_t *aa, size_t n);
++void qsort_s64(int64_t *aa, size_t n);
++void qsort_u64(uint64_t *aa, size_t n);
+ #endif
+ 
+ #endif /*UTIL_H*/
+diff --git a/lib/libutils/ext/qsort_helpers.c b/lib/libutils/ext/qsort_helpers.c
+new file mode 100644
+index 000000000..af094d51f
+--- /dev/null
++++ b/lib/libutils/ext/qsort_helpers.c
+@@ -0,0 +1,189 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Copyright (c) 2024, STMicroelectronics
++ */
++
++#include <stdlib.h>
++#include <util.h>
++
++static int qsort_cmp_int(const void *a, const void *b)
++{
++	const int *ia = a;
++	const int *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_uint(const void *a, const void *b)
++{
++	const unsigned int *ia = a;
++	const unsigned int *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_long(const void *a, const void *b)
++{
++	const long int *ia = a;
++	const long int *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_ul(const void *a, const void *b)
++{
++	const unsigned long int *ia = a;
++	const unsigned long int *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_ll(const void *a, const void *b)
++{
++	const long long int *ia = a;
++	const long long int *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_ull(const void *a, const void *b)
++{
++	const unsigned long long int *ia = a;
++	const unsigned long long int *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_s8(const void *a, const void *b)
++{
++	const int8_t *ia = a;
++	const int8_t *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_u8(const void *a, const void *b)
++{
++	const uint8_t *ia = a;
++	const uint8_t *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_s16(const void *a, const void *b)
++{
++	const int16_t *ia = a;
++	const int16_t *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_u16(const void *a, const void *b)
++{
++	const uint16_t *ia = a;
++	const uint16_t *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_s32(const void *a, const void *b)
++{
++	const int32_t *ia = a;
++	const int32_t *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_u32(const void *a, const void *b)
++{
++	const uint32_t *ia = a;
++	const uint32_t *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_s64(const void *a, const void *b)
++{
++	const int64_t *ia = a;
++	const int64_t *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++static int qsort_cmp_u64(const void *a, const void *b)
++{
++	const uint64_t *ia = a;
++	const uint64_t *ib = b;
++
++	return CMP_TRILEAN(*ia, *ib);
++}
++
++void qsort_int(int *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_int);
++}
++
++void qsort_uint(unsigned int *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_uint);
++}
++
++void qsort_long(long int *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_long);
++}
++
++void qsort_ul(unsigned long int *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_ul);
++}
++
++void qsort_ll(long long *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_ll);
++}
++
++void qsort_ull(unsigned long long int *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_ull);
++}
++
++void qsort_s8(int8_t *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_s8);
++}
++
++void qsort_u8(uint8_t *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_u8);
++}
++
++void qsort_s16(int16_t *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_s16);
++}
++
++void qsort_u16(uint16_t *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_u16);
++}
++
++void qsort_s32(int32_t *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_s32);
++}
++
++void qsort_u32(uint32_t *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_u32);
++}
++
++void qsort_s64(int64_t *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_s64);
++}
++
++void qsort_u64(uint64_t *aa, size_t n)
++{
++	qsort(aa, n, sizeof(*aa), qsort_cmp_u64);
++}
+diff --git a/lib/libutils/ext/sub.mk b/lib/libutils/ext/sub.mk
+index 3ab5afd5a..343889e20 100644
+--- a/lib/libutils/ext/sub.mk
++++ b/lib/libutils/ext/sub.mk
+@@ -9,6 +9,7 @@ srcs-y += nex_strdup.c
+ srcs-y += consttime_memcmp.c
+ srcs-y += memzero_explicit.c
+ srcs-y += fault_mitigation.c
++srcs-y += qsort_helpers.c
+ 
+ ifneq (,$(filter ta_%,$(sm)))
+ srcs-y += pthread_stubs.c
+-- 
+2.47.2
+

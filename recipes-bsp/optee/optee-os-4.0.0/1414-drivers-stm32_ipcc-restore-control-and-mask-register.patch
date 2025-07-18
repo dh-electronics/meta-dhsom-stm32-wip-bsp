@@ -1,0 +1,81 @@
+From bb33d6ecd03fb88f868b27255ca1c8b0c0ddb6b5 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Thu, 5 Dec 2024 15:55:52 +0100
+Subject: [PATCH 1414/1695] drivers: stm32_ipcc: restore control and mask
+ register after pm resume
+
+IPCC could lost its configuration in Standby low power mode. Save these
+two registers before suspend and restore it after resume.
+
+Only restore register linked to local processor.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 8e7e8f8a16b42e51909a2a6d73535b00c728f7cf drivers: stm32_ipcc: restore control and mask register after pm resume]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I5f38df6bdcbd2a130204c2272762cfb8cebccec2
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/423177
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Michel JAOUEN <michel.jaouen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+---
+ core/drivers/stm32_ipcc.c | 27 +++++++++++++++++++++++++--
+ 1 file changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/core/drivers/stm32_ipcc.c b/core/drivers/stm32_ipcc.c
+index 43c2e853f..4024b15fa 100644
+--- a/core/drivers/stm32_ipcc.c
++++ b/core/drivers/stm32_ipcc.c
+@@ -137,6 +137,10 @@ struct ipcc_pdata {
+ 	size_t itr_num[IPCC_ITR_NUM];
+ 	struct itr_handler *itr[IPCC_ITR_NUM];
+ 
++	/* Restore registers value after pm resume */
++	uint32_t backup_cr;
++	uint32_t backup_mr;
++
+ 	/* Single mailbox user (mailbox framework) */
+ 	struct stm32_ipcc_mbx_data data;
+ 	STAILQ_ENTRY(ipcc_pdata) link;
+@@ -283,16 +287,35 @@ static void apply_rif_config(struct ipcc_pdata *ipcc_d)
+ 
+ static void stm32_ipcc_pm_resume(struct ipcc_pdata *ipcc)
+ {
++	uint32_t cr_sec_mask = IPCC_CR_SECTXFIE | IPCC_CR_SECRXOIE;
++	uint32_t mr_sec_mask = 0U;
++
+ 	apply_rif_config(ipcc);
++
++	/* Restore mask of secure channels */
++	mr_sec_mask = set_field_u32(mr_sec_mask, IPCC_ALL_MR_TXF_CH_MASK,
++				    ipcc->conf_data->sec_conf[0]);
++	mr_sec_mask = set_field_u32(mr_sec_mask, IPCC_ALL_MR_RXO_CH_MASK,
++				    ipcc->conf_data->sec_conf[0]);
++	io_clrsetbits32(ipcc->lbase + IPCC_MR, mr_sec_mask,
++			mr_sec_mask & ipcc->backup_mr);
++
++	/* Restore secure control register */
++	io_clrsetbits32(ipcc->lbase + IPCC_CR, cr_sec_mask,
++			cr_sec_mask & ipcc->backup_cr);
+ }
+ 
+-static void stm32_ipcc_pm_suspend(struct ipcc_pdata *ipcc __unused)
++static void stm32_ipcc_pm_suspend(struct ipcc_pdata *ipcc)
+ {
+ 	/*
+-	 * Do nothing because IPCC forbids RIF configuration read if CID
++	 * Do not save RIF configuration because IPCC forbids to read it if CID
+ 	 * filtering is enabled. We'll simply restore the device tree RIF
+ 	 * configuration.
+ 	 */
++
++	/* Save control and mask register before suspend */
++	ipcc->backup_cr = io_read32(ipcc->lbase + IPCC_CR);
++	ipcc->backup_mr = io_read32(ipcc->lbase + IPCC_MR);
+ }
+ 
+ static TEE_Result
+-- 
+2.47.2
+

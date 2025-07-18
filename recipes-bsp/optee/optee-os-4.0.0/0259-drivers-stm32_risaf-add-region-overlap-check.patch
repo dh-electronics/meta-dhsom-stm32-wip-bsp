@@ -1,0 +1,87 @@
+From c2f5841099ac01fa1fec44ea76161a8908abb2f0 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 15 May 2023 19:47:19 +0200
+Subject: [PATCH 0259/1695] drivers: stm32_risaf: add region overlap check
+
+Rename check_region_address with risaf_check_region_boundaries.
+Add an overlap check function that verifies if a given region does
+not cover another region.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ac5be4478450eb83cef851796792d084912438f9 drivers: stm32_risaf: add region overlap check]
+Change-Id: I0c87d489c1c7320e3a58408f4d28fab7da64123b
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+---
+ core/drivers/firewall/stm32_risaf.c | 35 +++++++++++++++++++++++++----
+ 1 file changed, 31 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/firewall/stm32_risaf.c b/core/drivers/firewall/stm32_risaf.c
+index b4d5ab786..f77f4a973 100644
+--- a/core/drivers/firewall/stm32_risaf.c
++++ b/core/drivers/firewall/stm32_risaf.c
+@@ -9,8 +9,9 @@
+ #include <drivers/stm32_risaf.h>
+ #include <dt-bindings/soc/stm32mp25-risaf.h>
+ #include <io.h>
+-#include <kernel/dt.h>
+ #include <kernel/boot.h>
++#include <kernel/dt.h>
++#include <kernel/tee_misc.h>
+ #include <libfdt.h>
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
+@@ -244,8 +245,9 @@ bool risaf_is_hw_encryption_enabled(struct stm32_risaf_instance *risaf)
+ 		_RISAF_SR_ENCDIS) != _RISAF_SR_ENCDIS;
+ }
+ 
+-static TEE_Result check_region_address(struct stm32_risaf_instance *risaf,
+-				       struct stm32_risaf_region *region)
++static TEE_Result
++risaf_check_region_boundaries(struct stm32_risaf_instance *risaf,
++			      struct stm32_risaf_region *region)
+ {
+ 	uintptr_t end_paddr = 0;
+ 
+@@ -277,6 +279,30 @@ static TEE_Result check_region_address(struct stm32_risaf_instance *risaf,
+ 	return TEE_SUCCESS;
+ }
+ 
++static TEE_Result
++risaf_check_overlap(struct stm32_risaf_instance *risaf __maybe_unused,
++		    struct stm32_risaf_region *region, unsigned int index)
++{
++	unsigned int i = 0;
++
++	for (i = 0; i < index; i++) {
++		/* Skip region if there's no configuration */
++		if (!region[i].cfg)
++			continue;
++
++		if (core_is_buffer_intersect(region[index].addr,
++					     region[index].len,
++					     region[i].addr,
++					     region[i].len)) {
++			EMSG("RISAF %#"PRIxPTR": Regions %u and %u overlap",
++			     risaf->pdata.base.pa, index, i);
++			return TEE_ERROR_GENERIC;
++		}
++	}
++
++	return TEE_SUCCESS;
++}
++
+ static TEE_Result risaf_configure_region(struct stm32_risaf_instance *risaf,
+ 					 uint32_t region_id, uint32_t cfg,
+ 					 uint32_t cid_cfg, uintptr_t saddr,
+@@ -548,7 +574,8 @@ static TEE_Result stm32_risaf_probe(const void *fdt, int node,
+ 		     risaf->pdata.base.pa, regions[i].cfg, regions[i].addr,
+ 		     regions[i].len);
+ 
+-		if (check_region_address(risaf, &regions[i]))
++		if (risaf_check_region_boundaries(risaf, &regions[i]) ||
++		    risaf_check_overlap(risaf, regions, i))
+ 			panic();
+ 
+ 		id = _RISAF_GET_REGION_ID(regions[i].cfg);
+-- 
+2.47.2
+
