@@ -1,0 +1,37 @@
+From 7f6f40094e34ed4dc58463df73e53ea58c5515ca Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 28 Apr 2023 17:03:09 +0200
+Subject: [PATCH 522/841] feat(stm32mp21): no IWDG5 reset on STM32MP21
+
+IWDG5 is not present on STM32MP21, don't manage its reset in that case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 92a54a976fdb0600669d9985eb2b396072c3d0d6 feat(stm32mp21): no IWDG5 reset on STM32MP21]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I01d236135aebc3cb751d23d081da8fabb22d3f09
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/356311
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index f6e4ed55d..b34985e1e 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -150,10 +150,12 @@ static void print_reset_reason(void)
+ 		return;
+ 	}
+ 
++#if !STM32MP21
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_IWDG5SYSRSTF) != 0U) {
+ 		INFO("  IWDG5 system reset (rst_iwdg5)\n");
+ 		return;
+ 	}
++#endif /* !STM32MP21 */
+ 
+ 	if ((rstsr & RCC_C1BOOTRSTSCLRR_C1P1RSTF) != 0U) {
+ 		INFO("  A35 processor core 1 reset\n");
+-- 
+2.47.2
+

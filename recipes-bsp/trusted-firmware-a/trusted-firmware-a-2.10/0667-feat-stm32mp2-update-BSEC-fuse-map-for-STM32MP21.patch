@@ -1,0 +1,53 @@
+From e10e82c99a05a9ab4f5d73a6e0d8aab6987963d1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 8 Aug 2024 18:22:20 +0200
+Subject: [PATCH 667/841] feat(stm32mp2): update BSEC fuse map for STM32MP21
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+ECIES key is bigger on STM32MP21, update platform data accordingly.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e0b75a759fce67ac35922628b14066c67154f2b0 feat(stm32mp2): update BSEC fuse map for STM32MP21]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Change-Id: I0d25dc4c9bb2f1ec98dca0535ead9653ae50e99a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/397622
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 404d97cdc..5ca2d859e 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -438,12 +438,23 @@ enum ddr_type {
+ /*******************************************************************************
+  * STM32MP2 BSEC / OTP
+  ******************************************************************************/
++#if STM32MP21
++/*
++ * BSEC: 364 available OTPs, the other are masked
++ * - OEM FSBL keys 348 to 363 (programmable but not readable)
++ * - ECIES key: 364 to 375 (only readable by bootrom)
++ * - HWKEY: 376 to 383 (never reloadable or readable)
++ */
++#define STM32MP2_OTP_MAX_ID		0x16BU
++#else
+ /*
+  * 367 available OTPs, the other are masked
++ * - OEM FSBL keys 360 to 367 (programmable but not readable)
+  * - ECIES key: 368 to 375 (only readable by bootrom)
+  * - HWKEY: 376 to 383 (never reloadable or readable)
+  */
+ #define STM32MP2_OTP_MAX_ID			0x16FU
++#endif
+ #define STM32MP2_MID_OTP_START			0x80U
+ #define STM32MP2_UPPER_OTP_START		0x100U
+ 
+-- 
+2.47.2
+

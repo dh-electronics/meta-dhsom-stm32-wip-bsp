@@ -1,0 +1,44 @@
+From 3b41b800bfc1f9e6544ad132aafc8e6fca813e51 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Wed, 17 May 2023 09:15:26 +0200
+Subject: [PATCH 303/841] fix(st): add 64-bit support on GIC base address
+
+On 64-bits architecture systems, GIC reg properties in Device Tree are
+expressed with address and size cells equal to 2.
+The method to retrieve these values has to be adapted.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6e2198e6c73767a8218ad9ef8cef9457a1fc247b fix(st): add 64-bit support on GIC base address]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I7d94ceed8fc957b4ea6c37d602e74d9091d5f142
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/307453
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/stm32mp_gic.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/plat/st/common/stm32mp_gic.c b/plat/st/common/stm32mp_gic.c
+index 196a97b94..f0d6ea3d1 100644
+--- a/plat/st/common/stm32mp_gic.c
++++ b/plat/st/common/stm32mp_gic.c
+@@ -60,8 +60,15 @@ void stm32mp_gic_init(void)
+ 		panic();
+ 	}
+ 
++#ifdef __aarch64__
++	platform_gic_data.gicd_base = (uintptr_t)fdt32_to_cpu(cuint[0]) << 32;
++	platform_gic_data.gicd_base |= fdt32_to_cpu(cuint[1]);
++	platform_gic_data.gicc_base = (uintptr_t)fdt32_to_cpu(cuint[4]) << 32;
++	platform_gic_data.gicc_base |= fdt32_to_cpu(cuint[5]);
++#else /* __aarch64__ */
+ 	platform_gic_data.gicd_base = fdt32_to_cpu(cuint[0]);
+ 	platform_gic_data.gicc_base = fdt32_to_cpu(cuint[2]);
++#endif /* __aarch64__ */
+ 
+ 	cuint = fdt_getprop(fdt, node, "#interrupt-cells", NULL);
+ 	if (cuint == NULL) {
+-- 
+2.47.2
+

@@ -1,0 +1,241 @@
+From 6bb008f7770a358d39d7ca954d7551baa4028ed9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 9 Aug 2024 11:15:22 +0200
+Subject: [PATCH 669/841] feat(stm32-rif): improve peripheral access
+ acquisition
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On low power exit, part of firewall (RIFSC) configuration is preserved.
+BL2 should verify firewall configuration before accessing
+peripherals/features. Moreover, checks are also necessary when in M33
+TDCID mode as the firewall is configured by cotex M33.
+
+Also add "stm32_rifsc_semaphore_exit" function to release all semaphore
+used by TF-A BL2 before jumping to the next boot stage.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 85cb69a38cd6e92f6ef477bf6a9c1daeaef292c7 feat(stm32-rif): improve peripheral access acquisition]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ib274ab52624129b4d703d7e2b280a9e4679bbb3e
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/396943
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/rif/stm32_rifsc.c            | 101 ++++++++++++++++++++++--
+ include/drivers/st/stm32_rifsc.h        |  14 ++++
+ include/drivers/st/stm32mp_rifsc_regs.h |   2 +
+ plat/st/stm32mp2/bl2_plat_setup.c       |   3 +
+ 4 files changed, 114 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/st/rif/stm32_rifsc.c b/drivers/st/rif/stm32_rifsc.c
+index 6783e5843..23b564d53 100644
+--- a/drivers/st/rif/stm32_rifsc.c
++++ b/drivers/st/rif/stm32_rifsc.c
+@@ -16,33 +16,93 @@
+ 
+ #include <platform_def.h>
+ 
+-static unsigned long rifsc_semaphores[] = {
++static unsigned long rifsc_periph[] = {
+ #if STM32MP21
+ 	STM32MP21_RIFSC_RNG2_ID,
+ 	STM32MP21_RIFSC_PKA_ID,
+ 	STM32MP21_RIFSC_SAES_ID,
++	STM32MP21_RIFSC_HASH1_ID,
+ #endif /* STM32MP21 */
+ #if STM32MP23
+ 	STM32MP23_RIFSC_RNG_ID,
+ 	STM32MP23_RIFSC_PKA_ID,
+ 	STM32MP23_RIFSC_SAES_ID,
++	STM32MP23_RIFSC_HASH_ID,
+ #endif /* STM32MP23 */
+ #if STM32MP25
+ 	STM32MP25_RIFSC_RNG_ID,
+ 	STM32MP25_RIFSC_PKA_ID,
+ 	STM32MP25_RIFSC_SAES_ID,
++	STM32MP25_RIFSC_HASH_ID,
+ #endif /* STM32MP25 */
+ };
+ 
++static int stm32_rifsc_access_check(unsigned int id)
++{
++	unsigned int periph_offset = id % 32U;
++
++	uint32_t sec_reg_value = mmio_read_32(RIFSC_BASE + _RIFSC_RISC_SECCFGR(id));
++	uint32_t priv_reg_value = mmio_read_32(RIFSC_BASE + _RIFSC_RISC_PRIVCFGR(id));
++	uint32_t cid_reg_value = mmio_read_32(RIFSC_BASE + _RIFSC_RISC_PERy_CIDCFGR(id));
++	uint32_t sem_reg_value = mmio_read_32(RIFSC_BASE + _RIFSC_RISC_PERy_SEMCR(id));
++
++	if ((cid_reg_value & _RIFSC_CIDCFGR_CFEN) == 0U) {
++		return 0;
++	}
++
++	/*
++	 * Peripheral used by TF-A are supposed to be secure privileged
++	 */
++	if(((sec_reg_value & BIT_32(periph_offset)) == 0U) &&
++	    ((priv_reg_value & BIT_32(periph_offset)) == 0U)) {
++		return -EACCES;
++	}
++
++	/*
++	 * If semaphore is enabled CID1 must be whitelisted and
++	 * semaphore free to take.
++	 * Otherwise, static CID must be CID1.
++	 */
++	if ((cid_reg_value & _RIFSC_CIDCFGR_SEM_EN) != 0U) {
++		if (((cid_reg_value & BIT(RIF_CID1 + _RIFSC_CIDCFGR_SEML_SHIFT)) != 0U) &&
++		    ((sem_reg_value & _RIFSC_SEMCR_SEM_MUTEX) == 0U)) {
++			return -EACCES;
++		}
++	} else {
++		if (((cid_reg_value & _RIFSC_CIDCFGR_SCID_MASK) >>
++			_RIFSC_CIDCFGR_SCID_SHIFT) != RIF_CID1) {
++				return -EACCES;
++		}
++	}
++
++	return 0;
++}
++
++int stm32_rifsc_check_peripheral_access(void)
++{
++	size_t i;
++	int ret = 0;
++
++	for (i = 0U; i < ARRAY_SIZE(rifsc_periph); i++) {
++		if (stm32_rifsc_access_check(rifsc_periph[i]) != 0) {
++			ERROR("%s: access denied. Periph ID: %lu\n",
++			       __func__, rifsc_periph[i]);
++			ret = -EACCES;
++		}
++	}
++
++	return ret;
++}
++
+ int stm32_rifsc_semaphore_init(void)
+ {
+-	unsigned long i = 0;
++	size_t i;
+ 
+-	for (i = 0; i < ARRAY_SIZE(rifsc_semaphores); i++) {
++	for (i = 0U; i < ARRAY_SIZE(rifsc_periph); i++) {
+ 		uint32_t cidcfgr = mmio_read_32(RIFSC_BASE +
+-						_RIFSC_RISC_PERy_CIDCFGR(rifsc_semaphores[i]));
++						_RIFSC_RISC_PERy_CIDCFGR(rifsc_periph[i]));
+ 		uint32_t semcfgr = mmio_read_32(RIFSC_BASE +
+-						_RIFSC_RISC_PERy_SEMCR(rifsc_semaphores[i]));
++						_RIFSC_RISC_PERy_SEMCR(rifsc_periph[i]));
+ 
+ 		uint32_t sem_wl = (cidcfgr & _RIFSC_CIDCFGR_SEML_MASK) >> _RIFSC_CIDCFGR_SEML_SHIFT;
+ 
+@@ -57,7 +117,7 @@ int stm32_rifsc_semaphore_init(void)
+ 			return -EACCES;
+ 		}
+ 
+-		mmio_write_32(RIFSC_BASE + _RIFSC_RISC_PERy_SEMCR(rifsc_semaphores[i]),
++		mmio_write_32(RIFSC_BASE + _RIFSC_RISC_PERy_SEMCR(rifsc_periph[i]),
+ 			      _RIFSC_SEMCR_SEM_MUTEX);
+ 
+ 		if (((semcfgr & _RIFSC_SEMCR_SEM_MUTEX) != 0U) &&
+@@ -69,6 +129,35 @@ int stm32_rifsc_semaphore_init(void)
+ 	return 0;
+ }
+ 
++int stm32_rifsc_semaphore_exit(void)
++{
++	size_t i;
++
++	for (i = 0U; i < ARRAY_SIZE(rifsc_periph); i++) {
++		uint32_t cidcfgr = mmio_read_32(RIFSC_BASE +
++						_RIFSC_RISC_PERy_CIDCFGR(rifsc_periph[i]));
++		uint32_t semcfgr = mmio_read_32(RIFSC_BASE +
++						_RIFSC_RISC_PERy_SEMCR(rifsc_periph[i]));
++
++		uint32_t sem_wl = (cidcfgr & _RIFSC_CIDCFGR_SEML_MASK) >> _RIFSC_CIDCFGR_SEML_SHIFT;
++
++		if (!(((cidcfgr & _RIFSC_CIDCFGR_CFEN) != 0U) &&
++		      ((cidcfgr & _RIFSC_CIDCFGR_SEM_EN) != 0U) &&
++		      ((sem_wl & RIF_CID1_BF) != RIF_CID1_BF))) {
++			continue;
++		}
++
++		if (((semcfgr & _RIFSC_SEMCR_SEMCID_MASK) >> _RIFSC_SEMCR_SEMCID_SHIFT) !=
++		    RIF_CID1) {
++			return -EACCES;
++		}
++
++		mmio_write_32(RIFSC_BASE + _RIFSC_RISC_PERy_SEMCR(rifsc_periph[i]), 0x0U);
++	}
++
++	return 0;
++}
++
+ void stm32_rifsc_ip_configure(int rimu_id, int rifsc_id, uint32_t param)
+ {
+ 	uint32_t bit;
+diff --git a/include/drivers/st/stm32_rifsc.h b/include/drivers/st/stm32_rifsc.h
+index 56757a10d..ecd3ec824 100644
+--- a/include/drivers/st/stm32_rifsc.h
++++ b/include/drivers/st/stm32_rifsc.h
+@@ -7,12 +7,26 @@
+ #ifndef STM32MP2_RIFSC_H
+ #define STM32MP2_RIFSC_H
+ 
++/*
++ * stm32_rifsc_check_peripheral_access() - Check peripheral access of ID
++ * needed by tf-a.
++ *
++ * return 0 on success and -EACCES if one or more IP isn't available.
++ */
++int stm32_rifsc_check_peripheral_access(void);
+ /*
+  * stm32_rifsc_semaphore_init() - Takes RIFSC semaphore for some IDs
+  *
+  * Return 0 on success and -EACCES if authorized semaphore couldn't be taken
+  */
+ int stm32_rifsc_semaphore_init(void);
++/*
++ * stm32_rifsc_semaphore_exit() - Release RIFSC semaphore for ID defined
++ * in rifsc_semaphores table.
++ *
++ * Return 0 on sucess and -EACCES if authorized semaphore couldn't be released
++ */
++int stm32_rifsc_semaphore_exit(void);
+ void stm32_rifsc_ip_configure(int rimu_id, int rifsc_id, uint32_t param);
+ 
+ #endif /* STM32MP2_RIFSC_H */
+diff --git a/include/drivers/st/stm32mp_rifsc_regs.h b/include/drivers/st/stm32mp_rifsc_regs.h
+index 5b563faa2..2f668ee20 100644
+--- a/include/drivers/st/stm32mp_rifsc_regs.h
++++ b/include/drivers/st/stm32mp_rifsc_regs.h
+@@ -36,6 +36,8 @@
+ /* RIFSC_RISC_PERy_CIDCFGR register fields */
+ #define _RIFSC_CIDCFGR_CFEN			BIT_32(0)
+ #define _RIFSC_CIDCFGR_SEM_EN			BIT_32(1)
++#define _RIFSC_CIDCFGR_SCID_SHIFT		U(4)
++#define _RIFSC_CIDCFGR_SCID_MASK		GENMASK_32(6, 4)
+ #define _RIFSC_CIDCFGR_SEML_SHIFT		U(16)
+ #define _RIFSC_CIDCFGR_SEML_MASK		GENMASK_32(23, 16)
+ 
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index ca1de339a..b7b3ffc5b 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -765,6 +765,9 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 
+ void bl2_el3_plat_prepare_exit(void)
+ {
++	if (stm32_rifsc_semaphore_exit() != 0) {
++		panic();
++	}
+ 	flush_dcache_range(BSS_START, BSS_END - BSS_START);
+ 	flush_dcache_range(DATA_START, DATA_END - DATA_START);
+ 
+-- 
+2.47.2
+

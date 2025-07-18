@@ -1,0 +1,72 @@
+From 3c48ea90190f9e3689f6655525215ee3dbf141f7 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 17 Jan 2025 11:02:50 +0100
+Subject: [PATCH 778/841] fix(build): do not force PLAT in plat_helpers.mk
+
+After the change to allow overriding platform specific defaults [1],
+the PLAT macro is forced to DEFAULT_PLAT in plat_helpers.mk. But this
+makefile is also called for tools. For example in fiptool makefile, as
+PLAT is reset to default plat (fvp), we cannot use specific platforms
+plat_fiptool.mk files. Put back the setting of PLAT macro in Makefile.
+
+[1]: 1b2fb6adb5 feat(build): add ability to define platform specific
+                defaults
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c771ea31fd7bca69deb99121362e8cd50f4d08fa fix(build): do not force PLAT in plat_helpers.mk]
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Change-Id: Iadf8bc7fc831a728a9688d0afdd163c8dda737e5
+(cherry picked from commit 422b181faf2fd740e08cf881880015ea47b0cb67)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/429589
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ Makefile                     | 1 +
+ make_helpers/plat_helpers.mk | 5 ++---
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index 9958de0a3..e1cec34c0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -30,6 +30,7 @@ include ${MAKE_HELPERS_DIRECTORY}build_env.mk
+ ################################################################################
+ 
+ include ${MAKE_HELPERS_DIRECTORY}defaults.mk
++PLAT				:= ${DEFAULT_PLAT}
+ include ${MAKE_HELPERS_DIRECTORY}plat_helpers.mk
+ 
+ # To be able to set platform specific defaults
+diff --git a/make_helpers/plat_helpers.mk b/make_helpers/plat_helpers.mk
+index bc02a2078..9a59faed4 100644
+--- a/make_helpers/plat_helpers.mk
++++ b/make_helpers/plat_helpers.mk
+@@ -1,5 +1,5 @@
+ #
+-# Copyright (c) 2016, ARM Limited and Contributors. All rights reserved.
++# Copyright (c) 2016-2025, ARM Limited and Contributors. All rights reserved.
+ #
+ # SPDX-License-Identifier: BSD-3-Clause
+ #
+@@ -11,7 +11,6 @@
+ ifndef PLAT_HELPERS_MK
+     PLAT_HELPERS_MK := $(lastword $(MAKEFILE_LIST))
+ 
+-    PLAT:= ${DEFAULT_PLAT}
+     ifeq (${PLAT},)
+         $(error "Error: Unknown platform. Please use PLAT=<platform name> to specify the platform")
+     endif
+@@ -33,7 +32,7 @@ ifndef PLAT_HELPERS_MK
+     PLAT_DEFAULTS_MAKEFILE_FULL := $(filter %/${PLAT}/${PLAT_DEFAULTS_MAKEFILE},${ALL_PLATFORM_MK_DEF_FILES})
+     PLATFORM_LIST               := $(subst ${space},|,${ALL_PLATFORMS})
+     ifeq ($(PLAT_MAKEFILE_FULL),)
+-        $(error "Error: Invalid platform. The following platforms are available: ${PLATFORM_LIST}")
++        $(error "Error: Invalid platform (${PLAT}). The following platforms are available: ${PLATFORM_LIST}")
+     endif
+ 
+     # Record the directory where the platform make file was found.
+-- 
+2.47.2
+

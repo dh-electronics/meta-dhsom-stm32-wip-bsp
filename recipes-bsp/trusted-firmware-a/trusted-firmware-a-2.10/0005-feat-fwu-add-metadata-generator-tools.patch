@@ -1,0 +1,895 @@
+From 922cc5bcd0b376a0adb524a1493109a6b6cedc9a Mon Sep 17 00:00:00 2001
+From: Nicolas Toromanoff <nicolas.toromanoff@foss.st.com>
+Date: Thu, 10 Feb 2022 08:44:20 +0100
+Subject: [PATCH 005/841] feat(fwu): add metadata generator tools
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add metatdata generator and explorer tool.
+From a JSON metadata description generate a metadata binary ready to be
+used.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3b4438c5d799f0df058c505b0f3acabf06f77ec4 feat(fwu): add metadata generator tools]
+Signed-off-by: Nicolas Toromanoff <nicolas.toromanoff@foss.st.com>
+Signed-off-by: Timothée Cercueil <litchi.pi@protonmail.com>
+Change-Id: Ia30554ee0bdb150917e3eda148e33e376e563fff
+---
+ tools/fwu_gen_metadata/README.md              |  87 ++++++
+ tools/fwu_gen_metadata/fwumd_tool.py          | 181 ++++++++++++
+ tools/fwu_gen_metadata/src/metadata.py        | 102 +++++++
+ tools/fwu_gen_metadata/src/structs.py         | 262 ++++++++++++++++++
+ tools/fwu_gen_metadata/src/utils.py           |  69 +++++
+ tools/fwu_gen_metadata/src/uuid_t.py          |  79 ++++++
+ tools/fwu_gen_metadata/tests/testall.sh       |  21 ++
+ .../fwu_gen_metadata/tests/validate_stable.sh |   8 +
+ 8 files changed, 809 insertions(+)
+ create mode 100644 tools/fwu_gen_metadata/README.md
+ create mode 100755 tools/fwu_gen_metadata/fwumd_tool.py
+ create mode 100644 tools/fwu_gen_metadata/src/metadata.py
+ create mode 100644 tools/fwu_gen_metadata/src/structs.py
+ create mode 100644 tools/fwu_gen_metadata/src/utils.py
+ create mode 100644 tools/fwu_gen_metadata/src/uuid_t.py
+ create mode 100755 tools/fwu_gen_metadata/tests/testall.sh
+ create mode 100755 tools/fwu_gen_metadata/tests/validate_stable.sh
+
+diff --git a/tools/fwu_gen_metadata/README.md b/tools/fwu_gen_metadata/README.md
+new file mode 100644
+index 000000000..3469bda52
+--- /dev/null
++++ b/tools/fwu_gen_metadata/README.md
+@@ -0,0 +1,87 @@
++# fwumd\_tool
++Tool to create FWU Metadata struct in Python
++
++## Getting started
++As metadata struct composition and length changes depending on how many images and how many banks you want to put in them,
++the options `--nb-img-in-banks` (or `-ni` for short) and `--nb-banks` (or `-nb` for short) may be required to format the binary data properly.
++The default values are **1 image** and **2 banks**
++
++### From Json to binary
++`fwumd_tool.py dummy` will generate a file `dummy.json` and `dummy.bin`, containing
++dummy metadata for testing purpose.
++
++Modify the json file with the correct metadata you want to set, then call
++`fwumd_tool.py jsonparse <json file>` to generate the binary metadata from the given json file
++In both of these commands, passing option `-v` will dump the content of the metadata for visual
++inspection.
++
++**The name format `<image>_bank_<nb>` needs to be respected for images in banks**
++
++### From binary to json
++You can dump a binary metadata file using the command `fwumd_tool.py dump <binary file>` to
++visualize the metadata in human-readable format from the binary.
++
++You can also generate a json config file from binary data using the command `fwumd_tool.py binparse <binary file>`.
++It will generate json data in which names are automatically generated.
++
++Passing the option `--template <jsonfile>` to binparse allows the tool to get the config from the given json file,
++and will mimic the number of images, the number of banks, and the names given to images, banks, location.
++
++### Test reproducible binary metadata
++Passing these commands should end up with matching checksum.
++```bash
++./fwumd_tool.py dummy
++./fwumd_tool.py binparse dummy.bin -j dummy2.json
++./fwumd_tool.py jsonparse dummy2.json -b dummy2.bin
++shasum dummy.bin dummy2.bin
++```
++
++## Propositions, precepts, thoughts
++- Endianness of the data contained in the struct has to either be fixed, or defined in the "configs" section of the metadata and embedded into the binary metadata
++- Discussions has been made to embed configs into the binary metadata directly, allowing for much easier validation of the data and less prone to errors
++- A list of wanted features to ease scripting with the tool should be made.
++- PEP8 rules have been applied as much as possible on the code, as well as comments & docstrings.
++
++## TODO
++- Verify CRC32 of binary metadata file
++
++## Json examples
++### Dummy JSON metadata
++```json
++{
++    "metadata": {
++        "version": 0,
++        "active_index": 1,
++        "previous_active_index": 0,
++        "img_entry": {
++            "img_0": {
++                "location": "sda",
++                "img_bank_info": {
++                    "img_0_bank_0": {
++                        "accepted": true,
++                        "reserved": 101
++                    },
++                    "img_0_bank_1": {
++                        "accepted": false,
++                        "reserved": 102
++                    }
++                }
++            }
++        }
++    },
++    "uuids": {
++        "locations": {
++            "sda": "7e93078a-2dc2-4657-b496-eaf638247c5b"
++        },
++        "entries": {
++            "img_0_bank_0": "c31fe18a-9408-49b5-a647-03113b85dc58",
++            "img_0_bank_1": "d4ccc9b2-58a0-46ed-beeb-1f37059db676",
++            "img_0": "50833315-fe46-4eb1-8c4a-b38d03684f7f"
++        }
++    },
++    "configs": {
++        "nb_fw_img": 1,
++        "nb_fw_banks": 2
++    }
++}
++```
+diff --git a/tools/fwu_gen_metadata/fwumd_tool.py b/tools/fwu_gen_metadata/fwumd_tool.py
+new file mode 100755
+index 000000000..6a79223f8
+--- /dev/null
++++ b/tools/fwu_gen_metadata/fwumd_tool.py
+@@ -0,0 +1,181 @@
++#!/usr/bin/env python3
++# Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++#
++# SPDX-License-Identifier: BSD-3-Clause
++
++"""
++    CLI tool to interact with the 'fwu_metadata' data structure
++    Contains files for:
++        - fwumd_tool.py:    CLI management
++        - src/metadata.py:  Python dict fwu_metadata
++        - src/structs.py:   C-style struct fwu_metadata
++        - src/utils.py:     Useful functions for all project
++        - src/uuid_t.py:    Class & functions to deal with UUID
++"""
++
++import json
++import argparse
++
++from src.uuid_t import test_uuids
++from src.utils import test_utils
++from src.metadata import create_dummy_metadata, validate_metadata
++from src.structs import fwupd_from_dict, fwupd_to_dict
++
++# COMMAND LINE
++
++def cli_dummy(dummy_args):
++    """
++        Routine for the command "dummy" passed in CLI
++    """
++    try:
++        dummy_metadata = create_dummy_metadata(dummy_args.nb_fw_imgs, dummy_args.nb_banks)
++        assert validate_metadata(dummy_metadata)
++        fwupd = fwupd_from_dict(dummy_metadata)
++        if dummy_args.display:
++            fwupd.display()
++        json.dump(dummy_metadata, dummy_args.jsonfile, indent=4)
++        dummy_args.binfile.write(fwupd)
++    finally:
++        dummy_args.jsonfile.close()
++        dummy_args.binfile.close()
++
++def cli_jsonparse(jsonparse_args):
++    """
++        Routine for the command "jsonparse" passed in CLI
++    """
++    try:
++        data = json.load(jsonparse_args.jsonfile)
++        if not validate_metadata(data):
++            raise Exception("Metadata contained in file are not correct")
++        fwupd = fwupd_from_dict(data)
++        if jsonparse_args.display:
++            fwupd.display()
++        jsonparse_args.binfile.write(fwupd)
++    finally:
++        jsonparse_args.jsonfile.close()
++        jsonparse_args.binfile.close()
++
++def cli_binparse(binparse_args):
++    """
++        Routine for the command "binparse" passed in CLI
++    """
++    template_data = {"uuids": {"locations": {}, "entries": {}}}
++    dummy_metadata = create_dummy_metadata(binparse_args.nb_fw_imgs, binparse_args.nb_banks)
++    assert validate_metadata(dummy_metadata)
++    fwupd = fwupd_from_dict(dummy_metadata)
++    binparse_args.binfile.readinto(fwupd)
++    if binparse_args.display:
++        fwupd.display()
++    data = fwupd_to_dict(fwupd, binparse_args.nb_fw_imgs,
++                         binparse_args.nb_banks,
++                         list(template_data["uuids"]["entries"].keys()),
++                         template_data["uuids"]["locations"])
++    json.dump(data, binparse_args.jsonfile, indent=4)
++
++    binparse_args.binfile.close()
++    binparse_args.jsonfile.close()
++
++def cli_dump(dump_args):
++    """
++        Routine for the "Dump" command passed in CLI
++    """
++    try:
++        dummy_metadata = create_dummy_metadata(dump_args.nb_fw_imgs, dump_args.nb_banks)
++        fwupd = fwupd_from_dict(dummy_metadata)
++        dump_args.binfile.readinto(fwupd)
++        fwupd.display()
++    finally:
++        dump_args.binfile.close()
++
++def cli_test(test_args):
++    """ Routine for the "Test" command passed in CLI """
++    all_tests = [("Utils", test_utils), ("UUIDs", test_uuids)]
++    if test_args.number == -1:
++        for (key, test) in all_tests:
++            print("Test " + key)
++            test(test_args)
++            print("")
++    elif test_args.number < len(all_tests):
++        print("Test " + all_tests[test_args.number][0])
++        all_tests[test_args.number][1](test_args)
++    else:
++        print("Tests available:")
++        for nbtest, (test, _) in enumerate(all_tests):
++            print("\t{} - Test {}".format(nbtest, test))
++
++def cli():
++    """ Function parsing args, dispatching commands """
++    parser = argparse.ArgumentParser()
++    subp = parser.add_subparsers(dest="cmd")
++
++    # GENERAL ARGS
++    parser.add_argument("--nb-fw-imgs", "-ni", default=1, type=int,
++                        help="Number of firmware images in entries")
++    parser.add_argument("--nb-banks", "-nb", default=2, type=int,
++                        help="Number of firmware banks for each image")
++
++    # DUMMY
++    dummy = subp.add_parser("dummy",
++                            help="Create a JSON metadata and a binary metadata dummy files")
++    dummy.add_argument("--display", "-v", action="store_true",
++                       help="Display the content of the binary metadata after creation")
++    dummy.add_argument("--jsonfile", "-j", type=argparse.FileType("w"),
++                       default="dummy.json",
++                       help="The JSON file where to write the dummy metadata")
++    dummy.add_argument("--binfile", "-b", type=argparse.FileType("wb"),
++                       default="dummy.bin",
++                       help="The binary file where to write the dummy metadata")
++
++    # JSON PARSE
++    jsparse = subp.add_parser("jsonparse",
++                              help="Parse json and creates a binary metadata file")
++    jsparse.add_argument("jsonfile", type=argparse.FileType("r"),
++                         help="The JSON file where to read the metadata from")
++    jsparse.add_argument("--display", "-v", action="store_true",
++                         help="Display the content of the binary metadata after creation")
++    jsparse.add_argument("--binfile", "-b", type=argparse.FileType("wb"),
++                         default="fwupd.bin",
++                         help="The binary file where to write the binary metadata")
++
++    # BINPARSE
++    binparse = subp.add_parser("binparse",
++                               help="Parse binary data and generates a JSON metadata file")
++    binparse.add_argument("binfile", type=argparse.FileType("rb"),
++                          help="The binary file where to read the metadata from")
++    binparse.add_argument("--display", "-v", action="store_true",
++                          help="Display the content of the binary metadata after creation")
++    binparse.add_argument("--jsonfile", "-j", type=argparse.FileType("w"),
++                          default="fwupd.json",
++                          help="The JSON file where to write the generated JSON metadata")
++
++    # DUMP
++    dump = subp.add_parser("dump",
++                           help="Read a binary metadata file and prints its data")
++    dump.add_argument("binfile", type=argparse.FileType("rb"),
++                      help="The binary file where to read the metadata from")
++
++    # TEST
++    test = subp.add_parser("test",
++                           help="Perform validation tests on the tool")
++    test.add_argument("--number", "-n", type=int, default=-1,
++                      help="The test nb to perform (default: all)")
++
++    args = parser.parse_args()
++
++    # Dispatch commands
++    if args.cmd == "dummy":
++        cli_dummy(args)
++    elif args.cmd == "jsonparse":
++        cli_jsonparse(args)
++    elif args.cmd == "binparse":
++        cli_binparse(args)
++    elif args.cmd == "dump":
++        cli_dump(args)
++    elif args.cmd == "test":
++        cli_test(args)
++    else:
++        # If no command passed, considered as faulty, print help
++        parser.print_help()
++
++if __name__ == "__main__":
++    cli()
+diff --git a/tools/fwu_gen_metadata/src/metadata.py b/tools/fwu_gen_metadata/src/metadata.py
+new file mode 100644
+index 000000000..aa31f35ad
+--- /dev/null
++++ b/tools/fwu_gen_metadata/src/metadata.py
+@@ -0,0 +1,102 @@
++# Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++#
++# SPDX-License-Identifier: BSD-3-Clause
++
++"""
++    metadata.py
++        Manage Python dict formatted fwu_metadata
++"""
++import uuid
++
++def create_dummy_metadata(nb_fw_img, nb_fw_banks):
++    """
++        This function creates a Python dict containing dummy metadata
++        Used for testing or for placeholding
++    """
++    data = {
++        "metadata": {
++            "version": 0,
++            "active_index": 1,
++            "previous_active_index": 0,
++            "img_entry": {}
++        },
++        "uuids": {
++            "locations": {
++                "sda": str(uuid.uuid4()),
++            },
++            "entries": {},
++        },
++        "configs": {
++            "nb_fw_img": nb_fw_img,
++            "nb_fw_banks": nb_fw_banks
++        }
++    }
++
++    entries = {}
++    for nimg in range(nb_fw_img):
++        banks = {}
++        for nbnk in range(nb_fw_banks):
++            entry_name = "img_" + str(nimg) + "_bank_" + str(nbnk)
++            banks[entry_name] = {"accepted": True,
++                                 "reserved": 0}
++            data["uuids"]["entries"][entry_name] = str(uuid.uuid4())
++
++        entries["img_" + str(nimg)] = {
++            "location": "sda",
++            "img_bank_info": banks
++        }
++        data["uuids"]["entries"]["img_" + str(nimg)] = str(uuid.uuid4())
++    data["metadata"]["img_entry"] = entries
++    return data
++
++def __check_md(res, cond, msg):
++    """
++        Helper function used to validate metadata.
++        If cond is false, return False, and display message
++    """
++    if not cond:
++        print("Metadata validation failed: '{}'".format(msg))
++        return False
++    return res
++
++def validate_metadata(metadata):
++    """
++        Validate content of a Python dict metadata
++        Passes through all the data, display errors if any,
++        then return if errors got encountered
++    """
++    res = True
++
++    for key in ["metadata", "uuids", "configs"]:
++        res = __check_md(res, key in metadata.keys(),
++                         "Key missing: {}".format(key))
++    for conf in ["nb_fw_img", "nb_fw_banks"]:
++        res = __check_md(res, conf in metadata["configs"].keys(), "Config missing: {}".format(conf))
++
++    res = __check_md(res, "locations" in metadata["uuids"].keys(), "UUID type location missing")
++    res = __check_md(res, "entries" in metadata["uuids"].keys(), "UUID type entries missing")
++    res = __check_md(res,
++                     len(metadata["metadata"]["img_entry"].keys()) ==
++                     metadata["configs"]["nb_fw_img"],
++                     "Wrong number of firmware images entries")
++
++    for iname, img in metadata["metadata"]["img_entry"].items():
++        res = __check_md(res, iname in metadata["uuids"]["entries"].keys(),
++                         "Image {} UUID not known".format(iname))
++
++        res = __check_md(res,
++                         img["location"] in metadata["uuids"]["locations"].keys(),
++                         "Location {} UUID not known".format(img["location"]))
++
++        res = __check_md(res,
++                         len(metadata["metadata"]["img_entry"] [iname]["img_bank_info"].keys()) ==
++                         metadata["configs"]["nb_fw_banks"],
++                         "Wrong number of banks for image {}".format(iname))
++
++        for bname, _ in metadata["metadata"]["img_entry"][iname]["img_bank_info"].items():
++            res = __check_md(res, bname in metadata["uuids"]["entries"],
++                             "Bank {} UUID not known".format(bname))
++            res = __check_md(res, iname + "_bank_" in bname,
++                             "Bank name wrongly named")
++
++    return res
+diff --git a/tools/fwu_gen_metadata/src/structs.py b/tools/fwu_gen_metadata/src/structs.py
+new file mode 100644
+index 000000000..0e58bbecd
+--- /dev/null
++++ b/tools/fwu_gen_metadata/src/structs.py
+@@ -0,0 +1,262 @@
++# Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++#
++# SPDX-License-Identifier: BSD-3-Clause
++
++"""
++    structs.py
++        Manage C-style struct formatted fwu_metadata
++"""
++
++import binascii
++
++from ctypes import Structure, c_uint32, c_uint16, c_uint8, Array
++
++from src.uuid_t import uuid_t, get_uuids, uuid_t_from_str
++from src.utils import get_template_location_key
++
++# IMAGE BANK
++
++class image_bank_info(Structure):
++    """
++        Image bank C struct
++    """
++    _fields_ = [
++        ("img_uuid", uuid_t),
++        ("accepted", c_uint32),
++        ("reserved", c_uint32),
++    ]
++
++    def from_metadata(self, bank_name, bank, uuids):
++        """
++            Use Python-dict metadata to generate the Python / C-struct object
++        """
++        self.img_uuid = uuid_t_from_str(get_uuids(uuids["entries"], bank_name))
++        self.accepted = bank["accepted"]
++        self.reserved = bank.get("reserved", 0) #default value 0 if not in json
++
++    def display(self, buff):
++        """
++            Helper function to render the data of the bank in a buffer
++        """
++        buff += "\t\t  Image UUID: {}\n".format(str(self.img_uuid))
++        buff += "\t\t  Accepted: {}\n".format(self.accepted)
++        buff += "\t\t  Reserved: {}\n".format(self.reserved)
++        return buff
++
++    def to_dict(self, bankname, bank, uuids):
++        """
++            Helper function to add the data contained into dicts
++        """
++        uuids["entries"][bankname] = str(self.img_uuid)
++        bank["accepted"] = bool(self.accepted)
++        bank["reserved"] = self.reserved
++
++# IMAGE ENTRY
++def get_struct_imgentry(nb_fw_banks):
++    """
++        As the structure depend on a variable parameter, the Python class is
++        generated at runtime, allowing to not rely on global variables
++    """
++    class image_entry(Structure):
++        """
++            Image entry C struct
++        """
++        _fields_ = [
++            ("img_type_uuid", uuid_t),
++            ("location_uuid", uuid_t),
++            ("img_bank_info", image_bank_info * nb_fw_banks),
++        ]
++
++        def from_metadata(self, img_name, entry, uuids):
++            """
++                Generate this Python / C-struct object from Python dict
++                metadata
++            """
++            self.img_type_uuid = uuid_t_from_str(
++                get_uuids(uuids["entries"], img_name))
++            self.location_uuid = uuid_t_from_str(get_uuids(uuids["locations"], entry["location"]))
++            for n, (bank_name, bank) in enumerate(entry["img_bank_info"].items()):
++                self.img_bank_info[n].from_metadata(bank_name, bank, uuids)
++
++        def display(self, buff):
++            """
++                Render the data contained inside a buffer
++            """
++            buff += "\t  Image type UUID: {}\n".format(str(self.img_type_uuid))
++            buff += "\t  Location UUID: {}\n".format(str(self.location_uuid))
++            buff += "\t  --- Banks ---\n"
++            for n, bank in enumerate(self.img_bank_info):
++                buff += "\t\tBank {}\n".format(n)
++                buff = bank.display(buff)
++            return buff
++
++        def to_dict(self, imgname, entry, uuids, imgkeys, loc_uuids):
++            """
++                Helper function to add this struct's data into Python dict
++                metadata
++            """
++            uuids["entries"][imgname] = str(self.img_type_uuid)
++            location_uuid_str = str(self.location_uuid)
++            loc_key = get_template_location_key(loc_uuids, location_uuid_str)
++            entry["location"] = loc_key
++            uuids["locations"][loc_key] = location_uuid_str
++            banks = {}
++            for b, bank in enumerate(self.img_bank_info):
++                bname = imgname + "_bank_" + str(b)
++                banks[bname] = {}
++                bank.to_dict(bname, banks[bname], uuids)
++            entry["img_bank_info"] = banks
++
++    return image_entry
++
++# FWU-Metadata struct creation
++def generate_fwu_metadata(nb_fw_img, nb_fw_banks):
++    """
++        Generate an empty FWU-Metadata object from the given parameters
++    """
++    class fwu_metadata(Structure):
++        """
++            FWU Metadata C struct (parent struct)
++        """
++        _fields_ = [
++            ("crc_32", c_uint32),
++            ("version", c_uint32),
++            ("active_index", c_uint32),
++            ("previous_active_index", c_uint32),
++            ("img_entry", get_struct_imgentry(nb_fw_banks) * nb_fw_img)
++        ]
++
++        def update_crc32(self):
++            """
++                Compute and update the CRC32 from the data contained
++            """
++            self.crc_32 = binascii.crc32(bytearray(self)[4:])
++
++        def from_metadata(self, metadata, uuids):
++            """
++                Update the contained metadata from given Python dict
++            """
++            self.version = metadata["version"]
++            self.active_index = metadata["active_index"]
++            self.previous_active_index = metadata["previous_active_index"]
++            for n, (img_name, img) in enumerate(metadata["img_entry"].items()):
++                self.img_entry[n].from_metadata(img_name, img, uuids)
++            self.update_crc32()
++
++        def display(self):
++            """
++                Prints a text-rendered display of the data contained
++            """
++            buff = "METADATA\n"
++            buff += "  CRC32: {}\n".format(self.crc_32)
++            buff += "  Version: {}\n".format(self.version)
++            buff += "  Active index: {}\n".format(self.active_index)
++            buff += "  Previous active index: {}\n".format(
++                self.previous_active_index)
++            buff += "  --- Image entries ---\n"
++            for n, img in enumerate(self.img_entry):
++                buff += "\tEntry {}\n".format(n)
++                buff = img.display(buff)
++            print(buff)
++
++        def to_dict(self, metadata, uuids, imgkeys, loc_uuids):
++            """
++                Pass the data contained in this object into Python dicts
++            """
++            metadata["crc_32"] = self.crc_32
++            metadata["version"] = self.version
++            metadata["active_index"] = self.active_index
++            metadata["previous_active_index"] = self.previous_active_index
++            entries = {}
++            for n, img in enumerate(self.img_entry):
++                iname = imgkeys[n]
++                entries[iname] = {}
++                img.to_dict(iname, entries[iname], uuids, imgkeys, loc_uuids)
++            metadata["img_entry"] = entries
++
++    return fwu_metadata()
++
++def fwupd_from_dict(data):
++    """
++        Return a fwu_metadata object from a complete Python dict as saved in
++        the JSON file
++    """
++    fwupd = generate_fwu_metadata(
++        data["configs"]["nb_fw_img"],
++        data["configs"]["nb_fw_banks"])
++    fwupd.from_metadata(data["metadata"], data["uuids"])
++    return fwupd
++
++def fwupd_to_dict(fwupd, nb_fw_imgs, nb_banks, images_keys, loc_uuids):
++    """
++        Create a Python dict containing all the information contained in a
++        fwu_metadata object
++    """
++    data = {"metadata": {}, "uuids": {"locations": {}, "entries": {}},
++            "configs": {
++                "nb_fw_img": nb_fw_imgs,
++                "nb_fw_banks": nb_banks
++            },
++           }
++    images_keys += ["img_" + str(n) for n in range(max(0, nb_fw_imgs - len(images_keys)))]
++
++    fwupd.to_dict(data["metadata"], data["uuids"], images_keys, loc_uuids)
++    return data
++
++def __check_same(res, name, mdel, binel):
++    """
++        Helper function for binary metadata cross-validation with JSON
++
++        If @mdel (JSON) and @binel (Binary) are not the same, return False
++            and display a formatted error with the given @name.
++        Else return @res
++    """
++    if str(mdel) != str(binel):
++        print("Element '{}' are not the same in metadata and binary data".format(name))
++        return False
++    else:
++        return res
++
++def validate_fwupd_and_dict(md, fwupd):
++    """
++        Validation function for binary + JSON metadata
++        Ensure the data of the both formats are the same
++
++        Do not check CRC32
++    """
++    res = True
++
++    # Check elements of fwu_metadata struct
++    for key in ["version", "active_index", "previous_active_index"]:
++        res = __check_same(res, key, md["metadata"][key], getattr(fwupd, key))
++
++    # Check elements in each image entry
++    for n, (img_name, img) in enumerate(md["metadata"]["img_entry"].items()):
++        entry = fwupd.img_entry[n]
++
++        res = __check_same(res, "Image {} type UUID".format(img_name),
++                           md["uuids"]["entries"][img_name],
++                           entry.img_type_uuid)
++
++        res = __check_same(res, "Location UUID",
++                           md["uuids"]["locations"][img["location"]],
++                           entry.location_uuid)
++
++        # Check elements in each banks of image entry
++        for b, (bname, bank) in enumerate(img["img_bank_info"].items()):
++            fwbank = entry.img_bank_info[b]
++            res = __check_same(res, "Image {} Bank {} UUID".format(
++                                                            img_name, b),
++                               md["uuids"]["entries"][bname],
++                               fwbank.img_uuid)
++
++            res = __check_same(res, "Image {} Bank {} Accepted".format(
++                                                                img_name, b),
++                               bank["accepted"],
++                               bool(fwbank.accepted))
++
++            res = __check_same(res, "Image {} Bank {} Reserved field".format(
++                                                                img_name, b),
++                               bank["reserved"],
++                               fwbank.reserved)
++    return res
+diff --git a/tools/fwu_gen_metadata/src/utils.py b/tools/fwu_gen_metadata/src/utils.py
+new file mode 100644
+index 000000000..e994e9a38
+--- /dev/null
++++ b/tools/fwu_gen_metadata/src/utils.py
+@@ -0,0 +1,69 @@
++# Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++#
++# SPDX-License-Identifier: BSD-3-Clause
++
++"""
++    utils.py
++        Useful functions for the whole project
++"""
++from ctypes import c_uint8
++
++# Number manipulation
++def uint8array_to_number(uint8array):
++    """ Convert array of uint8_t into a single Python number """
++    return sum([x << (i*8) for i, x in enumerate(reversed(uint8array))])
++
++def number_to_uint8array(number, array_length):
++    """ Convert a single Python number into an array of uint8_t """
++    uint8array = c_uint8 * array_length
++    array = [(number & (0xff << (n*8))) >> (n*8)
++        for n in reversed(range(array_length))
++    ]
++    return uint8array(*array)
++
++def test_number_to_array(args):
++    """ Test back and forth conversion works for our use case"""
++    numbers = [0x42053497, 0x45]
++    for number in numbers:
++        a = number_to_uint8array(number, 4)
++        n = uint8array_to_number(a)
++        print_and_assert(number, n)
++
++# Default values creation
++def get_template_location_key(locations, uuid):
++    """
++        Get the location key of the given location.
++        If it doesn't exist, generate one from the UUID
++    """
++    if uuid in locations.values():
++        return [key for key, val in locations.items() if val == uuid][0]
++    else:
++        key = "loc_" + uuid.replace("-", "_")
++        locations[key] = uuid
++        return key
++
++def test_template_location_key(args):
++    """ Test location key getter works well """
++    print_and_assert(get_template_location_key({"sda": "uuid"}, "uuid"),
++                     "sda")
++    print_and_assert(get_template_location_key({"sda": "uuid"}, "new"),
++                     "loc_new")
++    print_and_assert(get_template_location_key({"sda": "uuid"}, "sda-2"),
++                     "loc_sda_2")
++
++# Testing utils
++def print_and_assert(el1, el2):
++    """ Print the two values to test, then assert their equality"""
++    print(el1, "==", el2)
++    assert el1 == el2
++
++def test_utils(args):
++    all_tests = {
++        "Number to array": test_number_to_array,
++        "Template location key": test_template_location_key
++    }
++
++    for (key, test) in all_tests.items():
++        print("--- Test " + key)
++        test(args)
++        print("---\n")
+diff --git a/tools/fwu_gen_metadata/src/uuid_t.py b/tools/fwu_gen_metadata/src/uuid_t.py
+new file mode 100644
+index 000000000..8f9a891af
+--- /dev/null
++++ b/tools/fwu_gen_metadata/src/uuid_t.py
+@@ -0,0 +1,79 @@
++# Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++#
++# SPDX-License-Identifier: BSD-3-Clause
++
++import uuid
++from ctypes import Structure, c_uint32, c_uint16, c_uint8, Array
++
++from src.utils import uint8array_to_number, number_to_uint8array
++from src.utils import print_and_assert
++
++UUID_NODE_LEN = 6
++UUID_STR_LEN = 24 + (UUID_NODE_LEN*2)
++
++# UUIDS
++
++class uuid_t(Structure):
++    """
++        C-style struct for the UUID data
++    """
++    _fields_ = [
++        ("time_low", c_uint32),
++        ("time_mid", c_uint16),
++        ("time_hi_and_version", c_uint16),
++        ("clock_seq_hi_and_reserved", c_uint8),
++        ("clock_seq_low", c_uint8),
++        ("node", c_uint8 * UUID_NODE_LEN)
++    ]
++
++    def to_uuid_class(self):
++        """
++            Helper function to convert the Python / C struct into the class
++                UUID from the library uuid, much easier to use.
++        """
++        return uuid.UUID(fields=(
++            self.time_low, self.time_mid, self.time_hi_and_version,
++            self.clock_seq_hi_and_reserved, self.clock_seq_low,
++            uint8array_to_number(self.node)))
++
++    def __str__(self):
++        """ Display this class as a normalized UUID string """
++        return self.to_uuid_class().__str__()
++
++def uuid_t_from_str(uuid_str):
++    """
++        Generate a Python / C-struct uuid_t class from a normalized uuid string
++    """
++    if len(uuid_str) != UUID_STR_LEN:
++        raise Exception("Wrong formatted UUID str: {}".format(uuid_str))
++    obj = uuid.UUID(uuid_str)
++    return uuid_t(
++        obj.time_low,
++        obj.time_mid,
++        obj.time_hi_version,
++        obj.clock_seq_hi_variant,
++        obj.clock_seq_low,
++        number_to_uint8array(obj.node, UUID_NODE_LEN))
++
++def get_uuids(uuids, key):
++    """
++        Get the UUID of a certain key, generate a new one if none is
++        found for the key
++    """
++    # TODO   Is there a context in which auto-generation of missing UUID
++    #           is not desirable ?
++    if key not in uuids.keys():
++        uuids[key] = str(uuid.uuid4())
++    return uuids[key]
++
++def validate_uuid(uuid_str):
++    try:
++        uuid.UUID(uuid_str)
++        return True
++    except ValueError:
++        return False
++
++def test_uuids(args):
++    uuid_str = "737d3401-64c1-4584-a40d-29f2238c82cf"
++    uuid_t = uuid_t_from_str(uuid_str)
++    print_and_assert(str(uuid_t), uuid_str)
+diff --git a/tools/fwu_gen_metadata/tests/testall.sh b/tools/fwu_gen_metadata/tests/testall.sh
+new file mode 100755
+index 000000000..7b3050d3f
+--- /dev/null
++++ b/tools/fwu_gen_metadata/tests/testall.sh
+@@ -0,0 +1,21 @@
++#!/bin/bash
++
++VERBOSE=0
++SEPARATOR="\033[94m-------------------------------------------------------------------------\033[0m"
++if [ $VERBOSE -eq 1 ]; then
++	set -eux
++	OPTS=-v
++else
++	set -e
++	OPTS=
++fi
++
++rm -f dummy.bin dummy.json a.bin a.json
++
++../fwumd_tool.py dummy $OPTS
++echo -e "$SEPARATOR"
++../fwumd_tool.py jsonparse $OPTS dummy.json -b a.bin
++echo -e "$SEPARATOR"
++../fwumd_tool.py binparse $OPTS dummy.bin -j a.json
++echo -e "$SEPARATOR"
++../fwumd_tool.py test $OPTS
+diff --git a/tools/fwu_gen_metadata/tests/validate_stable.sh b/tools/fwu_gen_metadata/tests/validate_stable.sh
+new file mode 100755
+index 000000000..957a833b6
+--- /dev/null
++++ b/tools/fwu_gen_metadata/tests/validate_stable.sh
+@@ -0,0 +1,8 @@
++#!/bin/bash
++
++set -e
++rm -f dummy*
++../fwumd_tool.py dummy
++../fwumd_tool.py binparse dummy.bin -j dummy2.json
++../fwumd_tool.py jsonparse dummy2.json -b dummy2.bin
++shasum dummy*.bin
+-- 
+2.47.2
+

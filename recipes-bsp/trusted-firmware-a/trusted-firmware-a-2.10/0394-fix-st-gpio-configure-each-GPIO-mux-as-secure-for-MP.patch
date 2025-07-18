@@ -1,0 +1,46 @@
+From d4e7fa184ef1d81d5f4acae4f9269dcaa6ca3021 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Wed, 8 Nov 2023 18:59:07 +0100
+Subject: [PATCH 394/841] fix(st-gpio): configure each GPIO mux as secure for
+ MP25
+
+GPIOs are configured as secure by default. On MP25 revA, the bootrom
+lets the GPIOs in their default configuration when on MP25 revB, the
+bootrom lets the GPIO in bootrom configuration (IOs muxed are not secure).
+
+To avoid any issues on the different storage, always configure a mux
+GPIO secure.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 9a6c73b4c0ef4b50170316b64fd97d69decf8c9e fix(st-gpio): configure each GPIO mux as secure for MP25]
+Change-Id: I7375d22ff9846bfc155313509ee4d96582305c54
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/338563
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Jerome BESNARD <jerome.besnard@st.com>
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/gpio/stm32_gpio.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/st/gpio/stm32_gpio.c b/drivers/st/gpio/stm32_gpio.c
+index 92cffe611..da6a7b120 100644
+--- a/drivers/st/gpio/stm32_gpio.c
++++ b/drivers/st/gpio/stm32_gpio.c
+@@ -284,6 +284,10 @@ static void set_gpio(uint32_t bank, uint32_t pin, uint32_t mode, uint32_t type,
+ 
+ 	clk_disable(clock);
+ 
++#if STM32MP25
++	set_gpio_secure_cfg(bank, pin, true);
++#endif
++
+ 	if (status == DT_SECURE) {
+ 		stm32mp_register_secure_gpio(bank, pin);
+ #if !IMAGE_BL2
+-- 
+2.47.2
+

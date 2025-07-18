@@ -1,0 +1,105 @@
+From f8f6b20b77e69d03ed151b686b42e96a62eb8a34 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 12 Apr 2022 13:48:05 +0200
+Subject: [PATCH 200/841] refactor(st-bsec): remove bsec_otp_lock
+
+Remove the function bsec_otp_lock() in BSEC API and the associated
+defines BSEC_LOCK_*. They are replaced by the existing defines to
+access on BSEC_OTP_LOCK register.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d4f251492568f9727a0f802350c0a035a830f6fc refactor(st-bsec): remove bsec_otp_lock]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I8eca2f91ab9944159610181abbbb9523e5439852
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/250939
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/bsec/bsec2.c   | 33 +--------------------------------
+ include/drivers/st/bsec.h | 12 ------------
+ 2 files changed, 1 insertion(+), 44 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec2.c b/drivers/st/bsec/bsec2.c
+index 9f1c4e621..997c7fc02 100644
+--- a/drivers/st/bsec/bsec2.c
++++ b/drivers/st/bsec/bsec2.c
+@@ -387,8 +387,7 @@ uint32_t bsec_program_otp(uint32_t val, uint32_t otp)
+ 		return BSEC_PROG_FAIL;
+ 	}
+ 
+-	if ((mmio_read_32(bsec_base + BSEC_OTP_LOCK_OFF) &
+-	     BIT(BSEC_LOCK_PROGRAM)) != 0U) {
++	if ((mmio_read_32(bsec_base + BSEC_OTP_LOCK_OFF) & GPLOCK_LOCK_MASK) != 0U) {
+ 		WARN("BSEC: GPLOCK activated, prog will be ignored\n");
+ 	}
+ 
+@@ -740,36 +739,6 @@ uint32_t bsec_read_permanent_lock(uint32_t otp, bool *value)
+ 	return BSEC_OK;
+ }
+ 
+-/*
+- * bsec_otp_lock: Lock Upper OTP or Global Programming or Debug Enable.
+- * service: Service to lock, see header file.
+- * return value: BSEC_OK if no error.
+- */
+-uint32_t bsec_otp_lock(uint32_t service)
+-{
+-	uintptr_t reg = bsec_base + BSEC_OTP_LOCK_OFF;
+-
+-	if (is_otp_invalid_mode()) {
+-		return BSEC_ERROR;
+-	}
+-
+-	switch (service) {
+-	case BSEC_LOCK_UPPER_OTP:
+-		mmio_write_32(reg, BIT(BSEC_LOCK_UPPER_OTP));
+-		break;
+-	case BSEC_LOCK_DEBUG:
+-		mmio_write_32(reg, BIT(BSEC_LOCK_DEBUG));
+-		break;
+-	case BSEC_LOCK_PROGRAM:
+-		mmio_write_32(reg, BIT(BSEC_LOCK_PROGRAM));
+-		break;
+-	default:
+-		return BSEC_INVALID_PARAM;
+-	}
+-
+-	return BSEC_OK;
+-}
+-
+ /*
+  * bsec_power_safmem: Activate or deactivate SAFMEM power.
+  * power: true to power up, false to power down.
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index ea787c3ad..3396a79ac 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -49,17 +49,6 @@
+ 
+ #define BSEC_HARDWARE_KEY		BIT(8)
+ 
+-/*
+- * OTP Lock services definition.
+- * Value must corresponding to the bit number in the register.
+- * Special case: (bit number << 1) for BSEC3.
+- */
+-#define BSEC_LOCK_UPPER_OTP		0x00
+-#define BSEC_LOCK_GWLOCK		0x01
+-#define BSEC_LOCK_DEBUG			0x02
+-#define BSEC_LOCK_PROGRAM		0x03
+-#define BSEC_LOCK_KVLOCK		0x04
+-
+ uint32_t bsec_probe(void);
+ uint32_t bsec_get_base(void);
+ 
+@@ -87,7 +76,6 @@ uint32_t bsec_read_sw_lock(uint32_t otp, bool *value);
+ uint32_t bsec_set_sp_lock(uint32_t otp);
+ uint32_t bsec_read_sp_lock(uint32_t otp, bool *value);
+ uint32_t bsec_read_permanent_lock(uint32_t otp, bool *value);
+-uint32_t bsec_otp_lock(uint32_t service);
+ uint32_t bsec_shadow_read_otp(uint32_t *otp_value, uint32_t word);
+ 
+ uint32_t bsec_get_secure_state(void);
+-- 
+2.47.2
+

@@ -1,0 +1,60 @@
+From f0eec22c25f3e87594ce4cb057f4c2f0e047c67a Mon Sep 17 00:00:00 2001
+From: Pascal Paillet <p.paillet@st.com>
+Date: Thu, 2 Feb 2023 09:33:18 +0100
+Subject: [PATCH 277/841] feat(stm32mp2): temporary workaround LDO5 current
+ limitation
+
+Workaround LDO5 current limitation setting.
+The NVM will be updated for next batch of boards.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5364fa464517b504d11fee26c83871c6abfdf2ca feat(stm32mp2): temporary workaround LDO5 current limitation]
+Signed-off-by: Pascal Paillet <p.paillet@st.com>
+Change-Id: I0a41255162482d46d14003e3908324ad2b43565f
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/285866
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ drivers/st/pmic/stm32mp_pmic2.c | 12 ++++++++++++
+ include/drivers/st/stpmic2.h    |  3 +++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/drivers/st/pmic/stm32mp_pmic2.c b/drivers/st/pmic/stm32mp_pmic2.c
+index d6f60ecc0..a95b2c73a 100644
+--- a/drivers/st/pmic/stm32mp_pmic2.c
++++ b/drivers/st/pmic/stm32mp_pmic2.c
+@@ -479,4 +479,16 @@ void initialize_pmic(void)
+ #if EVENT_LOG_LEVEL == LOG_LEVEL_VERBOSE
+ 	stpmic2_dump_regulators(pmic2);
+ #endif
++
++	/* set LDO5 current limit to 200mA */
++	if (stpmic2_register_read(pmic2, NVM_LDOS_IOUT_SHR, &val) != 0) {
++		panic();
++	}
++
++	val |= 2U << LDO5_ILIM_SHIFT;
++
++	if (stpmic2_register_write(pmic2, NVM_LDOS_IOUT_SHR, val) != 0) {
++		panic();
++	}
++
+ }
+diff --git a/include/drivers/st/stpmic2.h b/include/drivers/st/stpmic2.h
+index a1f60c89e..bd04c4ec2 100644
+--- a/include/drivers/st/stpmic2.h
++++ b/include/drivers/st/stpmic2.h
+@@ -145,6 +145,9 @@ enum {
+ #define INT_DBG_LATCH_R2	0x81
+ #define INT_DBG_LATCH_R3	0x82
+ #define INT_DBG_LATCH_R4	0x83
++/* NVM SHADOW REGISTERS */
++#define NVM_LDOS_IOUT_SHR	0xAE
++#define LDO5_ILIM_SHIFT		2
+ 
+ /* BUCKS_MRST_CR bits definition */
+ #define BUCK1_MRST		BIT(0)
+-- 
+2.47.2
+

@@ -1,0 +1,77 @@
+From e727ed0ad8807c132623158bf64f94c0733f4810 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 1 Mar 2023 18:12:20 +0100
+Subject: [PATCH 308/841] feat(stm32mp2): use RNG for DDR encryption key
+
+Instead of having an hard-coded key for DDR encryption with RISAF,
+use RNG to generate a key.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1f4f1c2b8021a4e1dc474a13e9425983d190b962 feat(stm32mp2): use RNG for DDR encryption key]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I272b5e75d0e5885d2414ae3c09de5e007305a86b
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/293243
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Lionel DEBIEVE <lionel.debieve@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 21 ++++++++++++++++++---
+ 1 file changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index c85ec9e1b..bd12142b5 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -20,6 +20,7 @@
+ #include <drivers/st/regulator.h>
+ #include <drivers/st/regulator_fixed.h>
+ #include <drivers/st/stm32_console.h>
++#include <drivers/st/stm32_rng.h>
+ #include <drivers/st/stm32mp_pmic2.h>
+ #include <drivers/st/stm32mp_reset.h>
+ #include <drivers/st/stm32mp_rifsc_regs.h>
+@@ -36,6 +37,7 @@
+ #include <platform_def.h>
+ #include <stm32mp_common.h>
+ #include <stm32mp_dt.h>
++#include <stm32mp2_context.h>
+ 
+ #define BOOT_CTX_ADDR	0x0e000020UL
+ 
+@@ -259,6 +261,10 @@ skip_console_init:
+ 	}
+ #endif
+ 
++	if (stm32_rng_init() != 0) {
++		panic();
++	}
++
+ 	if (fixed_regulator_register() != 0) {
+ 		panic();
+ 	}
+@@ -313,9 +319,18 @@ skip_console_init:
+ 
+ static void prepare_encryption(void)
+ {
+-	/* TODO use random generator to create key */
+-	uint8_t mkey[RISAF_KEY_SIZE_IN_BYTES] = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+-						  0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF };
++	uint8_t mkey[RISAF_KEY_SIZE_IN_BYTES];
++
++	if (stm32mp_is_wakeup_from_standby()) {
++		stm32mp_pm_get_enc_mkey_from_context(mkey);
++	} else {
++		/* Generate RISAF encryption key from RNG */
++		if (stm32_rng_read(mkey, RISAF_KEY_SIZE_IN_BYTES) != 0) {
++			panic();
++		}
++
++		stm32mp_pm_save_enc_mkey_in_context(mkey);
++	}
+ 
+ 	if (stm32mp2_risaf_write_encryption_key(RISAF4_INST, mkey) != 0) {
+ 		panic();
+-- 
+2.47.2
+

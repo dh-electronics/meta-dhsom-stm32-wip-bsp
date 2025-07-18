@@ -1,0 +1,132 @@
+From eb0f492cb1722a097819bffc8d2b045eb499b2e1 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Mon, 28 Mar 2022 19:19:41 +0200
+Subject: [PATCH 033/841] refactor(st-ddr): rename timeout definitions
+
+Add a DDR_ prefix to avoid re-definitions.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8aae3a37eb684b8d5b685066a6fcc0071a5568cd refactor(st-ddr): rename timeout definitions]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I5a186e6ae391de07aa0f347e3124083c2efdb101
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/245947
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp1_ddr.c         |  4 ++--
+ drivers/st/ddr/stm32mp1_ddr_helpers.c |  4 ++--
+ drivers/st/ddr/stm32mp_ddr.c          | 10 +++++-----
+ include/drivers/st/stm32mp_ddr.h      |  4 ++--
+ 4 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/st/ddr/stm32mp1_ddr.c b/drivers/st/ddr/stm32mp1_ddr.c
+index e4494b21f..c277f18d3 100644
+--- a/drivers/st/ddr/stm32mp1_ddr.c
++++ b/drivers/st/ddr/stm32mp1_ddr.c
+@@ -215,7 +215,7 @@ static void stm32mp1_ddrphy_idone_wait(struct stm32mp_ddrphy *phy)
+ {
+ 	uint32_t pgsr;
+ 	int error = 0;
+-	uint64_t timeout = timeout_init_us(TIMEOUT_US_1S);
++	uint64_t timeout = timeout_init_us(DDR_TIMEOUT_US_1S);
+ 
+ 	do {
+ 		pgsr = mmio_read_32((uintptr_t)&phy->pgsr);
+@@ -279,7 +279,7 @@ static void stm32mp1_wait_operating_mode(struct stm32mp_ddr_priv *priv, uint32_t
+ 	uint32_t stat;
+ 	int break_loop = 0;
+ 
+-	timeout = timeout_init_us(TIMEOUT_US_1S);
++	timeout = timeout_init_us(DDR_TIMEOUT_US_1S);
+ 	for ( ; ; ) {
+ 		uint32_t operating_mode;
+ 		uint32_t selref_type;
+diff --git a/drivers/st/ddr/stm32mp1_ddr_helpers.c b/drivers/st/ddr/stm32mp1_ddr_helpers.c
+index f638452cd..17e14f919 100644
+--- a/drivers/st/ddr/stm32mp1_ddr_helpers.c
++++ b/drivers/st/ddr/stm32mp1_ddr_helpers.c
+@@ -225,7 +225,7 @@ int ddr_sw_self_refresh_exit(void)
+ 	udelay(1);
+ 
+ 	/* Pool end of init */
+-	timeout = timeout_init_us(TIMEOUT_500US);
++	timeout = timeout_init_us(DDR_TIMEOUT_500US);
+ 
+ 	while ((mmio_read_32(ddrphyc_base + DDRPHYC_PGSR) &
+ 		DDRPHYC_PGSR_IDONE) == 0U) {
+@@ -285,7 +285,7 @@ int ddr_sw_self_refresh_exit(void)
+ 	stm32mp_ddr_sw_selfref_exit((struct stm32mp_ddrctl *)ddrctrl_base);
+ 
+ 	/* Wait operating_mode == normal */
+-	timeout = timeout_init_us(TIMEOUT_500US);
++	timeout = timeout_init_us(DDR_TIMEOUT_500US);
+ 	while ((mmio_read_32(ddrctrl_base + DDRCTRL_STAT) &
+ 		DDRCTRL_STAT_OPERATING_MODE_MASK) !=
+ 	       DDRCTRL_STAT_OPERATING_MODE_NORMAL) {
+diff --git a/drivers/st/ddr/stm32mp_ddr.c b/drivers/st/ddr/stm32mp_ddr.c
+index 2ce119058..d961c9f24 100644
+--- a/drivers/st/ddr/stm32mp_ddr.c
++++ b/drivers/st/ddr/stm32mp_ddr.c
+@@ -66,7 +66,7 @@ void stm32mp_ddr_wait_sw_done_ack(struct stm32mp_ddrctl *ctl)
+ 	VERBOSE("[0x%lx] swctl = 0x%x\n",
+ 		(uintptr_t)&ctl->swctl, mmio_read_32((uintptr_t)&ctl->swctl));
+ 
+-	timeout = timeout_init_us(TIMEOUT_US_1S);
++	timeout = timeout_init_us(DDR_TIMEOUT_US_1S);
+ 	do {
+ 		swstat = mmio_read_32((uintptr_t)&ctl->swstat);
+ 		VERBOSE("[0x%lx] swstat = 0x%x ",
+@@ -117,7 +117,7 @@ int stm32mp_ddr_disable_axi_port(struct stm32mp_ddrctl *ctl)
+ 	 * Poll PSTAT.rd_port_busy_n = 0
+ 	 * Poll PSTAT.wr_port_busy_n = 0
+ 	 */
+-	timeout = timeout_init_us(TIMEOUT_US_1S);
++	timeout = timeout_init_us(DDR_TIMEOUT_US_1S);
+ 	do {
+ 		pstat = mmio_read_32((uintptr_t)&ctl->pstat);
+ 		VERBOSE("[0x%lx] pstat = 0x%x ",
+@@ -159,7 +159,7 @@ void stm32mp_ddr_disable_host_interface(struct stm32mp_ddrctl *ctl)
+ 	 * data_pipeline fields must be polled twice to ensure
+ 	 * value propoagation, so count is added to loop condition.
+ 	 */
+-	timeout = timeout_init_us(TIMEOUT_US_1S);
++	timeout = timeout_init_us(DDR_TIMEOUT_US_1S);
+ 	do {
+ 		dbgcam = mmio_read_32((uintptr_t)&ctl->dbgcam);
+ 		VERBOSE("[0x%lx] dbgcam = 0x%x ",
+@@ -190,7 +190,7 @@ int stm32mp_ddr_sw_selfref_entry(struct stm32mp_ddrctl *ctl)
+ 	 * Ensure transition to self-refresh was due to software
+ 	 * by checking also that STAT.selfref_type[1:0]=2.
+ 	 */
+-	timeout = timeout_init_us(TIMEOUT_500US);
++	timeout = timeout_init_us(DDR_TIMEOUT_500US);
+ 	while (!timeout_elapsed(timeout)) {
+ 		stat = mmio_read_32((uintptr_t)&ctl->stat);
+ 		operating_mode = stat & DDRCTRL_STAT_OPERATING_MODE_MASK;
+@@ -247,7 +247,7 @@ void stm32mp_ddr_wait_refresh_update_done_ack(struct stm32mp_ddrctl *ctl)
+ 	VERBOSE("[0x%lx] rfshctl3 = 0x%x\n",
+ 		(uintptr_t)&ctl->rfshctl3, mmio_read_32((uintptr_t)&ctl->rfshctl3));
+ 
+-	timeout = timeout_init_us(TIMEOUT_US_1S);
++	timeout = timeout_init_us(DDR_TIMEOUT_US_1S);
+ 	do {
+ 		rfshctl3 = mmio_read_32((uintptr_t)&ctl->rfshctl3);
+ 		VERBOSE("[0x%lx] rfshctl3 = 0x%x ", (uintptr_t)&ctl->rfshctl3, rfshctl3);
+diff --git a/include/drivers/st/stm32mp_ddr.h b/include/drivers/st/stm32mp_ddr.h
+index 5f921b48b..83a7994b4 100644
+--- a/include/drivers/st/stm32mp_ddr.h
++++ b/include/drivers/st/stm32mp_ddr.h
+@@ -57,8 +57,8 @@ struct stm32mp_ddr_info {
+ 	size_t size;    /* Memory size in byte = col * row * width */
+ };
+ 
+-#define TIMEOUT_US_1S	1000000U
+-#define TIMEOUT_500US	500U
++#define DDR_TIMEOUT_500US	500U
++#define DDR_TIMEOUT_US_1S	1000000U
+ 
+ void stm32mp_ddr_set_reg(const struct stm32mp_ddr_priv *priv, enum stm32mp_ddr_reg_type type,
+ 			 const void *param, const struct stm32mp_ddr_reg_info *ddr_registers);
+-- 
+2.47.2
+

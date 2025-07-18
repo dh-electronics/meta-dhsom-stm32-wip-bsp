@@ -1,0 +1,54 @@
+From d9798f542885f50910fc7fe6f5e673b20815608a Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 18 Oct 2024 17:26:43 +0200
+Subject: [PATCH 777/841] fix(cert-create): load openSSL configuration before
+ PKCS11 operations
+
+On some version of openSSL (1.1.1 or 1.1.0), OPENSSL_init_crypto()
+called by ENGINE_load_builtin_engines() will not automatically load the
+configuration. Fix this behavior by calling OPENSSL_init_ssl with
+OPENSSL_INIT_LOAD_CONFIG as a parameter.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5b1e487f2db2012dbbd4a2e889f033a371f1c891 fix(cert-create): load openSSL configuration before PKCS11 operations]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I2e4c0d646e540d039e9c72fd7814384b17de6dd5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/417574
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ tools/cert_create/src/key.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/tools/cert_create/src/key.c b/tools/cert_create/src/key.c
+index 04214aacb..05b1848e7 100644
+--- a/tools/cert_create/src/key.c
++++ b/tools/cert_create/src/key.c
+@@ -17,6 +17,7 @@
+ #include <openssl/engine.h>
+ #include <openssl/evp.h>
+ #include <openssl/pem.h>
++#include <openssl/ssl.h>
+ 
+ #include "cert.h"
+ #include "cmd_opt.h"
+@@ -210,6 +211,13 @@ static EVP_PKEY *key_load_pkcs11(const char *uri)
+ 	EVP_PKEY *pkey;
+ 	ENGINE *e;
+ 
++#if !USING_OPENSSL3
++	if (!OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CONFIG, NULL)) {
++		fprintf(stderr, "Failed to init SSL\n");
++		return NULL;
++	}
++#endif
++
+ 	ENGINE_load_builtin_engines();
+ 	e = ENGINE_by_id("pkcs11");
+ 	if (!e) {
+-- 
+2.47.2
+

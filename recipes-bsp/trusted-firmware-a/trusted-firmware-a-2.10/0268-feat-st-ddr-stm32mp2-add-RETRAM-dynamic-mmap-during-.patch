@@ -1,0 +1,56 @@
+From 74511153aad58635ee8d36051630d00822477323 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Wed, 25 Jan 2023 15:57:17 +0100
+Subject: [PATCH 268/841] feat(st-ddr): stm32mp2: add RETRAM dynamic mmap
+ during init
+
+Encapsulate DDR initialization sequence (DDRCTRL and DDRPHY) with RETRAM
+map/unmap services. RETRAM is used to save and restore retention
+registers (results of cold boot training execution).
+Because the need is punctual, dynamic management is preferred at this
+level.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 36f8e35646411119133855b6240bef320159a0a9 feat(st-ddr): stm32mp2: add RETRAM dynamic mmap during init]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: If7d6cf834d65d8b27d1aa0ec801d87bc8c00eb9d
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/286972
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/ddr/stm32mp2_ram.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/ddr/stm32mp2_ram.c b/drivers/st/ddr/stm32mp2_ram.c
+index d80af8648..045ae5aae 100644
+--- a/drivers/st/ddr/stm32mp2_ram.c
++++ b/drivers/st/ddr/stm32mp2_ram.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2021-2022, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2021-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+  */
+@@ -131,8 +131,18 @@ static int stm32mp2_ddr_setup(void)
+ 		config.zdata = stm32_get_zdata_from_context();
+ 	}*/
+ 
++	/*  Map dynamically RETRAM area to save or restore PHY retention registers */
++	if (stm32mp_map_retram() != 0) {
++		panic();
++	}
++
+ 	stm32mp2_ddr_init(priv, &config);
+ 
++	/*  Unmap RETRAM, no more used until next DDR initialization call */
++	if (stm32mp_unmap_retram() != 0) {
++		panic();
++	}
++
+ 	priv->info.size = config.info.size;
+ 
+ 	VERBOSE("%s : ram size(%lx, %lx)\n", __func__, priv->info.base, priv->info.size);
+-- 
+2.47.2
+

@@ -1,0 +1,153 @@
+From 6d14b3dbac32a8edef0f6d060a1b930c04e719e1 Mon Sep 17 00:00:00 2001
+From: Valentin Caron <valentin.caron@foss.st.com>
+Date: Tue, 28 May 2024 17:00:01 +0200
+Subject: [PATCH 625/841] feat(stm32mp2): pwr/syscfg: skip none existent
+ STM32MP21 power registers
+
+Put none existent power registers on STM32MP21x soc under #if !STM32MP21
+flag.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 3d66166ca694970936366441b42fa46571f1f1b8 feat(stm32mp2): pwr/syscfg: skip none existent STM32MP21 power registers]
+Signed-off-by: Valentin Caron <valentin.caron@foss.st.com>
+Change-Id: I8160a6ef6435cc1578e96a2e7639c67364e83db6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/383344
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ plat/st/stm32mp2/include/stm32mp2_private.h |  2 ++
+ plat/st/stm32mp2/stm32mp2_pwr.c             |  4 ++++
+ plat/st/stm32mp2/stm32mp2_syscfg.c          | 20 ++++++++++++++++++++
+ 3 files changed, 26 insertions(+)
+
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index 455ef4d0f..28a26e30f 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -26,7 +26,9 @@ enum syscfg_io_ids {
+ 	SYSFG_VDDIO1_ID,
+ 	SYSFG_VDDIO2_ID,
+ 	SYSFG_VDDIO3_ID,
++#if !STM32MP21
+ 	SYSFG_VDDIO4_ID,
++#endif /* !STM32MP21 */
+ 	SYSFG_VDD_IO_ID,
+ 	SYSFG_NB_IO_ID
+ };
+diff --git a/plat/st/stm32mp2/stm32mp2_pwr.c b/plat/st/stm32mp2/stm32mp2_pwr.c
+index 4ca47a737..514a82aa6 100644
+--- a/plat/st/stm32mp2/stm32mp2_pwr.c
++++ b/plat/st/stm32mp2/stm32mp2_pwr.c
+@@ -28,7 +28,9 @@ enum pwr_regulator_id {
+ 	IOD_VDDIO1,
+ 	IOD_VDDIO2,
+ 	IOD_VDDIO3,
++#if !STM32MP21
+ 	IOD_VDDIO4,
++#endif /* !STM32MP21 */
+ 	IOD_VDDIO,
+ 	PWR_REGU_COUNT
+ };
+@@ -58,6 +60,7 @@ static const struct pwr_regu pwr_regulators[] = {
+ 		.comp_idx = SYSFG_VDDIO3_ID,
+ 		.supply_name = "vddio3",
+ 	 },
++#if !STM32MP21
+ 	 [IOD_VDDIO4] = {
+ 		.node_name = "vddio4",
+ 		.enable_reg = PWR_CR1,
+@@ -66,6 +69,7 @@ static const struct pwr_regu pwr_regulators[] = {
+ 		.comp_idx = SYSFG_VDDIO4_ID,
+ 		.supply_name = "vddio4",
+ 	 },
++#endif /* !STM32MP21 */
+ 	 [IOD_VDDIO] = {
+ 		.node_name = "vddio",
+ 		.enable_reg = PWR_CR1,
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index f16d20520..870a06a2c 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -36,7 +36,9 @@
+  * SYSCFG IO Compensation Registers
+  */
+ #define SYSCFG_VDDIO3CCCR		0x4000U
++#if !STM32MP21
+ #define SYSCFG_VDDIO4CCCR		0x4008U
++#endif /* !STM32MP21 */
+ #define SYSCFG_VDDCCCR			0x4010U
+ #define SYSCFG_VDDIO2CCCR		0x4018U
+ #define SYSCFG_VDDIO1CCCR		0x4020U
+@@ -57,8 +59,10 @@
+ /* DLYBOS registers */
+ #define SYSCFG_DLYBOS1_CR		0x1000U
+ #define SYSCFG_DLYBOS1_SR		0x1004U
++#if !STM32MP21
+ #define SYSCFG_DLYBOS2_CR		0x1400U
+ #define SYSCFG_DLYBOS2_SR		0x1404U
++#endif /* !STM32MP21 */
+ 
+ #define SYSCFG_DLYBOS_CR_EN		BIT(0)
+ #define SYSCFG_DLYBOS_CR_RXTAPSEL_SHIFT	1U
+@@ -73,7 +77,11 @@
+ #define SYSCFG_DLYBOS_SR_RXTAPSEL_ACK	BIT(1)
+ #define SYSCFG_DLYBOS_SR_TXTAPSEL_ACK	BIT(2)
+ 
++#if STM32MP21
++#define SYSCFG_MAX_DLYBOS		1U
++#else /* STM32MP21 */
+ #define SYSCFG_MAX_DLYBOS		2U
++#endif /* STM32MP21 */
+ #define SYSCFG_DLYBOS_TIMEOUT_US	10000U
+ #define SYSCFG_DLYBOS_TAPSEL_NB		33U
+ #define SYSCFG_DLYBOS_CMD_NB		24U
+@@ -87,12 +95,18 @@
+ #define SYSCFG_ICNQPCR1			U(0x2000)
+ #define SYSCFG_ICNQPCR2			U(0x2004)
+ #define SYSCFG_ICNEWRCR			U(0x2008)
++#if !STM32MP21
+ #define SYSCFG_ICNCGCR			U(0x200C)
+ #define SYSCFG_ICNGPUBWLCR		U(0x2010)
++#endif /* !STM32MP21 */
+ #define SYSCFG_ICNE2EBWRCR		U(0x2014)
++#if !STM32MP21
+ #define SYSCFG_ICNPCIBWLCR		U(0x201C)
++#endif /* !STM32MP21 */
+ #define SYSCFG_ICNETHBWLCR		U(0x2020)
++#if !STM32MP21
+ #define SYSCFG_ICNUSB3BWLCR		U(0x2024)
++#endif /* !STM32MP21 */
+ #define SYSCFG_ICNCPU1BWLCR		U(0x2028)
+ #define SYSCFG_ICNLTDCBWLCR		U(0x202C)
+ #define SYSCFG_ICNDCMIPPBWLCR		U(0x2030)
+@@ -110,7 +124,9 @@ static uint32_t syscfg_cccr_offset[SYSFG_NB_IO_ID] = {
+ 	[SYSFG_VDDIO1_ID] = SYSCFG_VDDIO1CCCR,
+ 	[SYSFG_VDDIO2_ID] = SYSCFG_VDDIO2CCCR,
+ 	[SYSFG_VDDIO3_ID] = SYSCFG_VDDIO3CCCR,
++#if !STM32MP21
+ 	[SYSFG_VDDIO4_ID] = SYSCFG_VDDIO4CCCR,
++#endif /* !STM32MP21 */
+ 	[SYSFG_VDD_IO_ID] = SYSCFG_VDDCCCR,
+ };
+ 
+@@ -178,12 +194,16 @@ void stm32mp_syscfg_enable_io_compensation(enum syscfg_io_ids id)
+  */
+ static const uint32_t syscfg_dlybos_cr_offset[SYSCFG_MAX_DLYBOS] = {
+ 	SYSCFG_DLYBOS1_CR,
++#if !STM32MP21
+ 	SYSCFG_DLYBOS2_CR
++#endif /* !STM32MP21 */
+ };
+ 
+ static const uint32_t syscfg_dlybos_sr_offset[SYSCFG_MAX_DLYBOS] = {
+ 	SYSCFG_DLYBOS1_SR,
++#if !STM32MP21
+ 	SYSCFG_DLYBOS2_SR
++#endif /* !STM32MP21 */
+ };
+ 
+ static int stm32_syscfg_dlyb_set_tap(uint8_t bank, uint8_t tap, bool rx_tap)
+-- 
+2.47.2
+

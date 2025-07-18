@@ -1,0 +1,48 @@
+From e291a963ff5b834b91076888e218275c0997e1c1 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Thu, 21 Nov 2024 19:18:31 +0100
+Subject: [PATCH 773/841] feat(stm32mp2): update struct otp_mirror
+
+The structure was updated in TF-M to adapt with different OTP number
+constraints. Align it in TF-A.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 762f26fdd3267628fa6962821503923f3902ec4b feat(stm32mp2): update struct otp_mirror]
+Change-Id: Ic998314b369bd31ec467a31dcdd1b478e2f7549e
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/420192
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_otp_mirror.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_otp_mirror.c b/plat/st/stm32mp2/stm32mp2_otp_mirror.c
+index 42afa5263..7a77392ed 100644
+--- a/plat/st/stm32mp2/stm32mp2_otp_mirror.c
++++ b/plat/st/stm32mp2/stm32mp2_otp_mirror.c
+@@ -14,8 +14,10 @@
+ struct otp_mirror {
+ 	uint32_t magic;
+ 	uint32_t state;
+-	uint32_t value[OTP_MAX_SIZE];
+-	uint32_t status[OTP_MAX_SIZE];
++	struct {
++		uint32_t value;
++		uint32_t status;
++	} otp[OTP_MAX_SIZE];
+ };
+ 
+ uint32_t otp_mirror_read(uint32_t *val, uint32_t otp)
+@@ -29,7 +31,7 @@ uint32_t otp_mirror_read(uint32_t *val, uint32_t otp)
+ 
+ 	/* OTP already mirrored */
+ 	if ((mirror->magic == OTP_MIRROR_MAGIC) && (mirror->state != BSEC_STATE_INVALID)) {
+-		*val = mirror->value[otp];
++		*val = mirror->otp[otp].value;
+ 
+ 		return BSEC_OK;
+ 	}
+-- 
+2.47.2
+

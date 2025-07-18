@@ -1,0 +1,382 @@
+From 3000810fb90ee18f839382b81d52c75c895ad6fb Mon Sep 17 00:00:00 2001
+From: Lionel Debieve <lionel.debieve@st.com>
+Date: Thu, 10 Dec 2020 20:54:50 +0100
+Subject: [PATCH 371/841] feat(st): update SSP for stm32mp13 platform
+
+NOT_UPSTREAMABLE
+
+Update secure secret provisioning management to
+support MP13 platform.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 310b2b26e70df462758224a9ed624164a3783055 feat(st): update SSP for stm32mp13 platform]
+Change-Id: I5a13ad904db91b1b03341ea808a192d1aa122feb
+Signed-off-by: Lionel Debieve <lionel.debieve@st.com>
+---
+ fdts/stm32mp13-ssp-bl2.dtsi              | 52 ++++++++++++++++++++++++
+ plat/st/common/stm32cubeprogrammer_usb.c |  7 +++-
+ plat/st/stm32mp1/include/boot_api.h      | 23 +++++++++++
+ plat/st/stm32mp1/stm32mp1_def.h          |  5 +++
+ plat/st/stm32mp1/stm32mp1_fip_def.h      |  8 +++-
+ plat/st/stm32mp1/stm32mp1_ssp.c          | 34 +++++++++++++---
+ plat/st/stm32mp1/stm32mp1_ssp.mk         | 17 +++++++-
+ plat/st/stm32mp1/stm32mp1_usb_dfu.c      |  8 ++++
+ 8 files changed, 146 insertions(+), 8 deletions(-)
+ create mode 100644 fdts/stm32mp13-ssp-bl2.dtsi
+
+diff --git a/fdts/stm32mp13-ssp-bl2.dtsi b/fdts/stm32mp13-ssp-bl2.dtsi
+new file mode 100644
+index 000000000..8f5fc5b45
+--- /dev/null
++++ b/fdts/stm32mp13-ssp-bl2.dtsi
+@@ -0,0 +1,52 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
++/*
++ * Copyright (C) STMicroelectronics 2020 - All Rights Reserved
++ */
++
++/ {
++	aliases {
++		/delete-property/ mmc0;
++	};
++
++	soc {
++		efuse@5c005000 {
++			cfg0_otp: cfg0_otp@0 {
++				reg = <0x0 0x2>;
++			};
++			cfg2_otp: cfg2_otp@8 {
++				reg = <0x8 0x4>;
++			};
++			ssp_otp: cfg9_otp@24 {
++				reg = <0x24 0x4>;
++			};
++			chip_otp: chip_otp@a0 {
++				reg = <0xa0 0x40>;
++			};
++			rma_otp: rma_otp@e0 {
++				reg = <0xe0 0x4>;
++			};
++			pkh_otp: pkh_otp@60 {
++				reg = <0x60 0x20>;
++			};
++		};
++
++#if STM32MP_UART_PROGRAMMER
++		/delete-node/ usb-otg@49000000;
++#endif
++		/delete-node/ spi@58003000;
++		/delete-node/ mmc@58005000;
++		/delete-node/ mmc@58007000;
++#if STM32MP_UART_PROGRAMMER
++		/delete-node/ usbh-ohci@5800c000;
++		/delete-node/ usbh-ehci@5800d000;
++#endif
++#if STM32MP_UART_PROGRAMMER
++		/delete-node/ usbphyc@5a006000;
++#endif
++
++		pinctrl@50002000 {
++			/delete-node/ sdmmc1-b4-0;
++			/delete-node/ sdmmc2-b4-0;
++		};
++	};
++};
+diff --git a/plat/st/common/stm32cubeprogrammer_usb.c b/plat/st/common/stm32cubeprogrammer_usb.c
+index d572607d8..a1d4b6eb1 100644
+--- a/plat/st/common/stm32cubeprogrammer_usb.c
++++ b/plat/st/common/stm32cubeprogrammer_usb.c
+@@ -68,7 +68,7 @@ static int dfu_callback_upload(uint8_t alt, uintptr_t *buffer, uint32_t *len,
+ 	switch (usb_dfu_get_phase(alt)) {
+ 	case PHASE_CMD:
+ 		/* Get Pḧase */
+-#if STM32MP_SSP
++#if STM32MP_SSP && STM32MP15
+ 		if (dfu->phase == PHASE_SSP) {
+ 			dfu->buffer[0] = PHASE_FLASHLAYOUT;
+ 		} else {
+@@ -101,8 +101,13 @@ static int dfu_callback_upload(uint8_t alt, uintptr_t *buffer, uint32_t *len,
+ 
+ #if STM32MP_SSP
+ 	case PHASE_SSP:
++#if STM32MP13
++		dfu->buffer[0] = dfu->phase;
++#endif
++#if STM32MP15
+ 		/* Fix phase to flashlayout phase */
+ 		dfu->buffer[0] = PHASE_FLASHLAYOUT;
++#endif
+ 		dfu->buffer[1] = (uint8_t)(dfu_state.cert_base);
+ 		dfu->buffer[2] = (uint8_t)(dfu_state.cert_base >> 8);
+ 		dfu->buffer[3] = (uint8_t)(dfu_state.cert_base >> 16);
+diff --git a/plat/st/stm32mp1/include/boot_api.h b/plat/st/stm32mp1/include/boot_api.h
+index 40b828dd3..0e888b18e 100644
+--- a/plat/st/stm32mp1/include/boot_api.h
++++ b/plat/st/stm32mp1/include/boot_api.h
+@@ -392,12 +392,22 @@ BOOT_API_MCIC_RETRAM_REGION_TO_HASH_IN_BYTES_TAMP_BCK_REG_IDX		23
+ #define BOOT_API_RETURN_OK					0x77U
+ 
+ /* Mapping of OTP Word and OTP bits managing SSP and useful to FSBL-SSP */
++#if STM32MP13
++/* OTP_CFG9 */
++#define BOOT_API_OTP_SSP_WORD_NB				9U
++/* SSP_REQ = OTP_CFG9[5] */
++#define BOOT_API_OTP_SSP_REQ_BIT_POS				5
++/* SSP_SUCCESS = OTP_CFG9[6] */
++#define BOOT_API_OTP_SSP_SUCCESS_BIT_POS			6
++#endif
++#if STM32MP15
+ /* OTP_CFG8 */
+ #define BOOT_API_OTP_SSP_WORD_NB				8U
+ /* SSP_REQ = OTP_CFG8[8] */
+ #define BOOT_API_OTP_SSP_REQ_BIT_POS				8
+ /* SSP_SUCCESS = OTP_CFG8[9] */
+ #define BOOT_API_OTP_SSP_SUCCESS_BIT_POS			9
++#endif
+ 
+ /*
+  * Possible values of boot context field
+@@ -626,11 +636,24 @@ typedef struct {
+ 	 */
+ 	uint32_t payload_protocol_version;
+ 
++#if STM32MP13
++	/* OEM_RPKTH OEM Root Public Key table hash is the
++	 * hash[ hash(algo + pubK i) for i=0..N-1] where N
++	 * is the number of OEM public keys in product for
++	 * key revocation feature
++	 *
++	 * N = 8 for STM32MP13xx
++	 * size of field = 32 bytes = 256 bits
++	 */
++	uint8_t  oem_rpkth[BOOT_API_SHA256_DIGEST_SIZE_IN_BYTES];
++#endif
++#if STM32MP15
+ 	/*
+ 	 * OEM_ECDSA_PUBK Public Key defined by OEM
+ 	 * 64 bytes = 512 bits
+ 	 */
+ 	uint8_t  oem_ecdsa_pubk[BOOT_API_SSP_PUBK_KEY_SIZE_BYTES];
++#endif
+ 
+ 	/*
+ 	 * Size of Table of OEM Secrets encrypted with AES-GCM (Key,IV) from
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index a35112a6e..826e564a5 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -484,7 +484,12 @@ enum ddr_type {
+ #define CHIP_CERTIFICATE_MAX_SIZE	U(0x40)
+ 
+ /* RMA */
++#if STM32MP13
++#define RMA_OTP_MASK			GENMASK_32(31, 0)
++#endif
++#if STM32MP15
+ #define RMA_OTP_MASK			GENMASK_32(29, 0)
++#endif
+ 
+ /* PART NUMBER */
+ #if STM32MP13
+diff --git a/plat/st/stm32mp1/stm32mp1_fip_def.h b/plat/st/stm32mp1/stm32mp1_fip_def.h
+index 0cd214560..8ad1ed9c7 100644
+--- a/plat/st/stm32mp1/stm32mp1_fip_def.h
++++ b/plat/st/stm32mp1/stm32mp1_fip_def.h
+@@ -10,11 +10,17 @@
+ #define STM32MP_DDR_S_SIZE		U(0x02000000)	/* 32 MB */
+ 
+ #if STM32MP_SSP
++#if STM32MP13
++#define STM32MP_BL2_DTB_BASE		STM32MP_SEC_SYSRAM_BASE
++#endif
++#if STM32MP15
+ #define STM32MP_BL2_DTB_BASE		(STM32MP_SYSRAM_BASE + \
+ 					 STM32MP_HEADER_RESERVED_SIZE)
++#endif
++
+ #define STM32MP_BL2_DTB_SIZE		U(0x00005000)	/* 20 KB for DTB */
+ 
+-#define STM32MP_BL2_RO_SIZE		U(0x0000C000)	/* 48 Ko for BL2 */
++#define STM32MP_BL2_RO_SIZE		U(0x0000E000)	/* 56 Ko for BL2 */
+ 
+ #define STM32MP_BL2_RO_BASE		STM32MP_BL2_DTB_BASE + \
+ 					STM32MP_BL2_DTB_SIZE
+diff --git a/plat/st/stm32mp1/stm32mp1_ssp.c b/plat/st/stm32mp1/stm32mp1_ssp.c
+index 53de09385..3749c220a 100644
+--- a/plat/st/stm32mp1/stm32mp1_ssp.c
++++ b/plat/st/stm32mp1/stm32mp1_ssp.c
+@@ -121,12 +121,19 @@ static int initialize_otp(void)
+  */
+ static int ssp_pub_key_prog(boot_api_context_t *boot_context)
+ {
++#if STM32MP13
++	uint32_t *value = (uint32_t *)
++		boot_context->p_ssp_config->p_blob_payload->oem_rpkth;
++#endif
++#if STM32MP15
+ 	uint8_t key_hash[BOOT_API_SHA256_DIGEST_SIZE_IN_BYTES] __aligned(4);
+ 	uint8_t *pubk = (uint8_t *)
+ 		boot_context->p_ssp_config->p_blob_payload->oem_ecdsa_pubk;
+ 	uint32_t *value = (uint32_t *)key_hash;
++#endif
+ 	uint32_t i;
+ 
++#if STM32MP15
+ 	if (stm32_hash_register() != 0) {
+ 		return -EINVAL;
+ 	}
+@@ -138,6 +145,7 @@ static int ssp_pub_key_prog(boot_api_context_t *boot_context)
+ 		ERROR("Hash of payload failed\n");
+ 		return -EINVAL;
+ 	}
++#endif
+ 
+ 	for (i = otp_pubkey.idx; i < (otp_pubkey.idx + otp_pubkey.nb); i++) {
+ 		if (bsec_program_otp(bswap32(*value), i) != BSEC_OK) {
+@@ -170,10 +178,18 @@ static int ssp_close_device(void)
+ 		return -EINVAL;
+ 	}
+ 
++#if STM32MP13
++	if ((value & ~CFG0_OPEN_DEVICE) != 0U) {
++		ERROR("Device already closed\n");
++		return -EINVAL;
++	}
++#endif
++#if STM32MP15
+ 	if ((value & CFG0_CLOSED_DEVICE) != 0U) {
+ 		ERROR("Device already closed\n");
+ 		return -EINVAL;
+ 	}
++#endif
+ 
+ 	value |= CFG0_CLOSED_DEVICE;
+ 	if (bsec_program_otp(value, otp) != BSEC_OK) {
+@@ -372,7 +388,7 @@ static int ssp_get_product_id(char *msg)
+ {
+ 	uint32_t otp;
+ 	uint32_t otp_idx;
+-	uint32_t chip_id;
++	uint32_t chip_id = stm32mp_get_chip_dev_id();
+ 
+ 	if (stm32_get_otp_index(CFG2_OTP, &otp_idx, NULL) != 0) {
+ 		VERBOSE("Get index error\n");
+@@ -383,10 +399,6 @@ static int ssp_get_product_id(char *msg)
+ 		return -EINVAL;
+ 	}
+ 
+-	if (stm32mp1_dbgmcu_get_chip_dev_id(&chip_id) < 0) {
+-		return -EINVAL;
+-	}
+-
+ 	itoa(chip_id, msg, CERT_CHIP_ID_LEN);
+ 	itoa((otp & OTP_CFG2_SEC_COUNTER_MASK) >> OTP_CFG2_SEC_COUNTER_SHIFT,
+ 	     msg + CERT_SECURITY_COUNTER_SHIFT,
+@@ -521,10 +533,15 @@ static int ssp_download_phase(boot_api_context_t *boot_ctx)
+ 	int result = 0;
+ 	uint8_t cert[CERTIFICATE_SIZE];
+ 
++#if STM32MP13
++	blob_file = (uint8_t *)boot_ctx->p_ssp_config->p_blob_license;
++#endif
++#if STM32MP15
+ 	blob_file = (uint8_t *)page_align(BLOB_FILE_MAX_ADDR -
+ 					  sizeof(boot_api_ssp_blob_license_t) -
+ 					  sizeof(boot_api_ssp_blob_payload_t),
+ 					  DOWN);
++#endif
+ 
+ 	if (prepare_certificate(cert, boot_ctx->p_ssp_config->p_chip_pubk) != 0) {
+ 		return -EINVAL;
+@@ -909,6 +926,11 @@ void bl2_el3_plat_arch_setup(void)
+ 		mmio_clrbits_32(rcc_base + RCC_BDCR, RCC_BDCR_VSWRST);
+ 	}
+ 
++	/* Set minimum reset pulse duration to 31ms for discrete power supplied boards */
++	if (dt_pmic_status() <= 0) {
++		mmio_clrsetbits_32(rcc_base + RCC_RDLSICR, RCC_RDLSICR_MRD_MASK,
++				   31U << RCC_RDLSICR_MRD_SHIFT);
++	}
+ 
+ 	generic_delay_timer_init();
+ 
+@@ -941,6 +963,8 @@ void bl2_el3_plat_arch_setup(void)
+ 		NOTICE("Model: %s\n", board_model);
+ 	}
+ 
++	stm32mp_print_boardinfo();
++
+ 	if ((boot_context->p_ssp_config == NULL) ||
+ 	    (boot_context->p_ssp_config->ssp_cmd !=
+ 	     BOOT_API_CTX_SSP_CMD_PROV_SECRET_ACK)) {
+diff --git a/plat/st/stm32mp1/stm32mp1_ssp.mk b/plat/st/stm32mp1/stm32mp1_ssp.mk
+index ec2a3afc8..b53d0e379 100644
+--- a/plat/st/stm32mp1/stm32mp1_ssp.mk
++++ b/plat/st/stm32mp1/stm32mp1_ssp.mk
+@@ -48,12 +48,22 @@ PLAT_BL_COMMON_SOURCES	+=	drivers/arm/tzc/tzc400.c				\
+ 				plat/st/stm32mp1/stm32mp1_helper.S			\
+ 				plat/st/stm32mp1/stm32mp1_syscfg.c
+ 
++ifeq ($(STM32MP13),1)
++PLAT_BL_COMMON_SOURCES	+=	drivers/st/clk/clk-stm32-core.c				\
++				drivers/st/clk/clk-stm32mp13.c
++endif
++ifeq ($(STM32MP15),1)
+ PLAT_BL_COMMON_SOURCES	+=	drivers/st/clk/stm32mp1_clk.c
++endif
+ 
+ BL2_SOURCES		:=	drivers/io/io_storage.c					\
+-				drivers/st/crypto/stm32_hash.c				\
+ 				plat/st/stm32mp1/stm32mp1_ssp.c
+ 
++ifeq ($(STM32MP15),1)
++BL2_SOURCES		+=	drivers/st/crypto/stm32_hash.c
++endif
++
++
+ ifeq (${STM32MP_UART_PROGRAMMER},1)
+ BL2_SOURCES		+=	drivers/st/uart/stm32_uart.c				\
+ 				plat/st/common/stm32cubeprogrammer_uart.c
+@@ -69,7 +79,12 @@ BL2_SOURCES		+=	drivers/st/usb/stm32mp1_usb.c				\
+ 				plat/st/stm32mp1/stm32mp1_usb_dfu.c
+ endif
+ 
++ifeq ($(STM32MP13),1)
++BL2_DTSI		:=	stm32mp13-ssp-bl2.dtsi
++endif
++ifeq ($(STM32MP15),1)
+ BL2_DTSI		:=	stm32mp15-ssp-bl2.dtsi
++endif
+ 
+ check_boot_ssp:
+ 	@if ([ ${STM32MP_UART_PROGRAMMER} = 1 ] && [ ${STM32MP_USB_PROGRAMMER} = 1 ]) || \
+diff --git a/plat/st/stm32mp1/stm32mp1_usb_dfu.c b/plat/st/stm32mp1/stm32mp1_usb_dfu.c
+index 5cde2499c..b784dec21 100644
+--- a/plat/st/stm32mp1/stm32mp1_usb_dfu.c
++++ b/plat/st/stm32mp1/stm32mp1_usb_dfu.c
+@@ -129,7 +129,11 @@ static const uint8_t usb_stm32mp1_config_desc[USB_DFU_CONFIG_DESC_SIZ] = {
+ /* The user strings: one by alternate as defined in USBD_DFU_IF_DESC */
+ #if STM32MP13
+ const char *const if_desc_string[USB_DFU_ITF_NUM] = {
++#if STM32MP_SSP
++	"@SSP /0xF3/1*512Ba",
++#else
+ 	"@SSBL /0x03/1*16Me",
++#endif
+ 	"@virtual /0xF1/1*512Ba"
+ };
+ #endif
+@@ -384,7 +388,11 @@ uint8_t usb_dfu_get_phase(uint8_t alt)
+ 	switch (alt) {
+ #if STM32MP13
+ 	case 0:
++#if STM32MP_SSP
++		ret = PHASE_SSP;
++#else
+ 		ret = PHASE_SSBL;
++#endif
+ 		break;
+ 	case 1:
+ 		ret = PHASE_CMD;
+-- 
+2.47.2
+

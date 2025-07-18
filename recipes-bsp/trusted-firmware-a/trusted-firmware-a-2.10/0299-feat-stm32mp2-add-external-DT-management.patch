@@ -1,0 +1,58 @@
+From 81c6c60b3dd26385c3611d234220a312bddd9e20 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 5 May 2023 15:38:09 +0200
+Subject: [PATCH 299/841] feat(stm32mp2): add external DT management
+
+Use the same external DT management as for STM32MP1.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git fa218bd28a8e222ba72df5c0c09dda33c54c251d feat(stm32mp2): add external DT management]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I243b410e9393e7af369ac05ee286037a620be117
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/304549
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/platform.mk | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index f63df2284..5851180a8 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -79,6 +79,16 @@ FDT_SOURCES			:=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl2.dts,$(D
+ BL31_DTSI			:=	stm32mp25-bl31.dtsi
+ FDT_SOURCES			+=	$(addprefix ${BUILD_PLAT}/fdts/, $(patsubst %.dtb,%-bl31.dts,$(DTB_FILE_NAME)))
+ 
++ifneq (,$(wildcard fdts/$(patsubst %.dtb,%.dts,$(DTB_FILE_NAME))))
++DT_SOURCE_PATH		:=	fdts
++else
++ifneq (,$(wildcard $(TFA_EXTERNAL_DT)/$(patsubst %.dtb,%.dts,$(DTB_FILE_NAME))))
++DT_SOURCE_PATH		:=	$(TFA_EXTERNAL_DT)
++else
++$(error Cannot find $(patsubst %.dtb,%.dts,$(DTB_FILE_NAME)) file)
++endif
++endif
++
+ # Macros and rules to build TF binary
+ STM32_TF_STM32			:=	$(addprefix ${BUILD_PLAT}/tf-a-, $(patsubst %.dtb,%.stm32,$(DTB_FILE_NAME)))
+ STM32_LD_FILE			:=	plat/st/stm32mp2/${ARCH}/stm32mp2.ld.S
+@@ -91,7 +101,7 @@ ifeq (${STM32MP_DDR_FIP_IO_STORAGE},1)
+ STM32MP_DDR_FW_NAME	:=	${DDR_TYPE}_pmu_train.bin
+ STM32MP_DDR_FW		:=	drivers/st/ddr/phy/firmware/bin/${STM32MP_DDR_FW_NAME}
+ endif
+-FDT_SOURCES		+=	$(addprefix fdts/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_NAME)))
++FDT_SOURCES		+=	$(addprefix $(DT_SOURCE_PATH)/, $(patsubst %.dtb,%.dts,$(STM32MP_FW_CONFIG_NAME)))
+ # Add the FW_CONFIG to FIP and specify the same to certtool
+ $(eval $(call TOOL_ADD_PAYLOAD,${STM32MP_FW_CONFIG},--fw-config))
+ # Add the SOC_FW_CONFIG to FIP and specify the same to certtool
+@@ -340,7 +350,7 @@ endif
+ endif
+ 
+ # Create DTB file for BL31
+-${BUILD_PLAT}/fdts/%-bl31.dts: fdts/%.dts fdts/${BL31_DTSI} | ${BUILD_PLAT} fdt_dirs
++${BUILD_PLAT}/fdts/%-bl31.dts: $(DT_SOURCE_PATH)/%.dts fdts/${BL31_DTSI} | ${BUILD_PLAT} fdt_dirs
+ 	@echo '#include "$(patsubst fdts/%,%,$<)"' > $@
+ 	@echo '#include "${BL31_DTSI}"' >> $@
+ 
+-- 
+2.47.2
+

@@ -1,0 +1,252 @@
+From 178f31330189a6a9b07a47c39bbac6042e9cf7a8 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 19 Sep 2023 18:26:16 +0200
+Subject: [PATCH 352/841] feat(st): do not directly call BSEC function in
+ common code
+
+When STM32MP2 boots on Cortex-M33 (M33 is TDCID), the Cortex-A35 do no
+more have access to BSEC peripheral. New static inline stm32_otp_*
+wrappers are added, which just redirect to BSEC functions.
+
+While at it remove some useless bsec.h includes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d712e2ecdc14d7ab9186156a061a8f8845a3aa7d feat(st): do not directly call BSEC function in common code]
+Change-Id: Ie0f917c02e48acf456634f455dae41805bf6adbf
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/328514
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/stm32mp_common.c             | 10 +++---
+ plat/st/common/stm32mp_crypto_lib.c         |  1 -
+ plat/st/common/stm32mp_fconf_fuse.c         |  6 ++--
+ plat/st/stm32mp1/include/stm32mp1_private.h | 27 ++++++++++++++++
+ plat/st/stm32mp2/bl2_plat_setup.c           |  2 +-
+ plat/st/stm32mp2/include/stm32mp2_private.h | 36 +++++++++++++++++++++
+ plat/st/stm32mp2/stm32mp2_private.c         |  4 +--
+ plat/st/stm32mp2/stm32mp2_usb_dfu.c         |  3 +-
+ 8 files changed, 75 insertions(+), 14 deletions(-)
+
+diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
+index 75691ae65..e54d58c80 100644
+--- a/plat/st/common/stm32mp_common.c
++++ b/plat/st/common/stm32mp_common.c
+@@ -203,9 +203,9 @@ int stm32_get_otp_value_from_idx(const uint32_t otp_idx, uint32_t *otp_val)
+ 	assert(otp_val != NULL);
+ 
+ #if defined(IMAGE_BL2)
+-	ret = bsec_shadow_read_otp(otp_val, otp_idx);
++	ret = stm32_otp_shadow_read(otp_val, otp_idx);
+ #elif defined(IMAGE_BL31) || defined(IMAGE_BL32)
+-	ret = bsec_read_otp(otp_val, otp_idx);
++	ret = stm32_otp_read(otp_val, otp_idx);
+ #else
+ #error "Not supported"
+ #endif
+@@ -228,13 +228,13 @@ int stm32_lock_enc_key_otp(void)
+ 	}
+ 
+ 	for (i = 0U; i < otp_len / CHAR_BIT / sizeof(uint32_t); i++) {
+-		uint32_t ret = bsec_write_otp(0U, otp_idx + i);
++		uint32_t ret = stm32_otp_write(0U, otp_idx + i);
+ 
+ 		if (ret != BSEC_OK) {
+ 			return -1;
+ 		}
+ 
+-		ret = bsec_set_sr_lock(otp_idx + i);
++		ret = stm32_otp_set_sr_lock(otp_idx + i);
+ 		if (ret != BSEC_OK) {
+ 			return -1;
+ 		}
+@@ -260,7 +260,7 @@ int stm32_get_uid_otp(uint32_t uid[])
+ 	}
+ 
+ 	for (i = 0U; i < UID_WORD_NB; i++) {
+-		if (bsec_shadow_read_otp(&uid[i], i + otp) != BSEC_OK) {
++		if (stm32_otp_shadow_read(&uid[i], i + otp) != BSEC_OK) {
+ 			ERROR("BSEC: UID%u Error\n", i);
+ 			return -1;
+ 		}
+diff --git a/plat/st/common/stm32mp_crypto_lib.c b/plat/st/common/stm32mp_crypto_lib.c
+index be5fb49a9..a03a724b0 100644
+--- a/plat/st/common/stm32mp_crypto_lib.c
++++ b/plat/st/common/stm32mp_crypto_lib.c
+@@ -11,7 +11,6 @@
+ #include <common/debug.h>
+ #include <drivers/auth/crypto_mod.h>
+ #include <drivers/io/io_storage.h>
+-#include <drivers/st/bsec.h>
+ #include <drivers/st/stm32_hash.h>
+ #include <drivers/st/stm32_pka.h>
+ #include <drivers/st/stm32_rng.h>
+diff --git a/plat/st/common/stm32mp_fconf_fuse.c b/plat/st/common/stm32mp_fconf_fuse.c
+index 6ab74a754..5e7c1c3f3 100644
+--- a/plat/st/common/stm32mp_fconf_fuse.c
++++ b/plat/st/common/stm32mp_fconf_fuse.c
+@@ -72,7 +72,7 @@ static int fconf_populate_stm32mp_fuse_provisioning(uintptr_t config)
+ 			uint32_t otp_val;
+ 			bool check_state;
+ 
+-			if (bsec_read_sw_lock(otp_id + i, &check_state) != BSEC_OK) {
++			if (stm32_otp_read_sw_lock(otp_id + i, &check_state) != BSEC_OK) {
+ 				panic();
+ 			}
+ 
+@@ -83,7 +83,7 @@ static int fconf_populate_stm32mp_fuse_provisioning(uintptr_t config)
+ 
+ 			shadow_val = fdt32_to_cpu(*cuint++);
+ 
+-			if (bsec_shadow_read_otp(&otp_val, otp_id + i) != BSEC_OK) {
++			if (stm32_otp_shadow_read(&otp_val, otp_id + i) != BSEC_OK) {
+ 				panic();
+ 			}
+ 
+@@ -91,7 +91,7 @@ static int fconf_populate_stm32mp_fuse_provisioning(uintptr_t config)
+ 				INFO("Override the OTP %u initial value\n", otp_id);
+ 			}
+ 
+-			if (bsec_write_otp(otp_val | shadow_val, otp_id + i) != BSEC_OK) {
++			if (stm32_otp_write(otp_val | shadow_val, otp_id + i) != BSEC_OK) {
+ 				panic();
+ 			}
+ 		}
+diff --git a/plat/st/stm32mp1/include/stm32mp1_private.h b/plat/st/stm32mp1/include/stm32mp1_private.h
+index b8ec809e4..52afc60bc 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_private.h
++++ b/plat/st/stm32mp1/include/stm32mp1_private.h
+@@ -34,4 +34,31 @@ static inline void stm32mp1_syscfg_boot_mode_disable(void){}
+ void stm32mp1_deconfigure_uart_pins(void);
+ 
+ void stm32mp1_init_scmi_server(void);
++
++/* Wrappers for OTP / BSEC functions */
++static inline uint32_t stm32_otp_read(uint32_t *val, uint32_t otp)
++{
++	return bsec_read_otp(val, otp);
++}
++
++static inline uint32_t stm32_otp_shadow_read(uint32_t *val, uint32_t otp)
++{
++	return bsec_shadow_read_otp(val, otp);
++}
++
++static inline uint32_t stm32_otp_write(uint32_t val, uint32_t otp)
++{
++	return bsec_write_otp(val, otp);
++}
++
++static inline uint32_t stm32_otp_set_sr_lock(uint32_t otp)
++{
++	return bsec_set_sr_lock(otp);
++}
++
++static inline uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value)
++{
++	return bsec_read_sw_lock(otp, value);
++}
++
+ #endif /* STM32MP1_PRIVATE_H */
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 83794f548..22241439c 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -207,7 +207,7 @@ void bl2_el3_plat_arch_setup(void)
+ 	boot_api_context_t *boot_context =
+ 		(boot_api_context_t *)stm32mp_get_boot_ctx_address();
+ 
+-	if (bsec_probe() != 0) {
++	if (stm32_otp_probe() != 0) {
+ 		panic();
+ 	}
+ 
+diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
+index d891d331a..9300be8c0 100644
+--- a/plat/st/stm32mp2/include/stm32mp2_private.h
++++ b/plat/st/stm32mp2/include/stm32mp2_private.h
+@@ -55,4 +55,40 @@ size_t stm32_risaf_get_memory_size(int instance);
+ /* Get DDRDBG peripheral IO memory base address */
+ uintptr_t stm32_ddrdbg_get_base(void);
+ 
++/* Wrappers for OTP / BSEC functions */
++static inline uint32_t stm32_otp_probe(void)
++{
++	return bsec_probe();
++}
++
++static inline uint32_t stm32_otp_read(uint32_t *val, uint32_t otp)
++{
++	return bsec_read_otp(val, otp);
++}
++
++static inline uint32_t stm32_otp_shadow_read(uint32_t *val, uint32_t otp)
++{
++	return bsec_shadow_read_otp(val, otp);
++}
++
++static inline uint32_t stm32_otp_write(uint32_t val, uint32_t otp)
++{
++	return bsec_write_otp(val, otp);
++}
++
++static inline uint32_t stm32_otp_set_sr_lock(uint32_t otp)
++{
++	return bsec_set_sr_lock(otp);
++}
++
++static inline uint32_t stm32_otp_read_sw_lock(uint32_t otp, bool *value)
++{
++	return bsec_read_sw_lock(otp, value);
++}
++
++static inline bool stm32_otp_is_closed_device(void)
++{
++	return bsec_mode_is_closed_device();
++}
++
+ #endif /* STM32MP2_PRIVATE_H */
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index e2659af8f..f1b363a9d 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -387,7 +387,7 @@ uint32_t stm32mp_check_closed_device(void)
+ 		panic();
+ 	}
+ 
+-	if (!bsec_mode_is_closed_device() ||
++	if (!stm32_otp_is_closed_device() ||
+ 	    ((otp_val & SECURE_BOOT_CLOSED_SECURE) == 0U)) {
+ 		status = STM32MP_CHIP_SEC_OPEN;
+ 	}
+@@ -487,7 +487,7 @@ uint32_t stm32_iwdg_shadow_update(uint32_t iwdg_inst, uint32_t flags)
+ 		otp_value |= BIT(iwdg_inst + HCONF1_OTP_IWDG_FZ_STANDBY_POS);
+ 	}
+ 
+-	result = bsec_write_otp(otp_value, otp_idx);
++	result = stm32_otp_write(otp_value, otp_idx);
+ 	if (result != BSEC_OK) {
+ 		return result;
+ 	}
+diff --git a/plat/st/stm32mp2/stm32mp2_usb_dfu.c b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
+index 23b08c37e..cce6442d1 100644
+--- a/plat/st/stm32mp2/stm32mp2_usb_dfu.c
++++ b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -8,7 +8,6 @@
+ #include <string.h>
+ 
+ #include <common/debug.h>
+-#include <drivers/st/bsec.h>
+ #include <drivers/st/usb_dwc3.h>
+ #include <drivers/usb_device.h>
+ 
+-- 
+2.47.2
+

@@ -1,0 +1,136 @@
+From 59151283b5c841edbf77ce6281ccd5f5cc22e031 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 25 Oct 2023 17:27:13 +0200
+Subject: [PATCH 384/841] refactor(st-clock): move stm32mp1_clk_rcc_regs_*lock
+
+Those functions are only used on MP1, they should not be in STM32 clock
+core. Move them to MP13 driver (they are already in MP15 driver).
+Redefine new clk_stm32_rcc_regs_*lock() functions in clock core. This
+change avoid sparse warning:
+drivers/st/clk/clk-stm32-core.c:46:6: warning: symbol
+ 'stm32mp1_clk_rcc_regs_lock' was not declared. Should it be static?
+drivers/st/clk/clk-stm32-core.c:51:6: warning: symbol
+ 'stm32mp1_clk_rcc_regs_unlock' was not declared. Should it be static?
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ccd74b0c3a3336ad284a20e6e5ea1a4e3a8b5e49 refactor(st-clock): move stm32mp1_clk_rcc_regs_*lock]
+Change-Id: I9f255acaa843e41fc14267c1a8091f93bd029796
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/338361
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/clk/clk-stm32-core.c | 20 ++++++++++----------
+ drivers/st/clk/clk-stm32-core.h |  5 ++++-
+ drivers/st/clk/clk-stm32mp13.c  | 10 ++++++++++
+ 3 files changed, 24 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32-core.c b/drivers/st/clk/clk-stm32-core.c
+index 1d4e91193..ff7a91e70 100644
+--- a/drivers/st/clk/clk-stm32-core.c
++++ b/drivers/st/clk/clk-stm32-core.c
+@@ -28,7 +28,7 @@ struct stm32_clk_priv *clk_stm32_get_priv(void)
+ 	return stm32_clock_data;
+ }
+ 
+-static void stm32mp1_clk_lock(struct spinlock *lock)
++static void _clk_lock(struct spinlock *lock)
+ {
+ 	if (stm32mp_lock_available()) {
+ 		/* Assume interrupts are masked */
+@@ -36,21 +36,21 @@ static void stm32mp1_clk_lock(struct spinlock *lock)
+ 	}
+ }
+ 
+-static void stm32mp1_clk_unlock(struct spinlock *lock)
++static void _clk_unlock(struct spinlock *lock)
+ {
+ 	if (stm32mp_lock_available()) {
+ 		spin_unlock(lock);
+ 	}
+ }
+ 
+-void stm32mp1_clk_rcc_regs_lock(void)
++void clk_stm32_rcc_regs_lock(void)
+ {
+-	stm32mp1_clk_lock(&reg_lock);
++	_clk_lock(&reg_lock);
+ }
+ 
+-void stm32mp1_clk_rcc_regs_unlock(void)
++void clk_stm32_rcc_regs_unlock(void)
+ {
+-	stm32mp1_clk_unlock(&reg_lock);
++	_clk_unlock(&reg_lock);
+ }
+ 
+ #define TIMEOUT_US_1S	U(1000000)
+@@ -571,9 +571,9 @@ int _clk_stm32_enable(struct stm32_clk_priv *priv, int id)
+ {
+ 	int ret;
+ 
+-	stm32mp1_clk_lock(&refcount_lock);
++	_clk_lock(&refcount_lock);
+ 	ret = _clk_stm32_enable_core(priv, id);
+-	stm32mp1_clk_unlock(&refcount_lock);
++	_clk_unlock(&refcount_lock);
+ 
+ 	return ret;
+ }
+@@ -619,11 +619,11 @@ static void _clk_stm32_disable_core(struct stm32_clk_priv *priv, int id)
+ 
+ void _clk_stm32_disable(struct stm32_clk_priv *priv, int id)
+ {
+-	stm32mp1_clk_lock(&refcount_lock);
++	_clk_lock(&refcount_lock);
+ 
+ 	_clk_stm32_disable_core(priv, id);
+ 
+-	stm32mp1_clk_unlock(&refcount_lock);
++	_clk_unlock(&refcount_lock);
+ }
+ 
+ bool _clk_stm32_is_enabled(struct stm32_clk_priv *priv, int id)
+diff --git a/drivers/st/clk/clk-stm32-core.h b/drivers/st/clk/clk-stm32-core.h
+index 63dd85f1c..8f65f6b40 100644
+--- a/drivers/st/clk/clk-stm32-core.h
++++ b/drivers/st/clk/clk-stm32-core.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2022, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2022-2023, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
+  */
+@@ -146,6 +146,9 @@ struct clk_gate_cfg {
+ #define MASK_WIDTH_SHIFT(_width, _shift) \
+ 	GENMASK(((_width) + (_shift) - 1U), (_shift))
+ 
++void clk_stm32_rcc_regs_lock(void);
++void clk_stm32_rcc_regs_unlock(void);
++
+ int clk_stm32_init(struct stm32_clk_priv *priv, uintptr_t base);
+ void clk_stm32_enable_critical_clocks(void);
+ 
+diff --git a/drivers/st/clk/clk-stm32mp13.c b/drivers/st/clk/clk-stm32mp13.c
+index 0054d5046..f0694010c 100644
+--- a/drivers/st/clk/clk-stm32mp13.c
++++ b/drivers/st/clk/clk-stm32mp13.c
+@@ -2335,6 +2335,16 @@ static int stm32_clk_parse_fdt(struct stm32_clk_platdata *pdata)
+ 	return 0;
+ }
+ 
++void stm32mp1_clk_rcc_regs_lock(void)
++{
++	clk_stm32_rcc_regs_lock();
++}
++
++void stm32mp1_clk_rcc_regs_unlock(void)
++{
++	clk_stm32_rcc_regs_unlock();
++}
++
+ int stm32mp1_clk_init(uint32_t pll1_freq_khz)
+ {
+ 	int ret;
+-- 
+2.47.2
+

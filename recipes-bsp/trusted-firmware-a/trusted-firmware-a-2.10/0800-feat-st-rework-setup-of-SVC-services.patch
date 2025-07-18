@@ -1,0 +1,99 @@
+From 6bbf98b4a9984c69d4038395307715780e2a1ac2 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Tue, 18 Feb 2025 16:22:47 +0100
+Subject: [PATCH 800/841] feat(st): rework setup of SVC services
+
+Add a SVC SMC setup platform-specific handlers for two generations
+of STM32MPX.
+
+This patch also removes the invalid comment about the PSCI service
+as the setup of Standard Services, including PSCI, is done in function
+std_svc_setup() [in services/std_svc/std_svc_setup.c].
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a5ecc910f6e1cac2a7728f920f83d519bf57c6c2 feat(st): rework setup of SVC services]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I7b7024d555c1a4111ecf6dc84d89975cfc1e99d4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/438093
+Tested-by: Theo GOUREAU <theo.goureau-ext@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/common/include/stm32mp_svc_setup.h     | 2 ++
+ plat/st/common/stm32mp_svc_setup.c             | 6 +-----
+ plat/st/stm32mp1/services/stm32mp1_svc_setup.c | 8 ++++++++
+ plat/st/stm32mp2/services/stm32mp2_svc_setup.c | 8 ++++++++
+ 4 files changed, 19 insertions(+), 5 deletions(-)
+
+diff --git a/plat/st/common/include/stm32mp_svc_setup.h b/plat/st/common/include/stm32mp_svc_setup.h
+index 55b233619..1c542dc4f 100644
+--- a/plat/st/common/include/stm32mp_svc_setup.h
++++ b/plat/st/common/include/stm32mp_svc_setup.h
+@@ -26,6 +26,8 @@
+ #define STM32_SMC_FAILED		0xFFFFFFFEU
+ #define STM32_SMC_INVALID_PARAMS	0xFFFFFFFDU
+ 
++int32_t plat_svc_smc_setup(void);
++
+ void plat_svc_smc_handler(uint32_t smc_fid, u_register_t x1,
+ 			  u_register_t x2, u_register_t x3,
+ 			  u_register_t x4, uint32_t *ret1,
+diff --git a/plat/st/common/stm32mp_svc_setup.c b/plat/st/common/stm32mp_svc_setup.c
+index bb33dc81c..a1d5b8f16 100644
+--- a/plat/st/common/stm32mp_svc_setup.c
++++ b/plat/st/common/stm32mp_svc_setup.c
+@@ -24,11 +24,7 @@ DEFINE_SVC_UUID2(stm32_sip_svc_uid,
+ /* Setup STM32MP Standard Services */
+ static int32_t stm32mp_svc_setup(void)
+ {
+-	/*
+-	 * PSCI is the only specification implemented as a Standard Service.
+-	 * Invoke PSCI setup from here.
+-	 */
+-	return 0;
++	return plat_svc_smc_setup();
+ }
+ 
+ /*
+diff --git a/plat/st/stm32mp1/services/stm32mp1_svc_setup.c b/plat/st/stm32mp1/services/stm32mp1_svc_setup.c
+index 113128da0..4a5a8c5b5 100644
+--- a/plat/st/stm32mp1/services/stm32mp1_svc_setup.c
++++ b/plat/st/stm32mp1/services/stm32mp1_svc_setup.c
+@@ -18,6 +18,14 @@
+ 
+ #include "bsec_svc.h"
+ 
++/*
++ * Platform-level Standard Service SIP SMC setup.
++ */
++int32_t plat_svc_smc_setup(void)
++{
++	return 0;
++}
++
+ /*
+  * Platform Standard Service SMC handler. This handler will dispatch
+  * calls to features handlers.
+diff --git a/plat/st/stm32mp2/services/stm32mp2_svc_setup.c b/plat/st/stm32mp2/services/stm32mp2_svc_setup.c
+index 08fe1630c..8e801a989 100644
+--- a/plat/st/stm32mp2/services/stm32mp2_svc_setup.c
++++ b/plat/st/stm32mp2/services/stm32mp2_svc_setup.c
+@@ -16,6 +16,14 @@
+ 
+ #include "stgen_svc.h"
+ 
++/*
++ * Platform-level Standard Service SIP SMC setup.
++ */
++int32_t plat_svc_smc_setup(void)
++{
++	return 0;
++}
++
+ /*
+  * Platform-level Standard Service SIP SMC handler. This handler will dispatch
+  * the SMC to the correct feature handler.
+-- 
+2.47.2
+

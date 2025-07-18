@@ -1,0 +1,57 @@
+From 21611a00a0160168a3137c96e892d56b6fb48f46 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 25 Apr 2023 17:38:22 +0200
+Subject: [PATCH 516/841] feat(stm32mp2): define UART8 and UART9 under
+ STM32MP25 flag
+
+On STM32MP21 and STM32MP23, there are no UART8 and UART9.
+The STM32MP_NB_OF_UART is then 7.
+The stm32mp2_uart_addresses[] struct is also updated.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 43d01caba30dbe71e60d029d94cb7b9e1244b00c feat(stm32mp2): define UART8 and UART9 under STM32MP25 flag]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Change-Id: I4a46bce7e88ebeb8e95608f0bfe6859d293eb66a
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/356306
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h     | 4 ++++
+ plat/st/stm32mp2/stm32mp2_private.c | 2 ++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 66614bcd9..130be2591 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -391,9 +391,13 @@ enum ddr_type {
+ #define UART5_BASE				U(0x40110000)
+ #define USART6_BASE				U(0x40220000)
+ #define UART7_BASE				U(0x40370000)
++#if STM32MP25
+ #define UART8_BASE				U(0x40380000)
+ #define UART9_BASE				U(0x402C0000)
+ #define STM32MP_NB_OF_UART			U(9)
++#else /* STM32MP25 */
++#define STM32MP_NB_OF_UART			U(7)
++#endif /* STM32MP25 */
+ 
+ /* For UART crash console */
+ #define STM32MP_DEBUG_USART_CLK_FRQ		64000000
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index 35a546c2d..0823f3a9f 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -161,8 +161,10 @@ static const uintptr_t stm32mp2_uart_addresses[STM32MP_NB_OF_UART] = {
+ 	UART5_BASE,
+ 	USART6_BASE,
+ 	UART7_BASE,
++#if STM32MP25
+ 	UART8_BASE,
+ 	UART9_BASE,
++#endif /* STM32MP25 */
+ };
+ 
+ uintptr_t get_uart_address(uint32_t instance_nb)
+-- 
+2.47.2
+

@@ -1,0 +1,94 @@
+From ab2afd0321444f129db7b8ba68b1c943f831db93 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 11 May 2022 18:15:43 +0200
+Subject: [PATCH 210/841] feat(stm32mp2): display the STM32MP25x package in SoC
+ name
+
+Display the STM32MP25x package information in SoC name, with the OTP
+information.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 316f78ab687e5a1d2374d166e7f4cabb760a1b6f feat(stm32mp2): display the STM32MP25x package in SoC name]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I92bde288c36d8677e22a9f550aab8f1fefbc2c03
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/251866
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_def.h     |  9 +++++++++
+ plat/st/stm32mp2/stm32mp2_private.c | 31 ++++++++++++++++++++++++++++-
+ 2 files changed, 39 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index 7c1621d6c..dbe49590b 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -52,6 +52,15 @@
+ 
+ #define STM32MP2_REV_A		U(0x1000)
+ 
++/*******************************************************************************
++ * PACKAGE ID
++ ******************************************************************************/
++#define STM32MP25_PKG_CUSTOM		U(0)
++#define STM32MP25_PKG_AL_TBGA361	U(3)
++#define STM32MP25_PKG_AK_TBGA424	U(4)
++#define STM32MP25_PKG_AI_TBGA436	U(5)
++#define STM32MP25_PKG_UNKNOWN		U(7)
++
+ /*******************************************************************************
+  * STM32MP2 memory map related constants
+  ******************************************************************************/
+diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
+index d4ea52615..10251fb42 100644
+--- a/plat/st/stm32mp2/stm32mp2_private.c
++++ b/plat/st/stm32mp2/stm32mp2_private.c
+@@ -192,6 +192,19 @@ static uint32_t get_part_number(void)
+ 	return part_number;
+ }
+ 
++static uint32_t get_cpu_package(void)
++{
++	static uint32_t package = UINT32_MAX;
++
++	if (package == UINT32_MAX) {
++		if (stm32_get_otp_value(PACKAGE_OTP, &package) != 0) {
++			panic();
++		}
++	}
++
++	return (package & PACKAGE_OTP_PKG_MASK) >> PACKAGE_OTP_PKG_SHIFT;
++}
++
+ void stm32mp_get_soc_name(char name[STM32_SOC_NAME_SIZE])
+ {
+ 	char *cpu_s, *cpu_r, *pkg;
+@@ -252,7 +265,23 @@ void stm32mp_get_soc_name(char name[STM32_SOC_NAME_SIZE])
+ 	}
+ 
+ 	/* Package */
+-	pkg = "";
++	switch (get_cpu_package()) {
++	case STM32MP25_PKG_CUSTOM:
++		pkg = "XX";
++		break;
++	case STM32MP25_PKG_AL_TBGA361:
++		pkg = "AL";
++		break;
++	case STM32MP25_PKG_AK_TBGA424:
++		pkg = "AK";
++		break;
++	case STM32MP25_PKG_AI_TBGA436:
++		pkg = "AI";
++		break;
++	default:
++		pkg = "??";
++		break;
++	}
+ 
+ 	/* REVISION */
+ 	switch (stm32mp_get_chip_version()) {
+-- 
+2.47.2
+

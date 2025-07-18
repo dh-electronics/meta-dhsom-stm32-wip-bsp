@@ -1,0 +1,68 @@
+From 098194cc0063a002ce29d7691946dafaffc40758 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Wed, 10 Apr 2024 10:58:46 +0200
+Subject: [PATCH 565/841] feat(fwu): add a config flag for including image info
+ in the FWU metadata
+
+The version 2 of the FWU metadata structure is designed such that the
+information on the updatable images can be omitted from the metadata
+structure. Add a configuration flag, PSA_FWU_METADATA_FW_STORE_DESC,
+which is used to select whether the metadata structure has this
+information included or not. It's value is set to 1 by default.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ef8bdc99213cce849e295e9f578b3a5d09707ba7 feat(fwu): add a config flag for including image info in the FWU metadata]
+Change-Id: I4463a20c94d2c745ddb0b2cc8932c12d418fbd42
+Signed-off-by: Sughosh Ganu <sughosh.ganu@linaro.org>
+(cherry picked from commit 11d05a77295885f27530cf07029ebc2b36f49918)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/372646
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ Makefile                 | 2 ++
+ make_helpers/defaults.mk | 8 ++++++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/Makefile b/Makefile
+index 62da22ce8..1821f857d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1245,6 +1245,7 @@ $(eval $(call assert_booleans,\
+ 	COT_DESC_IN_DTB \
+ 	USE_SP804_TIMER \
+ 	PSA_FWU_SUPPORT \
++	PSA_FWU_METADATA_FW_STORE_DESC \
+ 	ENABLE_MPMM \
+ 	ENABLE_MPMM_FCONF \
+ 	FEATURE_DETECTION \
+@@ -1417,6 +1418,7 @@ $(eval $(call add_defines,\
+ 	NR_OF_FW_BANKS \
+ 	NR_OF_IMAGES_IN_FW_BANK \
+ 	PSA_FWU_SUPPORT \
++	PSA_FWU_METADATA_FW_STORE_DESC \
+ 	ENABLE_BRBE_FOR_NS \
+ 	ENABLE_TRBE_FOR_NS \
+ 	ENABLE_SYS_REG_TRACE_FOR_NS \
+diff --git a/make_helpers/defaults.mk b/make_helpers/defaults.mk
+index b0ff5f05e..b3d82e8a5 100644
+--- a/make_helpers/defaults.mk
++++ b/make_helpers/defaults.mk
+@@ -351,6 +351,14 @@ NR_OF_IMAGES_IN_FW_BANK		:= 1
+ # Disable Firmware update support by default
+ PSA_FWU_SUPPORT			:= 0
+ 
++# Enable image description in FWU metadata by default when PSA_FWU_SUPPORT
++# is enabled.
++ifeq ($(PSA_FWU_SUPPORT),1)
++PSA_FWU_METADATA_FW_STORE_DESC	:= 1
++else
++PSA_FWU_METADATA_FW_STORE_DESC	:= 0
++endif
++
+ # By default, disable the mocking of RSS provided services
+ PLAT_RSS_NOT_SUPPORTED		:= 0
+ 
+-- 
+2.47.2
+

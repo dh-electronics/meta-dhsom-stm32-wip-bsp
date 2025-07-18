@@ -1,0 +1,53 @@
+From 6a750a9beb7c5aa4209bf128b1280d4b6bc06006 Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Tue, 7 Dec 2021 20:14:16 +0530
+Subject: [PATCH 184/841] fix(drivers/usb): Remove packet splitting inside
+ usb-core
+
+STM32MP2 USB Controller Handles the packet-size splitting (based
+on MaxPacketSize) in the controller (H/w), so no need for S/w to
+handle it
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git cd183cdf593d2d05f473a0c14d8a7e2468b59e34 fix(drivers/usb): Remove packet splitting inside usb-core]
+Change-Id: If78efecda5c8fae829c083eb8cab5e0be9c77032
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/257175
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/usb/usb_device.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/usb/usb_device.c b/drivers/usb/usb_device.c
+index 9f9f970e0..bc95911ac 100644
+--- a/drivers/usb/usb_device.c
++++ b/drivers/usb/usb_device.c
+@@ -700,7 +700,11 @@ enum usb_status usb_core_receive_ep0(struct usb_handle *pdev, uint8_t *buf,
+ 	}
+ 
+ 	pdev->ep_out[0].total_length = len;
++#ifdef USB_CORE_AVOID_PACKET_SPLIT_MPS
++	pdev->ep_out[0].rem_length = 0;
++#else
+ 	pdev->ep_out[0].rem_length = len;
++#endif
+ 
+ 	/* Start the transfer */
+ 	return usb_core_receive(pdev, 0U, buf, len);
+@@ -725,7 +729,11 @@ enum usb_status usb_core_transmit_ep0(struct usb_handle *pdev, uint8_t *buf,
+ 	}
+ 
+ 	pdev->ep_in[0].total_length = len;
++#ifdef USB_CORE_AVOID_PACKET_SPLIT_MPS
++	pdev->ep_in[0].rem_length = 0;
++#else
+ 	pdev->ep_in[0].rem_length = len;
++#endif
+ 
+ 	/* Start the transfer */
+ 	return usb_core_transmit(pdev, 0U, buf, len);
+-- 
+2.47.2
+

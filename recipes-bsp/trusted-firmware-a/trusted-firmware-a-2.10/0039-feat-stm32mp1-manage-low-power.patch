@@ -1,0 +1,473 @@
+From 6b42765b997a72eb3ede5fb5acb11f70fd9bcd32 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Tue, 30 Nov 2021 16:44:09 +0100
+Subject: [PATCH 039/841] feat(stm32mp1): manage low-power
+
+When returning from Standby mode, BL2 will be in charge of putting the
+DDR out of self-refresh mode, and do the correct initialization,
+different from a cold boot. This is done thanks to information saved
+in backup SRAM in a low-power context structure.
+Some loading of images should be skipped, as already in DDR.
+
+If the monitor is in DDR, which is the case on STM32MP13 chip with
+OP-TEE, some code in BL2, resident in SYSRAM, will be in charge of
+setting the DDR in self-refresh mode.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 7a26ae2e9bf9fc101584421f689a5414c5190947 feat(stm32mp1): manage low-power]
+Change-Id: Ie1a12b24a9833b95a233774c74bb76114c15380d
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+---
+ plat/st/stm32mp1/bl2_plat_setup.c             | 58 +++++++++++-
+ plat/st/stm32mp1/include/stm32mp1_context.h   |  3 +
+ .../stm32mp1/include/stm32mp1_critic_power.h  | 12 +++
+ plat/st/stm32mp1/platform.mk                  |  3 +
+ plat/st/stm32mp1/stm32mp1_context.c           | 64 ++++++++++++++
+ plat/st/stm32mp1/stm32mp1_critic_power.c      | 88 +++++++++++++++++++
+ .../stm32mp1/stm32mp1_critic_power_wrapper.S  | 84 ++++++++++++++++++
+ 7 files changed, 310 insertions(+), 2 deletions(-)
+ create mode 100644 plat/st/stm32mp1/include/stm32mp1_critic_power.h
+ create mode 100644 plat/st/stm32mp1/stm32mp1_critic_power.c
+ create mode 100644 plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 6baa13446..2bff2c0be 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -12,6 +12,7 @@
+ #include <common/bl_common.h>
+ #include <common/debug.h>
+ #include <common/desc_image_load.h>
++#include <drivers/clk.h>
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/mmc.h>
+ #include <drivers/st/bsec.h>
+@@ -35,6 +36,7 @@
+ 
+ #include <platform_def.h>
+ #include <stm32mp_common.h>
++#include <stm32mp1_context.h>
+ #include <stm32mp1_dbgmcu.h>
+ 
+ #if DEBUG
+@@ -160,6 +162,23 @@ void bl2_platform_setup(void)
+ 		panic();
+ 	}
+ 
++	if (!stm32mp1_ddr_is_restored()) {
++#if STM32MP15
++		uintptr_t bkpr_core1_magic =
++			tamp_bkpr(BOOT_API_CORE1_MAGIC_NUMBER_TAMP_BCK_REG_IDX);
++		uintptr_t bkpr_core1_addr =
++			tamp_bkpr(BOOT_API_CORE1_BRANCH_ADDRESS_TAMP_BCK_REG_IDX);
++
++		/* Clear backup register */
++		mmio_write_32(bkpr_core1_addr, 0);
++		/* Clear backup register magic */
++		mmio_write_32(bkpr_core1_magic, 0);
++#endif
++
++		/* Clear the context in BKPSRAM */
++		stm32_clean_context();
++	}
++
+ 	/* Map DDR for binary load, now with cacheable attribute */
+ 	ret = mmap_add_dynamic_region(STM32MP_DDR_BASE, STM32MP_DDR_BASE,
+ 				      STM32MP_DDR_MAX_SIZE, MT_MEMORY | MT_RW | MT_SECURE);
+@@ -414,6 +433,7 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 	unsigned int i;
+ 	unsigned int idx;
+ 	unsigned long long ddr_top __unused;
++	bool wakeup_ddr_sr = stm32mp1_ddr_is_restored();
+ 	const unsigned int image_ids[] = {
+ 		BL32_IMAGE_ID,
+ 		BL33_IMAGE_ID,
+@@ -454,7 +474,13 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			bl_mem_params->image_info.image_base = config_info->config_addr;
+ 			bl_mem_params->image_info.image_max_size = config_info->config_max_size;
+ 
+-			bl_mem_params->image_info.h.attr &= ~IMAGE_ATTRIB_SKIP_LOADING;
++			/*
++			 * If going back from CSTANDBY / STANDBY and DDR was in Self-Refresh,
++			 * DDR partitions must not be reloaded.
++			 */
++			if (!(wakeup_ddr_sr && (config_info->config_addr >= STM32MP_DDR_BASE))) {
++				bl_mem_params->image_info.h.attr &= ~IMAGE_ATTRIB_SKIP_LOADING;
++			}
+ 
+ 			switch (image_ids[i]) {
+ 			case BL32_IMAGE_ID:
+@@ -479,7 +505,15 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 				break;
+ 
+ 			case BL33_IMAGE_ID:
+-				bl_mem_params->ep_info.pc = config_info->config_addr;
++				if (wakeup_ddr_sr) {
++					/*
++					 * Set ep_info PC to 0, to inform BL32 it is a reset
++					 * after STANDBY
++					 */
++					bl_mem_params->ep_info.pc = 0U;
++				} else {
++					bl_mem_params->ep_info.pc = config_info->config_addr;
++				}
+ 				break;
+ 
+ 			case HW_CONFIG_ID:
+@@ -493,11 +527,27 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 		break;
+ 
+ 	case BL32_IMAGE_ID:
++#if STM32MP13
++		if (wakeup_ddr_sr) {
++			bl_mem_params->ep_info.pc = stm32_pm_get_optee_ep();
++			break;
++		}
++#endif
+ 		if (optee_header_is_valid(bl_mem_params->image_info.image_base)) {
+ 			image_info_t *paged_image_info = NULL;
+ 
+ 			/* BL32 is OP-TEE header */
+ 			bl_mem_params->ep_info.pc = bl_mem_params->image_info.image_base;
++
++			if (wakeup_ddr_sr) {
++				bl_mem_params->ep_info.pc = stm32_pm_get_optee_ep();
++				if (stm32mp1_addr_inside_backupsram(bl_mem_params->ep_info.pc)) {
++					clk_enable(BKPSRAM);
++				}
++
++				break;
++			}
++
+ 			pager_mem_params = get_bl_mem_params_node(BL32_EXTRA1_IMAGE_ID);
+ 			assert(pager_mem_params != NULL);
+ 
+@@ -532,6 +582,10 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 				tos_fw_mem_params->image_info.image_max_size;
+ 			bl_mem_params->ep_info.args.arg0 = 0;
+ 		}
++
++		if (bl_mem_params->ep_info.pc >= STM32MP_DDR_BASE) {
++			stm32_context_save_bl2_param();
++		}
+ 		break;
+ 
+ 	case BL33_IMAGE_ID:
+diff --git a/plat/st/stm32mp1/include/stm32mp1_context.h b/plat/st/stm32mp1/include/stm32mp1_context.h
+index 7cf014fc7..c5d99da10 100644
+--- a/plat/st/stm32mp1/include/stm32mp1_context.h
++++ b/plat/st/stm32mp1/include/stm32mp1_context.h
+@@ -9,7 +9,10 @@
+ 
+ #include <stdint.h>
+ 
++void stm32_clean_context(void);
++void stm32_context_save_bl2_param(void);
+ uint32_t stm32_get_zdata_from_context(void);
+ void stm32_restore_ddr_training_area(void);
++uint32_t stm32_pm_get_optee_ep(void);
+ 
+ #endif /* STM32MP1_CONTEXT_H */
+diff --git a/plat/st/stm32mp1/include/stm32mp1_critic_power.h b/plat/st/stm32mp1/include/stm32mp1_critic_power.h
+new file mode 100644
+index 000000000..3a9e9b92c
+--- /dev/null
++++ b/plat/st/stm32mp1/include/stm32mp1_critic_power.h
+@@ -0,0 +1,12 @@
++/*
++ * Copyright (C) 2019-2021, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef STM32MP1_CRITIC_POWER_H
++#define STM32MP1_CRITIC_POWER_H
++
++extern void stm32_pwr_down_wfi_wrapper(bool is_cstop, uint32_t mode);
++
++#endif /* STM32MP1_CRITIC_POWER_H */
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index e9161f15a..9854f91ef 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -286,6 +286,9 @@ endif
+ BL2_SOURCES		+=	drivers/st/ddr/stm32mp1_ddr.c				\
+ 				drivers/st/ddr/stm32mp1_ram.c
+ 
++BL2_SOURCES		+=	plat/st/stm32mp1/stm32mp1_critic_power.c
++BL2_SOURCES		+=	plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
++
+ ifeq ($(AARCH32_SP),sp_min)
+ # Create DTB file for BL32
+ ${BUILD_PLAT}/fdts/%-bl32.dts: fdts/%.dts fdts/${BL32_DTSI} | ${BUILD_PLAT} fdt_dirs
+diff --git a/plat/st/stm32mp1/stm32mp1_context.c b/plat/st/stm32mp1/stm32mp1_context.c
+index 812b1f0c8..f1109bd48 100644
+--- a/plat/st/stm32mp1/stm32mp1_context.c
++++ b/plat/st/stm32mp1/stm32mp1_context.c
+@@ -11,9 +11,11 @@
+ #include <drivers/clk.h>
+ #include <drivers/st/stm32mp1_ddr_regs.h>
+ #include <dt-bindings/clock/stm32mp1-clks.h>
++#include <lib/utils.h>
+ 
+ #include <platform_def.h>
+ #include <stm32mp1_context.h>
++#include <stm32mp1_critic_power.h>
+ 
+ #define TRAINING_AREA_SIZE		64U
+ 
+@@ -62,6 +64,68 @@ struct backup_data_s {
+ 	uint32_t bl2_end;
+ };
+ 
++uint32_t stm32_pm_get_optee_ep(void)
++{
++	struct backup_data_s *backup_data;
++	uint32_t ep;
++
++#if STM32MP15
++	clk_enable(BKPSRAM);
++#endif
++
++	/* Context & Data to be saved at the beginning of Backup SRAM */
++	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
++
++	switch (MAGIC_ID(backup_data->magic)) {
++	case MAILBOX_MAGIC_V1:
++	case MAILBOX_MAGIC_V2:
++	case MAILBOX_MAGIC_V3:
++		if (MAGIC_AREA_SIZE(backup_data->magic) != TRAINING_AREA_SIZE) {
++			panic();
++		}
++		break;
++	default:
++		ERROR("PM context: bad magic\n");
++		panic();
++	}
++
++	ep = backup_data->core0_resume_hint;
++
++#if STM32MP15
++	clk_disable(BKPSRAM);
++#endif
++
++	return ep;
++}
++
++void stm32_clean_context(void)
++{
++	clk_enable(BKPSRAM);
++
++	zeromem((void *)STM32MP_BACKUP_RAM_BASE, sizeof(struct backup_data_s));
++
++	clk_disable(BKPSRAM);
++}
++
++#if defined(IMAGE_BL2)
++void stm32_context_save_bl2_param(void)
++{
++	struct backup_data_s *backup_data;
++
++	clk_enable(BKPSRAM);
++
++	backup_data = (struct backup_data_s *)STM32MP_BACKUP_RAM_BASE;
++
++	backup_data->low_power_ep = (uint32_t)&stm32_pwr_down_wfi_wrapper;
++	backup_data->bl2_code_base = BL_CODE_BASE;
++	backup_data->bl2_code_end = BL_CODE_END;
++	backup_data->bl2_end = BL2_END;
++	backup_data->magic = MAILBOX_MAGIC_V3;
++
++	clk_disable(BKPSRAM);
++}
++#endif
++
+ uint32_t stm32_get_zdata_from_context(void)
+ {
+ 	struct backup_data_s *backup_data;
+diff --git a/plat/st/stm32mp1/stm32mp1_critic_power.c b/plat/st/stm32mp1/stm32mp1_critic_power.c
+new file mode 100644
+index 000000000..f7695a998
+--- /dev/null
++++ b/plat/st/stm32mp1/stm32mp1_critic_power.c
+@@ -0,0 +1,88 @@
++/*
++ * Copyright (C) 2019-2022, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <arch_helpers.h>
++#include <common/debug.h>
++#include <drivers/arm/gicv2.h>
++#include <drivers/generic_delay_timer.h>
++#include <drivers/st/stm32_iwdg.h>
++#include <drivers/st/stm32mp_pmic.h>
++#include <drivers/st/stm32mp1_ddr_helpers.h>
++#include <dt-bindings/power/stm32mp1-power.h>
++
++#include <platform_def.h>
++#include <stm32mp1_context.h>
++#include <stm32mp1_critic_power.h>
++
++static void cstop_critic_enter(uint32_t mode)
++{
++	/* init generic timer that is needed for udelay used in ddr driver */
++	generic_delay_timer_init();
++
++	/* Switch to Software Self-Refresh mode */
++	ddr_set_sr_mode(DDR_SSR_MODE);
++
++	/*
++	 * Set DDR in Self-refresh,.
++	 * This is also the procedure awaited when switching off power supply.
++	 */
++	if (ddr_standby_sr_entry() != 0) {
++		ERROR("Unable to put DDR in SR\n");
++		if (mode != (uint32_t)STM32_PM_SHUTDOWN) {
++			panic();
++		}
++	}
++}
++
++static void shutdown_critic_enter(void)
++{
++	if (dt_pmic_status() > 0) {
++		if (!initialize_pmic_i2c()) {
++			panic();
++		}
++
++		pmic_switch_off();
++	}
++}
++
++/*
++ * stm32_exit_cstop_critic - Exit from CSTOP mode reenable DDR
++ */
++static void cstop_critic_exit(void)
++{
++	if (ddr_sw_self_refresh_exit() != 0) {
++		panic();
++	}
++}
++
++void stm32_pwr_down_wfi_load(bool is_cstop, uint32_t mode)
++{
++	if (mode != (uint32_t)STM32_PM_CSLEEP_RUN) {
++		dcsw_op_all(DC_OP_CISW);
++	}
++
++	if (is_cstop) {
++		cstop_critic_enter(mode);
++	}
++
++	if (mode == (uint32_t)STM32_PM_SHUTDOWN) {
++		shutdown_critic_enter();
++	}
++
++	/*
++	 * Synchronize on memory accesses and instruction flow before the WFI
++	 * instruction.
++	 */
++	dsb();
++	isb();
++	wfi();
++
++	stm32_iwdg_refresh();
++
++	if (is_cstop) {
++		cstop_critic_exit();
++	}
++}
+diff --git a/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S b/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+new file mode 100644
+index 000000000..54dbdbc7d
+--- /dev/null
++++ b/plat/st/stm32mp1/stm32mp1_critic_power_wrapper.S
+@@ -0,0 +1,84 @@
++/*
++ * Copyright (C) 2019-2023, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <platform_def.h>
++
++#include <arch.h>
++#include <asm_macros.S>
++#include <common/bl_common.h>
++#include <drivers/st/stm32_gpio.h>
++#include <smccc_helpers.h>
++
++	.global	stm32_pwr_down_wfi_load
++	.global	stm32_pwr_down_wfi_wrapper
++	.global	bl2_vector_table
++	.global	disable_mmu_secure
++	.global	__STACKS_END__
++
++.section .data
++	.balign 4
++saved_sp:		.word	0x00000000
++saved_vbar:		.word	0x00000000
++saved_mvbar:		.word	0x00000000
++
++.section .text
++	.align	5
++
++func stm32_pwr_down_wfi_wrapper
++	push	{r4,r5,r6,lr}
++
++	# Save r0 and r1 in  r2 and r3, as they are used in disable_mmu_secure
++	mov	r2, r0
++	mov	r3, r1
++
++	# Save current sp in sp1
++	ldr	r1, =saved_sp
++	str	sp, [r1]
++
++	# Save current VBAR in vbar1
++	ldr	r1, =saved_vbar
++	ldcopr	r0, VBAR
++	str	r0, [r1]
++
++	# Save current MVBAR in mvbar1
++	ldr	r1, =saved_mvbar
++	ldcopr	r0, MVBAR
++	str	r0, [r1]
++
++	# Reuse BL2 vector table for VBAR and MVBAR
++	ldr	r1, =bl2_vector_table
++	stcopr	r1, VBAR
++	stcopr	r1, MVBAR
++
++	# Set sp to BL2 STACK (as BL2 is not using it anymore)
++	ldr	sp, =__STACKS_END__
++
++	mov	r0, r2
++	mov	r1, r3
++
++	bl	stm32_pwr_down_wfi_load
++
++	# Restore stack
++	ldr	r1, =saved_sp
++	ldr	sp, [r1]
++
++	# Restore VBAR
++	ldr	r1, =saved_vbar
++	ldr	r0, [r1]
++	stcopr	r0, VBAR
++
++	# Restore MVBAR
++	ldr	r1, =saved_mvbar
++	ldr	r0, [r1]
++	stcopr	r0, MVBAR
++
++	# Synchronize on memory access and instruction
++	# after resetting stack/IT handler
++	dsb
++	isb
++
++	pop	{r4,r5,r6,pc}
++endfunc stm32_pwr_down_wfi_wrapper
+-- 
+2.47.2
+

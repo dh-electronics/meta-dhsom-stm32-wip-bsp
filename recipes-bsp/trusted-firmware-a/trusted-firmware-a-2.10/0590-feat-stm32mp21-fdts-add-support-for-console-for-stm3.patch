@@ -1,0 +1,73 @@
+From 80d2f79ad69d21df719c636934cbe5b94f275a35 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cl=C3=A9ment=20Le=20Goffic?= <clement.legoffic@foss.st.com>
+Date: Thu, 2 May 2024 11:19:59 +0200
+Subject: [PATCH 590/841] feat(stm32mp21-fdts): add support for console for
+ stm32mp215f-dk
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Configure the usart2 as the console for the board stm32mp215f-dk.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ce7642a563ffd6978721c5f4a81859f8cafe0646 feat(stm32mp21-fdts): add support for console for stm32mp215f-dk]
+Change-Id: Ic8c778244ac7a74530cdf86e41e3dc1acaee9407
+Signed-off-by: Clément Le Goffic <clement.legoffic@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/380599
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ fdts/stm32mp21-pinctrl.dtsi | 14 ++++++++++++++
+ fdts/stm32mp215f-dk.dts     |  8 +++++++-
+ 2 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/fdts/stm32mp21-pinctrl.dtsi b/fdts/stm32mp21-pinctrl.dtsi
+index 2fc2cd79e..4199846d9 100644
+--- a/fdts/stm32mp21-pinctrl.dtsi
++++ b/fdts/stm32mp21-pinctrl.dtsi
+@@ -25,4 +25,18 @@
+ 			bias-disable;
+ 		};
+ 	};
++
++	/omit-if-no-ref/
++	usart2_pins_a: usart2-0 {
++		pins1 {
++			pinmux = <STM32_PINMUX('A', 4, AF6)>; /* USART2_TX */
++			bias-disable;
++			drive-push-pull;
++			slew-rate = <0>;
++		};
++		pins2 {
++			pinmux = <STM32_PINMUX('A', 8, AF8)>; /* USART2_RX */
++			bias-disable;
++		};
++	};
+ };
+diff --git a/fdts/stm32mp215f-dk.dts b/fdts/stm32mp215f-dk.dts
+index 63e85be16..efd6f33fa 100644
+--- a/fdts/stm32mp215f-dk.dts
++++ b/fdts/stm32mp215f-dk.dts
+@@ -17,7 +17,7 @@
+ 	compatible = "st,stm32mp215f-dk", "st,stm32mp215";
+ 
+ 	aliases {
+-		/* serial0 = &usart2; */
++		serial0 = &usart2;
+ 	};
+ 
+ 	chosen {
+@@ -29,3 +29,9 @@
+ 		reg = <0x0 0x80000000 0x0 0x80000000>;
+ 	};
+ };
++
++&usart2 {
++	pinctrl-names = "default", "idle", "sleep";
++	pinctrl-0 = <&usart2_pins_a>;
++	status = "okay";
++};
+-- 
+2.47.2
+

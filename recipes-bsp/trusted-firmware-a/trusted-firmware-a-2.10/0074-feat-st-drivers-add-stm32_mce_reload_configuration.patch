@@ -1,0 +1,77 @@
+From 93773c63f25c97fa6728213d393556e6b9241473 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 31 Aug 2022 11:42:31 +0200
+Subject: [PATCH 074/841] feat(st-drivers): add stm32_mce_reload_configuration
+
+Add a function in DDRMCE driver to reload configuration after standby.
+This configuration is saved in backupRAM context when configuring
+regions at cold boot.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 23730ce0467f94e1c0ed0d48b8fe729af075af82 feat(st-drivers): add stm32_mce_reload_configuration]
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Change-Id: I12a61b15b51ee30eb9865ec71eda56003855b88c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/264427
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+---
+ drivers/st/mce/stm32_mce.c     | 24 ++++++++++++++++++++++++
+ include/drivers/st/stm32_mce.h |  2 ++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/drivers/st/mce/stm32_mce.c b/drivers/st/mce/stm32_mce.c
+index 162997c54..89dd9ba99 100644
+--- a/drivers/st/mce/stm32_mce.c
++++ b/drivers/st/mce/stm32_mce.c
+@@ -350,6 +350,28 @@ int stm32_mce_get_address_encryption_state(uint32_t address, uint32_t *state)
+ 	return 0;
+ }
+ 
++void stm32_mce_reload_configuration(void)
++{
++	uint32_t idx;
++
++	for (idx = 0U; idx < MCE_IP_MAX_REGION_NB; idx++) {
++		struct stm32_mce_region_s region;
++
++		stm32mp1_pm_get_mce_region(idx, &region);
++
++		if (region.end_address == 0U) {
++			break;
++		}
++
++		VERBOSE("%s: mce cell found with value = 0x%x 0x%x 0x%x\n", __func__,
++			region.start_address, region.end_address, region.encrypt_mode);
++
++		if (stm32_mce_configure_region(idx, &region) != 0) {
++			panic();
++		}
++	}
++}
++
+ static int fconf_populate_mce(uintptr_t config)
+ {
+ 	int node, len;
+@@ -395,6 +417,8 @@ static int fconf_populate_mce(uintptr_t config)
+ 		if (stm32_mce_configure_region(i, &region) != 0) {
+ 			panic();
+ 		}
++
++		stm32mp1_pm_save_mce_region(i, &region);
+ 	}
+ 
+ 	return 0;
+diff --git a/include/drivers/st/stm32_mce.h b/include/drivers/st/stm32_mce.h
+index af94cb44f..81c4d20d7 100644
+--- a/include/drivers/st/stm32_mce.h
++++ b/include/drivers/st/stm32_mce.h
+@@ -41,4 +41,6 @@ bool stm32_mce_is_globally_locked(void);
+ bool stm32_mce_is_hw_encryption_functional(void);
+ 
+ int stm32_mce_get_address_encryption_state(uint32_t address, uint32_t *state);
++
++void stm32_mce_reload_configuration(void);
+ #endif /* STM32_MCE_H */
+-- 
+2.47.2
+

@@ -1,0 +1,46 @@
+From 322fa6c7236986cedee106f3a8b333afa3bad491 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Date: Wed, 1 Jun 2022 13:52:43 +0200
+Subject: [PATCH 173/841] feat(stm32mp2): enable DDR driver
+
+Call stm32mp2_ddr_probe() function in platform setup.
+Move DDR systematic test file in common.mk.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d1b630aa44a0504e1b44c1813207818a0b1fcdc0 feat(stm32mp2): enable DDR driver]
+Change-Id: I982abd33635a3222a52c967eac64676bc26b0d6b
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/254604
+Reviewed-by: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index f02dce4a8..078f8a669 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -22,6 +22,7 @@
+ #include <drivers/st/stm32_console.h>
+ #include <drivers/st/stm32mp_reset.h>
+ #include <drivers/st/stm32mp_risab_regs.h>
++#include <drivers/st/stm32mp2_ram.h>
+ #include <drivers/st/stm32mp2_risaf.h>
+ #include <lib/fconf/fconf.h>
+ #include <lib/fconf/fconf_dyn_cfg_getter.h>
+@@ -141,6 +142,12 @@ void bl2_platform_setup(void)
+ {
+ 	int ret;
+ 
++	ret = stm32mp2_ddr_probe();
++	if (ret != 0) {
++		ERROR("DDR probe: error %d\n", ret);
++		panic();
++	}
++
+ 	if (stm32mp2_risaf_init() < 0) {
+ 		panic();
+ 	}
+-- 
+2.47.2
+

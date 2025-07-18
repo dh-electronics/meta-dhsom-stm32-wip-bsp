@@ -1,0 +1,41 @@
+From 1454b1a9c50cca50a8e17a36ddb3e9cc47f19a0a Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Fri, 15 Dec 2023 15:52:16 +0100
+Subject: [PATCH 440/841] feat(stm32mp2): limit the max size of BL31
+
+BL31 is loaded at the beginning of SYSRAM, but it should not overwrite
+BL2 that is at the end of SYSRAM. Limit BL31 max size to:
+BL2_BASE - STM32MP_SYSRAM_BASE
+And add a message about this max size update.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git df361a3b2a6a8031abfd905acf8bca2745eac2de feat(stm32mp2): limit the max size of BL31]
+Change-Id: Iee1838f893be568997ac21c0189999aab81f26fc
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/347240
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 073f921b8..9ee4d855f 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -502,6 +502,13 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 			switch (image_ids[i]) {
+ 			case BL31_IMAGE_ID:
+ 				bl_mem_params->ep_info.pc = config_info->config_addr;
++				if (bl_mem_params->image_info.image_base == STM32MP_SYSRAM_BASE) {
++					bl_mem_params->image_info.image_max_size =
++						BL2_BASE - STM32MP_SYSRAM_BASE;
++					INFO("BL31 max size = 0x%x (%uB)\n",
++					     bl_mem_params->image_info.image_max_size,
++					     bl_mem_params->image_info.image_max_size);
++				}
+ 				break;
+ 			case BL32_IMAGE_ID:
+ 				bl_mem_params->ep_info.pc = config_info->config_addr;
+-- 
+2.47.2
+
