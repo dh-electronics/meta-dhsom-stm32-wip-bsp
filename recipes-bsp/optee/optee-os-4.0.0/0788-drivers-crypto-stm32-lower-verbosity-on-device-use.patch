@@ -1,0 +1,121 @@
+From 6371f01f135a2078c95fcf53ed2335912c95eacb Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Thu, 11 Apr 2024 08:41:33 +0200
+Subject: [PATCH 0788/1695] drivers: crypto: stm32: lower verbosity on device
+ use
+
+Change trace level from debug level to flow level for the messages
+printed by STM32 crypto handlers stating an STM32 device is used.
+These are called too often, especially for HMAC and HASH to be really
+useful.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git dc5fc83337279af47e007cd4c1f81b20f83a755e drivers: crypto: stm32: lower verbosity on device use]
+Change-Id: Ie8afca909d30cd5c52de392526b8c1c611f82f89
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372868
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/crypto/stm32/ecc.c  | 14 +++++++-------
+ core/drivers/crypto/stm32/hash.c |  2 +-
+ core/drivers/crypto/stm32/hmac.c |  2 +-
+ 3 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/core/drivers/crypto/stm32/ecc.c b/core/drivers/crypto/stm32/ecc.c
+index 02c9c55a0..9068adfe9 100644
+--- a/core/drivers/crypto/stm32/ecc.c
++++ b/core/drivers/crypto/stm32/ecc.c
+@@ -77,7 +77,7 @@ static TEE_Result stm32_gen_keypair(struct ecc_keypair *key, size_t size_bits)
+ 	if (!key)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	DMSG("Using PKA");
++	FMSG("Using PKA");
+ 	res = curve_to_pka_cid(key->curve, &cid);
+ 	if (res)
+ 		return res;
+@@ -209,7 +209,7 @@ static TEE_Result stm32_sign(struct drvcrypt_sign_data *sdata)
+ 	if (!sdata)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	DMSG("Using PKA");
++	FMSG("Using PKA");
+ 	return sign(sdata->algo,
+ 		    sdata->key,
+ 		    sdata->message.data,
+@@ -279,7 +279,7 @@ static TEE_Result stm32_verify(struct drvcrypt_sign_data *sdata)
+ 	if (!sdata)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	DMSG("Using PKA");
++	FMSG("Using PKA");
+ 	return verify(sdata->algo,
+ 		      sdata->key,
+ 		      sdata->message.data,
+@@ -299,7 +299,7 @@ static TEE_Result stm32_alloc_keypair(struct ecc_keypair *s, uint32_t type,
+ 	    type != TEE_TYPE_ECDH_KEYPAIR)
+ 		return TEE_ERROR_NOT_IMPLEMENTED;
+ 
+-	DMSG("Using PKA");
++	FMSG("Using PKA");
+ 	memset(s, 0, sizeof(*s));
+ 
+ 	s->d = crypto_bignum_allocate(PKA_MAX_ECC_LEN);
+@@ -333,7 +333,7 @@ static TEE_Result stm32_alloc_publickey(struct ecc_public_key *s, uint32_t type,
+ 	    type != TEE_TYPE_ECDH_KEYPAIR)
+ 		return TEE_ERROR_NOT_IMPLEMENTED;
+ 
+-	DMSG("Using PKA");
++	FMSG("Using PKA");
+ 	memset(s, 0, sizeof(*s));
+ 
+ 	s->x = crypto_bignum_allocate(PKA_MAX_ECC_LEN);
+@@ -354,7 +354,7 @@ static void stm32_free_publickey(struct ecc_public_key *s)
+ 	if (!s)
+ 		return;
+ 
+-	DMSG("Using PKA");
++	FMSG("Using PKA");
+ 	crypto_bignum_free(&s->x);
+ 	crypto_bignum_free(&s->y);
+ }
+@@ -485,7 +485,7 @@ static TEE_Result stm32_shared_secret(struct drvcrypt_secret_data *sdata)
+ 	if (!sdata)
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+-	DMSG("Using PKA");
++	FMSG("Using PKA");
+ 	return shared_secret(sdata->key_priv,
+ 			     sdata->key_pub,
+ 			     sdata->secret.data,
+diff --git a/core/drivers/crypto/stm32/hash.c b/core/drivers/crypto/stm32/hash.c
+index 00def7eec..e2ecc9da4 100644
+--- a/core/drivers/crypto/stm32/hash.c
++++ b/core/drivers/crypto/stm32/hash.c
+@@ -179,7 +179,7 @@ static TEE_Result stm32_hash_allocate(struct crypto_hash_ctx **ctx,
+ 		return res;
+ 	}
+ 
+-	DMSG("Using HASH %d", stm32_algo);
++	FMSG("Using HASH %d", stm32_algo);
+ 	c->ch_ctx.ops = &hash_ops;
+ 	*ctx = &c->ch_ctx;
+ 
+diff --git a/core/drivers/crypto/stm32/hmac.c b/core/drivers/crypto/stm32/hmac.c
+index bd59526d7..d45ad2724 100644
+--- a/core/drivers/crypto/stm32/hmac.c
++++ b/core/drivers/crypto/stm32/hmac.c
+@@ -207,7 +207,7 @@ static TEE_Result stm32_hmac_allocate(struct crypto_mac_ctx **ctx,
+ 		return res;
+ 	}
+ 
+-	DMSG("Using HMAC %d", stm32_algo);
++	FMSG("Using HMAC %d", stm32_algo);
+ 	c->mac_ctx.ops = &hmac_ops;
+ 	*ctx = &c->mac_ctx;
+ 
+-- 
+2.47.2
+

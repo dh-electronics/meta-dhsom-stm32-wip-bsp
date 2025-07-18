@@ -1,0 +1,268 @@
+From cba34d2d7054611435ab2aaf17f5a67aa2f54fae Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Thu, 1 Aug 2024 13:38:08 +0200
+Subject: [PATCH 1127/1695] dts: stm32: add firewall configs for remoteproc on
+ stm32mp15 boards
+
+Add alternative firewall configurations for the runtime and the
+loading remoteproc firmware
+- When loading the remoteproc firmware only the CA7 secure context
+should be able to access to the memory regions.
+- on runtime:
+   - RETRAM MCUSRAM1 and MCUSRAM2 are configured for exclusive access
+from the CM4
+   - the MCUSRAM3 memory region is the shared memory that is accessible
+by the CA7 and the CM4
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git ce0667879ae66417504e099317f0a8f2fe8cb405 dts: stm32: add firewall configs for remoteproc on stm32mp15 boards]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: If15bf1ccfdd4bb5d1c83f8d1e0e89e5ef8cbb8d0
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/396467
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/dts/stm32mp157a-dk1.dts        | 20 ++++++++++++++++++++
+ core/arch/arm/dts/stm32mp157c-dk2.dts        | 20 ++++++++++++++++++++
+ core/arch/arm/dts/stm32mp157c-ed1.dts        | 20 ++++++++++++++++++++
+ core/arch/arm/dts/stm32mp157d-dk1.dts        | 20 ++++++++++++++++++++
+ core/arch/arm/dts/stm32mp157f-dk2.dts        | 20 ++++++++++++++++++++
+ core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi | 20 ++++++++++++++++++++
+ core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi | 20 ++++++++++++++++++++
+ 7 files changed, 140 insertions(+)
+
+diff --git a/core/arch/arm/dts/stm32mp157a-dk1.dts b/core/arch/arm/dts/stm32mp157a-dk1.dts
+index 9c43e8411..eaa2b6a44 100644
+--- a/core/arch/arm/dts/stm32mp157a-dk1.dts
++++ b/core/arch/arm/dts/stm32mp157a-dk1.dts
+@@ -46,3 +46,23 @@
+ 		DECPROT(STM32MP1_ETZPC_IWDG1_ID, DECPROT_S_RW, DECPROT_LOCK)
+ 	>;
+ };
++
++&mcusram1 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram2 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram3 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_NS_RW, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&retram {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
+diff --git a/core/arch/arm/dts/stm32mp157c-dk2.dts b/core/arch/arm/dts/stm32mp157c-dk2.dts
+index a3ea2424f..8c62c4a2d 100644
+--- a/core/arch/arm/dts/stm32mp157c-dk2.dts
++++ b/core/arch/arm/dts/stm32mp157c-dk2.dts
+@@ -108,6 +108,26 @@
+ 	};
+ };
+ 
++&mcusram1 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram2 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram3 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_NS_RW, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&retram {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
+ &usart2 {
+ 	pinctrl-names = "default", "sleep", "idle";
+ 	pinctrl-0 = <&usart2_pins_c>;
+diff --git a/core/arch/arm/dts/stm32mp157c-ed1.dts b/core/arch/arm/dts/stm32mp157c-ed1.dts
+index fbf770424..5b844684f 100644
+--- a/core/arch/arm/dts/stm32mp157c-ed1.dts
++++ b/core/arch/arm/dts/stm32mp157c-ed1.dts
+@@ -364,6 +364,21 @@
+ 	status = "disabled";
+ };
+ 
++&mcusram1 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram2 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram3 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_NS_RW, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
+ &osc_calibration {
+ 	csi-calibration {
+ 		status = "okay";
+@@ -506,6 +521,11 @@
+ 	};
+ };
+ 
++&retram {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
+ &rng1 {
+ 	status = "okay";
+ };
+diff --git a/core/arch/arm/dts/stm32mp157d-dk1.dts b/core/arch/arm/dts/stm32mp157d-dk1.dts
+index 1a9ee8782..0971a541b 100644
+--- a/core/arch/arm/dts/stm32mp157d-dk1.dts
++++ b/core/arch/arm/dts/stm32mp157d-dk1.dts
+@@ -45,3 +45,23 @@
+ 		DECPROT(STM32MP1_ETZPC_IWDG1_ID, DECPROT_S_RW, DECPROT_LOCK)
+ 	>;
+ };
++
++&mcusram1 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram2 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram3 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_NS_RW, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&retram {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
+diff --git a/core/arch/arm/dts/stm32mp157f-dk2.dts b/core/arch/arm/dts/stm32mp157f-dk2.dts
+index 74cb15e15..cfe2422a5 100644
+--- a/core/arch/arm/dts/stm32mp157f-dk2.dts
++++ b/core/arch/arm/dts/stm32mp157f-dk2.dts
+@@ -47,3 +47,23 @@
+ 		DECPROT(STM32MP1_ETZPC_IWDG1_ID, DECPROT_S_RW, DECPROT_LOCK)
+ 	>;
+ };
++
++&mcusram1 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram2 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram3 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_NS_RW, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&retram {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
+diff --git a/core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi b/core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi
+index 3082bb98e..34075374b 100644
+--- a/core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi
++++ b/core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi
+@@ -422,6 +422,21 @@
+ 	status = "okay";
+ };
+ 
++&mcusram1 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram2 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram3 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_NS_RW, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
+ &pwr_regulators {
+ 	vdd-supply = <&vdd>;
+ 	vdd_3v3_usbfs-supply = <&vdd_usb>;
+@@ -463,6 +478,11 @@
+ 	status = "okay";
+ };
+ 
++&retram {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
+ &rng1 {
+ 	status = "okay";
+ };
+diff --git a/core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi b/core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi
+index 4f07bf696..338e01b7f 100644
+--- a/core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi
++++ b/core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi
+@@ -240,6 +240,21 @@
+ 	status = "okay";
+ };
+ 
++&mcusram1 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM1_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram2 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM2_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
++&mcusram3 {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_NS_RW, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_SRAM3_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
+ &pwr_regulators {
+ 	vdd-supply = <&vdd>;
+ 	vdd_3v3_usbfs-supply = <&vdd_usb>;
+@@ -268,6 +283,11 @@
+ 	status = "okay";
+ };
+ 
++&retram {
++	access-controllers-conf-default = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_MCU_ISOLATION, DECPROT_UNLOCK)>;
++	access-controllers-conf-load = <&etzpc DECPROT(STM32MP1_ETZPC_RETRAM_ID, DECPROT_S_RW, DECPROT_UNLOCK)>;
++};
++
+ &rng1 {
+ 	status = "okay";
+ };
+-- 
+2.47.2
+

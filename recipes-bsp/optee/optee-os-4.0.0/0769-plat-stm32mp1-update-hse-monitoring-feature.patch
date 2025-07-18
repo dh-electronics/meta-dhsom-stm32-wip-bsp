@@ -1,0 +1,79 @@
+From 28d498d741257ab3ab981247a5a12130481c0dc9 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Mon, 4 Mar 2024 09:27:11 +0100
+Subject: [PATCH 0769/1695] plat-stm32mp1: update hse monitoring feature
+
+Avoid panicking if hse monitoring node is not found in device tree.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git e3ee83f15bbd693430453af4f14017ce7bb00a73 plat-stm32mp1: update hse monitoring feature]
+Change-Id: I9689eba690ee3843fb8d5750cbbe51d825cc1abc
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/364244
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/374136
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/plat-stm32mp1/main.c | 25 +++++++++++++++++++------
+ 1 file changed, 19 insertions(+), 6 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/main.c b/core/arch/arm/plat-stm32mp1/main.c
+index 3c6268e85..0b17a0ac5 100644
+--- a/core/arch/arm/plat-stm32mp1/main.c
++++ b/core/arch/arm/plat-stm32mp1/main.c
+@@ -7,6 +7,7 @@
+ #include <boot_api.h>
+ #include <config.h>
+ #include <console.h>
++#include <drivers/clk_dt.h>
+ #include <drivers/counter.h>
+ #include <drivers/gic.h>
+ #include <drivers/pinctrl.h>
+@@ -715,26 +716,38 @@ DECLARE_KEEP_PAGER(stm32_hse_over_frequency);
+ 
+ static TEE_Result stm32_hse_monitoring(void)
+ {
+-	struct clk *hse_clk = stm32mp_rcc_clock_id_to_clk(CK_HSE);
+-	struct clk *hsi_clk = stm32mp_rcc_clock_id_to_clk(CK_HSI);
++	struct counter_device *counter = NULL;
++	struct clk *hse_clk = NULL;
++	struct clk *hsi_clk = NULL;
+ 	unsigned long hse = 0;
+ 	unsigned long hsi_cal = 0;
+-	struct counter_device *counter;
+ 	uint32_t ticks = 0;
+ 	void *fdt = NULL;
+ 	void *config = NULL;
+-	int node = 0;
+-
+-	DMSG("HSE monitoring");
++	int node = -1;
++	TEE_Result res = TEE_ERROR_GENERIC;
+ 
+ 	fdt = get_embedded_dt();
++	if (!fdt)
++		panic();
++
+ 	node = fdt_node_offset_by_compatible(fdt, 0, FREQ_MONITOR_COMPAT);
++	if (node == -FDT_ERR_NOTFOUND)
++		return TEE_SUCCESS;
+ 	if (node < 0)
+ 		panic();
+ 
+ 	if (fdt_get_status(fdt, node) == DT_STATUS_DISABLED)
+ 		return TEE_SUCCESS;
+ 
++	res = clk_dt_get_by_name(fdt, node, "hse", &hse_clk);
++	if  (res)
++		return res;
++
++	res = clk_dt_get_by_name(fdt, node, "hsi", &hsi_clk);
++	if  (res)
++		return res;
++
+ 	hse = clk_get_rate(hse_clk);
+ 	hsi_cal = clk_get_rate(hsi_clk);
+ 	/*
+-- 
+2.47.2
+

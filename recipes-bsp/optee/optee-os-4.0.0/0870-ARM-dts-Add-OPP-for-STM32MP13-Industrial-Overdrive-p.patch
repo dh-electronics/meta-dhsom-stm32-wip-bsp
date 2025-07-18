@@ -1,0 +1,150 @@
+From a04c268a0ae548f08706b78647140fe2c5ddad3c Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 5 Apr 2024 17:13:28 +0200
+Subject: [PATCH 0870/1695] ARM: dts: Add OPP for STM32MP13 Industrial
+ Overdrive profile
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add the Overdrive OPP mission profiles with 10‑year life activity with
+100% activity rate as defined in AN5565/AN5438.
+
+The 1GHz part numbers are only available with '7' as junction temperatures
+range suffix (- 40 to + 105 °C), so the support of this profile.
+
+Change the default overdrive opp to guarantee 10-year life with 100%
+activity when DVFS is not supported or activated in non secure world.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0199bd5d49f081de97631d07bb5ee9788edc109e ARM: dts: Add OPP for STM32MP13 Industrial Overdrive profile]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I4b749b99e39afd4087f027d71daf49b5b0eb4822
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372096
+Domain-Review: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/arch/arm/dts/stm32mp131.dtsi    | 11 ++++++++++-
+ core/arch/arm/dts/stm32mp135f-dk.dts | 22 ++++++++++++++++++++--
+ core/arch/arm/plat-stm32mp1/conf.mk  |  2 +-
+ 3 files changed, 31 insertions(+), 4 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp131.dtsi b/core/arch/arm/dts/stm32mp131.dtsi
+index 657b3c24e..4d40864a9 100644
+--- a/core/arch/arm/dts/stm32mp131.dtsi
++++ b/core/arch/arm/dts/stm32mp131.dtsi
+@@ -33,6 +33,7 @@
+ 	cpu0_opp_table: cpu0-opp-table {
+ 		compatible = "operating-points-v2";
+ 
++		/* Non‑overdrive OPP mission profile */
+ 		opp-650000000 {
+ 			opp-hz = /bits/ 64 <650000000>;
+ 			opp-microvolt = <1250000>;
+@@ -40,11 +41,19 @@
+ 			st,opp-default;
+ 		};
+ 
++		/* Overdrive OPP: 10‑year life activity @100% activity rate */
++		opp-900000000 {
++			opp-hz = /bits/ 64 <900000000>;
++			opp-microvolt = <1350000>;
++			opp-supported-hw = <0x2>;
++			st,opp-default;
++		};
++
++		/* Overdrive OPP: 10‑year life activity @25% activity rate */
+ 		opp-1000000000 {
+ 			opp-hz = /bits/ 64 <1000000000>;
+ 			opp-microvolt = <1350000>;
+ 			opp-supported-hw = <0x2>;
+-			st,opp-default;
+ 		};
+ 	};
+ 
+diff --git a/core/arch/arm/dts/stm32mp135f-dk.dts b/core/arch/arm/dts/stm32mp135f-dk.dts
+index 68af2eb20..51e83ec68 100644
+--- a/core/arch/arm/dts/stm32mp135f-dk.dts
++++ b/core/arch/arm/dts/stm32mp135f-dk.dts
+@@ -481,6 +481,12 @@
+ 			frac = <0xAAA>;
+ 		};
+ 
++		pll1_vco_1800Mhz: pll1-vco-1800Mhz {
++			src = <CLK_PLL12_HSE>;
++			divmn = <1 74>;
++			frac = <0>;
++		};
++
+ 		pll1_vco_1300Mhz: pll1-vco-1300Mhz {
+ 			src = <CLK_PLL12_HSE>;
+ 			divmn = <2 80>;
+@@ -505,22 +511,29 @@
+ 		};
+ 	};
+ 
+-	/* VCO = 1300.0 MHz => P = 650 (CPU) */
+ 	pll1: st,pll@0 {
+ 		compatible = "st,stm32mp1-pll";
+ 		reg = <0>;
+ 
+ 		st,pll = <&pll1_cfg1>;
+ 
++		/* VCO = 1300.0 MHz => P = 650 (CPU) */
+ 		pll1_cfg1: pll1_cfg1 {
+ 			st,pll_vco = <&pll1_vco_1300Mhz>;
+ 			st,pll_div_pqr = <0 1 1>;
+ 		};
+ 
++		/* VCO = 2000.0 MHz => P = 1000 (CPU) */
+ 		pll1_cfg2: pll1_cfg2 {
+ 			st,pll_vco = <&pll1_vco_2000Mhz>;
+ 			st,pll_div_pqr = <0 1 1>;
+ 		};
++
++		/* VCO = 1800.0 MHz => P = 900 (CPU) */
++		pll1_cfg3: pll1_cfg3 {
++			st,pll_vco = <&pll1_vco_1800Mhz>;
++			st,pll_div_pqr = <0 1 1>;
++		};
+ 	};
+ 
+ 	/* VCO = 1066.0 MHz => P = 266 (AXI), Q = 266, R = 533 (DDR) */
+@@ -564,7 +577,6 @@
+ 	st,clk_opp {
+ 		/* CK_MPU clock config for MP13 */
+ 		st,ck_mpu {
+-
+ 			cfg_1 {
+ 				hz = <650000000>;
+ 				st,clksrc = <CLK_MPU_PLL1P>;
+@@ -576,6 +588,12 @@
+ 				st,clksrc = <CLK_MPU_PLL1P>;
+ 				st,pll = <&pll1_cfg2>;
+ 			};
++
++			cfg_3 {
++				hz = <900000000>;
++				st,clksrc = <CLK_MPU_PLL1P>;
++				st,pll = <&pll1_cfg3>;
++			};
+ 		};
+ 	};
+ 
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index c50f124e6..52cfa5c90 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -219,7 +219,7 @@ $(call force,CFG_STM32MP13_CLK,y)
+ $(call force,CFG_STM32MP13_REGULATOR_IOD,y)
+ $(call force,CFG_TEE_CORE_NB_CORE,1)
+ $(call force,CFG_WITH_NSEC_GPIOS,n)
+-CFG_STM32MP_OPP_COUNT ?= 2
++CFG_STM32MP_OPP_COUNT ?= 3
+ CFG_STM32_ADC ?= y
+ CFG_WITH_PAGER ?= n
+ endif # CFG_STM32MP13
+-- 
+2.47.2
+

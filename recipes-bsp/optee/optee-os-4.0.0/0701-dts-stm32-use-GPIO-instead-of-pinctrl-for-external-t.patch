@@ -1,0 +1,203 @@
+From 45eb9bdd7184c946169c3d53e3fe2640dc2e855b Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 14 Mar 2024 18:00:26 +0100
+Subject: [PATCH 0701/1695] dts: stm32: use GPIO instead of pinctrl for
+ external tampers
+
+TAMP driver should use a GPIO description instead of a pinctrl as it
+does not apply a pinctrl state.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c1557fdc689dbfeb89c89ae766ba84ea708ed243 dts: stm32: use GPIO instead of pinctrl for external tampers]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I5bd41acc99584cf5de8849afc0ecf4bec2c9c1c4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/366960
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/arch/arm/dts/stm32mp13-pinctrl.dtsi | 42 ------------------------
+ core/arch/arm/dts/stm32mp135f-dk.dts     | 10 +++---
+ core/arch/arm/dts/stm32mp15-pinctrl.dtsi | 37 ---------------------
+ core/arch/arm/dts/stm32mp235f-dk.dts     |  3 +-
+ core/arch/arm/dts/stm32mp257f-dk.dts     |  3 +-
+ core/arch/arm/dts/stm32mp257f-ev1.dts    |  3 +-
+ 6 files changed, 7 insertions(+), 91 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp13-pinctrl.dtsi b/core/arch/arm/dts/stm32mp13-pinctrl.dtsi
+index 453e34b92..6bf841987 100644
+--- a/core/arch/arm/dts/stm32mp13-pinctrl.dtsi
++++ b/core/arch/arm/dts/stm32mp13-pinctrl.dtsi
+@@ -25,48 +25,6 @@
+ 		};
+ 	};
+ 
+-	tamp0_in1_pin_a: tamp0_in1_pin_0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('F', 10, RSVD)>;
+-			st,tamp-id = <1>;
+-		};
+-	};
+-
+-	tamp0_in2_pin_a: tamp0_in2_pin_0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('A', 6, RSVD)>;
+-			st,tamp-id = <2>;
+-		};
+-	};
+-
+-	tamp0_in3_pin_a: tamp0_in3_pin_0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('C', 0, RSVD)>;
+-			st,tamp-id = <3>;
+-		};
+-	};
+-
+-	tamp0_in5_pin_a: tamp0_in5_pin_0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('C', 3, RSVD)>;
+-			st,tamp-id = <5>;
+-		};
+-	};
+-
+-	tamp0_in8_pin_a: tamp0_in8_pin_0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('I', 0, RSVD)>;
+-			st,tamp-id = <8>;
+-		};
+-	};
+-
+-	tamp0_out1_pin_a: tamp0_out1_pin_0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('I', 0, RSVD)>;
+-			st,tamp-id = <1>;
+-		};
+-	};
+-
+ 	uart4_pins_a: uart4-0 {
+ 		pins1 {
+ 			pinmux = <STM32_PINMUX('D', 6, AF8)>; /* UART4_TX */
+diff --git a/core/arch/arm/dts/stm32mp135f-dk.dts b/core/arch/arm/dts/stm32mp135f-dk.dts
+index 49dd6b484..6ac51273b 100644
+--- a/core/arch/arm/dts/stm32mp135f-dk.dts
++++ b/core/arch/arm/dts/stm32mp135f-dk.dts
+@@ -638,19 +638,17 @@
+ 	st,tamp-passive-sample-clk-div = <16384>;
+ 
+ 	/* Tamper button */
+-	tamp_button: tamp-passive@2 {
+-		status = "okay";
+-		reg = <EXT_TAMPER_2 0>;
+-		pinctrl-0 = <&tamp0_in2_pin_a>;
++	tamp-button {
+ 		tamper-gpios = <&gpioa 6 0>;
+ 		st,tamp-mode = <TAMPER_CONFIRMED_MODE>;
+ 		st,tamp-id = <2>;
++		status = "okay";
+ 	};
+ 
+ 	/* Connect pin8 and pin22 from CN8 */
+-	tamp-active@1 {
+-		pinctrl-0 = <&tamp0_in3_pin_a &tamp0_out1_pin_a>;
++	tamp-active {
+ 		tamper-gpios = <&gpioc 0 0>, <&gpioi 0 0>;
++		st,tamp-mode = <TAMPER_CONFIRMED_MODE>;
+ 		st,tamp-id = <3>, <1>;
+ 		status = "disabled";
+ 	};
+diff --git a/core/arch/arm/dts/stm32mp15-pinctrl.dtsi b/core/arch/arm/dts/stm32mp15-pinctrl.dtsi
+index 34044dd4f..7edff9ca8 100644
+--- a/core/arch/arm/dts/stm32mp15-pinctrl.dtsi
++++ b/core/arch/arm/dts/stm32mp15-pinctrl.dtsi
+@@ -1828,43 +1828,6 @@
+ 		};
+ 	};
+ 
+-	tamp0_in1_pin_a: tamp0-in1-pin-0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('C', 13, RSVD)>;
+-			st,tamp-id = <1>;
+-		};
+-	};
+-	tamp0_in2_pin_a: tamp0-in2-pin-0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('I', 8, RSVD)>;
+-			st,tamp-id = <2>;
+-		};
+-	};
+-	tamp0_in3_pin_a: tamp0-in3-pin-0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('C', 1, RSVD)>;
+-			st,tamp-id = <3>;
+-		};
+-	};
+-	tamp0_out2_pin_a: tamp0-out2-pin-0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('C', 13, RSVD)>;
+-			st,tamp-id = <2>;
+-		};
+-	};
+-	tamp0_out3_pin_a: tamp0-out3-pin-0 {
+-		pins {
+-			pinmux = <STM32_PINMUX('I', 8, RSVD)>;
+-			st,tamp-id = <3>;
+-		};
+-	};
+-	tamp0_out3_pin_b: tamp0-out3-pin-1 {
+-		pins {
+-			pinmux = <STM32_PINMUX('C', 13, RSVD)>;
+-			st,tamp-id = <3>;
+-		};
+-	};
+-
+ 	uart4_pins_a: uart4-0 {
+ 		pins1 {
+ 			pinmux = <STM32_PINMUX('G', 11, AF6)>; /* UART4_TX */
+diff --git a/core/arch/arm/dts/stm32mp235f-dk.dts b/core/arch/arm/dts/stm32mp235f-dk.dts
+index 8b4150ef1..88a34eef1 100644
+--- a/core/arch/arm/dts/stm32mp235f-dk.dts
++++ b/core/arch/arm/dts/stm32mp235f-dk.dts
+@@ -449,9 +449,8 @@
+ 	st,tamp-passive-sample-clk-div = <16384>;
+ 
+ 	/* Tamper button */
+-	tamp_button: tamp-passive@3 {
++	tamp-button {
+ 		status = "disabled";
+-		reg = <EXT_TAMPER_3 0>;
+ 		tamper-gpios = <&gpioz 2 0>;
+ 		st,tamp-mode = <TAMPER_CONFIRMED_MODE>;
+ 		st,tamp-id = <3>;
+diff --git a/core/arch/arm/dts/stm32mp257f-dk.dts b/core/arch/arm/dts/stm32mp257f-dk.dts
+index 947805441..fef73e674 100644
+--- a/core/arch/arm/dts/stm32mp257f-dk.dts
++++ b/core/arch/arm/dts/stm32mp257f-dk.dts
+@@ -437,9 +437,8 @@
+ 	st,tamp-passive-sample-clk-div = <16384>;
+ 
+ 	/* Tamper button */
+-	tamp_button: tamp-passive@3 {
++	tamp-button {
+ 		status = "disabled";
+-		reg = <EXT_TAMPER_3 0>;
+ 		tamper-gpios = <&gpioz 2 0>;
+ 		st,tamp-mode = <TAMPER_CONFIRMED_MODE>;
+ 		st,tamp-id = <3>;
+diff --git a/core/arch/arm/dts/stm32mp257f-ev1.dts b/core/arch/arm/dts/stm32mp257f-ev1.dts
+index 25fcb0455..1a00f0c0d 100644
+--- a/core/arch/arm/dts/stm32mp257f-ev1.dts
++++ b/core/arch/arm/dts/stm32mp257f-ev1.dts
+@@ -464,9 +464,8 @@
+ 	st,tamp-passive-sample-clk-div = <16384>;
+ 
+ 	/* Tamper button */
+-	tamp_button: tamp-passive@1 {
++	tamp-button {
+ 		status = "disabled";
+-		reg = <EXT_TAMPER_1 0>;
+ 		tamper-gpios = <&gpioi 8 0>;
+ 		st,tamp-mode = <TAMPER_CONFIRMED_MODE>;
+ 		st,tamp-id = <1>;
+-- 
+2.47.2
+

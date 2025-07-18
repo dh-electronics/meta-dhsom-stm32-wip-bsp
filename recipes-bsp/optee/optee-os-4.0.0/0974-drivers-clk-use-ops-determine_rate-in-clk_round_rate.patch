@@ -1,0 +1,98 @@
+From d7385b65cc2e42e2f2cbd81775159181efa7c09e Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Wed, 22 May 2024 17:31:53 +0200
+Subject: [PATCH 0974/1695] drivers: clk: use ops determine_rate in
+ clk_round_rate
+
+Update the function clk_round_rate() to use the ops determine_rate
+when it exist. This patch align the ops clk_round_rate on the behavior
+of clk_set_rate(, in other words:
+
+rate = clk_round_rate(clk, r);
+
+and:
+
+clk_set_rate(clk, r);
+rate = clk_get_rate(clk);
+
+are equivalent except the former does not modify the clock hardware
+in any way.
+
+This behavior is based on Linux kernel clock framework with function
+clk_core_determine_round_nolock().
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 89ebb8fa4efef7a83136e8e7d62b60ad0c048052 drivers: clk: use ops determine_rate in clk_round_rate]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ieab805d530cf5708ae71684c219d074849b53db5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/382033
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/clk/clk.c     | 33 ++++++++++++++++++++++++++++-----
+ core/include/drivers/clk.h |  3 ++-
+ 2 files changed, 30 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/clk/clk.c b/core/drivers/clk/clk.c
+index b3d23a6c8..62353adba 100644
+--- a/core/drivers/clk/clk.c
++++ b/core/drivers/clk/clk.c
+@@ -465,14 +465,37 @@ TEE_Result clk_get_duty_cycle(struct clk *clk, struct clk_duty *duty)
+ unsigned long clk_round_rate(struct clk *clk, unsigned long rate)
+ {
+ 	struct clk *parent = clk->parent;
++	unsigned long parent_rate = 0;
++	unsigned long new_rate = rate;
+ 
+-	if (clk->ops->round_rate)
+-		return clk->ops->round_rate(clk, rate, clk->parent->rate);
++	/* find the closest rate */
++	if (clk->ops->determine_rate) {
++		struct clk_rate_request req = { };
++		TEE_Result res = TEE_ERROR_GENERIC;
+ 
+-	if (parent && (clk->flags & CLK_SET_RATE_PARENT))
+-		return clk_round_rate(parent, rate);
++		req.rate = rate;
++
++		clk_init_rate_req(clk, &req);
++
++		res = clk->ops->determine_rate(clk, &req);
++		if (res) {
++			DMSG("determine_rate() failed( %d)", res);
++			return 0;
++		}
++
++		new_rate = req.rate;
++	} else if (clk->ops->round_rate) {
++		if (parent)
++			parent_rate = parent->rate;
++		new_rate = clk->ops->round_rate(clk, rate, parent_rate);
++	} else if (parent && (clk->flags & CLK_SET_RATE_PARENT)) {
++		/* pass-through clock with adjustable parent */
++		new_rate = clk_round_rate(parent, rate);
++	} else {
++		new_rate  = rate;
++	}
+ 
+-	return clk->rate;
++	return new_rate;
+ }
+ 
+ /* Return updated message buffer position of NULL on failure */
+diff --git a/core/include/drivers/clk.h b/core/include/drivers/clk.h
+index 1b71c141b..c8f7eb558 100644
+--- a/core/include/drivers/clk.h
++++ b/core/include/drivers/clk.h
+@@ -296,7 +296,8 @@ TEE_Result clk_get_duty_cycle(struct clk *clk, struct clk_duty *duty);
+  * clk_round_rate - Round the given rate for a clock
+  * @clk: Clock for which the round rate is need
+  * @rate: The rate which is to be rounded
+- * Returns the closest rate actually supported by the clock.
++ * Returns the closest rate actually supported by the clock
++ * or zero when not supported
+  */
+ unsigned long clk_round_rate(struct clk *clk, unsigned long rate);
+ 
+-- 
+2.47.2
+

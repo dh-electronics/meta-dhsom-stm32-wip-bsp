@@ -1,0 +1,185 @@
+From f637c41894c38fbc6e74268dccf4ca0c63283f07 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 10 Oct 2023 15:27:38 +0200
+Subject: [PATCH 0179/1695] clk: stm32mp: add support of pinctrl and clock for
+ RCC node
+
+Add a generic stm32mp clock driver to support the OP-TEE initialization of
+pinctrl and clock defined in the RCC sub-node with compatible "st,rcc".
+
+This driver is used to configure in the board device tree the required
+RCC resources as:
+- pincontrol to manage Micro-controller clock output (MCO) pins,
+  for example to provide this MCO clock on external device
+- critical clocks, not managed by other drivers in OP-TEE
+
+This sub-node is optional and avoids to manage the OP-TEE specific
+compatibles "st,stm32mp13-rcc-mco" and "st,stm32mp15-rcc-mco",
+with a more acceptable binding.
+
+The configuration for this sub node is only done when the early DT drivers
+are available, the clock provider (SoC RCC driver) and the pin-controller.
+
+I also align the binding file with kernel one.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 055729e3b01b6e5b6629d442c45ff9d9802a58bc clk: stm32mp: add support of pinctrl and clock for RCC node]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I48cf65d157be7a3b05cac3e3375c581d2bbcfebc
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/312741
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ core/arch/arm/dts/stm32mp135f-dk.dts |  2 --
+ core/drivers/clk/clk-stm32-rcc.c     | 50 ++++++++++++++++++++++++++++
+ core/drivers/clk/clk-stm32mp13.c     | 10 ++++++
+ core/drivers/clk/clk-stm32mp15.c     | 10 ++++++
+ core/drivers/clk/sub.mk              |  6 ++--
+ 5 files changed, 73 insertions(+), 5 deletions(-)
+ create mode 100644 core/drivers/clk/clk-stm32-rcc.c
+
+diff --git a/core/arch/arm/dts/stm32mp135f-dk.dts b/core/arch/arm/dts/stm32mp135f-dk.dts
+index 78ab4944c..920db48b2 100644
+--- a/core/arch/arm/dts/stm32mp135f-dk.dts
++++ b/core/arch/arm/dts/stm32mp135f-dk.dts
+@@ -279,8 +279,6 @@
+ };
+ 
+ &rcc {
+-	compatible = "st,stm32mp13-rcc", "syscon";
+-
+ 	st,clksrc = <
+ 		CLK_MPU_PLL1P
+ 		CLK_AXI_PLL2P
+diff --git a/core/drivers/clk/clk-stm32-rcc.c b/core/drivers/clk/clk-stm32-rcc.c
+new file mode 100644
+index 000000000..894a1c69e
+--- /dev/null
++++ b/core/drivers/clk/clk-stm32-rcc.c
+@@ -0,0 +1,50 @@
++// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
++/*
++ * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ */
++
++#include <drivers/clk.h>
++#include <drivers/clk_dt.h>
++#include <drivers/stm32_gpio.h>
++#include <kernel/dt.h>
++#include <stdio.h>
++#include <tee_api_defines_extensions.h>
++
++static TEE_Result stm32mp_rcc_probe(const void *fdt, int node,
++				    const void *compat_data __unused)
++{
++	struct pinctrl_state *pinctrl_cfg = NULL;
++	TEE_Result res = TEE_SUCCESS;
++	struct clk *clk = NULL;
++	int idx = 0;
++
++	/* Apply pinctrl configuration if present */
++	res = pinctrl_get_state_by_idx(fdt, node, 0, &pinctrl_cfg);
++	if (res && res != TEE_ERROR_ITEM_NOT_FOUND) {
++		if (res == TEE_ERROR_DEFER_DRIVER_INIT)
++			return res;
++		panic("Failed to get RCC pinctrl");
++	}
++
++	if (pinctrl_cfg)
++		stm32_pinctrl_set_secure_cfg(pinctrl_cfg, true);
++
++	/* Enable clock(s) if present */
++	while (!clk_dt_get_by_index(fdt, node, idx++, &clk)) {
++		if (clk_enable(clk))
++			panic("Can't enable RCC clock");
++	}
++
++	return TEE_SUCCESS;
++}
++
++static const struct dt_device_match stm32mp_rcc_match_table[] = {
++	{ .compatible = "st,rcc" },
++	{ }
++};
++
++DEFINE_DT_DRIVER(stm32mp_rcc_dt_driver) = {
++	.name = "stm32mp-rcc",
++	.match_table = stm32mp_rcc_match_table,
++	.probe = stm32mp_rcc_probe,
++};
+diff --git a/core/drivers/clk/clk-stm32mp13.c b/core/drivers/clk/clk-stm32mp13.c
+index fb038cbe2..4166e8249 100644
+--- a/core/drivers/clk/clk-stm32mp13.c
++++ b/core/drivers/clk/clk-stm32mp13.c
+@@ -3319,6 +3319,7 @@ static TEE_Result stm32mp13_clk_probe(const void *fdt, int node,
+ 	int rc = 0;
+ 	struct clk_stm32_priv *priv = &stm32mp13_clock_data;
+ 	struct stm32_clk_platdata *pdata = &stm32mp13_clock_pdata;
++	int subnode = 0;
+ 
+ 	fdt_rc = stm32_clk_parse_fdt(fdt, node, pdata);
+ 	if (fdt_rc) {
+@@ -3326,6 +3327,15 @@ static TEE_Result stm32mp13_clk_probe(const void *fdt, int node,
+ 		return TEE_ERROR_GENERIC;
+ 	}
+ 
++	fdt_for_each_subnode(subnode, fdt, node) {
++		res = dt_driver_maybe_add_probe_node(fdt, subnode);
++		if (res) {
++			EMSG("Failed on node %s with %#"PRIx32,
++			     fdt_get_name(fdt, subnode, NULL), res);
++			return res;
++		}
++	}
++
+ 	res = clk_stm32_init(priv, stm32_rcc_base());
+ 	if (res)
+ 		return res;
+diff --git a/core/drivers/clk/clk-stm32mp15.c b/core/drivers/clk/clk-stm32mp15.c
+index 01332d702..f1c846795 100644
+--- a/core/drivers/clk/clk-stm32mp15.c
++++ b/core/drivers/clk/clk-stm32mp15.c
+@@ -3443,6 +3443,7 @@ static TEE_Result stm32mp1_clock_provider_probe(const void *fdt, int offs,
+ 	struct clk_stm32_priv *priv = &stm32mp15_clock_data;
+ 	struct stm32_clk_platdata *pdata = &stm32mp15_clock_pdata;
+ 	int rc = 0;
++	int subnode = 0;
+ 
+ 	if (compat_data == &non_secure_rcc)
+ 		disable_rcc_tzen();
+@@ -3455,6 +3456,15 @@ static TEE_Result stm32mp1_clock_provider_probe(const void *fdt, int offs,
+ 		return TEE_ERROR_GENERIC;
+ 	}
+ 
++	fdt_for_each_subnode(subnode, fdt, offs) {
++		res = dt_driver_maybe_add_probe_node(fdt, subnode);
++		if (res) {
++			EMSG("Failed on node %s with %#"PRIx32,
++			     fdt_get_name(fdt, subnode, NULL), res);
++			return res;
++		}
++	}
++
+ 	res = clk_stm32_init(priv, stm32_rcc_base());
+ 	if (res)
+ 		return res;
+diff --git a/core/drivers/clk/sub.mk b/core/drivers/clk/sub.mk
+index 6233483e4..df5df6592 100644
+--- a/core/drivers/clk/sub.mk
++++ b/core/drivers/clk/sub.mk
+@@ -2,7 +2,7 @@ srcs-y += clk.c
+ srcs-$(CFG_DRIVERS_CLK_DT) += clk_dt.c
+ srcs-$(CFG_DRIVERS_CLK_FIXED) += fixed_clk.c
+ srcs-$(CFG_STM32MP_CLK_CORE) += clk-stm32-core.c
+-srcs-$(CFG_STM32MP13_CLK) += clk-stm32mp13.c
+-srcs-$(CFG_STM32MP15_CLK) += clk-stm32mp15.c
++srcs-$(CFG_STM32MP13_CLK) += clk-stm32mp13.c clk-stm32-rcc.c
++srcs-$(CFG_STM32MP15_CLK) += clk-stm32mp15.c clk-stm32-rcc.c
+ 
+-subdirs-$(CFG_DRIVERS_SAM_CLK) += sam
+\ No newline at end of file
++subdirs-$(CFG_DRIVERS_SAM_CLK) += sam
+-- 
+2.47.2
+

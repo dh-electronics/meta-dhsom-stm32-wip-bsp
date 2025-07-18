@@ -1,0 +1,48 @@
+From 70ca0f8c24a3059d0a05cd90399877509fd95c83 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Fri, 11 Oct 2024 11:18:14 +0200
+Subject: [PATCH 1324/1695] clk: stm32mp21: do not reset flexgen crossbar input
+ if not TDCID
+
+Let the TDCID handle the crossbar channel input selection default value.
+Otherwise, if authorized, the CPU can modify root clocks input signals
+resulting on severe impacts on all the software ecosystem.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git d1b5316a7e0c05dd80751e43803222ad968011a6 clk: stm32mp21: do not reset flexgen crossbar input if not TDCID]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/395776
+Change-Id: If0a72682ed1d7a76e9bb461c8d35940c43052b4c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/410783
+Reviewed-by: Etienne CARRIERE <etienne.carriere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp21.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index c19bcee8b..04339a84c 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -1556,9 +1556,14 @@ static void stm32mp2_clk_xbar_on_hsi(struct clk_stm32_priv *priv)
+ 	uintptr_t xbar0cfgr = priv->base + RCC_XBAR0CFGR;
+ 	uint32_t i = 0;
+ 
+-	for (i = 0; i < XBAR_ROOT_CHANNEL_NB; i++)
++	if (IS_ENABLED(CFG_STM32_CM33TDCID))
++		return;
++
++	for (i = 0; i < XBAR_ROOT_CHANNEL_NB; i++) {
+ 		io_clrsetbits32(xbar0cfgr + (0x4 * i),
+ 				RCC_XBAR0CFGR_XBAR0SEL_MASK, XBAR_SRC_HSI);
++	}
++
+ }
+ 
+ static int stm32mp2_a35_pll1_start(void)
+-- 
+2.47.2
+

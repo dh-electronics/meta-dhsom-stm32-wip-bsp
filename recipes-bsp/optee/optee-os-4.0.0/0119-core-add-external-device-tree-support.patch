@@ -1,0 +1,53 @@
+From 56489a6a1450cb8a3dcf539c076d385723cbb265 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Fri, 5 May 2023 10:38:30 +0200
+Subject: [PATCH 0119/1695] core: add external device tree support
+
+Add support for an external repository for device tree source files.
+
+To manage device-tree compilation, the dts folder is given as an include
+argument of the dts pre-processing command.
+
+Implement support of dts-source-path makefile variable that should
+be overridden at platform level with the external device tree source
+file path.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f9805ae19d8227e96edab79cc3ee27b22b4d743a core: add external device tree support]
+Change-Id: I3d35cdb42075dd936a07742a1d965deab6e3ab9b
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+---
+ core/sub.mk   | 3 ++-
+ mk/compile.mk | 3 ++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/core/sub.mk b/core/sub.mk
+index 958524f51..1ce6609a2 100644
+--- a/core/sub.mk
++++ b/core/sub.mk
+@@ -51,7 +51,8 @@ endef
+ $(foreach f, $(SP_PATHS), $(eval $(call process_secure_partition,$(f))))
+ 
+ ifeq ($(CFG_EMBED_DTB),y)
+-core-embed-fdt-dts = $(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE)
++dts-source-path = $(arch-dir)/dts
++core-embed-fdt-dts = $(dts-source-path)/$(CFG_EMBED_DTB_SOURCE_FILE)
+ core-embed-fdt-dtb = $(out-dir)/$(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE:.dts=.dtb)
+ core-embed-fdt-c = $(out-dir)/$(arch-dir)/dts/$(CFG_EMBED_DTB_SOURCE_FILE:.dts=.c)
+ gensrcs-y += embedded_secure_dtb
+diff --git a/mk/compile.mk b/mk/compile.mk
+index b3d807ba4..0a2796d78 100644
+--- a/mk/compile.mk
++++ b/mk/compile.mk
+@@ -270,7 +270,8 @@ cleanfiles := $$(cleanfiles) $2 \
+ 		$$(dtb-predts-$2) $$(dtb-predep-$2) \
+ 		$$(dtb-dep-$2) $$(dtb-cmd-file-$2)
+ 
+-dtb-cppflags-$2 := -Icore/include/ -x assembler-with-cpp -Ulinux -Uunix \
++dtb-cppflags-$2 := -Icore/include/ -I$(arch-dir)/dts -x assembler-with-cpp \
++		   -Ulinux -Uunix \
+ 		   -E -ffreestanding $$(CPPFLAGS) \
+ 		   -MD -MF $$(dtb-predep-$2) -MT $2
+ 
+-- 
+2.47.2
+

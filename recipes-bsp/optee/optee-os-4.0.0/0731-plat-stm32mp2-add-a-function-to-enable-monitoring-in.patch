@@ -1,0 +1,132 @@
+From 9c565bbd324d2404423e166eee233581b3b056ae Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 23 Feb 2024 17:21:37 +0100
+Subject: [PATCH 0731/1695] plat-stm32mp2: add a function to enable monitoring
+ in PWR
+
+Add a new function to enable monitoring in PWR for internal TAMPER
+for STM32MP25 SoC:
+- 1, 2 : the voltage and temperature monitoring with the MONEN bit of
+         PWR_CR2 register
+- 7 : VDDCORE monitoring under/over voltage, enabled by setting VCOREMONEN
+      in the PWR control register 5 (PWR_CR5)
+- 12: VDDCPU (Cortex A35) monitoring under/over voltage, enabled
+      by setting VCPUMONEN in the PWR control register 6 (PWR_CR6)
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c532d25d74144822ecfbf77e7006f434f5684bd4 plat-stm32mp2: add a function to enable monitoring in PWR]
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: I459a16b6733ccdb44bb999f89319605e6e53d659
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/362677
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/363058
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372744
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ .../arm/plat-stm32mp2/drivers/stm32mp25_pwr.c | 40 +++++++++++++++++++
+ .../arm/plat-stm32mp2/drivers/stm32mp25_pwr.h |  8 ++++
+ 2 files changed, 48 insertions(+)
+
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c
+index 79c1e72ae..d463263f7 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.c
+@@ -21,6 +21,11 @@
+ #include <stm32_util.h>
+ #include <trace.h>
+ 
++/*PWR control registers */
++#define _PWR_CR2			U(0x004)
++#define _PWR_CR5			U(0x010)
++#define _PWR_CR6			U(0x014)
++
+ /* Non-shareable resources registers */
+ #define _PWR_RSECCFGR			U(0x100)
+ #define _PWR_RPRIVCFGR			U(0x104)
+@@ -32,6 +37,15 @@
+ #define _PWR_WIO_CIDCFGR(x)		(U(0x188) + U(0x8) * ((x) - 1))
+ #define _PWR_WIO_SEMCR(x)		(U(0x18C) + U(0x8) * ((x) - 1))
+ 
++/*PWR_CR2 bitfields*/
++#define _PWR_CR2_MONEN			BIT(0)
++
++/*PWR_CR5 bitfields*/
++#define _PWR_CR5_VCOREMONEN		BIT(0)
++
++/*PWR_CR6 bitfields*/
++#define _PWR_CR6_VCPUMONEN		BIT(0)
++
+ /*
+  * CIDCFGR register bitfields
+  */
+@@ -78,7 +92,13 @@ static struct pwr_pdata *pwr_d;
+ 
+ vaddr_t stm32_pwr_base(void)
+ {
++	static struct io_pa_va base = { .pa = PWR_BASE };
++
++	if (!pwr_d)
++		return io_pa_or_va_secure(&base, 1);
++
+ 	assert(pwr_d->base);
++
+ 	return pwr_d->base;
+ }
+ 
+@@ -283,6 +303,7 @@ static TEE_Result stm32mp_pwr_probe(const void *fdt, int node,
+ 	res = stm32mp25_pwr_irq_probe(fdt, node, pwr_d->interrupt);
+ 	if (res) {
+ 		free(pwr_d);
++		pwr_d = NULL;
+ 		return res;
+ 	}
+ #endif
+@@ -309,3 +330,22 @@ DEFINE_DT_DRIVER(stm32mp_pwr_dt_driver) = {
+ 	.match_table = stm32mp_pwr_match_table,
+ 	.probe = stm32mp_pwr_probe,
+ };
++
++void stm32mp_pwr_monitoring_enable(enum pwr_monitoring monitoring)
++{
++	vaddr_t pwr_base = stm32_pwr_base();
++
++	switch (monitoring) {
++	case PWR_MON_V08CAP_TEMP:
++		io_setbits32(pwr_base + _PWR_CR2, _PWR_CR2_MONEN);
++		break;
++	case PWR_MON_VCORE:
++		io_setbits32(pwr_base + _PWR_CR5, _PWR_CR5_VCOREMONEN);
++		break;
++	case PWR_MON_VCPU:
++		io_setbits32(pwr_base + _PWR_CR6, _PWR_CR6_VCPUMONEN);
++		break;
++	default:
++		break;
++	}
++}
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.h b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.h
+index 3385c57ae..4985a8db7 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.h
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr.h
+@@ -33,6 +33,12 @@ enum pwr_wkup_pins {
+ 	PWR_NB_WAKEUPPINS
+ };
+ 
++enum pwr_monitoring {
++	PWR_MON_V08CAP_TEMP,
++	PWR_MON_VCORE,
++	PWR_MON_VCPU,
++};
++
+ TEE_Result
+ stm32mp25_pwr_itr_alloc_add(const void *fdt, int wp_node, size_t it,
+ 			    itr_handler_t handler, uint32_t flags, void *data,
+@@ -47,4 +53,6 @@ stm32mp25_pwr_irq_probe(const void *fdt, int node, int interrupt);
+ 
+ vaddr_t stm32_pwr_base(void);
+ 
++void stm32mp_pwr_monitoring_enable(enum pwr_monitoring monitoring);
++
+ #endif /*__STM32MP25_PWR_H*/
+-- 
+2.47.2
+

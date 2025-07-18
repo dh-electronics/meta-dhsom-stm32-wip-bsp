@@ -1,0 +1,103 @@
+From 09e7f58dfcb762b20b8964c52202ea169fff6839 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Fri, 13 Jan 2023 10:11:55 +0100
+Subject: [PATCH 0340/1695] drivers: stm32_exti: move PM backup storage in
+ private data
+
+To prepare the driver for multi instances, move in private data
+struct stm32_exti_pdata the array port_sel_bkp[] that contains the
+backup data for PM.
+While there, introduce the macro _EXTI_CR(n) to easily access the
+EXTI registers CRn.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f0ff3552ea6ebb4700194dea307fd839c7720750 drivers: stm32_exti: move PM backup storage in private data]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: I208861dad7d7c7abb08ce616674b3a33b17db591
+---
+ core/drivers/stm32_exti.c | 28 +++++++++++-----------------
+ 1 file changed, 11 insertions(+), 17 deletions(-)
+
+diff --git a/core/drivers/stm32_exti.c b/core/drivers/stm32_exti.c
+index bfa9d6d83..3a5727cf7 100644
+--- a/core/drivers/stm32_exti.c
++++ b/core/drivers/stm32_exti.c
+@@ -15,10 +15,9 @@
+ #include <tee_api_types.h>
+ 
+ /* Registers */
+-#define _EXTI_CR1	0x60U
+-#define _EXTI_CR2	0x64U
+-#define _EXTI_CR3	0x68U
+-#define _EXTI_CR4	0x6CU
++#define _EXTI_CR(n)		(0x060U + (n) * 4)
++
++#define _EXTI_MAX_CR		4U
+ 
+ struct stm32_exti_bank {
+ 	uint32_t imr_ofst;
+@@ -34,10 +33,9 @@ struct stm32_exti_bank {
+ 	uint32_t tz_bkp;
+ };
+ 
+-static uint32_t port_sel_bkp[4];
+-
+ struct stm32_exti_pdata {
+ 	vaddr_t base;
++	uint32_t port_sel_cache[_EXTI_MAX_CR];
+ };
+ 
+ static struct stm32_exti_pdata stm32_exti;
+@@ -235,7 +233,7 @@ void stm32_exti_set_tz(uint32_t exti_line)
+ 
+ void stm32_exti_set_gpio_port_sel(uint8_t bank, uint8_t pin)
+ {
+-	uint32_t reg = _EXTI_CR1 + (pin / 4) * 4;
++	uint32_t reg = _EXTI_CR(pin / 4);
+ 	uint32_t shift = (pin % 4) * 8;
+ 	uint32_t val = bank << shift;
+ 	uint32_t mask = 0xff << shift;
+@@ -250,8 +248,8 @@ void stm32_exti_set_gpio_port_sel(uint8_t bank, uint8_t pin)
+ 
+ static void stm32_exti_pm_suspend(void)
+ {
++	uint32_t base = stm32_exti.base;
+ 	uint32_t mask = 0;
+-	uint32_t base_cr = 0;
+ 	uint32_t i = 0;
+ 
+ 	/* Save ftsr, rtsr and tzen registers */
+@@ -285,15 +283,13 @@ static void stm32_exti_pm_suspend(void)
+ 	io_mask32(stm32_exti.base + stm32mp1_exti_b3.imr_ofst, mask, mask);
+ 
+ 	/* Save EXTI port selection */
+-	for (i = 0; i < 4; i++) {
+-		base_cr = stm32_exti.base + _EXTI_CR1;
+-		port_sel_bkp[i] = io_read32(base_cr + i * 4);
+-	}
++	for (i = 0; i < _EXTI_MAX_CR; i++)
++		stm32_exti.port_sel_cache[i] = io_read32(base + _EXTI_CR(i));
+ }
+ 
+ static void stm32_exti_pm_resume(void)
+ {
+-	uint32_t base_cr = 0;
++	uint32_t base = stm32_exti.base;
+ 	uint32_t i = 0;
+ 
+ 	/* Restore ftsr and rtsr registers */
+@@ -325,10 +321,8 @@ static void stm32_exti_pm_resume(void)
+ 		   stm32mp1_exti_b3.imr_cache);
+ 
+ 	/* Restore EXTI port selection */
+-	for (i = 0; i < 4; i++) {
+-		base_cr = stm32_exti.base + _EXTI_CR1;
+-		io_write32(base_cr + i * 4, port_sel_bkp[i]);
+-	}
++	for (i = 0; i < _EXTI_MAX_CR; i++)
++		io_write32(base + _EXTI_CR(i), stm32_exti.port_sel_cache[i]);
+ }
+ 
+ static TEE_Result
+-- 
+2.47.2
+

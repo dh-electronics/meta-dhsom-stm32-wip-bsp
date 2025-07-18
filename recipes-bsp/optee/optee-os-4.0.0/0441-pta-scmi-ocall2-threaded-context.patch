@@ -1,0 +1,362 @@
+From 5b1000c00c7f1ac8ba916a7666ce0bbe339740f9 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@linaro.org>
+Date: Mon, 19 Apr 2021 14:27:56 +0200
+Subject: [PATCH 0441/1695] pta: scmi: ocall2 threaded context
+
+Using Ocall2 minimal protocol, the SCMI agent and PTA can provision a
+TEE thread context for SCMI message passing/processing. This ensures
+whatever OP-TEE core load is, SCMI message are processed.
+
+The channel exchange protocol using OP-TEE Ocall is described in the
+PTA API header file pta_scmi_client.h
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 417952d180d01c0123c26fe3947280d4572064f6 pta: scmi: ocall2 threaded context]
+Change-Id: I22d092017c8a9df92b926568543887e92f214376
+Signed-off-by: Etienne Carriere <etienne.carriere@linaro.org>
+---
+ core/arch/arm/include/sm/optee_smc.h    | 23 +++++++
+ core/arch/arm/kernel/thread_optee_smc.c | 18 ++++++
+ core/arch/arm/kernel/thread_spmc.c      |  5 ++
+ core/include/kernel/thread.h            | 10 +++
+ core/include/optee_rpc_cmd.h            |  7 +++
+ core/pta/scmi.c                         | 83 ++++++++++++++++++++++++-
+ lib/libutee/include/pta_scmi_client.h   | 74 +++++++++++++++++++++-
+ 7 files changed, 217 insertions(+), 3 deletions(-)
+
+diff --git a/core/arch/arm/include/sm/optee_smc.h b/core/arch/arm/include/sm/optee_smc.h
+index fe9aff0e1..c0b512ebd 100644
+--- a/core/arch/arm/include/sm/optee_smc.h
++++ b/core/arch/arm/include/sm/optee_smc.h
+@@ -688,6 +688,29 @@
+ #define OPTEE_SMC_RETURN_RPC_CMD \
+ 	OPTEE_SMC_RPC_VAL(OPTEE_SMC_RPC_FUNC_CMD)
+ 
++/*
++ * Do an OCall RPC request to caller client. The Ocall request ABI is very
++ * minimal: 2 input arguments and 2 output arguments. 1st output argument
++ * value 0 is reserved to error management requesting OCall termination.
++ * When 1st output argument is 0, 2nd output argument is either 0 or can
++ * carry a TEEC_Result like error code.
++ *
++ * "Call" register usage:
++ * a0	OPTEE_SMC_RETURN_RPC_OCALL2
++ * a1	OCall input argument 1 (32 bit)
++ * a2	OCall input argument 2 (32 bit)
++ * a3-7	Resume information, must be preserved
++ *
++ * "Return" register usage:
++ * a0	SMC Function ID, OPTEE_SMC_CALL_RETURN_FROM_RPC.
++ * a1	OCall output argument 1 (32 bit), value 0 upon error
++ * a2	OCall output argument 2 (32 bit), TEEC_Result error if @a1 is 0
++ * a3-7	Preserved
++ */
++#define OPTEE_SMC_RPC_FUNC_OCALL2		U(2048)
++#define OPTEE_SMC_RETURN_RPC_OCALL2 \
++	OPTEE_SMC_RPC_VAL(OPTEE_SMC_RPC_FUNC_OCALL2)
++
+ /* Returned in a0 */
+ #define OPTEE_SMC_RETURN_UNKNOWN_FUNCTION U(0xFFFFFFFF)
+ 
+diff --git a/core/arch/arm/kernel/thread_optee_smc.c b/core/arch/arm/kernel/thread_optee_smc.c
+index 240877417..e814e2492 100644
+--- a/core/arch/arm/kernel/thread_optee_smc.c
++++ b/core/arch/arm/kernel/thread_optee_smc.c
+@@ -581,6 +581,24 @@ uint32_t thread_rpc_cmd(uint32_t cmd, size_t num_params,
+ 	return get_rpc_arg_res(arg, num_params, params);
+ }
+ 
++uint32_t thread_rpc_ocall2_cmd(uint32_t param[2])
++{
++	uint32_t rpc_args[THREAD_RPC_NUM_ARGS] = {
++		OPTEE_SMC_RETURN_RPC_OCALL2,
++		param[0], param[1],
++	};
++
++	thread_rpc(rpc_args);
++
++	param[0] = rpc_args[0];
++	param[1] = rpc_args[1];
++
++	if (rpc_args[0] == OPTEE_RPC_OCALL2_OUT_PARAM1_ERROR)
++		return 1;
++	else
++		return 0;
++}
++
+ /**
+  * Free physical memory previously allocated with thread_rpc_alloc()
+  *
+diff --git a/core/arch/arm/kernel/thread_spmc.c b/core/arch/arm/kernel/thread_spmc.c
+index a5b2bef80..477a43b5b 100644
+--- a/core/arch/arm/kernel/thread_spmc.c
++++ b/core/arch/arm/kernel/thread_spmc.c
+@@ -1570,6 +1570,11 @@ uint32_t thread_rpc_cmd(uint32_t cmd, size_t num_params,
+ 	return get_rpc_arg_res(arg, num_params, params);
+ }
+ 
++uint32_t thread_rpc_ocall2_cmd(uint32_t param[2] __unused)
++{
++	return 1;
++}
++
+ static void thread_rpc_free(unsigned int bt, uint64_t cookie, struct mobj *mobj)
+ {
+ 	struct thread_rpc_arg rpc_arg = { .call = {
+diff --git a/core/include/kernel/thread.h b/core/include/kernel/thread.h
+index b7f497e10..956616a47 100644
+--- a/core/include/kernel/thread.h
++++ b/core/include/kernel/thread.h
+@@ -340,6 +340,16 @@ struct thread_param {
+ uint32_t thread_rpc_cmd(uint32_t cmd, size_t num_params,
+ 		struct thread_param *params);
+ 
++/**
++ * Does an Ocall2 RPC using only 2 in/out parameters passed with CPU registers
++ * @param1: in/out first parameter
++ * @param2: in/out second parameter
++ * @returns 0 upon success, 1 upon failure
++ *
++ * Upon failure first parameter value is 0 (OPTEE_RPC_OCALL2_OUT_PARAM1_ERROR).
++ */
++uint32_t thread_rpc_ocall2_cmd(uint32_t param[2]);
++
+ /**
+  * Allocate data for payload buffers.
+  * Buffer is exported to user mode applications.
+diff --git a/core/include/optee_rpc_cmd.h b/core/include/optee_rpc_cmd.h
+index 816f0a24f..f9ce2fd0a 100644
+--- a/core/include/optee_rpc_cmd.h
++++ b/core/include/optee_rpc_cmd.h
+@@ -386,6 +386,13 @@
+  */
+ #define OPTEE_RPC_SUPP_PLUGIN_INVOKE	U(0)
+ 
++/*
++ * With Ocall2 protocol, the output fist parameter value 0 is reserved for
++ * error report of the RPC Ocall command from TEE service to its caller
++ * client.
++ */
++#define OPTEE_RPC_OCALL2_OUT_PARAM1_ERROR	0
++
+ /* End of definition of protocol for command OPTEE_RPC_CMD_SUPP_PLUGIN */
+ 
+ #endif /*__OPTEE_RPC_CMD_H*/
+diff --git a/core/pta/scmi.c b/core/pta/scmi.c
+index 7686435dc..134ba971f 100644
+--- a/core/pta/scmi.c
++++ b/core/pta/scmi.c
+@@ -8,9 +8,17 @@
+ #include <drivers/scmi-msg.h>
+ #include <scmi/scmi_server.h>
+ #include <kernel/pseudo_ta.h>
++#include <kernel/thread_private_arch.h>
++#include <optee_rpc_cmd.h>
+ #include <pta_scmi_client.h>
+ #include <stdint.h>
+ #include <string.h>
++#include <util.h>
++
++static bool valid_caps(unsigned int caps)
++{
++	return (caps & ~PTA_SCMI_CAPS_VALID_MASK) == 0;
++}
+ 
+ static uint32_t supported_caps(void)
+ {
+@@ -22,6 +30,8 @@ static uint32_t supported_caps(void)
+ 	if (IS_ENABLED2(_CFG_SCMI_PTA_MSG_HEADER))
+ 		caps |= PTA_SCMI_CAPS_MSG_HEADER;
+ 
++	caps |= PTA_SCMI_CAPS_OCALL2_THREAD;
++
+ 	return caps;
+ }
+ 
+@@ -163,6 +173,75 @@ static TEE_Result cmd_process_msg_channel(uint32_t ptypes,
+ 	return TEE_ERROR_NOT_SUPPORTED;
+ }
+ 
++/* Process an OCALL RPC to client and report status */
++static enum optee_scmi_ocall_reply pta_scmi_ocall(uint32_t channel_id)
++{
++	uint32_t ocall2_params[2] = {
++		PTA_SCMI_OCALL_CMD_THREAD_READY,
++	};
++
++	if (thread_rpc_ocall2_cmd(ocall2_params)) {
++		FMSG("Error on channel %u"PRIu32, channel_id);
++		return PTA_SCMI_OCALL_ERROR;
++	}
++
++	switch (ocall2_params[0]) {
++	case PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL:
++		FMSG("Posting message on channel %u"PRIu32, channel_id);
++		if (!IS_ENABLED(CFG_SCMI_MSG_SMT))
++			return PTA_SCMI_OCALL_ERROR;
++
++		scmi_smt_threaded_entry(channel_id);
++		break;
++	case PTA_SCMI_OCALL_CLOSE_THREAD:
++		FMSG("Closing channel %u"PRIu32, channel_id);
++		break;
++	case PTA_SCMI_OCALL_ERROR:
++		FMSG("Error on channel %u"PRIu32, channel_id);
++		break;
++	default:
++		DMSG("Invalid Ocall cmd %#x on channel %u"PRIu32,
++		     ocall2_params[1], channel_id);
++		return PTA_SCMI_OCALL_ERROR;
++	}
++
++	return ocall2_params[0];
++}
++
++static TEE_Result cmd_scmi_ocall_smt_thread(uint32_t ptypes,
++					    TEE_Param params[TEE_NUM_PARAMS])
++{
++	const uint32_t exp_ptypes = TEE_PARAM_TYPES(TEE_PARAM_TYPE_VALUE_INPUT,
++						    TEE_PARAM_TYPE_NONE,
++						    TEE_PARAM_TYPE_NONE,
++						    TEE_PARAM_TYPE_NONE);
++
++	uint32_t channel_id = (int)params[0].value.a;
++	struct scmi_msg_channel *channel = NULL;
++
++	if (ptypes != exp_ptypes)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	if (!IS_ENABLED(CFG_SCMI_MSG_SMT))
++		return TEE_ERROR_NOT_SUPPORTED;
++
++	channel = plat_scmi_get_channel(channel_id);
++	if (!channel)
++		return TEE_ERROR_BAD_PARAMETERS;
++
++	FMSG("Enter Ocall thread on channel %u"PRIu32, channel_id);
++	while (1) {
++		switch (pta_scmi_ocall(channel_id)) {
++		case PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL:
++			continue;
++		case PTA_SCMI_OCALL_CLOSE_THREAD:
++			return TEE_SUCCESS;
++		default:
++			return TEE_ERROR_GENERIC;
++		}
++	}
++}
++
+ static TEE_Result cmd_get_channel_handle(uint32_t ptypes,
+ 					 TEE_Param params[TEE_NUM_PARAMS])
+ {
+@@ -173,7 +252,7 @@ static TEE_Result cmd_get_channel_handle(uint32_t ptypes,
+ 	unsigned int channel_id = params[0].value.a;
+ 	unsigned int caps = params[0].value.b;
+ 
+-	if (ptypes != exp_ptypes || caps & ~PTA_SCMI_CAPS_MASK)
++	if (ptypes != exp_ptypes || !valid_caps(caps))
+ 		return TEE_ERROR_BAD_PARAMETERS;
+ 
+ 	if (!(caps & supported_caps()))
+@@ -236,6 +315,8 @@ static TEE_Result pta_scmi_invoke_command(void *session __unused, uint32_t cmd,
+ 		return cmd_process_msg_channel(ptypes, params);
+ 	case PTA_SCMI_CMD_GET_CHANNEL_HANDLE:
+ 		return cmd_get_channel_handle(ptypes, params);
++	case PTA_SCMI_CMD_OCALL2_SMT_THREAD:
++		return cmd_scmi_ocall_smt_thread(ptypes, params);
+ 	default:
+ 		return TEE_ERROR_NOT_SUPPORTED;
+ 	}
+diff --git a/lib/libutee/include/pta_scmi_client.h b/lib/libutee/include/pta_scmi_client.h
+index 3e7b931ed..82ae73c6d 100644
+--- a/lib/libutee/include/pta_scmi_client.h
++++ b/lib/libutee/include/pta_scmi_client.h
+@@ -68,6 +68,17 @@
+  */
+ #define PTA_SCMI_CMD_PROCESS_MSG_CHANNEL	4
+ 
++/*
++ * PTA_SCMI_CMD_OCALL2_SMT_THREAD - Allocate a threaded path using Ocall2
++ *
++ * [in]     value[0].a: channel handle
++ *
++ * Use Ocall2 support to create a provisioned OP-TEE thread context for
++ * the channel. Successful creation of the thread makes this command to
++ * return with Ocall command PTA_SCMI_OCALL_CMD_THREAD_READY.
++ */
++#define PTA_SCMI_CMD_OCALL2_SMT_THREAD		2048
++
+ /*
+  * Capabilities
+  */
+@@ -78,7 +89,66 @@
+ /* Channel supports shared memory using the MSG header protocol */
+ #define PTA_SCMI_CAPS_MSG_HEADER			BIT32(1)
+ 
+-/* Mask of defined capabilities */
+-#define PTA_SCMI_CAPS_MASK				GENMASK_32(1, 0)
++/*
++ * Channel can use command PTA_SCMI_CMD_OCALL2_SMT_THREAD to provision a
++ * TEE thread for SCMI message passing.
++ */
++#define PTA_SCMI_CAPS_OCALL2_THREAD			BIT32(31)
++
++#define PTA_SCMI_CAPS_VALID_MASK	(PTA_SCMI_CAPS_SMT_HEADER | \
++					 PTA_SCMI_CAPS_MSG_HEADER | \
++					 PTA_SCMI_CAPS_OCALL2_THREAD)
++
++/*
++ * enum optee_scmi_ocall_cmd
++ * enum optee_scmi_ocall_reply
++ *
++ * These enumerates define the IDs used by REE/TEE to communicate in the
++ * established REE/TEE Ocall thread context.
++ *
++ * At channel setup, we start from the REE: caller requests an Ocall context.
++ *
++ * 0. REE opens a session toward PTA SCMI. REE invokes PTA command
++ *    PTA_SCMI_CMD_GET_CHANNEL_HANDLE to get a channel handler.
++ *
++ * 1. REE invokes command PTA_SCMI_CMD_OCALL2_SMT_THREAD with an Ocall context.
++ *    This is the initial invocation of the Ocall thread context. Any further
++ *    error in the thread communication make the Ocall to return from REE to
++ *    TEE with an error status (Ocall2 out_param1 == 0) upon which SCMI PTA
++ *    will return from initial command PTA_SCMI_CMD_OCALL2_SMT_THREAD with an
++ *    error result.
++ *
++ * 2. Upon support of Ocall the PTA creates an Ocall context and returns to
++ *    REE with Ocall command PTA_SCMI_OCALL_CMD_THREAD_READY.
++ *
++ * 3. REE returns to the PTA, from the Ocall, with output out_param1
++ *    set to PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL to post an SCMI message.
++ *    In such case, OP-TEE processes the message and returns to REE with
++ *    Ocall command PTA_SCMI_OCALL_CMD_THREAD_READY. The SCMI response is in
++ *    the shared memory buffer.
++ *
++ * 4. Alternatively REE can return from the Ocall with out_param1 set to
++ *    PTA_SCMI_OCALL_CLOSE_THREAD. This requests OP-TEE to terminate the
++ *    Ocall, release resources and return from initial command invocation at
++ *    step 1. as if REE closes the SCMI communication.
++ *
++ * At anytime if an error is reported by Ocall command replies, SCMI PTA
++ * releases the Ocall thread context and returns from initial invocation
++ * at step 1. PTA_SCMI_OCALL_ERROR is used in Ocall return to force an error
++ * report.
++ *
++ * REE channel initialization completes when returning from step 2.
++ * REE agent posts an SCMI message through step 3.
++ * At channel release, REE driver executes step 4.
++ */
++
++enum optee_scmi_ocall_cmd {
++	PTA_SCMI_OCALL_CMD_THREAD_READY = 0,
++};
+ 
++enum optee_scmi_ocall_reply {
++	PTA_SCMI_OCALL_ERROR = 0, /* OPTEE_RPC_OCALL2_OUT_PARAM1_ERROR */
++	PTA_SCMI_OCALL_CLOSE_THREAD = 1,
++	PTA_SCMI_OCALL_PROCESS_SMT_CHANNEL = 2,
++};
+ #endif /* SCMI_PTA_SCMI_CLIENT_H */
+-- 
+2.47.2
+

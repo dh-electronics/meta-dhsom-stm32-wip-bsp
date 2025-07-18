@@ -1,0 +1,82 @@
+From 60441a3d445b1e92bf2dbd1a27df00efe3af16d6 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Wed, 22 May 2024 15:19:48 +0200
+Subject: [PATCH 0946/1695] drivers: stm32mp_provisioning is dedicated to
+ development
+
+Explicitly state, in the source file and in a trace message
+that use of stm32mp_provisioning is dedicated to development
+support and not for an secure embedded product. When insecure config
+support is disabled (i.e. CFG_WARN_INSECURE=n) explicitly panic if
+some BSEC shadow cells are provisioned with this feature.
+
+For consistency remove the panic instruction when there is no
+embedded DTB and remove the "Warning:" wording from the debug trace
+printed if the node has no cells.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 7ff8fef8d0f7d5bc83e9f54c82464d33dddec340 drivers: stm32mp_provisioning is dedicated to development]
+Change-Id: I1d9d6a9d95d755e1d0fe034f4ccfbaf88a6e4973
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/382373
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32mp_provisioning.c | 20 ++++++++++++++++----
+ 1 file changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/stm32mp_provisioning.c b/core/drivers/stm32mp_provisioning.c
+index 8528d8f8c..35ef96237 100644
+--- a/core/drivers/stm32mp_provisioning.c
++++ b/core/drivers/stm32mp_provisioning.c
+@@ -1,6 +1,12 @@
+ // SPDX-License-Identifier: BSD-2-Clause
+ /*
+- * Copyright (c) 2022, STMicroelectronics
++ * Copyright (c) 2022-2024, STMicroelectronics
++ *
++ * This driver is intended for development support only. It allows
++ * to provision BSEC/BSEC3 shadow cells with data read from OP-TEE OS
++ * DTB but without any insurance that the OP-TEE driver are initialized
++ * after this provisioning sequence. Therefore the driver initialization
++ * prints a warning trace or panics upon CFG_WARN_INSECURE value.
+  */
+ 
+ #include <arm.h>
+@@ -179,7 +185,7 @@ static void provisioning_init(void)
+ 	int node = -1;
+ 
+ 	if (!fdt)
+-		panic();
++		return;
+ 
+ 	node = fdt_node_offset_by_compatible(fdt, 0, "st,provisioning");
+ 	if (node < 0)
+@@ -187,7 +193,7 @@ static void provisioning_init(void)
+ 
+ 	if (fdt_first_subnode(fdt, node) == -FDT_ERR_NOTFOUND) {
+ 		name = fdt_get_name(fdt, node, NULL);
+-		DMSG("Warning : no subnode in %s\n", name);
++		DMSG("no subnode in %s", name);
+ 		return;
+ 	}
+ 
+@@ -209,8 +215,14 @@ static TEE_Result provisioning_probe(void)
+ {
+ 	provisioning_init();
+ 
+-	if (!SLIST_EMPTY(&shadow_otp_head))
++	if (!SLIST_EMPTY(&shadow_otp_head)) {
++		if (IS_ENABLED(CFG_WARN_INSECURE))
++			IMSG("WARNING: Embeds insecure stm32mp_provisioning driver");
++		else
++			panic("Embeds insecure stm32mp_provisioning data");
++
+ 		register_pm_driver_cb(provisioning_pm, NULL, "provisioning");
++	}
+ 
+ 	return TEE_SUCCESS;
+ }
+-- 
+2.47.2
+

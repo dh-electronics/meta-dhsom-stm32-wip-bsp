@@ -1,0 +1,63 @@
+From c95f37adc9e66ebe0628be2a92b18898167edb4a Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Mon, 30 Sep 2024 14:55:52 +0200
+Subject: [PATCH 1413/1695] drivers: clk: stm32mp25: correct PLL3 enable
+ failure cases
+
+Restore the GPU clock state when clk_stm32_pll3_enable() fails.
+Disable the enabled PLL3 when re-parenting the PLL fails.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git a5608d3cb944ce16b1ab817ede90f1ae79e301a0 drivers: clk: stm32mp25: correct PLL3 enable failure cases]
+Change-Id: Ia722096a8c8f525d8293f8275ce487854feccc80
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/407767
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index 5388ddecd..4b012d1c7 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -2851,14 +2851,14 @@ static TEE_Result clk_stm32_pll3_enable(struct clk *clk)
+ 	stm32_gate_enable(GATE_GPU);
+ 
+ 	if (clk_stm32_pll_init(priv, PLL3_ID, pll_conf)) {
+-		stm32_gate_disable(GATE_GPU);
+-		return TEE_ERROR_GENERIC;
++		res = TEE_ERROR_GENERIC;
++		goto out;
+ 	}
+ 
+ 	res = stm32_gate_rdy_enable(cfg->gate_id);
+ 	if (res) {
+ 		EMSG("%s timeout", clk_get_name(clk));
+-		return res;
++		goto out;
+ 	}
+ 
+ 	/* Update parent */
+@@ -2866,8 +2866,14 @@ static TEE_Result clk_stm32_pll3_enable(struct clk *clk)
+ 	parent = clk_get_parent_by_index(clk, pidx);
+ 
+ 	res = clk_reparent(clk, parent);
+-	if (res)
++	if (res) {
+ 		EMSG("fail to reparent PLL3");
++		clk_stm32_pll_disable(clk);
++	}
++
++out:
++	if (res)
++		stm32_gate_disable(GATE_GPU);
+ 
+ 	return res;
+ }
+-- 
+2.47.2
+

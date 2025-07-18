@@ -1,0 +1,194 @@
+From 433690fb5dac61e64070a936c46a5653452ac4ca Mon Sep 17 00:00:00 2001
+From: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Date: Fri, 31 Jan 2025 15:31:37 +0100
+Subject: [PATCH 1494/1695] drivers: stm32_bsec/bsec3: add
+ stm32_bsec_read_otp_range_by_name()
+
+With this API, it is possible to read a range of contiguous OTPs from the
+nvmem cell name described in device tree.
+It allows to retrieve data like uid or key defined over several OPTs.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 0e00a1d3af5c7247e528071bef950e389ad9b91f drivers: stm32_bsec/bsec3: add stm32_bsec_read_otp_range_by_name()]
+Signed-off-by: Amelie Delaunay <amelie.delaunay@foss.st.com>
+Change-Id: Ic8e745039d2e551357a75ff4fca694a1dc038cab
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/433593
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/drivers/stm32_bsec.c         | 56 +++++++++++++++++++++++++++++++
+ core/drivers/stm32_bsec3.c        | 56 +++++++++++++++++++++++++++++++
+ core/include/drivers/stm32_bsec.h |  9 +++++
+ 3 files changed, 121 insertions(+)
+
+diff --git a/core/drivers/stm32_bsec.c b/core/drivers/stm32_bsec.c
+index 166533ee0..864b6db02 100644
+--- a/core/drivers/stm32_bsec.c
++++ b/core/drivers/stm32_bsec.c
+@@ -18,6 +18,7 @@
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
+ #include <stm32_util.h>
++#include <stdlib_ext.h>
+ #include <string.h>
+ #include <tee_api_defines.h>
+ #include <types_ext.h>
+@@ -314,6 +315,61 @@ TEE_Result stm32_bsec_read_otp(uint32_t *value, uint32_t otp_id)
+ 	return TEE_SUCCESS;
+ }
+ 
++/*
++ * Read a range of OTP data values thanks to the name of the cell
++ * @name: Name of the cell describing the OTP range
++ * @len : Size of the OTP range to read
++ * @values : Output read values
++ */
++TEE_Result stm32_bsec_read_otp_range_by_name(const char *name,
++					     size_t len, uint8_t **values)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint8_t otp_bit_offset = 0;
++	uint32_t *data_buf = NULL;
++	size_t otp_bit_len = 0;
++	uint32_t otp_start = 0;
++	size_t otp_length = 0;
++	uint32_t otp_id = 0;
++
++	res = stm32_bsec_find_otp_in_nvmem_layout(name, &otp_start,
++						  &otp_bit_offset,
++						  &otp_bit_len);
++	if (res) {
++		EMSG("Can't find %s", name);
++		return res;
++	}
++
++	if (otp_bit_offset || otp_bit_len != len * CHAR_BIT) {
++		EMSG("Bad key OTP alignment");
++		return TEE_ERROR_GENERIC;
++	}
++
++	otp_length = len / sizeof(uint32_t);
++	data_buf = (uint32_t *)calloc(otp_length, sizeof(uint32_t));
++	if (!data_buf)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	*values = (uint8_t *)data_buf;
++
++	for (otp_id = otp_start; otp_id < otp_start + otp_length;
++	     otp_id++, data_buf++) {
++		/* Read key in OTP */
++		res = stm32_bsec_read_otp(data_buf, otp_id);
++		if (res)
++			goto clean_values;
++	}
++
++	/* values has to be freed by API caller */
++	return TEE_SUCCESS;
++
++clean_values:
++	free_wipe(*values);
++	*values = NULL;
++
++	return res;
++}
++
+ TEE_Result stm32_bsec_shadow_read_otp(uint32_t *otp_value, uint32_t otp_id)
+ {
+ 	TEE_Result result = 0;
+diff --git a/core/drivers/stm32_bsec3.c b/core/drivers/stm32_bsec3.c
+index eaa254986..6b73f56a3 100644
+--- a/core/drivers/stm32_bsec3.c
++++ b/core/drivers/stm32_bsec3.c
+@@ -18,6 +18,7 @@
+ #include <mm/core_memprot.h>
+ #include <platform_config.h>
+ #include <pta_stm32mp_bsec.h>
++#include <stdlib_ext.h>
+ #include <util.h>
+ 
+ /* CFG_STM32_BSEC_WRITE cannot be enabled with CFG_STM32_CM33TDCID */
+@@ -356,6 +357,61 @@ TEE_Result stm32_bsec_read_otp(uint32_t *val, uint32_t otp)
+ 	return result;
+ }
+ 
++/*
++ * Read a range of OTP data values thanks to the name of the cell
++ * @name: Name of the cell describing the OTP range
++ * @len : Size of the OTP range to read
++ * @values : Output read values
++ */
++TEE_Result stm32_bsec_read_otp_range_by_name(const char *name,
++					     size_t len, uint8_t **values)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++	uint8_t otp_bit_offset = 0;
++	uint32_t *data_buf = NULL;
++	size_t otp_bit_len = 0;
++	uint32_t otp_start = 0;
++	size_t otp_length = 0;
++	uint32_t otp_id = 0;
++
++	res = stm32_bsec_find_otp_in_nvmem_layout(name, &otp_start,
++						  &otp_bit_offset,
++						  &otp_bit_len);
++	if (res) {
++		EMSG("Can't find %s", name);
++		return res;
++	}
++
++	if (otp_bit_offset || otp_bit_len != len * CHAR_BIT) {
++		EMSG("Bad key OTP alignment");
++		return TEE_ERROR_GENERIC;
++	}
++
++	otp_length = len / sizeof(uint32_t);
++	data_buf = (uint32_t *)calloc(otp_length, sizeof(uint32_t));
++	if (!data_buf)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
++	*values = (uint8_t *)data_buf;
++
++	for (otp_id = otp_start; otp_id < otp_start + otp_length;
++	     otp_id++, data_buf++) {
++		/* Read key in OTP */
++		res = stm32_bsec_read_otp(data_buf, otp_id);
++		if (res)
++			goto clean_values;
++	}
++
++	/* values has to be freed by API caller */
++	return TEE_SUCCESS;
++
++clean_values:
++	free_wipe(*values);
++	*values = NULL;
++
++	return res;
++}
++
+ /*
+  * bsec_shadow_read_otp: Load OTP from SAFMEM and provide its value
+  * val: read value.
+diff --git a/core/include/drivers/stm32_bsec.h b/core/include/drivers/stm32_bsec.h
+index 9feb60028..2153dac15 100644
+--- a/core/include/drivers/stm32_bsec.h
++++ b/core/include/drivers/stm32_bsec.h
+@@ -71,6 +71,15 @@ TEE_Result stm32_bsec_shadow_register(uint32_t otp_id);
+  */
+ TEE_Result stm32_bsec_read_otp(uint32_t *value, uint32_t otp_id);
+ 
++/*
++ * Read a range of OTP data values thanks to the name of the cell
++ * @name: Name of the cell describing the OTP range
++ * @len : Size of the OTP range to read
++ * @values : Output read values
++ */
++TEE_Result stm32_bsec_read_otp_range_by_name(const char *name,
++					     size_t len, uint8_t **values);
++
+ /*
+  * Write value in BSEC data register
+  * @value: Value to write
+-- 
+2.47.2
+

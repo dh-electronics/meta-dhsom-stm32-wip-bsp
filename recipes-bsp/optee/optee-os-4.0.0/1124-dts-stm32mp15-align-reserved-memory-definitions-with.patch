@@ -1,0 +1,280 @@
+From 3062733e18abf45058ec0a20d89009c891998583 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Mon, 4 Mar 2024 17:45:08 +0100
+Subject: [PATCH 1124/1695] dts: stm32mp15: align reserved-memory definitions
+ with the ETZPC
+
+The ETZPC allows providing access rights by static IDs.
+Each Cortex-M4 memory can be configured with specific access rights,
+which allow isolating the memory for Cortex-M4 usage.
+For coherency, we need to align the memory regions defined in the
+m4_rproc node with these ETZPC regions.
+
+As a consequence, the following memory regions used by Linux for
+interprocessor communication are removed.
+These regions are sub-regions of the MCU SRAM3 and are no used in OP-TEE.
+- vded0vring0
+- vded0vring1
+- vded0buffer
+- ipc-shmem
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 515d83a97cdb14f1d22ced3512739e3606536e32 dts: stm32mp15: align reserved-memory definitions with the ETZPC]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I51505387d91bf214f5418e45e12e8369763e1270
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/396464
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+---
+ core/arch/arm/dts/stm32mp157c-ed1.dts        | 33 +++++---------------
+ core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi | 33 +++++---------------
+ core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi | 33 +++++---------------
+ core/arch/arm/dts/stm32mp15xx-dkx.dtsi       | 33 +++++---------------
+ 4 files changed, 28 insertions(+), 104 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp157c-ed1.dts b/core/arch/arm/dts/stm32mp157c-ed1.dts
+index 098a391f4..fbf770424 100644
+--- a/core/arch/arm/dts/stm32mp157c-ed1.dts
++++ b/core/arch/arm/dts/stm32mp157c-ed1.dts
+@@ -34,39 +34,21 @@
+ 		#size-cells = <1>;
+ 		ranges;
+ 
+-		mcuram2: mcuram2@10000000 {
++		mcusram1: mcuram1@10000000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10000000 0x40000>;
++			reg = <0x10000000 0x20000>;
+ 			no-map;
+ 		};
+ 
+-		vdev0vring0: vdev0vring0@10040000 {
++		mcusram2: mcuram2@10020000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10040000 0x1000>;
++			reg = <0x10020000 0x20000>;
+ 			no-map;
+ 		};
+ 
+-		vdev0vring1: vdev0vring1@10041000 {
++		mcusram3: mcuram3@10040000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10041000 0x1000>;
+-			no-map;
+-		};
+-
+-		vdev0buffer: vdev0buffer@10042000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x10042000 0x4000>;
+-			no-map;
+-		};
+-
+-		ipc_shmem: ipc-shmem@10048000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x10048000 0x8000>;
+-			no-map;
+-		};
+-
+-		mcuram: mcuram@30000000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x30000000 0x40000>;
++			reg = <0x10040000 0x10000>;
+ 			no-map;
+ 		};
+ 
+@@ -374,8 +356,7 @@
+ };
+ 
+ &m4_rproc {
+-	memory-region = <&retram>, <&mcuram>, <&mcuram2>, <&vdev0vring0>,
+-			<&vdev0vring1>, <&vdev0buffer>, <&ipc_shmem>;
++	memory-region = <&retram>, <&mcusram1>, <&mcusram2>, <&mcusram3>;
+ 	mboxes = <&ipcc 0>, <&ipcc 1>, <&ipcc 2>, <&ipcc 3>;
+ 	mbox-names = "vq0", "vq1", "shutdown", "detach";
+ 	interrupt-parent = <&exti>;
+diff --git a/core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi b/core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi
+index 79a48ff9f..3082bb98e 100644
+--- a/core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi
++++ b/core/arch/arm/dts/stm32mp15xx-dhcom-som.dtsi
+@@ -28,39 +28,21 @@
+ 		#size-cells = <1>;
+ 		ranges;
+ 
+-		mcuram2: mcuram2@10000000 {
++		mcusram1: mcuram1@10000000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10000000 0x40000>;
++			reg = <0x10000000 0x20000>;
+ 			no-map;
+ 		};
+ 
+-		vdev0vring0: vdev0vring0@10040000 {
++		mcusram2: mcuram2@10020000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10040000 0x1000>;
++			reg = <0x10020000 0x20000>;
+ 			no-map;
+ 		};
+ 
+-		vdev0vring1: vdev0vring1@10041000 {
++		mcusram3: mcuram3@10040000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10041000 0x1000>;
+-			no-map;
+-		};
+-
+-		vdev0buffer: vdev0buffer@10042000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x10042000 0x4000>;
+-			no-map;
+-		};
+-
+-		ipc_shmem: ipc-shmem@10048000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x10048000 0x8000>;
+-			no-map;
+-		};
+-
+-		mcuram: mcuram@30000000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x30000000 0x40000>;
++			reg = <0x10040000 0x10000>;
+ 			no-map;
+ 		};
+ 
+@@ -432,8 +414,7 @@
+ };
+ 
+ &m4_rproc {
+-	memory-region = <&retram>, <&mcuram>, <&mcuram2>, <&vdev0vring0>,
+-			<&vdev0vring1>, <&vdev0buffer>, <&ipc_shmem>;
++	memory-region = <&retram>, <&mcusram1>, <&mcusram2>, <&mcusram3>;
+ 	mboxes = <&ipcc 0>, <&ipcc 1>, <&ipcc 2>;
+ 	mbox-names = "vq0", "vq1", "shutdown";
+ 	interrupt-parent = <&exti>;
+diff --git a/core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi b/core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi
+index e7fedb8ab..4f07bf696 100644
+--- a/core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi
++++ b/core/arch/arm/dts/stm32mp15xx-dhcor-som.dtsi
+@@ -27,39 +27,21 @@
+ 		#size-cells = <1>;
+ 		ranges;
+ 
+-		mcuram2: mcuram2@10000000 {
++		mcusram1: mcuram1@10000000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10000000 0x40000>;
++			reg = <0x10000000 0x20000>;
+ 			no-map;
+ 		};
+ 
+-		vdev0vring0: vdev0vring0@10040000 {
++		mcusram2: mcuram2@10020000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10040000 0x1000>;
++			reg = <0x10020000 0x20000>;
+ 			no-map;
+ 		};
+ 
+-		vdev0vring1: vdev0vring1@10041000 {
++		mcusram3: mcuram3@10040000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10041000 0x1000>;
+-			no-map;
+-		};
+-
+-		vdev0buffer: vdev0buffer@10042000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x10042000 0x4000>;
+-			no-map;
+-		};
+-
+-		ipc_shmem: ipc-shmem@10048000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x10048000 0x8000>;
+-			no-map;
+-		};
+-
+-		mcuram: mcuram@30000000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x30000000 0x40000>;
++			reg = <0x10040000 0x10000>;
+ 			no-map;
+ 		};
+ 
+@@ -250,8 +232,7 @@
+ };
+ 
+ &m4_rproc {
+-	memory-region = <&retram>, <&mcuram>, <&mcuram2>, <&vdev0vring0>,
+-			<&vdev0vring1>, <&vdev0buffer>, <&ipc_shmem>;
++	memory-region = <&retram>, <&mcusram1>, <&mcusram2>, <&mcusram3>;
+ 	mboxes = <&ipcc 0>, <&ipcc 1>, <&ipcc 2>;
+ 	mbox-names = "vq0", "vq1", "shutdown";
+ 	interrupt-parent = <&exti>;
+diff --git a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+index 26d4ecd24..b3b87b22a 100644
+--- a/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
++++ b/core/arch/arm/dts/stm32mp15xx-dkx.dtsi
+@@ -28,39 +28,21 @@
+ 		#size-cells = <1>;
+ 		ranges;
+ 
+-		mcuram2: mcuram2@10000000 {
++		mcusram1: mcuram1@10000000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10000000 0x40000>;
++			reg = <0x10000000 0x20000>;
+ 			no-map;
+ 		};
+ 
+-		vdev0vring0: vdev0vring0@10040000 {
++		mcusram2: mcuram2@10020000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10040000 0x1000>;
++			reg = <0x10020000 0x20000>;
+ 			no-map;
+ 		};
+ 
+-		vdev0vring1: vdev0vring1@10041000 {
++		mcusram3: mcuram3@10040000 {
+ 			compatible = "shared-dma-pool";
+-			reg = <0x10041000 0x1000>;
+-			no-map;
+-		};
+-
+-		vdev0buffer: vdev0buffer@10042000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x10042000 0x4000>;
+-			no-map;
+-		};
+-
+-		ipc_shmem: ipc-shmem@10048000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x10048000 0x8000>;
+-			no-map;
+-		};
+-
+-		mcuram: mcuram@30000000 {
+-			compatible = "shared-dma-pool";
+-			reg = <0x30000000 0x40000>;
++			reg = <0x10040000 0x10000>;
+ 			no-map;
+ 		};
+ 
+@@ -512,8 +494,7 @@
+ };
+ 
+ &m4_rproc {
+-	memory-region = <&retram>, <&mcuram>, <&mcuram2>, <&vdev0vring0>,
+-			<&vdev0vring1>, <&vdev0buffer>, <&ipc_shmem>;
++	memory-region = <&retram>, <&mcusram1>, <&mcusram2>, <&mcusram3>;
+ 	mboxes = <&ipcc 0>, <&ipcc 1>, <&ipcc 2>, <&ipcc 3>;
+ 	mbox-names = "vq0", "vq1", "shutdown", "detach";
+ 	interrupt-parent = <&exti>;
+-- 
+2.47.2
+

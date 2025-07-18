@@ -1,0 +1,39 @@
+From dd77d5d162bc1f62a610cde1a381bf7f7b3a8d33 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Thu, 14 Mar 2024 17:51:51 +0100
+Subject: [PATCH 0700/1695] drivers: stm32_tamp: manage dependency on the RNG
+
+Use dt_driver_get_crypto() to manage the dependency on the hardware RNG.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 89761d3d62cd9157fe340e556b5b45d94841d9b1 drivers: stm32_tamp: manage dependency on the RNG]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: Ifea8c534773dc2dfa771360bd62908d3850aadba
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/366959
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/stm32_tamp.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/core/drivers/stm32_tamp.c b/core/drivers/stm32_tamp.c
+index 37d97bb46..63a0a12e2 100644
+--- a/core/drivers/stm32_tamp.c
++++ b/core/drivers/stm32_tamp.c
+@@ -1985,6 +1985,11 @@ static TEE_Result stm32_tamp_probe(const void *fdt, int node,
+ 	vaddr_t base = 0;
+ 	int subnode = -FDT_ERR_NOTFOUND;
+ 
++	/* Manage dependency on RNG driver */
++	res = dt_driver_get_crypto();
++	if (res)
++		return res;
++
+ 	/* Manage dependency on RTC driver */
+ 	res = stm32_rtc_driver_is_initialized();
+ 	if (res)
+-- 
+2.47.2
+

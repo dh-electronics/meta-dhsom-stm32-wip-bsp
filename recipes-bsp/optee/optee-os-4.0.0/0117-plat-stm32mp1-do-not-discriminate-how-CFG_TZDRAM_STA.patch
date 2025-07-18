@@ -1,0 +1,67 @@
+From 8e4a4fa15fd3c32363ec69e869658c4225aab34a Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Wed, 13 Dec 2023 18:14:38 +0100
+Subject: [PATCH 0117/1695] plat-stm32mp1: do not discriminate how
+ CFG_TZDRAM_START is set
+
+Remove useless discrimination on CFG_TZDRAM_START value regarding the
+platform flavor and its default value for STM32MP15 boards.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 5edbb4c1466618c00e11e39492f1e7ca0d82eb42 plat-stm32mp1: do not discriminate how CFG_TZDRAM_START is set]
+Change-Id: I83c29d6b2d7c9550020ee58ca809cb84ae9c5891
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+---
+ core/arch/arm/plat-stm32mp1/conf.mk | 25 ++++++-------------------
+ 1 file changed, 6 insertions(+), 19 deletions(-)
+
+diff --git a/core/arch/arm/plat-stm32mp1/conf.mk b/core/arch/arm/plat-stm32mp1/conf.mk
+index 5abc8bb4f..a095677a7 100644
+--- a/core/arch/arm/plat-stm32mp1/conf.mk
++++ b/core/arch/arm/plat-stm32mp1/conf.mk
+@@ -155,12 +155,17 @@ CFG_TEE_RAM_VA_SIZE ?= 0x00200000
+ endif
+ 
+ ifneq ($(filter $(CFG_EMBED_DTB_SOURCE_FILE),$(flavorlist-512M)),)
+-CFG_TZDRAM_START ?= 0xde000000
+ CFG_DRAM_SIZE    ?= 0x20000000
+ endif
+ 
+ CFG_DRAM_BASE    ?= 0xc0000000
+ CFG_DRAM_SIZE    ?= 0x40000000
++ifeq ($(CFG_STM32MP15)-$(CFG_WITH_PAGER),y-y)
++CFG_TZSRAM_START ?= 0x2ffc0000
++CFG_TZSRAM_SIZE  ?= 0x0003f000
++endif #CFG_STM32MP15 && CFG_WITH_PAGER
++CFG_TZDRAM_SIZE  ?= 0x02000000
++CFG_TZDRAM_START ?= ($(CFG_DRAM_BASE) + $(CFG_DRAM_SIZE) - $(CFG_TZDRAM_SIZE))
+ 
+ # CFG_STM32MP1_SCMI_SHM_BASE and CFG_STM32MP1_SCMI_SHM_SIZE define the
+ # device memory mapped SRAM used for SCMI message transfers.
+@@ -178,24 +183,6 @@ CFG_STM32MP1_SCMI_SHM_BASE ?= 0
+ endif
+ $(call force,CFG_STM32MP1_SCMI_SHM_SIZE,0x1000)
+ 
+-ifeq ($(CFG_STM32MP15),y)
+-CFG_TZDRAM_START ?= 0xfe000000
+-ifeq ($(CFG_CORE_RESERVED_SHM),y)
+-CFG_TZDRAM_SIZE  ?= 0x01e00000
+-else
+-CFG_TZDRAM_SIZE  ?= 0x02000000
+-endif
+-CFG_TZSRAM_START ?= 0x2ffc0000
+-CFG_TZSRAM_SIZE  ?= 0x0003f000
+-ifeq ($(CFG_CORE_RESERVED_SHM),y)
+-CFG_SHMEM_START  ?= ($(CFG_TZDRAM_START) + $(CFG_TZDRAM_SIZE))
+-CFG_SHMEM_SIZE   ?= ($(CFG_DRAM_BASE) + $(CFG_DRAM_SIZE) - $(CFG_SHMEM_START))
+-endif
+-else
+-CFG_TZDRAM_SIZE  ?= 0x02000000
+-CFG_TZDRAM_START ?= ($(CFG_DRAM_BASE) + $(CFG_DRAM_SIZE) - $(CFG_TZDRAM_SIZE))
+-endif #CFG_STM32MP15
+-
+ CFG_STM32_BSEC ?= y
+ CFG_STM32_CRYP ?= y
+ CFG_STM32_ETZPC ?= y
+-- 
+2.47.2
+

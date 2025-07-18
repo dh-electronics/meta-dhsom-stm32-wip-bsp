@@ -1,0 +1,78 @@
+From b1821ebe701315e21e961248050fbfaa178ea368 Mon Sep 17 00:00:00 2001
+From: Antonio Borneo <antonio.borneo@foss.st.com>
+Date: Tue, 4 Feb 2025 15:30:48 +0100
+Subject: [PATCH 1598/1695] dts: stm32: use PWR through EXTI on stm32mp21x
+
+The hierarchical stack is:
+- GIC
+- PWR (only on EXTI lines for wakeup pins)
+- EXTI
+- irq client
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 85e56ecf03db051cabf988ef1967560c6797f13a dts: stm32: use PWR through EXTI on stm32mp21x]
+Signed-off-by: Antonio Borneo <antonio.borneo@foss.st.com>
+Change-Id: Ib59086e4b90b9c82d80289d37669b0b5823ea794
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/434940
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+---
+ core/arch/arm/dts/stm32mp211.dtsi    | 14 +++++++-------
+ core/arch/arm/dts/stm32mp215f-dk.dts |  2 +-
+ 2 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/core/arch/arm/dts/stm32mp211.dtsi b/core/arch/arm/dts/stm32mp211.dtsi
+index ddc9feb57..7a7d3f6ab 100644
+--- a/core/arch/arm/dts/stm32mp211.dtsi
++++ b/core/arch/arm/dts/stm32mp211.dtsi
+@@ -763,7 +763,6 @@
+ 		pwr: pwr@44210000 {
+ 			compatible = "st,stm32mp21-pwr";
+ 			reg = <0x44210000 0x400>;
+-			wakeup-parent = <&exti1 0xffff 0>;
+ 			interrupts = <GIC_SPI 190 IRQ_TYPE_LEVEL_HIGH>;
+ 			interrupt-controller;
+ 			#interrupt-cells = <2>;
+@@ -808,6 +807,7 @@
+ 
+ 		exti1: interrupt-controller@44220000 {
+ 			compatible = "st,stm32mp1-exti", "syscon";
++			wakeup-parent = <&pwr>;
+ 			interrupt-controller;
+ 			#interrupt-cells = <2>;
+ 			reg = <0x44220000 0x400>;
+@@ -864,12 +864,12 @@
+ 				<0>,
+ 				<0>,						/* EXTI_50 */
+ 				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
+-				<0>,
++				<&pwr 0 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 1 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 2 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 3 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 4 IRQ_TYPE_EDGE_FALLING>,
++				<&pwr 5 IRQ_TYPE_EDGE_FALLING>,
+ 				<0>,
+ 				<&intc GIC_SPI 152 IRQ_TYPE_LEVEL_HIGH>,
+ 				<0>,						/* EXTI_60 */
+diff --git a/core/arch/arm/dts/stm32mp215f-dk.dts b/core/arch/arm/dts/stm32mp215f-dk.dts
+index d1994f5ed..afb130307 100644
+--- a/core/arch/arm/dts/stm32mp215f-dk.dts
++++ b/core/arch/arm/dts/stm32mp215f-dk.dts
+@@ -69,7 +69,7 @@
+ 	pmic2: pmic@33 {
+ 		compatible = "st,stpmic2l";
+ 		reg = <0x33>;
+-		interrupts-extended = <&pwr 0 IRQ_TYPE_EDGE_FALLING>;
++		interrupts-extended = <&exti1 52 IRQ_TYPE_EDGE_FALLING>;
+ 		wakeup-source;
+ 		st,pmic-it-id = <IT_PKEY_FA IT_PKEY_RI>;
+ 		st,notif-it-id = <0 1>;
+-- 
+2.47.2
+

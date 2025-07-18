@@ -1,0 +1,61 @@
+From f03d80b536ebdc2b91bc82455a19188533ccd0ac Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Fri, 2 Feb 2024 11:42:42 +0100
+Subject: [PATCH 0727/1695] drivers: crypto: stm32: cleanup cipher operation
+ structure
+
+Move cryp_ops definition in the source file to have it defined right
+next to the CRYP ciphering operation handlers.
+
+Add missing static keyword in CRYP and SAES operation handlers
+structures that are local to the source file.
+
+No functional changes.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 6950b9732f12d2a147a1f8aa0a0b0940890cde09 drivers: crypto: stm32: cleanup cipher operation structure]
+Reviewed-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Change-Id: Ief5cb665bea75b14fcf66e13b0171a951a1c05b4
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/372865
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Tested-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ core/drivers/crypto/stm32/cipher.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/core/drivers/crypto/stm32/cipher.c b/core/drivers/crypto/stm32/cipher.c
+index e189b54f8..cc95e8c8b 100644
+--- a/core/drivers/crypto/stm32/cipher.c
++++ b/core/drivers/crypto/stm32/cipher.c
+@@ -87,6 +87,11 @@ static TEE_Result cryp_update(union ip_ctx *ip_ctx, bool last_block,
+ 	return stm32_cryp_update(&ip_ctx->cryp.ctx, last_block, src, dst, len);
+ }
+ 
++static const struct ip_cipher_ops cryp_ops = {
++	.init = cryp_init,
++	.update = cryp_update,
++};
++
+ static TEE_Result saes_init(union ip_ctx *ip_ctx, bool is_decrypt,
+ 			    const uint8_t *key, size_t key_len,
+ 			    const uint8_t *iv, size_t iv_len)
+@@ -109,12 +114,7 @@ static TEE_Result saes_update(union ip_ctx *ip_ctx, bool last_block,
+ 	return stm32_saes_update(&ip_ctx->saes.ctx, last_block, src, dst, len);
+ }
+ 
+-const struct ip_cipher_ops cryp_ops = {
+-	.init = cryp_init,
+-	.update = cryp_update,
+-};
+-
+-const struct ip_cipher_ops saes_ops = {
++static const struct ip_cipher_ops saes_ops = {
+ 	.init = saes_init,
+ 	.update = saes_update,
+ };
+-- 
+2.47.2
+

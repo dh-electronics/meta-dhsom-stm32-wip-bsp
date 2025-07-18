@@ -1,0 +1,64 @@
+From 5f90ea5039ba5b27ce6e5b66d12437a399dcfd26 Mon Sep 17 00:00:00 2001
+From: Etienne Carriere <etienne.carriere@foss.st.com>
+Date: Tue, 2 Jul 2024 10:43:41 +0200
+Subject: [PATCH 1092/1695] drivers: clk: don't mix error codes in stm32mp21
+ driver
+
+Don't mix error codes in stm32mp21 clock driver: some function return
+a TEE_Result value, some return a 0/-1 integer value.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 267f904400789bbe12b02e071a78688457cc4dcd drivers: clk: don't mix error codes in stm32mp21 driver]
+Change-Id: Ifab96453d9ccc6f3ed96db0c92a05d99a8503a85
+Signed-off-by: Etienne Carriere <etienne.carriere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/390722
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Tested-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Gabriel FERNANDEZ <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32mp21.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/core/drivers/clk/clk-stm32mp21.c b/core/drivers/clk/clk-stm32mp21.c
+index d40e70ed4..b025aafec 100644
+--- a/core/drivers/clk/clk-stm32mp21.c
++++ b/core/drivers/clk/clk-stm32mp21.c
+@@ -934,8 +934,9 @@ stm32_clk_oscillators_wait_lse_ready(struct clk_stm32_priv *priv __unused,
+ 	int ret = 0;
+ 
+ 	if (stm32_rcc_has_access_by_id(RCC_RIF_OSCILLATORS)) {
+-		if (osci->freq != 0U)
+-			ret = stm32_gate_wait_ready(osc_data->gate_id, true);
++		if (osci->freq != 0U &&
++		    stm32_gate_wait_ready(osc_data->gate_id, true))
++			ret = -1;
+ 	}
+ 
+ 	return ret;
+@@ -1731,7 +1732,10 @@ static int clk_stm32_pll_set_mux(struct clk_stm32_priv *priv __unused,
+ 	int mux = (src & MUX_ID_MASK) >> MUX_ID_SHIFT;
+ 	int sel = (src & MUX_SEL_MASK) >> MUX_SEL_SHIFT;
+ 
+-	return stm32_mux_set_parent(mux, sel);
++	if (stm32_mux_set_parent(mux, sel))
++		return -1;
++
++	return 0;
+ }
+ 
+ static int clk_stm32_pll1_init(struct clk_stm32_priv *priv,
+@@ -2055,7 +2059,8 @@ static int stm32_clk_configure_mux(struct clk_stm32_priv *priv __unused,
+ 		sem_taken = true;
+ 	}
+ 
+-	ret = stm32_mux_set_parent(mux, sel);
++	if (stm32_mux_set_parent(mux, sel))
++		ret = -1;
+ 
+ 	if (sem_taken) {
+ 		if (stm32_rif_release_semaphore(rifsc_base +
+-- 
+2.47.2
+

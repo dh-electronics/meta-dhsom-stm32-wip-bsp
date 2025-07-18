@@ -1,0 +1,71 @@
+From a65e148a803b29be094bd148ede522a722ce0286 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 12 Apr 2022 16:47:19 +0200
+Subject: [PATCH 0174/1695] clk: stm32mp13: implement multi-gate management
+
+The majority of all IPs have bus and kernel clocks with the same
+gating register bit.
+We need to implement a counter at the gate level.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git c294fe2af07c5f41b7a00fb32aef94469d944d15 clk: stm32mp13: implement multi-gate management]
+Change-Id: I6d144227a896d2bff0c3c72c04aa12e14d24bc04
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+---
+ core/drivers/clk/clk-stm32-core.c | 16 ++++++++++++++++
+ core/drivers/clk/clk-stm32-core.h |  1 +
+ 2 files changed, 17 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32-core.c b/core/drivers/clk/clk-stm32-core.c
+index ad7ce239e..cae769443 100644
+--- a/core/drivers/clk/clk-stm32-core.c
++++ b/core/drivers/clk/clk-stm32-core.c
+@@ -84,11 +84,23 @@ static void stm32_gate_endisable(uint16_t gate_id, bool enable)
+ 
+ void stm32_gate_disable(uint16_t gate_id)
+ {
++	struct clk_stm32_priv *priv = clk_stm32_get_priv();
++	uint8_t *gate_cpt = priv->gate_cpt;
++
++	if (--gate_cpt[gate_id] > 0)
++		return;
++
+ 	stm32_gate_endisable(gate_id, false);
+ }
+ 
+ void stm32_gate_enable(uint16_t gate_id)
+ {
++	struct clk_stm32_priv *priv = clk_stm32_get_priv();
++	uint8_t *gate_cpt = priv->gate_cpt;
++
++	if (gate_cpt[gate_id]++ > 0)
++		return;
++
+ 	stm32_gate_endisable(gate_id, true);
+ }
+ 
+@@ -522,6 +534,10 @@ TEE_Result clk_stm32_init(struct clk_stm32_priv *priv, uintptr_t base)
+ 
+ 	priv->base = base;
+ 
++	priv->gate_cpt = calloc(priv->nb_gates, sizeof(uint8_t));
++	if (!priv->gate_cpt)
++		return TEE_ERROR_OUT_OF_MEMORY;
++
+ 	return TEE_SUCCESS;
+ }
+ 
+diff --git a/core/drivers/clk/clk-stm32-core.h b/core/drivers/clk/clk-stm32-core.h
+index 585d4d439..9eb97339e 100644
+--- a/core/drivers/clk/clk-stm32-core.h
++++ b/core/drivers/clk/clk-stm32-core.h
+@@ -42,6 +42,7 @@ struct clk_stm32_priv {
+ 	const struct mux_cfg *muxes;
+ 	const uint32_t nb_muxes;
+ 	const struct gate_cfg *gates;
++	uint8_t *gate_cpt;
+ 	const uint32_t nb_gates;
+ 	const struct div_cfg *div;
+ 	const uint32_t nb_div;
+-- 
+2.47.2
+

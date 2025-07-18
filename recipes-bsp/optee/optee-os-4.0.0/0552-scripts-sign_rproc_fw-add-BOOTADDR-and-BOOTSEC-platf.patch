@@ -1,0 +1,68 @@
+From cf85c794d6983a26d1598717c45970c1f0503ac7 Mon Sep 17 00:00:00 2001
+From: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Date: Thu, 9 Jun 2022 16:52:39 +0200
+Subject: [PATCH 0552/1695] scripts: sign_rproc_fw: add BOOTADDR and BOOTSEC
+ platform TLV
+
+- BOOTADDR should specify the platform boot address
+  use "--plat-tlv BOOTADDR  0xYYYYYYYY"
+  to add the TLV in platform TLV
+- BOOT_SEC to specify that the remote processor should boot in secure mode
+  use "--plat-tlv BOOTSEC 0x1" to enable the secure boot mode ( TrustZone
+  enable).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git 52a58a7e41c6fde7c5aecc994cd939def05e437b scripts: sign_rproc_fw: add BOOTADDR and BOOTSEC platform TLV]
+Signed-off-by: Arnaud Pouliquen <arnaud.pouliquen@foss.st.com>
+Change-Id: I0c0ca4bb348a7abcfb136c50d6d815b92e130020
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/348406
+Domain-Review: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Tested-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+Reviewed-by: Thomas BOURGOIN <thomas.bourgoin@foss.st.com>
+Reviewed-by: Arnaud POULIQUEN <arnaud.pouliquen@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ scripts/sign_rproc_fw.py | 21 ++++++++++++++++++++-
+ 1 file changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/sign_rproc_fw.py b/scripts/sign_rproc_fw.py
+index 7bff20b13..d80818103 100755
+--- a/scripts/sign_rproc_fw.py
++++ b/scripts/sign_rproc_fw.py
+@@ -85,6 +85,12 @@ TLV_TYPES = {
+         'PKEYINFO': 0x0000000011,  # information to retrieve signature key
+ }
+ 
++# Platform type definitions
++PLAT_TLV_TYPES = {
++        'BOOTADDR': 0x00010001, # boot address of the remoteproc firmware
++        'BOOTSEC': 0x00010002, # boot mode: secure or non-secure
++}
++
+ GENERIC_TLV_TYPE_RANGE = range(0x00000000, 0x00010000)
+ PLATFORM_TLV_TYPE_RANGE = range(0x00010000, 0x00020000)
+ 
+@@ -139,7 +145,20 @@ class TLV():
+     def add_plat_tlv(self, cust_tlv):
+         # Get list of custom protected TLVs from the command-line
+         for tlv in cust_tlv:
+-            type_id = int(tlv[0], 0)
++            if tlv[0].isalpha():
++                if tlv[0] in PLAT_TLV_TYPES.keys():
++                    type_id = PLAT_TLV_TYPES[tlv[0]]
++                    logging.debug("\tTLV ID found \t= %x" % type_id)
++                else:
++                    raise Exception(
++                        'Predefined platform TLV %s not found' % tlv[0])
++            else:
++                type_id = int(tlv[0], 0)
++
++                if type_id in PLAT_TLV_TYPES.values():
++                    raise Exception(
++                        'TLV %s conflicts with predefined platform TLV.'
++                        % hex(type_id))
+ 
+             if type_id not in PLATFORM_TLV_TYPE_RANGE:
+                 raise Exception('TLV %s not in range' % hex(type_id))
+-- 
+2.47.2
+

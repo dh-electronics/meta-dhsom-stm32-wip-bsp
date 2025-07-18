@@ -1,0 +1,80 @@
+From 5d45583046c158c698e1b03c9133e018e9bb11b7 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 29 Jun 2023 15:30:08 +0200
+Subject: [PATCH 0481/1695] clk: stm32mp25: restore RCC driver after a standby
+
+After a standby we have to restore the clock device tree and restore
+all clocks using clock framework.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/optee_os.git f69b648a5b6d6fce7d7adcf647c0d58849ffbe94 clk: stm32mp25: restore RCC driver after a standby]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Id274a3f23ee89f547a2cf34897410fa89ad20a9c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/optee/optee_os/+/326482
+Reviewed-by: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ core/drivers/clk/clk-stm32mp25.c | 39 ++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/core/drivers/clk/clk-stm32mp25.c b/core/drivers/clk/clk-stm32mp25.c
+index eb04d370a..48576efc7 100644
+--- a/core/drivers/clk/clk-stm32mp25.c
++++ b/core/drivers/clk/clk-stm32mp25.c
+@@ -4317,6 +4317,43 @@ static TEE_Result rcc_rif_config(void)
+ 
+ driver_init_late(rcc_rif_config);
+ 
++static TEE_Result stm32_rcc_pm_resume(void)
++{
++	/* Restore clock tree */
++	if (stm32mp2_init_clock_tree(&stm32mp25_clock_data,
++				     &stm32mp25_clock_pdata))
++		panic("failed to restore clock device tree");
++
++	/* Restore all clocks (gating / rating / parent) */
++	clk_restore_context();
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result stm32_rcc_pm_suspend(void)
++{
++	clk_save_context();
++
++	return TEE_SUCCESS;
++}
++
++static TEE_Result
++stm32_rcc_pm(enum pm_op op, unsigned int pm_hint,
++	     const struct pm_callback_handle *pm_handle __unused)
++{
++	TEE_Result res = TEE_ERROR_GENERIC;
++
++	if (!PM_HINT_IS_STATE(pm_hint, CONTEXT))
++		return TEE_SUCCESS;
++
++	if (op == PM_OP_RESUME)
++		res = stm32_rcc_pm_resume();
++	else
++		res = stm32_rcc_pm_suspend();
++
++	return res;
++}
++
+ static TEE_Result stm32mp2_clk_probe(const void *fdt, int node,
+ 				     const void *compat_data __unused)
+ {
+@@ -4358,6 +4395,8 @@ static TEE_Result stm32mp2_clk_probe(const void *fdt, int node,
+ 
+ 	stm32mp_clk_provider_probe_final(fdt, node, priv);
+ 
++	register_pm_core_service_cb(stm32_rcc_pm, NULL, "stm32-rcc");
++
+ 	return TEE_SUCCESS;
+ }
+ 
+-- 
+2.47.2
+
