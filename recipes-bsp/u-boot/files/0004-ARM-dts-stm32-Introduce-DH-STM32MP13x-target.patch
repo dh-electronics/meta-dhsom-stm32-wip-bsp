@@ -10,11 +10,12 @@ DHSOM.
 Upstream-Status: Pending
 Signed-off-by: Marek Vasut <marek.vasut@nabladev.com>
 ---
- arch/arm/mach-stm32mp/Kconfig.13x        | 12 ++++++++++++
- board/dhelectronics/dh_stm32mp1/Kconfig  | 23 +++++++++++++++++++++++
+ arch/arm/mach-stm32mp/Kconfig.13x        | 12 +++++++++++
+ board/dhelectronics/dh_stm32mp1/Kconfig  | 23 +++++++++++++++++++++
  board/dhelectronics/dh_stm32mp1/Makefile |  3 ++-
+ board/dhelectronics/dh_stm32mp1/board.c  | 26 ++++++++++++++++++++++++
  configs/stm32mp13_dhcor_defconfig        |  2 +-
- 4 files changed, 38 insertions(+), 2 deletions(-)
+ 5 files changed, 64 insertions(+), 2 deletions(-)
 
 diff --git a/arch/arm/mach-stm32mp/Kconfig.13x b/arch/arm/mach-stm32mp/Kconfig.13x
 index bc8b3f8cf77..e27ccd41d3e 100644
@@ -90,6 +91,43 @@ index 30db1dee807..ffd221ac224 100644
 +obj-y += board.o
  
  obj-$(CONFIG_SET_DFU_ALT_INFO) += ../../st/common/stm32mp_dfu.o
+diff --git a/board/dhelectronics/dh_stm32mp1/board.c b/board/dhelectronics/dh_stm32mp1/board.c
+index d30171f1fbe..82c13fe4403 100644
+--- a/board/dhelectronics/dh_stm32mp1/board.c
++++ b/board/dhelectronics/dh_stm32mp1/board.c
+@@ -693,6 +693,32 @@ void board_quiesce_devices(void)
+ #endif
+ }
+ 
++enum env_location env_get_location(enum env_operation op, int prio)
++{
++	u32 bootmode = get_bootmode();
++
++	if (prio)
++		return ENVL_UNKNOWN;
++
++	switch (bootmode & TAMP_BOOT_DEVICE_MASK) {
++	case BOOT_FLASH_SD:
++	case BOOT_FLASH_EMMC:
++		if (CONFIG_IS_ENABLED(ENV_IS_IN_MMC))
++			return ENVL_MMC;
++		else
++			return ENVL_NOWHERE;
++
++	case BOOT_FLASH_NOR:
++		if (CONFIG_IS_ENABLED(ENV_IS_IN_SPI_FLASH))
++			return ENVL_SPI_FLASH;
++		else
++			return ENVL_NOWHERE;
++
++	default:
++		return ENVL_NOWHERE;
++	}
++}
++
+ static void dh_stm32_ks8851_fixup(void *blob)
+ {
+ 	struct gpio_desc ks8851intrn;
 diff --git a/configs/stm32mp13_dhcor_defconfig b/configs/stm32mp13_dhcor_defconfig
 index 2da9287ea7b..94d3b1327e4 100644
 --- a/configs/stm32mp13_dhcor_defconfig
