@@ -33,3 +33,31 @@ FILES:${PN}-bcm43455-1mw-sdio:append:dh-stm32mp1-dhcor-avenger96 = " \
 	${nonarch_base_libdir}/firmware/brcm/brcmfmac43455-sdio.txt \
 	${nonarch_base_libdir}/firmware/brcm/brcmfmac43455-sdio.arrow,stm32mp157a-avenger96.txt \
 	"
+
+do_install:append:dh-stm32mp25-dhcos-bb () {
+	# Symlink the firmware name to match kernel fallback
+	ln -s cyfmac55500-sdio.2FY.txt \
+	      ${D}${nonarch_base_libdir}/firmware/brcm/cyfmac55500-sdio.txt
+	# Symlink the firmware name to match board type
+	ln -s cyfmac55500-sdio.2FY.txt \
+	      ${D}${nonarch_base_libdir}/firmware/brcm/cyfmac55500-sdio.dh,stm32mp255c-dhcos-bb.txt
+}
+
+FILES:${PN}-bcm55500-2fy-sdio:append:dh-stm32mp25-dhcos-bb = " \
+	${nonarch_base_libdir}/firmware/brcm/cyfmac55500-sdio.txt \
+	${nonarch_base_libdir}/firmware/brcm/cyfmac55500-sdio.dh,stm32mp255c-dhcos-bb.txt \
+	"
+
+do_install:append:dh-stm32mp25-dhcos-dhsbc () {
+	# Symlink the firmware name to match kernel fallback
+	ln -s cyfmac55500-sdio.2FY.txt \
+	      ${D}${nonarch_base_libdir}/firmware/brcm/cyfmac55500-sdio.txt
+	# Symlink the firmware name to match board type
+	ln -s cyfmac55500-sdio.2FY.txt \
+	      ${D}${nonarch_base_libdir}/firmware/brcm/cyfmac55500-sdio.dh,stm32mp255c-dhcos-dhsbc.txt
+}
+
+FILES:${PN}-bcm55500-2fy-sdio:append:dh-stm32mp25-dhcos-dhsbc = " \
+	${nonarch_base_libdir}/firmware/brcm/cyfmac55500-sdio.txt \
+	${nonarch_base_libdir}/firmware/brcm/cyfmac55500-sdio.dh,stm32mp255c-dhcos-dhsbc.txt \
+	"
