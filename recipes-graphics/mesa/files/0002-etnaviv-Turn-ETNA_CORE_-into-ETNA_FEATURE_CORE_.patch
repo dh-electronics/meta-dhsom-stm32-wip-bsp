@@ -1,0 +1,185 @@
+From 902911e8369ad94f7dd81b598d8a496983700811 Mon Sep 17 00:00:00 2001
+From: Marek Vasut <marex@nabladev.com>
+Date: Sat, 20 Jul 2024 16:01:53 +0200
+Subject: [PATCH 2/2] etnaviv: Turn ETNA_CORE_ into ETNA_FEATURE_CORE_
+
+The Vivante GC8000 Nano Ultra VIP r6205 present in ST STM32MP25xx
+is a combined GPU and NPU single device. The either ETNA_CORE_GPU
+or ETNA_CORE_NPU behavior does not apply to this device. Instead
+of adding new combined ETNA_CORE_GPU_AND_NPU variant, convert the
+ETNA_CORE_GPU and ETNA_CORE_NPU into ETNA_FEATURE_CORE_GPU and
+ETNA_FEATURE_CORE_NPU, so they can be tested as flags. This allows
+handling of such combined devices.
+
+Upstream-Status: Submitted [https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/37488]
+Reviewed-by: Christian Gmeiner <cgmeiner@igalia.com>
+Signed-off-by: Marek Vasut <marex@nabladev.com>
+---
+ src/etnaviv/common/etna_core_info.h           | 16 ++++----------
+ src/etnaviv/drm/etnaviv_gpu.c                 |  4 ++--
+ src/etnaviv/hwdb/etna_hwdb.c                  | 12 ++++++-----
+ src/gallium/drivers/etnaviv/etnaviv_screen.c  |  4 ++--
+ .../winsys/etnaviv/drm/etnaviv_drm_winsys.c   | 21 +++++++------------
+ 5 files changed, 22 insertions(+), 35 deletions(-)
+
+diff --git a/src/etnaviv/common/etna_core_info.h b/src/etnaviv/common/etna_core_info.h
+index 7e967ee2678..84fcd51e7b6 100644
+--- a/src/etnaviv/common/etna_core_info.h
++++ b/src/etnaviv/common/etna_core_info.h
+@@ -11,6 +11,8 @@
+ #include "util/bitset.h"
+ 
+ enum etna_feature {
++   ETNA_FEATURE_CORE_GPU,
++   ETNA_FEATURE_CORE_NPU,
+    ETNA_FEATURE_FAST_CLEAR,
+    ETNA_FEATURE_PIPE_3D,
+    ETNA_FEATURE_32_BIT_INDICES,
+@@ -70,12 +72,6 @@ enum etna_feature {
+    ETNA_FEATURE_NUM,
+ };
+ 
+-enum etna_core_type {
+-   ETNA_CORE_NOT_SUPPORTED = 0,
+-   ETNA_CORE_GPU,
+-   ETNA_CORE_NPU,
+-};
+-
+ struct etna_core_gpu_info {
+    unsigned max_instructions;          /* vertex/fragment shader max instructions */
+    unsigned vertex_output_buffer_size; /* size of vertex shader output buffer */
+@@ -108,12 +104,8 @@ struct etna_core_info {
+ 
+    int8_t halti; /* HALTI (gross architecture) level. -1 for pre-HALTI. */
+ 
+-   enum etna_core_type type;
+-
+-   union {
+-      struct etna_core_gpu_info gpu;
+-      struct etna_core_npu_info npu;
+-   };
++   struct etna_core_gpu_info gpu;
++   struct etna_core_npu_info npu;
+ 
+    BITSET_DECLARE(feature, ETNA_FEATURE_NUM);
+ };
+diff --git a/src/etnaviv/drm/etnaviv_gpu.c b/src/etnaviv/drm/etnaviv_gpu.c
+index ea4e25de571..0a01932ec2b 100644
+--- a/src/etnaviv/drm/etnaviv_gpu.c
++++ b/src/etnaviv/drm/etnaviv_gpu.c
+@@ -83,7 +83,7 @@ query_features_from_kernel(struct etna_gpu *gpu)
+ 		features[i - ETNA_GPU_FEATURES_0] = val;
+ 	}
+ 
+-	gpu->info.type = ETNA_CORE_GPU;
++	etna_core_enable_feature(&gpu->info, ETNA_FEATURE_CORE_GPU);
+ 
+ 	ETNA_FEATURE(chipFeatures, FAST_CLEAR);
+ 	ETNA_FEATURE(chipFeatures, PIPE_3D);
+@@ -155,7 +155,7 @@ query_limits_from_kernel(struct etna_gpu *gpu)
+ 	struct etna_core_info *info = &gpu->info;
+ 	uint64_t val;
+ 
+-	assert(info->type == ETNA_CORE_GPU);
++	assert(etna_core_has_feature(info, ETNA_FEATURE_CORE_GPU));
+ 
+ 	etna_gpu_get_param(gpu, ETNA_GPU_INSTRUCTION_COUNT, &val);
+ 	info->gpu.max_instructions = val;
+diff --git a/src/etnaviv/hwdb/etna_hwdb.c b/src/etnaviv/hwdb/etna_hwdb.c
+index b3d844475a8..2dfacc5fd77 100644
+--- a/src/etnaviv/hwdb/etna_hwdb.c
++++ b/src/etnaviv/hwdb/etna_hwdb.c
+@@ -34,10 +34,10 @@ etna_query_feature_db(struct etna_core_info *info)
+    if (!db)
+       return false;
+ 
++   etna_core_enable_feature(info, ETNA_FEATURE_CORE_GPU);
++
+    if (db->NNCoreCount)
+-      info->type = ETNA_CORE_NPU;
+-   else
+-      info->type = ETNA_CORE_GPU;
++      etna_core_enable_feature(info, ETNA_FEATURE_CORE_NPU);
+ 
+    /* Features: */
+    ETNA_FEATURE(REG_FastClear, FAST_CLEAR);
+@@ -110,7 +110,7 @@ etna_query_feature_db(struct etna_core_info *info)
+    ETNA_FEATURE(NN_XYDP0, NN_XYDP0);
+ 
+    /* Limits: */
+-   if (info->type == ETNA_CORE_GPU) {
++   if (etna_core_has_feature(info, ETNA_FEATURE_CORE_GPU)) {
+       info->gpu.max_instructions = db->InstructionCount;
+       info->gpu.vertex_output_buffer_size = db->VertexOutputBufferSize;
+       info->gpu.vertex_cache_size = db->VertexCacheSize;
+@@ -120,7 +120,9 @@ etna_query_feature_db(struct etna_core_info *info)
+       info->gpu.pixel_pipes = db->NumPixelPipes;
+       info->gpu.max_varyings = db->VaryingCount;
+       info->gpu.num_constants = db->NumberOfConstants;
+-   } else {
++   }
++
++   if (etna_core_has_feature(info, ETNA_FEATURE_CORE_NPU)) {
+       info->npu.nn_core_count = db->NNCoreCount;
+       info->npu.nn_mad_per_core = db->NNMadPerCore;
+       info->npu.tp_core_count = db->TPEngine_CoreCount;
+diff --git a/src/gallium/drivers/etnaviv/etnaviv_screen.c b/src/gallium/drivers/etnaviv/etnaviv_screen.c
+index c0e06210f30..69c0f801111 100644
+--- a/src/gallium/drivers/etnaviv/etnaviv_screen.c
++++ b/src/gallium/drivers/etnaviv/etnaviv_screen.c
+@@ -786,7 +786,7 @@ etna_get_specs(struct etna_screen *screen)
+    uint32_t instruction_count = 0;
+ 
+    /* Copy all relevant limits from etna_core_info. */
+-   if (info->type == ETNA_CORE_GPU) {
++   if (etna_core_has_feature(info, ETNA_FEATURE_CORE_GPU)) {
+       instruction_count = info->gpu.max_instructions;
+       screen->specs.pixel_pipes = info->gpu.pixel_pipes;
+ 
+@@ -794,7 +794,7 @@ etna_get_specs(struct etna_screen *screen)
+          info = etna_gpu_get_core_info(screen->npu);
+    }
+ 
+-   if (info->type == ETNA_CORE_NPU) {
++   if (etna_core_has_feature(info, ETNA_FEATURE_CORE_NPU)) {
+       if (etna_core_has_feature(info, ETNA_FEATURE_NN_XYDP0))
+          screen->specs.nn_core_version = 8;
+       else if (etna_core_has_feature(info, ETNA_FEATURE_VIP_V7))
+diff --git a/src/gallium/winsys/etnaviv/drm/etnaviv_drm_winsys.c b/src/gallium/winsys/etnaviv/drm/etnaviv_drm_winsys.c
+index 6c273c06a62..bd5317004a6 100644
+--- a/src/gallium/winsys/etnaviv/drm/etnaviv_drm_winsys.c
++++ b/src/gallium/winsys/etnaviv/drm/etnaviv_drm_winsys.c
+@@ -56,23 +56,16 @@ screen_create(int gpu_fd, const struct pipe_screen_config *config, struct render
+          break;
+ 
+       info = etna_gpu_get_core_info(core);
+-      switch (info->type) {
+-      case ETNA_CORE_GPU:
+-         /* Look for a 3D capable GPU */
+-         if (!gpu && etna_core_has_feature(info, ETNA_FEATURE_PIPE_3D)) {
++      if (!gpu && /* Look for a 3D capable GPU */
++          etna_core_has_feature(info, ETNA_FEATURE_CORE_GPU) &&
++	  etna_core_has_feature(info, ETNA_FEATURE_PIPE_3D))
+             gpu = core;
+-            continue;
+-         }
+-         break;
+-      case ETNA_CORE_NPU:
+-         if (!npu) {
++
++      if (!npu && etna_core_has_feature(info, ETNA_FEATURE_CORE_NPU))
+             npu = core;
++
++      if (gpu || npu)
+             continue;
+-         }
+-         break;
+-      default:
+-         unreachable("invalid core type");
+-      }
+ 
+       etna_gpu_del(core);
+    }
+-- 
+2.51.0
+
