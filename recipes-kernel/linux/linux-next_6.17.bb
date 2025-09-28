@@ -1,3 +1,5 @@
+LICENSE = "GPL-2.0-only"
+
 # board specific branches
 KBRANCH ?= "master"
 LINUX_VERSION ?= "6.17-rc6"
