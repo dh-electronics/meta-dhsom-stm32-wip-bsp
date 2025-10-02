@@ -1,7 +1,7 @@
-OpenEmbedded BSP layer for DH electronics STM32MP1 platforms
-============================================================
+OpenEmbedded BSP layer for DH electronics STM32MP platforms
+===========================================================
 
-This layer provides BSP for DH electronics STM32MP1 platforms.
+This layer provides BSP for DH electronics STM32MP platforms.
 
 # Dependencies
 --------------
@@ -80,6 +80,8 @@ Note that MACHINE must be either of:
 * dh-stm32mp1-dhcor-drc-compact
 * dh-stm32mp1-dhcor-testbench
 * dh-stm32mp13-dhcor-dhsbc
+* dh-stm32mp25-dhcos-bb
+* dh-stm32mp25-dhcos-dhsbc
 
 Adapt the suffixes of all the files and names of directories further in
 this documentation according to MACHINE.
