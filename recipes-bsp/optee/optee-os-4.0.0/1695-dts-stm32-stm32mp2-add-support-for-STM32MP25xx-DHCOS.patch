@@ -27,7 +27,8 @@ Signed-off-by: Marek Vasut <marex@nabladev.com>
  core/arch/arm/dts/stm32mp25xx-dhcos-som.dts   |   20 +
  core/arch/arm/dts/stm32mp25xx-dhcos-som.dtsi  |  527 +++++++++
  core/arch/arm/plat-stm32mp2/conf.mk           |    4 +-
- 6 files changed, 1898 insertions(+), 1 deletion(-)
+ .../drivers/stm32mp25_pwr_regul.c             |    5 +-
+ 7 files changed, 1902 insertions(+), 2 deletions(-)
  create mode 100644 core/arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-rcc.dtsi
  create mode 100644 core/arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi
  create mode 100644 core/arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-rif.dtsi
@@ -1975,6 +1976,22 @@ index 98e76f02c..825e87c02 100644
  		  $(flavor_dts_file-257F_EV1)
  
  flavorlist-MP23 = $(flavor_dts_file-235F_DK)
+diff --git a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
+index 679de0951..216bf38ff 100644
+--- a/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
++++ b/core/arch/arm/plat-stm32mp2/drivers/stm32mp25_pwr_regul.c
+@@ -298,7 +298,10 @@ static TEE_Result pwr_set_voltage(struct regulator *regulator, int level_uv)
+ 
+ 	/* Isolate IOs and disable IOs compensation */
+ 	if (is_enabled) {
+-		res = pwr_set_state(regulator, false);
++		if (!strcmp(regulator_name(regulator), "vddio3"))
++			res = pwr_set_state(regulator, true);
++		else
++			res = pwr_set_state(regulator, false);
+ 		if (res)
+ 			return res;
+ 	}
 -- 
 2.47.2
 
