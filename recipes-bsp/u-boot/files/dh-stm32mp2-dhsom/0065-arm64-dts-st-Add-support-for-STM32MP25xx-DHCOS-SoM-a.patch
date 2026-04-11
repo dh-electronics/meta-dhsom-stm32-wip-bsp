@@ -37,11 +37,17 @@ Signed-off-by: Marek Vasut <marex@nabladev.com>
  ...tm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi | 188 +++++++++
  .../arm/dts/stm32mp25xx-dhcos-som-u-boot.dtsi |  46 +++
  arch/arm/dts/stm32mp25xx-dhcos-som.dtsi       | 389 ++++++++++++++++++
- configs/stm32mp25_dhcos.config                | 155 +++++++
+ arch/arm/mach-stm32mp/Kconfig.25x             |   8 +
+ board/dhelectronics/dh_stm32mp2/Kconfig       |  13 +
+ board/dhelectronics/dh_stm32mp2/MAINTAINERS   |   6 +
+ board/dhelectronics/dh_stm32mp2/Makefile      |   6 +
+ board/dhelectronics/dh_stm32mp2/board.c       | 262 ++++++++++++
+ configs/stm32mp25_dhcos.config                | 158 +++++++
  configs/stm32mp25_dhcos_bb_defconfig          |   5 +
  configs/stm32mp25_dhcos_dhsbc_defconfig       |   5 +
  .../src/arm64/st/stm32mp25-pinctrl.dtsi       | 123 ++++++
- 12 files changed, 1104 insertions(+)
+ include/configs/stm32mp25_dh_common.h         |  13 +
+ 18 files changed, 1415 insertions(+)
  create mode 100644 arch/arm/dts/stm32mp255c-dhcos-dhsbc-u-boot.dtsi
  create mode 100644 arch/arm/dts/stm32mp255c-dhcos-dhsbc.dts
  create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-bb-u-boot.dtsi
@@ -49,9 +55,14 @@ Signed-off-by: Marek Vasut <marex@nabladev.com>
  create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi
  create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-som-u-boot.dtsi
  create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-som.dtsi
+ create mode 100644 board/dhelectronics/dh_stm32mp2/Kconfig
+ create mode 100644 board/dhelectronics/dh_stm32mp2/MAINTAINERS
+ create mode 100644 board/dhelectronics/dh_stm32mp2/Makefile
+ create mode 100644 board/dhelectronics/dh_stm32mp2/board.c
  create mode 100644 configs/stm32mp25_dhcos.config
  create mode 100644 configs/stm32mp25_dhcos_bb_defconfig
  create mode 100644 configs/stm32mp25_dhcos_dhsbc_defconfig
+ create mode 100644 include/configs/stm32mp25_dh_common.h
 
 diff --git a/arch/arm/dts/Makefile b/arch/arm/dts/Makefile
 index fcad6fb2fc7..40464ce6a9f 100644
@@ -922,12 +933,349 @@ index 00000000000..a6f1d7f8633
 +		};
 +	};
 +};
+diff --git a/arch/arm/mach-stm32mp/Kconfig.25x b/arch/arm/mach-stm32mp/Kconfig.25x
+index 7d2d8171845..6b5acb5dc62 100644
+--- a/arch/arm/mach-stm32mp/Kconfig.25x
++++ b/arch/arm/mach-stm32mp/Kconfig.25x
+@@ -13,6 +13,13 @@ config TARGET_ST_STM32MP25X
+ 		managed by board/st/stm32mp2
+ 		The difference between board are managed with devicetree
+ 
++config TARGET_DH_STM32MP25X
++	bool "DH electronics STM32MP25x boards"
++	imply BOOTSTAGE
++	imply CMD_BOOTSTAGE
++	help
++		Target the DH DHSBC development kit with STM32MP25x SoM.
++
+ endchoice
+ 
+ config TEXT_BASE
+@@ -35,6 +42,7 @@ config DEBUG_UART_BASE
+ 
+ endif
+ 
++source "board/dhelectronics/dh_stm32mp2/Kconfig"
+ source "board/st/stm32mp2/Kconfig"
+ 
+ endif
+diff --git a/board/dhelectronics/dh_stm32mp2/Kconfig b/board/dhelectronics/dh_stm32mp2/Kconfig
+new file mode 100644
+index 00000000000..254a83f6758
+--- /dev/null
++++ b/board/dhelectronics/dh_stm32mp2/Kconfig
+@@ -0,0 +1,13 @@
++if TARGET_DH_STM32MP25X
++
++config SYS_BOARD
++	default "dh_stm32mp2"
++
++config SYS_VENDOR
++	default "dhelectronics"
++
++config SYS_CONFIG_NAME
++	default "stm32mp25_dh_common"
++
++source "board/st/common/Kconfig"
++endif
+diff --git a/board/dhelectronics/dh_stm32mp2/MAINTAINERS b/board/dhelectronics/dh_stm32mp2/MAINTAINERS
+new file mode 100644
+index 00000000000..b2a89b32884
+--- /dev/null
++++ b/board/dhelectronics/dh_stm32mp2/MAINTAINERS
+@@ -0,0 +1,6 @@
++DH_STM32MP2 BOARD
++M:	Marek Vasut <marex@nabladev.com>
++L:	u-boot@dh-electronics.com
++S:	Maintained
++N:	stm32mp.*dh[cs]o
++N:	dh_stm32
+diff --git a/board/dhelectronics/dh_stm32mp2/Makefile b/board/dhelectronics/dh_stm32mp2/Makefile
+new file mode 100644
+index 00000000000..eb4f53c647e
+--- /dev/null
++++ b/board/dhelectronics/dh_stm32mp2/Makefile
+@@ -0,0 +1,6 @@
++# SPDX-License-Identifier: GPL-2.0+ OR BSD-3-Clause
++#
++# Copyright (C) 2026 Marek Vasut
++#
++
++obj-y += board.o
+diff --git a/board/dhelectronics/dh_stm32mp2/board.c b/board/dhelectronics/dh_stm32mp2/board.c
+new file mode 100644
+index 00000000000..eb0530f03c9
+--- /dev/null
++++ b/board/dhelectronics/dh_stm32mp2/board.c
+@@ -0,0 +1,262 @@
++// SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause
++/*
++ * Copyright (C) 2026 Marek Vasut
++ */
++
++#define LOG_CATEGORY LOGC_BOARD
++
++#include <config.h>
++#include <dm/device.h>
++#include <dm/ofnode.h>
++#include <dm/uclass.h>
++#include <env_internal.h>
++#include <fdt_support.h>
++#include <g_dnl.h>
++#include <i2c.h>
++#include <i2c_eeprom.h>
++#include <log.h>
++#include <misc.h>
++#include <mmc.h>
++#include <net.h>
++
++#include <asm/arch/sys_proto.h>
++
++#include "../common/dh_common.h"
++
++static int dh_stm32_get_mac_from_fuse(unsigned char *enetaddr, int index)
++{
++	struct udevice *dev;
++	u8 otp[12];
++	int ret;
++
++	ret = uclass_get_device_by_driver(UCLASS_MISC,
++					  DM_DRIVER_GET(stm32mp_bsec),
++					  &dev);
++	if (ret)
++		return ret;
++
++	ret = misc_read(dev, STM32_BSEC_SHADOW(BSEC_OTP_MAC), otp, sizeof(otp));
++	if (ret < 0)
++		return ret;
++
++	memcpy(enetaddr, otp + ARP_HLEN * index, ARP_HLEN);
++	if (!is_valid_ethaddr(enetaddr))
++		return -EINVAL;
++
++	return 0;
++}
++
++static int dh_stm32_setup_ethaddr(struct eeprom_id_page *eip)
++{
++	unsigned char enetaddr[6];
++
++	if (dh_mac_is_in_env("ethaddr"))
++		return 0;
++
++	if (dh_get_mac_is_enabled("ethernet0"))
++		return 0;
++
++	if (!dh_stm32_get_mac_from_fuse(enetaddr, 0))
++		goto out;
++
++	if (!dh_get_value_from_eeprom_buffer(DH_MAC0, enetaddr, sizeof(enetaddr), eip))
++		goto out;
++
++	if (!dh_get_mac_from_eeprom(enetaddr, "eeprom0"))
++		goto out;
++
++	return -ENXIO;
++
++out:
++	return eth_env_set_enetaddr("ethaddr", enetaddr);
++}
++
++static int dh_stm32_setup_eth1addr(struct eeprom_id_page *eip)
++{
++	unsigned char enetaddr[6];
++
++	if (dh_mac_is_in_env("eth1addr"))
++		return 0;
++
++	if (dh_get_mac_is_enabled("ethernet1"))
++		return 0;
++
++	if (!dh_stm32_get_mac_from_fuse(enetaddr, 1))
++		goto out;
++
++	if (!dh_get_value_from_eeprom_buffer(DH_MAC1, enetaddr, sizeof(enetaddr), eip))
++		goto out;
++
++	if (!dh_get_mac_from_eeprom(enetaddr, "eeprom0"))
++		goto increment_out;
++
++	return -ENXIO;
++
++increment_out:
++	enetaddr[5]++;
++
++out:
++	return eth_env_set_enetaddr("eth1addr", enetaddr);
++}
++
++int setup_mac_address(void)
++{
++	u8 eeprom_buffer[DH_EEPROM_ID_PAGE_MAX_SIZE] = { 0 };
++	struct eeprom_id_page *eip = (struct eeprom_id_page *)eeprom_buffer;
++	int ret;
++
++	ret = dh_read_eeprom_id_page(eeprom_buffer, "eeprom0wl");
++	if (ret) {
++		/*
++		 * The EEPROM ID page is available on SoM rev. 200 and greater.
++		 * For SoM rev. 100 the return value will be -ENODEV. Suppress
++		 * the error message for that, because the absence cannot be
++		 * treated as an error.
++		 */
++		if (ret != -ENODEV)
++			printf("%s: Cannot read valid data from EEPROM ID page! ret = %d\n",
++			       __func__, ret);
++		eip = NULL;
++	} else {
++		dh_add_item_number_and_serial_to_env(eip);
++	}
++
++	if (dh_stm32_setup_ethaddr(eip))
++		log_err("%s: Unable to setup ethaddr!\n", __func__);
++
++	if (dh_stm32_setup_eth1addr(eip))
++		log_err("%s: Unable to setup eth1addr!\n", __func__);
++
++	return 0;
++}
++
++
++int checkboard(void)
++{
++	const char *fdt_compat;
++	int fdt_compat_len;
++
++	fdt_compat = ofnode_get_property(ofnode_root(), "compatible", &fdt_compat_len);
++
++	log_info("Board: DH STM32MP2 (%s)\n", fdt_compat && fdt_compat_len ? fdt_compat : "");
++
++	return 0;
++}
++
++/* board dependent setup after realloc */
++int board_init(void)
++{
++	return 0;
++}
++
++enum env_location env_get_location(enum env_operation op, int prio)
++{
++	u32 bootmode = get_bootmode();
++
++	if (prio)
++		return ENVL_UNKNOWN;
++
++	switch (bootmode & TAMP_BOOT_DEVICE_MASK) {
++	case BOOT_FLASH_SD:
++	case BOOT_FLASH_EMMC:
++		if (CONFIG_IS_ENABLED(ENV_IS_IN_MMC))
++			return ENVL_MMC;
++		else
++			return ENVL_NOWHERE;
++
++	case BOOT_FLASH_NAND:
++	case BOOT_FLASH_SPINAND:
++		if (CONFIG_IS_ENABLED(ENV_IS_IN_UBI))
++			return ENVL_UBI;
++		else
++			return ENVL_NOWHERE;
++
++	case BOOT_FLASH_NOR:
++		if (CONFIG_IS_ENABLED(ENV_IS_IN_SPI_FLASH))
++			return ENVL_SPI_FLASH;
++		else
++			return ENVL_NOWHERE;
++	default:
++		return ENVL_NOWHERE;
++	}
++}
++
++int mmc_get_boot(void)
++{
++	struct udevice *dev;
++	u32 boot_mode = get_bootmode();
++	unsigned int instance = (boot_mode & TAMP_BOOT_INSTANCE_MASK) - 1;
++	char cmd[20];
++	const u32 sdmmc_addr[] = {
++		STM32_SDMMC1_BASE,
++		STM32_SDMMC2_BASE,
++		STM32_SDMMC3_BASE
++	};
++
++	if (instance > ARRAY_SIZE(sdmmc_addr))
++		return 0;
++
++	/* search associated sdmmc node in devicetree */
++	snprintf(cmd, sizeof(cmd), "mmc@%x", sdmmc_addr[instance]);
++	if (uclass_get_device_by_name(UCLASS_MMC, cmd, &dev)) {
++		log_err("mmc%d = %s not found in device tree!\n", instance, cmd);
++		return 0;
++	}
++
++	return dev_seq(dev);
++};
++
++int mmc_get_env_dev(void)
++{
++	const int mmc_env_dev = CONFIG_IS_ENABLED(ENV_IS_IN_MMC, (CONFIG_ENV_MMC_DEVICE_INDEX), (-1));
++
++	if (mmc_env_dev >= 0)
++		return mmc_env_dev;
++
++	/* use boot instance to select the correct mmc device identifier */
++	return mmc_get_boot();
++}
++
++int board_late_init(void)
++{
++	return 0;
++}
++
++/* weak function called from env/sf.c */
++void *env_sf_get_env_addr(void)
++{
++	return NULL;
++}
++
++int ft_board_setup(void *blob, struct bd_info *bd)
++{
++	return 0;
++}
++
++#ifdef CONFIG_USB_GADGET_DOWNLOAD
++#define STM32MP1_G_DNL_DFU_PRODUCT_NUM 0xdf11
++int g_dnl_bind_fixup(struct usb_device_descriptor *dev, const char *name)
++{
++	if (IS_ENABLED(CONFIG_DFU_OVER_USB) &&
++	    !strcmp(name, "usb_dnl_dfu"))
++		put_unaligned(STM32MP1_G_DNL_DFU_PRODUCT_NUM, &dev->idProduct);
++	else
++		put_unaligned(CONFIG_USB_GADGET_PRODUCT_NUM, &dev->idProduct);
++
++	return 0;
++}
++#endif /* CONFIG_USB_GADGET_DOWNLOAD */
++
++#if defined(CONFIG_USB_DWC3) && defined(CONFIG_CMD_STM32PROG_USB)
++#include <dfu.h>
++/*
++ * TEMP: force USB BUS reset forced to false, because it is not supported
++ *       in DWC3 USB driver
++ * avoid USB bus reset support in DFU stack is required to reenumeration in
++ * stm32prog command after flashlayout load or after "dfu-util -e -R"
++ */
++bool dfu_usb_get_reset(void)
++{
++	return false;
++}
++#endif
 diff --git a/configs/stm32mp25_dhcos.config b/configs/stm32mp25_dhcos.config
 new file mode 100644
 index 00000000000..d6c235973ae
 --- /dev/null
 +++ b/configs/stm32mp25_dhcos.config
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,158 @@
 +CONFIG_USE_ARCH_MEMCPY=y
 +CONFIG_SYS_MALLOC_F_LEN=0x500000
 +CONFIG_CUSTOM_SYS_INIT_SP_ADDR=0x90000000
@@ -938,7 +1286,7 @@ index 00000000000..d6c235973ae
 +CONFIG_STM32MP25X=y
 +CONFIG_CMD_STM32KEY=y
 +CONFIG_ENV_OFFSET_REDUND=0x940000
-+CONFIG_TARGET_ST_STM32MP25X=y
++CONFIG_TARGET_DH_STM32MP25X=y
 +CONFIG_CMD_STM32PROG=y
 +CONFIG_ENV_ADDR=0x60900000
 +CONFIG_SYS_MEMTEST_START=0x84000000
@@ -959,6 +1307,7 @@ index 00000000000..d6c235973ae
 +CONFIG_CMD_ADTIMG=y
 +# CONFIG_CMD_ELF is not set
 +CONFIG_CMD_ERASEENV=y
++CONFIG_CMD_EEPROM=y
 +CONFIG_CMD_MEMINFO=y
 +CONFIG_CMD_MEMTEST=y
 +CONFIG_CMD_CLK=y
@@ -1019,6 +1368,8 @@ index 00000000000..d6c235973ae
 +CONFIG_STM32_IPCC=y
 +CONFIG_STM32_FMC2_EBI=y
 +CONFIG_STM32_OMM=y
++CONFIG_I2C_EEPROM=y
++CONFIG_SYS_I2C_EEPROM_ADDR=0x50
 +CONFIG_SUPPORT_EMMC_BOOT=y
 +CONFIG_STM32_SDMMC2=y
 +CONFIG_MTD=y
@@ -1260,6 +1611,25 @@ index 31f9664180a..cd1039ffe78 100644
  	i3c4_pins_a: i3c4-0 {
  		pins {
  			pinmux = <STM32_PINMUX('Z', 4, AF11)>, /* I3C4_SCL */
+diff --git a/include/configs/stm32mp25_dh_common.h b/include/configs/stm32mp25_dh_common.h
+new file mode 100644
+index 00000000000..280c898234d
+--- /dev/null
++++ b/include/configs/stm32mp25_dh_common.h
+@@ -0,0 +1,13 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later OR BSD-3-Clause */
++/*
++ * Copyright (C) 2026 Marek Vasut
++ *
++ * Configuration settings for the DH electronics STM32MP25x boards
++ */
++
++#ifndef __CONFIG_STM32MP25_DH_COMMON_H__
++#define __CONFIG_STM32MP25_DH_COMMON_H__
++
++#include "stm32mp25_st_common.h"
++
++#endif
 -- 
 2.51.0
 
