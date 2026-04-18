@@ -1,0 +1,56 @@
+From 7ae023bd2630c5dccbdddfd02cbd527820e0b0d6 Mon Sep 17 00:00:00 2001
+From: Fabrice Gasnier <fabrice.gasnier@foss.st.com>
+Date: Fri, 13 Jun 2025 16:20:58 +0200
+Subject: [PATCH 870/954] fix(st): correct endxfer polling
+
+This enables clearing of the ENDTRANSFER command, after the command has
+been completed, so the driver can poll it safely.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 68d8fa01abe43668230d280f68ee4b29c84552e8 fix(st): correct endxfer polling]
+Change-Id: Ia81911841137ecb62dbf644baa4a3cf8ec3ff82e
+Signed-off-by: Fabrice Gasnier <fabrice.gasnier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/467022
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/usb_dwc3/usb_dwc3.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/st/usb_dwc3/usb_dwc3.c b/drivers/st/usb_dwc3/usb_dwc3.c
+index a0920a6740..d91928bb96 100644
+--- a/drivers/st/usb_dwc3/usb_dwc3.c
++++ b/drivers/st/usb_dwc3/usb_dwc3.c
+@@ -60,6 +60,7 @@
+ #define DWC3_GPRTBIMAP_HS1	_DWC3_GPRTBIMAP_HSHI
+ #define DWC3_GPRTBIMAP_FS0	_DWC3_GPRTBIMAP_FSLO
+ #define DWC3_GPRTBIMAP_FS1	_DWC3_GPRTBIMAP_FSHI
++#define DWC3_GUCTL2	_DWC3_GUCTL2
+ 
+ #define DWC3_GUSB2PHYCFG(n)	(_DWC3_GUSB2PHYCFG + (4UL * (n)))
+ #define DWC3_GUSB2I2CCTL(n)	(_DWC3_GUSB2I2CCTL + (4UL * (n)))
+@@ -80,6 +81,8 @@
+ #define DWC3_GUSB2PHYACC_EXTEND_ADDR(n)	((n) << USB3_GUSB2PHYACC_ULPI_EXTREGADDR_POS)
+ #define DWC3_GUSB2PHYACC_DATA(n)	((n) & USB3_GUSB2PHYACC_ULPI_REGDATA_MSK)
+ 
++#define DWC3_GUCTL2_RST_ACTBITLATER	_DWC3_GUCTL2_RST_ACTBITLATER
++
+ /* Device Registers */
+ #define DWC3_DCFG	_DWC3_DCFG
+ #define DWC3_DCTL	_DWC3_DCTL
+@@ -2183,6 +2186,12 @@ enum usb_status dwc3_dev_init(dwc3_handle_t *dwc3_handle, uint8_t speed, uint8_t
+ 		/* EvtBufferPos[i] = 0;  Implicit since static done in HAL */
+ 	}
+ 
++	/*
++	 * Need to set GUCTL2 RST_ACTBITLATER, so the driver can poll for CMDACT bit
++	 * when issuing the ENDTRANSFER command.
++	 */
++	DWC3_regupdateset(dwc3_handle->usb_global, DWC3_GUCTL2, DWC3_GUCTL2_RST_ACTBITLATER);
++
+ 	ret = dwc3_set_current_mode(dwc3_handle, USB_DWC3_DEVICE_MODE);
+ 	if (ret != USBD_OK) {
+ 		ERROR("%s: %d\n", __func__, __LINE__);
+-- 
+2.53.0
+

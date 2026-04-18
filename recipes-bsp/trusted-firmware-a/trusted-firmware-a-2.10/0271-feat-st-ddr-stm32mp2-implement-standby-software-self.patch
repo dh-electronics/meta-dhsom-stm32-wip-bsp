@@ -1,7 +1,7 @@
-From 1d1e4c8717e1b83af31003ee1a9b309e7173a6b1 Mon Sep 17 00:00:00 2001
+From 4752c7f327f96ee00dfec6e1afb0825da539b66e Mon Sep 17 00:00:00 2001
 From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
 Date: Tue, 24 Jan 2023 19:47:26 +0100
-Subject: [PATCH 271/841] feat(st-ddr): stm32mp2: implement standby software
+Subject: [PATCH 271/954] feat(st-ddr): stm32mp2: implement standby software
  self-refresh
 
 Distinguish stop and standby self-refresh entry functions for each mode.
@@ -32,7 +32,7 @@ Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
  7 files changed, 176 insertions(+), 30 deletions(-)
 
 diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
-index 63cdcf78b..66755cf13 100644
+index 63cdcf78b6..66755cf135 100644
 --- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
 +++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
 @@ -31,7 +31,7 @@
@@ -45,7 +45,7 @@ index 63cdcf78b..66755cf13 100644
  
  /*
 diff --git a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
-index 0da09435b..17019707a 100644
+index 0da09435b5..17019707ad 100644
 --- a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
 +++ b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
 @@ -1,5 +1,5 @@
@@ -68,7 +68,7 @@ index 0da09435b..17019707a 100644
  	} /* p_addr */
  
 diff --git a/drivers/st/ddr/stm32mp2_ddr.c b/drivers/st/ddr/stm32mp2_ddr.c
-index 4b64ea6d2..7d386a971 100644
+index 4b64ea6d2d..7d386a9719 100644
 --- a/drivers/st/ddr/stm32mp2_ddr.c
 +++ b/drivers/st/ddr/stm32mp2_ddr.c
 @@ -242,6 +242,38 @@ static void ddr_reset(struct stm32mp_ddr_priv *priv)
@@ -206,7 +206,7 @@ index 4b64ea6d2..7d386a971 100644
  	stm32mp_ddr_enable_axi_port(priv->ctl);
  }
 diff --git a/drivers/st/ddr/stm32mp2_ddr_helpers.c b/drivers/st/ddr/stm32mp2_ddr_helpers.c
-index 1062e8260..1665d08d3 100644
+index 1062e82608..1665d08d3b 100644
 --- a/drivers/st/ddr/stm32mp2_ddr_helpers.c
 +++ b/drivers/st/ddr/stm32mp2_ddr_helpers.c
 @@ -118,7 +118,27 @@ void ddr_activate_controller(struct stm32mp_ddrctl *ctl, bool sr_entry)
@@ -415,7 +415,7 @@ index 1062e8260..1665d08d3 100644
  	if (mode == saved_ddr_sr_mode) {
  		return;
 diff --git a/drivers/st/ddr/stm32mp2_ram.c b/drivers/st/ddr/stm32mp2_ram.c
-index 045ae5aae..672331fa6 100644
+index 045ae5aaee..672331fa6c 100644
 --- a/drivers/st/ddr/stm32mp2_ram.c
 +++ b/drivers/st/ddr/stm32mp2_ram.c
 @@ -126,10 +126,9 @@ static int stm32mp2_ddr_setup(void)
@@ -432,7 +432,7 @@ index 045ae5aae..672331fa6 100644
  	/*  Map dynamically RETRAM area to save or restore PHY retention registers */
  	if (stm32mp_map_retram() != 0) {
 diff --git a/include/drivers/st/stm32mp2_ddr_helpers.h b/include/drivers/st/stm32mp2_ddr_helpers.h
-index 2f667390e..984f0cc05 100644
+index 2f667390e7..984f0cc05b 100644
 --- a/include/drivers/st/stm32mp2_ddr_helpers.h
 +++ b/include/drivers/st/stm32mp2_ddr_helpers.h
 @@ -20,8 +20,11 @@ enum stm32mp2_ddr_sr_mode {
@@ -448,7 +448,7 @@ index 2f667390e..984f0cc05 100644
  enum stm32mp2_ddr_sr_mode ddr_read_sr_mode(void);
  void ddr_set_sr_mode(enum stm32mp2_ddr_sr_mode mode);
 diff --git a/include/drivers/st/stm32mp2_ddr_regs.h b/include/drivers/st/stm32mp2_ddr_regs.h
-index bb0271df7..78a3e9003 100644
+index bb0271df7e..78a3e90037 100644
 --- a/include/drivers/st/stm32mp2_ddr_regs.h
 +++ b/include/drivers/st/stm32mp2_ddr_regs.h
 @@ -16,6 +16,7 @@ struct stm32mp_ddrphy {
@@ -460,5 +460,5 @@ index bb0271df7..78a3e9003 100644
  #define DDRPHY_DRTUB0_UCCLKHCLKENABLES		U(0x300200)
  #define DDRPHY_APBONLY0_MICROCONTMUXSEL		U(0x340000)
 -- 
-2.47.2
+2.53.0
 

@@ -1,0 +1,46 @@
+From 792d02d253e7788da15e6b1882c6ec6a44ebd52f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Cl=C3=A9ment=20Le=20Goffic?= <clement.legoffic@foss.st.com>
+Date: Wed, 7 May 2025 15:19:35 +0200
+Subject: [PATCH 833/954] fix(st-uart): aarch64: unwait for UART ISR register
+ TC bit in putc function
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The loop over the UART_ISR_TC flag was needed before the UART FIFO was
+enabled. This allowed to make sure each character written in TDR was
+outputed.
+This behavior is no more needed. Once a character is in the FIFO the
+UART will empty it when it is clocked.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c01ecdb54f7b1a62a889090b7e052bb6e4e1abcb fix(st-uart): aarch64: unwait for UART ISR register TC bit in putc function]
+Change-Id: I38a016b4e6a7b04d76c4720584711f9aee7486a4
+Signed-off-by: Clément Le Goffic <clement.legoffic@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/456478
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Amelie DELAUNAY <amelie.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/uart/aarch64/stm32_console.S | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/drivers/st/uart/aarch64/stm32_console.S b/drivers/st/uart/aarch64/stm32_console.S
+index 312b35d48a..fc97f6d748 100644
+--- a/drivers/st/uart/aarch64/stm32_console.S
++++ b/drivers/st/uart/aarch64/stm32_console.S
+@@ -170,11 +170,6 @@ txe_loop:
+ 	tst	w2, #USART_ISR_TXE
+ 	beq	txe_loop
+ 	str	w0, [x1, #USART_TDR]
+-	/* Check transmit complete flag */
+-tc_loop:
+-	ldr	w2, [x1, #USART_ISR]
+-	tst	w2, #USART_ISR_TC
+-	beq	tc_loop
+ 	ret
+ endfunc console_stm32_core_putc
+ 
+-- 
+2.53.0
+

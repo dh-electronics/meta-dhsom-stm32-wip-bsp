@@ -1,7 +1,7 @@
-From 72fb869d5c3fe35c406d735ad5a31e12d68bce67 Mon Sep 17 00:00:00 2001
+From 3d53fa495acb545cfe160b437ed5db53e0fbdb34 Mon Sep 17 00:00:00 2001
 From: Yann Gautier <yann.gautier@st.com>
 Date: Wed, 24 Apr 2019 13:40:04 +0200
-Subject: [PATCH 028/841] feat(st-ddr): add DDR self-refresh management
+Subject: [PATCH 028/954] feat(st-ddr): add DDR self-refresh management
 
 In order to prepare low power use cases, functions are added to manage
 the entry or exit of DDR from self-refresh mode.
@@ -22,7 +22,7 @@ Signed-off-by: Yann Gautier <yann.gautier@st.com>
  9 files changed, 746 insertions(+), 27 deletions(-)
 
 diff --git a/drivers/st/ddr/stm32mp1_ddr.c b/drivers/st/ddr/stm32mp1_ddr.c
-index 27d8b2c00..1cbc55582 100644
+index 27d8b2c000..1cbc55582e 100644
 --- a/drivers/st/ddr/stm32mp1_ddr.c
 +++ b/drivers/st/ddr/stm32mp1_ddr.c
 @@ -536,7 +536,8 @@ static void stm32mp1_refresh_disable(struct stm32mp_ddrctl *ctl)
@@ -236,7 +236,7 @@ index 27d8b2c00..1cbc55582 100644
  	 * 12. set back registers in step 8 to the original values if desidered
  	 */
 diff --git a/drivers/st/ddr/stm32mp1_ddr_helpers.c b/drivers/st/ddr/stm32mp1_ddr_helpers.c
-index e0621b513..480822198 100644
+index e0621b5131..4808221986 100644
 --- a/drivers/st/ddr/stm32mp1_ddr_helpers.c
 +++ b/drivers/st/ddr/stm32mp1_ddr_helpers.c
 @@ -4,8 +4,15 @@
@@ -778,7 +778,7 @@ index e0621b513..480822198 100644
 +	}
 +}
 diff --git a/drivers/st/ddr/stm32mp1_ram.c b/drivers/st/ddr/stm32mp1_ram.c
-index c96fa04fe..c870d2780 100644
+index c96fa04fec..c870d2780c 100644
 --- a/drivers/st/ddr/stm32mp1_ram.c
 +++ b/drivers/st/ddr/stm32mp1_ram.c
 @@ -22,6 +22,7 @@
@@ -900,7 +900,7 @@ index c96fa04fe..c870d2780 100644
  {
  	struct stm32mp_ddr_priv *priv = &ddr_priv_data;
 diff --git a/include/drivers/st/stm32mp1_ddr.h b/include/drivers/st/stm32mp1_ddr.h
-index df71f35b1..cadbed500 100644
+index df71f35b1f..cadbed5003 100644
 --- a/include/drivers/st/stm32mp1_ddr.h
 +++ b/include/drivers/st/stm32mp1_ddr.h
 @@ -8,7 +8,6 @@
@@ -921,7 +921,7 @@ index df71f35b1..cadbed500 100644
  
  int stm32mp1_ddr_clk_enable(struct stm32mp_ddr_priv *priv, uint32_t mem_speed);
 diff --git a/include/drivers/st/stm32mp1_ddr_helpers.h b/include/drivers/st/stm32mp1_ddr_helpers.h
-index 38f24152a..f8c586958 100644
+index 38f24152a9..f8c586958a 100644
 --- a/include/drivers/st/stm32mp1_ddr_helpers.h
 +++ b/include/drivers/st/stm32mp1_ddr_helpers.h
 @@ -1,5 +1,5 @@
@@ -953,7 +953,7 @@ index 38f24152a..f8c586958 100644
  
  #endif /* STM32MP1_DDR_HELPERS_H */
 diff --git a/include/drivers/st/stm32mp1_ddr_regs.h b/include/drivers/st/stm32mp1_ddr_regs.h
-index 2fbe1c8a5..c3ab10c16 100644
+index 2fbe1c8a58..c3ab10c161 100644
 --- a/include/drivers/st/stm32mp1_ddr_regs.h
 +++ b/include/drivers/st/stm32mp1_ddr_regs.h
 @@ -161,6 +161,7 @@ struct stm32mp_ddrphy {
@@ -973,7 +973,7 @@ index 2fbe1c8a5..c3ab10c16 100644
  #define DDRPHYC_ZQ0CRN_ZDATA_MASK		GENMASK(27, 0)
  #define DDRPHYC_ZQ0CRN_ZDATA_SHIFT		0
 diff --git a/include/drivers/st/stm32mp1_ram.h b/include/drivers/st/stm32mp1_ram.h
-index 38360e759..adecd409d 100644
+index 38360e7595..adecd409df 100644
 --- a/include/drivers/st/stm32mp1_ram.h
 +++ b/include/drivers/st/stm32mp1_ram.h
 @@ -1,5 +1,5 @@
@@ -992,7 +992,7 @@ index 38360e759..adecd409d 100644
  
  #endif /* STM32MP1_RAM_H */
 diff --git a/include/drivers/st/stm32mp_ddr.h b/include/drivers/st/stm32mp_ddr.h
-index 4535e3cb3..4ec0dae43 100644
+index 4535e3cb30..4ec0dae431 100644
 --- a/include/drivers/st/stm32mp_ddr.h
 +++ b/include/drivers/st/stm32mp_ddr.h
 @@ -58,6 +58,7 @@ struct stm32mp_ddr_info {
@@ -1004,7 +1004,7 @@ index 4535e3cb3..4ec0dae43 100644
  void stm32mp_ddr_set_reg(const struct stm32mp_ddr_priv *priv, enum stm32mp_ddr_reg_type type,
  			 const void *param, const struct stm32mp_ddr_reg_info *ddr_registers);
 diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
-index c5df671a4..e30283421 100644
+index c5df671a43..e30283421e 100644
 --- a/plat/st/stm32mp1/stm32mp1_def.h
 +++ b/plat/st/stm32mp1/stm32mp1_def.h
 @@ -17,6 +17,8 @@
@@ -1017,5 +1017,5 @@ index c5df671a4..e30283421 100644
  #include <boot_api.h>
  #include <stm32mp_common.h>
 -- 
-2.47.2
+2.53.0
 

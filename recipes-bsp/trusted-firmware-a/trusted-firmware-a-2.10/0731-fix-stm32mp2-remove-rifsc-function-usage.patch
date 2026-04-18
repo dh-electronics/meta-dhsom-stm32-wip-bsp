@@ -1,0 +1,58 @@
+From 274ceecca24ee583b9562fe41d78fa269276c5ba Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Mon, 21 Oct 2024 14:20:56 +0200
+Subject: [PATCH 731/954] fix(stm32mp2): remove rifsc function usage
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+NOT UPSTREAMABLE!
+
+RIFSC function seems to be only useful when Cortex M33 is TDCID.
+New way do handle synchronization with Cortex M leads to not have access
+to RIF.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git c4c8a2c54e7ce4566f24f1212242125965a90fd8 fix(stm32mp2): remove rifsc function usage]
+Change-Id: Ib4fa96071ed1c0ecb3d926136dd542f038cf462f
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/411854
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 11 -----------
+ 1 file changed, 11 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index afdfacbfd2..b0b55edcb0 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -454,14 +454,6 @@ skip_console_init:
+ 	}
+ #endif
+ 
+-	if (stm32_rifsc_check_peripheral_access() != 0) {
+-		panic();
+-	}
+-
+-	if (stm32_rifsc_semaphore_init() != 0) {
+-		panic();
+-	}
+-
+ #if !STM32MP_M33_TDCID
+ 	if (stm32_rng_init() != 0) {
+ 		panic();
+@@ -749,9 +741,6 @@ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ 
+ void bl2_el3_plat_prepare_exit(void)
+ {
+-	if (stm32_rifsc_semaphore_exit() != 0) {
+-		panic();
+-	}
+ 	flush_dcache_range(BSS_START, BSS_END - BSS_START);
+ 	flush_dcache_range(DATA_START, DATA_END - DATA_START);
+ 
+-- 
+2.53.0
+

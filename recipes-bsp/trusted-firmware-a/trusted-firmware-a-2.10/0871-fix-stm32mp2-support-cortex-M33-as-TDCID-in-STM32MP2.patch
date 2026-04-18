@@ -1,0 +1,54 @@
+From 3b4af26975a6a687c70b9d2ca16411c4242c4626 Mon Sep 17 00:00:00 2001
+From: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Date: Fri, 23 May 2025 11:27:34 +0200
+Subject: [PATCH 871/954] fix(stm32mp2): support cortex M33 as TDCID in
+ STM32MP25 low power
+
+When Cortex-M33 is TDCID, Cortex-A35 and TF-A are not supposed to
+initialize or modify PWR CPU3 or EXTI CPU2 related register.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5feeed107e62c8e4d7e3c31423a99f9e3ae42b00 fix(stm32mp2): support cortex M33 as TDCID in STM32MP25 low power
+17d5fcdfa223d5dc5e4a6cd41378827b8dd35fe7 fix(stm32mp2): support cortex M33 as TDCID in STM32MP25 low power]
+Fixes: 0fca5ccfdc61 ("feat(stm32mp2): support cortex M33 as TDCID in STM32MP25 low power")
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Change-Id: Ie6f7d7f62c6bfff502eff4dc9c8bf7de19ea23c5
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/461456
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_pm.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
+index db22223cef..f885e3aa6e 100644
+--- a/plat/st/stm32mp2/stm32mp2_pm.c
++++ b/plat/st/stm32mp2/stm32mp2_pm.c
+@@ -1038,7 +1038,7 @@ static void __dead2 stm32_system_off(void)
+ 	mmio_write_32(pwr_base + PWR_R3CIDCFGR, 0U);
+ 	mmio_write_32(pwr_base + PWR_CPU2CR, PWR_CPU2CR_PDDS_D2);
+ #endif
+-#if !STM32MP21
++#if !STM32MP_M33_TDCID && !STM32MP21
+ 	mmio_write_32(pwr_base + PWR_D3CR, PWR_D3CR_PDDS_D3);
+ #endif /* !STM32MP21 */
+ 	stm32mp2_pll1_disable();
+@@ -1061,6 +1061,7 @@ static void __dead2 stm32_system_off(void)
+ #if !STM32MP21
+ 	mmio_write_32(exti2_base + EXTI2_C1IMR3, 0U);
+ #endif /* !STM32MP21 */
++#if !STM32MP_M33_TDCID
+ 	/* Deactivate CID filtering on EXTI2_C2IMRx */
+ 	mmio_write_32(exti2_base + EXTI_CmCIDCFGR(1U), 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C2IMR1, 0U);
+@@ -1073,6 +1074,7 @@ static void __dead2 stm32_system_off(void)
+ 	mmio_write_32(exti2_base + EXTI2_C3IMR2, 0U);
+ 	mmio_write_32(exti2_base + EXTI2_C3IMR3, 0U);
+ #endif /* !STM32MP21 */
++#endif /* !STM32MP_M33_TDCID */
+ 
+ 	/* Disable STATE_RUNNING state for this core */
+ 	stm32mp_state_set(core_id, STATE_RUNNING, false);
+-- 
+2.53.0
+

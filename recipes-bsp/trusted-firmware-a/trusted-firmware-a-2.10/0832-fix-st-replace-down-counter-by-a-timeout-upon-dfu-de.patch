@@ -1,0 +1,107 @@
+From 88f9525807a3c68fc167a2532f7ef207070479d1 Mon Sep 17 00:00:00 2001
+From: Fabrice Gasnier <fabrice.gasnier@foss.st.com>
+Date: Wed, 7 May 2025 14:31:28 +0200
+Subject: [PATCH 832/954] fix(st): replace down counter by a timeout upon dfu
+ detach
+
+On stm32mp2, DFU detach sometimes makes subsequent usb start to fail.
+The core doesn't have the time to properly finalize the last setup
+phase. This results in error logs seen:
+ERROR:   dwc3_handle_dev_event: 1688
+ERROR:   dwc3_handle_dev_event: 1692
+
+Just enabling "DFU USB STOP" message hides the issue, sequentially:
+usb_core_start()
+...
+usb_dfu_loop()                  // runs until DFU_DETACH command
+ --> while(it_count != 0U) {
+       usb_core_handle_it()
+       if (usb_dfu_detach_req)
+         it_count--;            // down count from 100 to 0
+     }
+...
+INFO("DFU USB STOP...\n");
+usb_core_stop()
+
+The down-counter (it_count) value doesn't seem to be enough, and seems
+not robust against CPU speed. So rather adopt a 100us timeout. It's
+determined experimentally (above issue seems to be triggered around
+20us to 30us, so keep some margin).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6fd72e953971186ed9eed6401b2fffbc6de1ecf5 fix(st): replace down counter by a timeout upon dfu detach]
+Change-Id: Iac37c346ad938cd917dfbd7e4622546d29ee7517
+Signed-off-by: Fabrice Gasnier <fabrice.gasnier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/457601
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Pankaj DEV <pankaj.dev@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/common/usb_dfu.c | 18 +++++++++++-------
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/plat/st/common/usb_dfu.c b/plat/st/common/usb_dfu.c
+index 8bb099425e..29aad7f586 100644
+--- a/plat/st/common/usb_dfu.c
++++ b/plat/st/common/usb_dfu.c
+@@ -8,6 +8,7 @@
+ #include <string.h>
+ 
+ #include <common/debug.h>
++#include <drivers/delay_timer.h>
+ 
+ #include <platform_def.h>
+ #include <usb_dfu.h>
+@@ -53,6 +54,7 @@
+ #define DFU_ABORT			6
+ 
+ static bool usb_dfu_detach_req;
++static uint64_t detach_timeout;
+ 
+ /*
+  * usb_dfu_init
+@@ -208,6 +210,8 @@ static void usb_dfu_detach(struct usb_handle *pdev, struct usb_setup_req *req)
+ 		hdfu->dev_status = DFU_ERROR_NONE;
+ 	}
+ 
++	/* Timeout that lets the core handle interrupts before detach */
++	detach_timeout = timeout_init_us(100); /* usec */
+ 	usb_dfu_detach_req = true;
+ }
+ 
+@@ -512,25 +516,25 @@ void usb_dfu_register(struct usb_handle *pdev, struct usb_dfu_handle *phandle)
+ 
+ int usb_dfu_loop(struct usb_handle *pdev, const struct usb_dfu_media *pmedia)
+ {
+-	uint32_t it_count;
+ 	enum usb_status ret;
+ 	struct usb_dfu_handle *hdfu = (struct usb_dfu_handle *)pdev->class_data;
+ 
+ 	hdfu->callback = pmedia;
+ 	usb_dfu_detach_req = false;
+-	/* Continue to handle USB core IT to assure complete data transmission */
+-	it_count = 100U;
+ 
+ 	/* DFU infinite loop until DETACH_REQ */
+-	while (it_count != 0U) {
++	for ( ; ; ) {
+ 		ret = usb_core_handle_it(pdev);
+ 		if (ret != USBD_OK) {
+ 			return -EIO;
+ 		}
+ 
+-		/* Detach request received */
+-		if (usb_dfu_detach_req) {
+-			it_count--;
++		/*
++		 * Detach request received, continue to handle USB core IT
++		 * to assure complete data transmission
++		 */
++		if (usb_dfu_detach_req && timeout_elapsed(detach_timeout)) {
++			break;
+ 		}
+ 	}
+ 
+-- 
+2.53.0
+

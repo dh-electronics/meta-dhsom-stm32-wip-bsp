@@ -1,0 +1,87 @@
+From 8d2ec4a9105dc1b44e5fafe1862cd04f0c26d820 Mon Sep 17 00:00:00 2001
+From: Leo Yan <leo.yan@arm.com>
+Date: Fri, 31 Jan 2025 17:16:34 +0000
+Subject: [PATCH 857/954] fix(psa): guard Crypto APIs with CRYPTO_SUPPORT
+
+When building Crypto APIs, it requires dependency on external headers,
+e.g., Mbedtls headers.  Without the CRYPTO_SUPPORT configuration,
+external dependencies are not set up,  building Crypto APIs will fail.
+
+Guard Crypto APIs with the CRYPTO_SUPPORT configuration, to make sure
+the code is built only for Crypto enabled case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git fd761cd685989fc004c2b724d76394f682c3e9cd fix(psa): guard Crypto APIs with CRYPTO_SUPPORT]
+Change-Id: Iffe1220b0e6272586c46432b4f8d0512cb39b0b5
+Signed-off-by: Leo Yan <leo.yan@arm.com>
+(cherry picked from commit 8a41106c83961029c2d251f390c091d398c100a6)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443849
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ include/lib/psa/rse_platform_api.h | 4 ++++
+ lib/psa/rse_platform.c             | 4 ++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/include/lib/psa/rse_platform_api.h b/include/lib/psa/rse_platform_api.h
+index 535001bd66..c9fdb55b1d 100644
+--- a/include/lib/psa/rse_platform_api.h
++++ b/include/lib/psa/rse_platform_api.h
+@@ -11,7 +11,9 @@
+ #include <stdint.h>
+ 
+ #include "psa/error.h"
++#if CRYPTO_SUPPORT
+ #include <rse_crypto_defs.h>
++#endif
+ 
+ #define RSE_PLATFORM_API_ID_NV_READ       (1010)
+ #define RSE_PLATFORM_API_ID_NV_INCREMENT  (1011)
+@@ -42,6 +44,7 @@ psa_status_t
+ rse_platform_nv_counter_read(uint32_t counter_id,
+ 		uint32_t size, uint8_t *val);
+ 
++#if CRYPTO_SUPPORT
+ /*
+  * Reads the public key or the public part of a key pair in binary format.
+  *
+@@ -56,5 +59,6 @@ rse_platform_nv_counter_read(uint32_t counter_id,
+ psa_status_t
+ rse_platform_key_read(enum rse_key_id_builtin_t key, uint8_t *data,
+ 		size_t data_size, size_t *data_length);
++#endif
+ 
+ #endif /* RSE_PLATFORM_API_H */
+diff --git a/lib/psa/rse_platform.c b/lib/psa/rse_platform.c
+index 7fc2382064..9ede8b4d52 100644
+--- a/lib/psa/rse_platform.c
++++ b/lib/psa/rse_platform.c
+@@ -7,7 +7,9 @@
+ 
+ #include <psa/client.h>
+ #include <psa_manifest/sid.h>
++#if CRYPTO_SUPPORT
+ #include <rse_crypto_defs.h>
++#endif
+ #include <rse_platform_api.h>
+ 
+ psa_status_t
+@@ -41,6 +43,7 @@ rse_platform_nv_counter_read(uint32_t counter_id,
+ 			in_vec, 1, out_vec, 1);
+ }
+ 
++#if CRYPTO_SUPPORT
+ psa_status_t
+ rse_platform_key_read(enum rse_key_id_builtin_t key, uint8_t *data,
+ 		size_t data_size, size_t *data_length)
+@@ -67,3 +70,4 @@ rse_platform_key_read(enum rse_key_id_builtin_t key, uint8_t *data,
+ 
+ 	return status;
+ }
++#endif
+-- 
+2.53.0
+

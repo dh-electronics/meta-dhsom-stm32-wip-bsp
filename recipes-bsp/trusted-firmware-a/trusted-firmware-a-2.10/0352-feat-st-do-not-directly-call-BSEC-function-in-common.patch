@@ -1,7 +1,7 @@
-From 178f31330189a6a9b07a47c39bbac6042e9cf7a8 Mon Sep 17 00:00:00 2001
+From 6b049c83506463723b27318f1b204d2eba2bc82f Mon Sep 17 00:00:00 2001
 From: Yann Gautier <yann.gautier@foss.st.com>
 Date: Tue, 19 Sep 2023 18:26:16 +0200
-Subject: [PATCH 352/841] feat(st): do not directly call BSEC function in
+Subject: [PATCH 352/954] feat(st): do not directly call BSEC function in
  common code
 
 When STM32MP2 boots on Cortex-M33 (M33 is TDCID), the Cortex-A35 do no
@@ -29,7 +29,7 @@ ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
  8 files changed, 75 insertions(+), 14 deletions(-)
 
 diff --git a/plat/st/common/stm32mp_common.c b/plat/st/common/stm32mp_common.c
-index 75691ae65..e54d58c80 100644
+index 75691ae655..e54d58c808 100644
 --- a/plat/st/common/stm32mp_common.c
 +++ b/plat/st/common/stm32mp_common.c
 @@ -203,9 +203,9 @@ int stm32_get_otp_value_from_idx(const uint32_t otp_idx, uint32_t *otp_val)
@@ -70,7 +70,7 @@ index 75691ae65..e54d58c80 100644
  			return -1;
  		}
 diff --git a/plat/st/common/stm32mp_crypto_lib.c b/plat/st/common/stm32mp_crypto_lib.c
-index be5fb49a9..a03a724b0 100644
+index be5fb49a94..a03a724b05 100644
 --- a/plat/st/common/stm32mp_crypto_lib.c
 +++ b/plat/st/common/stm32mp_crypto_lib.c
 @@ -11,7 +11,6 @@
@@ -82,7 +82,7 @@ index be5fb49a9..a03a724b0 100644
  #include <drivers/st/stm32_pka.h>
  #include <drivers/st/stm32_rng.h>
 diff --git a/plat/st/common/stm32mp_fconf_fuse.c b/plat/st/common/stm32mp_fconf_fuse.c
-index 6ab74a754..5e7c1c3f3 100644
+index 6ab74a7546..5e7c1c3f3f 100644
 --- a/plat/st/common/stm32mp_fconf_fuse.c
 +++ b/plat/st/common/stm32mp_fconf_fuse.c
 @@ -72,7 +72,7 @@ static int fconf_populate_stm32mp_fuse_provisioning(uintptr_t config)
@@ -113,7 +113,7 @@ index 6ab74a754..5e7c1c3f3 100644
  			}
  		}
 diff --git a/plat/st/stm32mp1/include/stm32mp1_private.h b/plat/st/stm32mp1/include/stm32mp1_private.h
-index b8ec809e4..52afc60bc 100644
+index b8ec809e41..52afc60bce 100644
 --- a/plat/st/stm32mp1/include/stm32mp1_private.h
 +++ b/plat/st/stm32mp1/include/stm32mp1_private.h
 @@ -34,4 +34,31 @@ static inline void stm32mp1_syscfg_boot_mode_disable(void){}
@@ -149,7 +149,7 @@ index b8ec809e4..52afc60bc 100644
 +
  #endif /* STM32MP1_PRIVATE_H */
 diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
-index 83794f548..22241439c 100644
+index 83794f5489..22241439c7 100644
 --- a/plat/st/stm32mp2/bl2_plat_setup.c
 +++ b/plat/st/stm32mp2/bl2_plat_setup.c
 @@ -207,7 +207,7 @@ void bl2_el3_plat_arch_setup(void)
@@ -162,7 +162,7 @@ index 83794f548..22241439c 100644
  	}
  
 diff --git a/plat/st/stm32mp2/include/stm32mp2_private.h b/plat/st/stm32mp2/include/stm32mp2_private.h
-index d891d331a..9300be8c0 100644
+index d891d331a6..9300be8c0a 100644
 --- a/plat/st/stm32mp2/include/stm32mp2_private.h
 +++ b/plat/st/stm32mp2/include/stm32mp2_private.h
 @@ -55,4 +55,40 @@ size_t stm32_risaf_get_memory_size(int instance);
@@ -207,7 +207,7 @@ index d891d331a..9300be8c0 100644
 +
  #endif /* STM32MP2_PRIVATE_H */
 diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
-index e2659af8f..f1b363a9d 100644
+index e2659af8f8..f1b363a9db 100644
 --- a/plat/st/stm32mp2/stm32mp2_private.c
 +++ b/plat/st/stm32mp2/stm32mp2_private.c
 @@ -387,7 +387,7 @@ uint32_t stm32mp_check_closed_device(void)
@@ -229,7 +229,7 @@ index e2659af8f..f1b363a9d 100644
  		return result;
  	}
 diff --git a/plat/st/stm32mp2/stm32mp2_usb_dfu.c b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
-index 23b08c37e..cce6442d1 100644
+index 23b08c37e7..cce6442d15 100644
 --- a/plat/st/stm32mp2/stm32mp2_usb_dfu.c
 +++ b/plat/st/stm32mp2/stm32mp2_usb_dfu.c
 @@ -1,5 +1,5 @@
@@ -248,5 +248,5 @@ index 23b08c37e..cce6442d1 100644
  #include <drivers/usb_device.h>
  
 -- 
-2.47.2
+2.53.0
 

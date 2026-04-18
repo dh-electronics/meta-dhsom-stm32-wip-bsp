@@ -1,0 +1,69 @@
+From 3c0580319cec9a9451cd77207dbd16686472e050 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Tue, 11 Jun 2024 10:50:32 +0200
+Subject: [PATCH 868/954] feat(stm32mp2): allow booting Linux directly
+
+Manage the flag ARM_LINUX_KERNEL_AS_BL33 in STM32MP2 platform.mk
+file.
+Increase the allocated size for BL33 to 128MB in that case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git a717656ad8fe5a2cd983999ad91d8c8259324992 feat(stm32mp2): allow booting Linux directly]
+Change-Id: Ic3cde7b7ab759732d4cfe8b1a9db0196f8e4c7ba
+Signed-off-by: Yann Gautier <yann.gautier@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/408911
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/stm32mp2/platform.mk    | 5 +++++
+ plat/st/stm32mp2/stm32mp2_def.h | 4 ++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index f09f9f6370..3e54ca498e 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -34,6 +34,9 @@ endif
+ ENABLE_SPE_FOR_NS		:=	0
+ ENABLE_SVE_FOR_NS		:=	0
+ 
++# Don't have the Linux kernel as a BL33 image by default
++ARM_LINUX_KERNEL_AS_BL33	:=	0
++
+ # Enable PSCI v1.0 extended state ID format
+ PSCI_EXTENDED_STATE_ID		:= 	1
+ PSCI_OS_INIT_MODE		:= 	1
+@@ -202,6 +205,7 @@ endif
+ # Enable flags for C files
+ $(eval $(call assert_booleans,\
+ 	$(sort \
++		ARM_LINUX_KERNEL_AS_BL33 \
+ 		PKA_USE_BRAINPOOL_P256T1 \
+ 		PKA_USE_NIST_P256 \
+ 		STM32MP_CRYPTO_ROM_LIB \
+@@ -233,6 +237,7 @@ $(eval $(call assert_numerics,\
+ 
+ $(eval $(call add_defines,\
+ 	$(sort \
++		ARM_LINUX_KERNEL_AS_BL33 \
+ 		DWL_BUFFER_BASE \
+ 		PKA_USE_BRAINPOOL_P256T1 \
+ 		PKA_USE_NIST_P256 \
+diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
+index b2eddb622f..a616e2fbf6 100644
+--- a/plat/st/stm32mp2/stm32mp2_def.h
++++ b/plat/st/stm32mp2/stm32mp2_def.h
+@@ -312,7 +312,11 @@ enum ddr_type {
+ #define STM32MP_FW_CONFIG_BASE		STM32MP_SYSRAM_BASE
+ 
+ #define STM32MP_BL33_BASE		(STM32MP_DDR_BASE + U(0x04000000))
++#if ARM_LINUX_KERNEL_AS_BL33
++#define STM32MP_BL33_MAX_SIZE		U(0x8000000)
++#else
+ #define STM32MP_BL33_MAX_SIZE		U(0x400000)
++#endif
+ #define STM32MP_HW_CONFIG_BASE		(STM32MP_BL33_BASE + \
+ 					STM32MP_BL33_MAX_SIZE)
+ #define STM32MP_HW_CONFIG_MAX_SIZE	U(0x40000)
+-- 
+2.53.0
+

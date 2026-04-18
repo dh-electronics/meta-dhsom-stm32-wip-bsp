@@ -1,0 +1,304 @@
+From f18df64761b67263ee4c054d5d07f492b13dff28 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 12 Mar 2025 19:27:51 +0100
+Subject: [PATCH 860/954] refactor(rse): put MHU code in a dedicated file
+
+To be able to use RSE comms without MHU, a first step is to disentangle
+the rse_comms.c file with MHU code direct calls. This is done with the
+creation of a new file rse_comms_mhu.c. New APIs are created to
+initialize the mailbox, get max message size and send and receive data.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 0afeb3272ee5ec79da7f2196603f27e99a016bca refactor(rse): put MHU code in a dedicated file]
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+Change-Id: I75dda77e1886beaa6ced6f92c311617125918cfa
+(cherry picked from commit 36416b1e760072947d6a9effe0082290cc049b8a)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443852
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ docs/design_documents/rse.rst   | 12 ++++--
+ drivers/arm/rse/rse_comms.c     | 26 ++++++------
+ drivers/arm/rse/rse_comms.mk    |  9 ++++-
+ drivers/arm/rse/rse_comms_mhu.c | 71 +++++++++++++++++++++++++++++++++
+ include/drivers/arm/mhu.h       |  9 +++++
+ include/drivers/arm/rse_comms.h |  7 +++-
+ 6 files changed, 116 insertions(+), 18 deletions(-)
+ create mode 100644 drivers/arm/rse/rse_comms_mhu.c
+
+diff --git a/docs/design_documents/rse.rst b/docs/design_documents/rse.rst
+index df635bd0c2..f62f5f0896 100644
+--- a/docs/design_documents/rse.rst
++++ b/docs/design_documents/rse.rst
+@@ -25,9 +25,15 @@ RSE communication layer
+ -----------------------
+ 
+ The communication between RSE and other subsystems are primarily relying on the
+-Message Handling Unit (MHU) module. The number of MHU interfaces between RSE
+-and other cores is IMPDEF. Besides MHU other modules also could take part in
+-the communication. RSE is capable of mapping the AP memory to its address space.
++Message Handling Unit (MHU) module.
++
++However, this is possible to use this communication protocol with a different
++mailbox than MHU, by setting the flag ``PLAT_MHU=NO_MHU`` and implementing the
++APIs given in the file: ``include/drivers/arm/rse_comms.h``.
++
++The number of MHU interfaces between RSE and other cores is IMPDEF. Besides MHU
++other modules also could take part in the communication. RSE is capable of
++mapping the AP memory to its address space.
+ Thereby either RSE core itself or a DMA engine if it is present, can move the
+ data between memory belonging to RSE or AP. In this way, a bigger amount of data
+ can be transferred in a short time.
+diff --git a/drivers/arm/rse/rse_comms.c b/drivers/arm/rse/rse_comms.c
+index cfc5a83cf4..cd84394ec0 100644
+--- a/drivers/arm/rse/rse_comms.c
++++ b/drivers/arm/rse/rse_comms.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022-2024, Arm Limited. All rights reserved.
++ * Copyright (c) 2022-2025, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -24,7 +24,7 @@ union __packed __attribute__((aligned(4))) rse_comms_io_buffer_t {
+ static uint8_t select_protocol_version(const psa_invec *in_vec, size_t in_len,
+ 				       const psa_outvec *out_vec, size_t out_len)
+ {
+-	size_t comms_mhu_msg_size;
++	size_t comms_mbx_msg_size;
+ 	size_t comms_embed_msg_min_size;
+ 	size_t comms_embed_reply_min_size;
+ 	size_t in_size_total = 0;
+@@ -38,7 +38,7 @@ static uint8_t select_protocol_version(const psa_invec *in_vec, size_t in_len,
+ 		out_size_total += out_vec[i].len;
+ 	}
+ 
+-	comms_mhu_msg_size = mhu_get_max_message_size();
++	comms_mbx_msg_size = rse_mbx_get_max_message_size();
+ 
+ 	comms_embed_msg_min_size = sizeof(struct serialized_rse_comms_header_t) +
+ 				   sizeof(struct rse_embed_msg_t) -
+@@ -49,9 +49,9 @@ static uint8_t select_protocol_version(const psa_invec *in_vec, size_t in_len,
+ 				     PLAT_RSE_COMMS_PAYLOAD_MAX_SIZE;
+ 
+ 	/* Use embed if we can pack into one message and reply, else use
+-	 * pointer_access. The underlying MHU transport protocol uses a
++	 * pointer_access. The underlying mailbox transport protocol uses a
+ 	 * single uint32_t to track the length, so the amount of data that
+-	 * can be in a message is 4 bytes less than mhu_get_max_message_size
++	 * can be in a message is 4 bytes less than rse_mbx_get_max_message_size
+ 	 * reports.
+ 	 *
+ 	 * TODO tune this with real performance numbers, it's possible a
+@@ -60,9 +60,9 @@ static uint8_t select_protocol_version(const psa_invec *in_vec, size_t in_len,
+ 	 * pointers.
+ 	 */
+ 	if ((comms_embed_msg_min_size + in_size_total >
+-	     comms_mhu_msg_size - sizeof(uint32_t)) ||
++	     comms_mbx_msg_size - sizeof(uint32_t)) ||
+ 	    (comms_embed_reply_min_size + out_size_total >
+-	     comms_mhu_msg_size - sizeof(uint32_t))) {
++	     comms_mbx_msg_size - sizeof(uint32_t))) {
+ 		return RSE_COMMS_PROTOCOL_POINTER_ACCESS;
+ 	} else {
+ 		return RSE_COMMS_PROTOCOL_EMBED;
+@@ -76,7 +76,7 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type, const psa_invec *in_vec
+ 	 * functions not being reentrant becomes a problem.
+ 	 */
+ 	static union rse_comms_io_buffer_t io_buf;
+-	enum mhu_error_t err;
++	int err;
+ 	psa_status_t status;
+ 	static uint8_t seq_num = 1U;
+ 	size_t msg_size;
+@@ -109,8 +109,8 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type, const psa_invec *in_vec
+ 		VERBOSE("in_vec[%lu].buf=%p\n", idx, (void *)in_vec[idx].base);
+ 	}
+ 
+-	err = mhu_send_data((uint8_t *)&io_buf.msg, msg_size);
+-	if (err != MHU_ERR_NONE) {
++	err = rse_mbx_send_data((uint8_t *)&io_buf.msg, msg_size);
++	if (err != 0) {
+ 		return PSA_ERROR_COMMUNICATION_FAILURE;
+ 	}
+ 
+@@ -122,8 +122,8 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type, const psa_invec *in_vec
+ 	memset(&io_buf.msg, 0xA5, msg_size);
+ #endif
+ 
+-	err = mhu_receive_data((uint8_t *)&io_buf.reply, &reply_size);
+-	if (err != MHU_ERR_NONE) {
++	err = rse_mbx_receive_data((uint8_t *)&io_buf.reply, &reply_size);
++	if (err != 0) {
+ 		return PSA_ERROR_COMMUNICATION_FAILURE;
+ 	}
+ 
+@@ -144,7 +144,7 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type, const psa_invec *in_vec
+ 		VERBOSE("out_vec[%lu].buf=%p\n", idx, (void *)out_vec[idx].base);
+ 	}
+ 
+-	/* Clear the MHU message buffer to remove assets from memory */
++	/* Clear the mailbox message buffer to remove assets from memory */
+ 	memset(&io_buf, 0x0, sizeof(io_buf));
+ 
+ 	seq_num++;
+diff --git a/drivers/arm/rse/rse_comms.mk b/drivers/arm/rse/rse_comms.mk
+index f26d2c5c8f..743e97868f 100644
+--- a/drivers/arm/rse/rse_comms.mk
++++ b/drivers/arm/rse/rse_comms.mk
+@@ -16,6 +16,7 @@ RSE_COMMS_SOURCES	:=	$(addprefix drivers/arm/rse/,			\
+ # Default to MHUv2 if PLAT_MHU undefined
+ PLAT_MHU ?= MHUv2
+ 
++ifneq (${PLAT_MHU}, NO_MHU)
+ ifeq (${PLAT_MHU}, MHUv3)
+ RSE_COMMS_SOURCES	+=	$(addprefix drivers/arm/mhu/,			\
+ 					mhu_v3_x.c				\
+@@ -30,6 +31,12 @@ else
+ $(error Unsupported MHU version)
+ endif
+ 
++RSE_COMMS_SOURCES	+=	$(addprefix drivers/arm/rse/,			\
++					rse_comms_mhu.c				\
++				)
++
++PLAT_INCLUDES		+=	-Idrivers/arm/mhu
++endif
++
+ PLAT_INCLUDES		+=	-Idrivers/arm/rse		\
+-				-Idrivers/arm/mhu		\
+ 				-Iinclude/lib/psa
+diff --git a/drivers/arm/rse/rse_comms_mhu.c b/drivers/arm/rse/rse_comms_mhu.c
+new file mode 100644
+index 0000000000..8032393c0c
+--- /dev/null
++++ b/drivers/arm/rse/rse_comms_mhu.c
+@@ -0,0 +1,71 @@
++/*
++ * Copyright (c) 2025, Arm Limited and Contributors. All rights reserved.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#include <stdint.h>
++#include <string.h>
++
++#include <common/debug.h>
++#include <drivers/arm/mhu.h>
++#include <drivers/arm/rse_comms.h>
++
++size_t rse_mbx_get_max_message_size(void)
++{
++	return mhu_get_max_message_size();
++}
++
++int rse_mbx_send_data(const uint8_t *send_buffer, size_t size)
++{
++	enum mhu_error_t err = mhu_send_data(send_buffer, size);
++
++	if (err != MHU_ERR_NONE) {
++		ERROR("mhu_send_data err=%d\n", err);
++		return -1;
++	}
++
++	return 0;
++}
++
++int rse_mbx_receive_data(uint8_t *receive_buffer, size_t *size)
++{
++	enum mhu_error_t err = mhu_receive_data(receive_buffer, size);
++
++	if (err != MHU_ERR_NONE) {
++		ERROR("mhu_receive_data err=%d\n", err);
++		return -1;
++	}
++
++	return 0;
++}
++
++int rse_mbx_init(const void *init_data)
++{
++	enum mhu_error_t err;
++	const struct mhu_addr *mbx_addr = (const struct mhu_addr *)init_data;
++
++	err = mhu_init_sender(mbx_addr->sender_base);
++	if (err != MHU_ERR_NONE) {
++		if (err == MHU_ERR_ALREADY_INIT) {
++			INFO("[RSE-COMMS] Host to RSE MHU driver already initialized\n");
++		} else {
++			ERROR("[RSE-COMMS] Host to RSE MHU driver initialization failed: %d\n",
++			      err);
++			return -1;
++		}
++	}
++
++	err = mhu_init_receiver(mbx_addr->receiver_base);
++	if (err != MHU_ERR_NONE) {
++		if (err == MHU_ERR_ALREADY_INIT) {
++			INFO("[RSE-COMMS] RSE to Host MHU driver already initialized\n");
++		} else {
++			ERROR("[RSE-COMMS] RSE to Host MHU driver initialization failed: %d\n",
++			      err);
++			return -1;
++		}
++	}
++
++	return 0;
++}
+diff --git a/include/drivers/arm/mhu.h b/include/drivers/arm/mhu.h
+index 31c6a8119a..cc74e27d7f 100644
+--- a/include/drivers/arm/mhu.h
++++ b/include/drivers/arm/mhu.h
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright (c) 2022, Arm Limited. All rights reserved.
++ * Copyright (c) 2025, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -24,6 +25,14 @@ enum mhu_error_t {
+ 	MHU_ERR_GENERAL			= -7,
+ };
+ 
++/**
++ * Structure used by RSE comms
++ */
++struct mhu_addr {
++	uintptr_t sender_base;
++	uintptr_t receiver_base;
++};
++
+ /**
+  * Initializes sender MHU.
+  *
+diff --git a/include/drivers/arm/rse_comms.h b/include/drivers/arm/rse_comms.h
+index e4169a5126..e390ccef61 100644
+--- a/include/drivers/arm/rse_comms.h
++++ b/include/drivers/arm/rse_comms.h
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022, Arm Limited. All rights reserved.
++ * Copyright (c) 2022-2025, Arm Limited and Contributors. All rights reserved.
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  *
+@@ -8,8 +8,13 @@
+ #ifndef RSE_COMMS_H
+ #define RSE_COMMS_H
+ 
++#include <stddef.h>
+ #include <stdint.h>
+ 
++size_t rse_mbx_get_max_message_size(void);
++int rse_mbx_send_data(const uint8_t *send_buffer, size_t size);
++int rse_mbx_receive_data(uint8_t *receive_buffer, size_t *size);
++int rse_mbx_init(const void *init_data);
+ int rse_comms_init(uintptr_t mhu_sender_base, uintptr_t mhu_receiver_base);
+ 
+ #endif /* RSE_COMMS_H */
+-- 
+2.53.0
+

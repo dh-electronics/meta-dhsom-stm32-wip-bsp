@@ -12,7 +12,7 @@ LIC_FILES_CHKSUM = "file://license.rst;md5=1dd070c98a281d18d9eefd938729b031"
 
 SRC_URI = "git://github.com/ARM-software/arm-trusted-firmware.git;protocol=https;nobranch=1;name=tfa"
 
-SRCREV_tfa = "b1f575090608cf378440f35e7f973ee9ee0ea182"
+SRCREV_tfa = "a07367a19a09d3c6c426446dd408d7e522ac068b"
 
 S = "${WORKDIR}/git"
 

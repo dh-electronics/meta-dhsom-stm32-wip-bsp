@@ -1,7 +1,7 @@
-From d9834d4536898fd6ea816494b07e1de236c739a2 Mon Sep 17 00:00:00 2001
+From 9f0388a96fdb4937c5fda36a98b1e018dfae8f44 Mon Sep 17 00:00:00 2001
 From: Nicolas Le Bayon <nicolas.le.bayon@st.com>
 Date: Wed, 30 Mar 2022 17:19:20 +0200
-Subject: [PATCH 154/841] feat(st-ddr): implement phy error management
+Subject: [PATCH 154/954] feat(st-ddr): implement phy error management
 
 Implement a consistent error management mechanism within DDR PHY driver.
 Each function with error cases returns 0 on success, and a negative value
@@ -31,7 +31,7 @@ Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
  11 files changed, 540 insertions(+), 166 deletions(-)
 
 diff --git a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h
-index 0e4626b58..b4c659e20 100644
+index 0e4626b58a..b4c659e202 100644
 --- a/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h
 +++ b/drivers/st/ddr/phy/phyinit/include/ddrphy_phyinit_usercustom.h
 @@ -150,17 +150,17 @@ extern int ardptrinitval[NB_PS];
@@ -70,7 +70,7 @@ index 0e4626b58..b4c659e20 100644
  #include <ddrphy_csr_all_cdefines.h>
  
 diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
-index 176d5bbe7..34fa094e9 100644
+index 176d5bbe71..34fa094e93 100644
 --- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
 +++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_c_initphyconfig.c
 @@ -432,8 +432,9 @@ static void procodttimectl_program(int *twotckrxdqspre)
@@ -229,7 +229,7 @@ index 176d5bbe7..34fa094e9 100644
 +	return 0;
  }
 diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
-index f4d743f34..708021596 100644
+index f4d743f34a..708021596d 100644
 --- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
 +++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_calcmb.c
 @@ -36,9 +36,9 @@
@@ -426,7 +426,7 @@ index f4d743f34..708021596 100644
 +	return 0;
  }
 diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c
-index 005d9e15a..2709c9d8d 100644
+index 005d9e15a1..2709c9d8dd 100644
 --- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c
 +++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_f_loaddmem.c
 @@ -23,9 +23,9 @@
@@ -470,7 +470,7 @@ index 005d9e15a..2709c9d8d 100644
 +	return 0;
  }
 diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_g_execfw.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_g_execfw.c
-index 90799164f..53f411d9e 100644
+index 90799164fb..53f411d9ee 100644
 --- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_g_execfw.c
 +++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_g_execfw.c
 @@ -27,10 +27,12 @@
@@ -507,7 +507,7 @@ index 90799164f..53f411d9e 100644
 +	return 0;
  }
 diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_mapdrvstren.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_mapdrvstren.c
-index 555b10266..4f0074bb5 100644
+index 555b102660..4f0074bb5d 100644
 --- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_mapdrvstren.c
 +++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_mapdrvstren.c
 @@ -28,10 +28,12 @@
@@ -525,7 +525,7 @@ index 555b10266..4f0074bb5 100644
  	if ((targetcsr == drvstrenfsdqp) || (targetcsr == drvstrenfsdqn)) {
  		/* drvstrenfsdqp or drvstrenfsdqn */
 diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
-index 785d91c3a..dc33b5edf 100644
+index 785d91c3a8..dc33b5edf7 100644
 --- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
 +++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_reginterface.c
 @@ -53,41 +53,37 @@ static int tracken = 1;        /* Enabled tracking of registers */
@@ -633,7 +633,7 @@ index 785d91c3a..dc33b5edf 100644
  	}
  }
 diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_restore_sequence.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_restore_sequence.c
-index d2ab1013f..e59ab5480 100644
+index d2ab1013f8..e59ab54804 100644
 --- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_restore_sequence.c
 +++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_restore_sequence.c
 @@ -21,6 +21,7 @@
@@ -657,7 +657,7 @@ index d2ab1013f..e59ab5480 100644
  	/*
  	 * -# Write the UcclkHclkEnables CSR to disable the appropriate clocks after all reads done.
 diff --git a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_sequence.c b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_sequence.c
-index 4a84a3ccd..620245c7a 100644
+index 4a84a3ccdc..620245c7ac 100644
 --- a/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_sequence.c
 +++ b/drivers/st/ddr/phy/phyinit/src/ddrphy_phyinit_sequence.c
 @@ -19,6 +19,8 @@
@@ -750,7 +750,7 @@ index 4a84a3ccd..620245c7a 100644
  		runtimeconfig.reten = reten;
  	}
 diff --git a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c
-index b75bc7b23..d095efab7 100644
+index b75bc7b237..d095efab7d 100644
 --- a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c
 +++ b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_g_waitfwdone.c
 @@ -18,54 +18,83 @@
@@ -923,7 +923,7 @@ index b75bc7b23..d095efab7 100644
 +	return 0;
  }
 diff --git a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
-index 411767aba..0da09435b 100644
+index 411767abaf..0da09435b5 100644
 --- a/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
 +++ b/drivers/st/ddr/phy/phyinit/usercustom/ddrphy_phyinit_usercustom_saveretregs.c
 @@ -37,10 +37,22 @@
@@ -1322,5 +1322,5 @@ index 411767aba..0da09435b 100644
 +	return 0;
  }
 -- 
-2.47.2
+2.53.0
 

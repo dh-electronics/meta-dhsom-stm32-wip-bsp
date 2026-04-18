@@ -1,0 +1,961 @@
+From 0c4df49973f8e757658bb4571a21749b0b087b2d Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 12 Mar 2025 19:13:34 +0100
+Subject: [PATCH 852/954] docs: change all occurrences of RSS to RSE
+
+Changes all occurrences of "RSS" and "rss" in the documentation
+to "RSE" and "rse".
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d8ac2a4035a59147207de33f879413d256ca0c96 docs: change all occurrences of RSS to RSE]
+Signed-off-by: Tamas Ban <tamas.ban@arm.com>
+Change-Id: Ia42078f5faa1db331b1e5a35f01faeaf1afacb5f
+(cherry picked from commit 624c9a0b387aa35005b9655e224d664a96d4ca67)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443844
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ docs/about/features.rst                       |   2 +-
+ docs/about/maintainers.rst                    |   8 +-
+ docs/design_documents/index.rst               |   2 +-
+ docs/design_documents/measured_boot.rst       |  10 +-
+ docs/design_documents/rse.rst                 | 148 +++++++++---------
+ docs/porting-guide.rst                        |   6 +-
+ .../plantuml/rse_attestation_flow.puml        |   2 +-
+ .../plantuml/rse_measured_boot_flow.puml      |  96 ++++++------
+ .../diagrams/plantuml/tfa_rse_dfd.puml        |  12 +-
+ .../diagrams/rse_attestation_flow.svg         |   4 +-
+ .../diagrams/rse_measured_boot_flow.svg       |  98 ++++++------
+ .../threat_model_rse_interface.rst            |  30 ++--
+ 12 files changed, 209 insertions(+), 209 deletions(-)
+
+diff --git a/docs/about/features.rst b/docs/about/features.rst
+index c12509d9d7..9b7bdf9da5 100644
+--- a/docs/about/features.rst
++++ b/docs/about/features.rst
+@@ -128,7 +128,7 @@ Additionally the following libraries are marked experimental when included
+ in a platform:
+ 
+ -  MPU translation library ``lib/xlat_mpu``
+--  RSS comms driver ``drivers/arm/rss``
++-  RSE comms driver ``drivers/arm/rse``
+ 
+ Still to come
+ -------------
+diff --git a/docs/about/maintainers.rst b/docs/about/maintainers.rst
+index 27be853fa8..9c7c306575 100644
+--- a/docs/about/maintainers.rst
++++ b/docs/about/maintainers.rst
+@@ -343,12 +343,12 @@ Message Handling Unit (MHU) driver
+ :|F|: include/drivers/arm/mhu.h
+ :|F|: drivers/arm/mhu
+ 
+-Runtime Security Subsystem (RSS) comms driver
+-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++Runtime Security Engine (RSE) comms driver
++^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ :|M|: David Vincze <david.vincze@arm.com>
+ :|G|: `davidvincze`_
+-:|F|: include/drivers/arm/rss_comms.h
+-:|F|: drivers/arm/rss
++:|F|: include/drivers/arm/rse_comms.h
++:|F|: drivers/arm/rse
+ 
+ Libfdt wrappers
+ ^^^^^^^^^^^^^^^
+diff --git a/docs/design_documents/index.rst b/docs/design_documents/index.rst
+index ecc68b2378..ac982e0984 100644
+--- a/docs/design_documents/index.rst
++++ b/docs/design_documents/index.rst
+@@ -9,7 +9,7 @@ Design Documents
+    context_mgmt_rework
+    measured_boot_poc
+    drtm_poc
+-   rss
++   rse
+    psci_osi_mode
+    measured_boot
+ 
+diff --git a/docs/design_documents/measured_boot.rst b/docs/design_documents/measured_boot.rst
+index c4e5213553..629992e724 100644
+--- a/docs/design_documents/measured_boot.rst
++++ b/docs/design_documents/measured_boot.rst
+@@ -91,10 +91,10 @@ The Measured Boot implementation in TF-A supports:
+    and the variable length crypto agile structure called TCG_PCR_EVENT2. Event
+    Log driver implemented in TF-A covers later part.
+ 
+-#. RSS
++#. RSE
+ 
+    It is one of physical backend to extend the measurements. Please refer this
+-   document :ref:`Runtime Security Subsystem (RSS)` for more details.
++   document :ref:`Runtime Security Engine (RSE)` for more details.
+ 
+ Platform Interface
+ ------------------
+@@ -121,7 +121,7 @@ Responsibilities of these platform interfaces are -
+       void bl2_plat_mboot_init(void);
+ 
+    Initialise all Measured Boot backends supported by the platform
+-   (e.g. Event Log buffer, RSS). As these functions do not return any value,
++   (e.g. Event Log buffer, RSE). As these functions do not return any value,
+    the platform should deal with error management, such as logging the error
+    somewhere, or panicking the system if this is considered a fatal error.
+ 
+@@ -147,7 +147,7 @@ Responsibilities of these platform interfaces are -
+ 
+      - If it is Event Log backend, then record the measurement in TCG Event Log
+        format.
+-     - If it is a secure crypto-processor (like RSS), then extend the designated
++     - If it is a secure crypto-processor (like RSE), then extend the designated
+        PCR (or slot) with the given measurement.
+    - This function must return 0 on success, a signed integer error code
+      otherwise.
+@@ -223,7 +223,7 @@ Responsibilities of these platform interfaces are -
+    - This function must return 0 on success, a signed integer error code
+      otherwise.
+    - In FVP platform, this function is used to calculate the hash of the given
+-     key and forward this hash to RSS alongside the measurement of the image
++     key and forward this hash to RSE alongside the measurement of the image
+      which the key signs.
+ 
+ --------------
+diff --git a/docs/design_documents/rse.rst b/docs/design_documents/rse.rst
+index 18d5436835..7296a453ea 100644
+--- a/docs/design_documents/rse.rst
++++ b/docs/design_documents/rse.rst
+@@ -1,45 +1,45 @@
+-Runtime Security Subsystem (RSS)
+-================================
++Runtime Security Engine (RSE)
++=============================
+ 
+-This document focuses on the relationship between the Runtime Security Subsystem
+-(RSS) and the application processor (AP). According to the ARM reference design
+-the RSS is an independent core next to the AP and the SCP on the same die. It
++This document focuses on the relationship between the Runtime Security Engine
++(RSE) and the application processor (AP). According to the ARM reference design
++the RSE is an independent core next to the AP and the SCP on the same die. It
+ provides fundamental security guarantees and runtime services for the rest of
+ the system (e.g.: trusted boot, measured boot, platform attestation,
+ key management, and key derivation).
+ 
+-At power up RSS boots first from its private ROM code. It validates and loads
++At power up RSE boots first from its private ROM code. It validates and loads
+ its own images and the initial images of SCP and AP. When AP and SCP are
+ released from reset and their initial code is loaded then they continue their
+-own boot process, which is the same as on non-RSS systems. Please refer to the
+-``RSS documentation`` [1]_ for more details about the RSS boot flow.
++own boot process, which is the same as on non-RSE systems. Please refer to the
++``RSE documentation`` [1]_ for more details about the RSE boot flow.
+ 
+-The last stage of the RSS firmware is a persistent, runtime component. Much
++The last stage of the RSE firmware is a persistent, runtime component. Much
+ like AP_BL31, this is a passive entity which has no periodical task to do and
+-just waits for external requests from other subsystems. RSS and other
+-subsystems can communicate with each other over message exchange. RSS waits
++just waits for external requests from other subsystems. RSE and other
++subsystems can communicate with each other over message exchange. RSE waits
+ in idle for the incoming request, handles them, and sends a response then goes
+ back to idle.
+ 
+-RSS communication layer
++RSE communication layer
+ -----------------------
+ 
+-The communication between RSS and other subsystems are primarily relying on the
+-Message Handling Unit (MHU) module. The number of MHU interfaces between RSS
++The communication between RSE and other subsystems are primarily relying on the
++Message Handling Unit (MHU) module. The number of MHU interfaces between RSE
+ and other cores is IMPDEF. Besides MHU other modules also could take part in
+-the communication. RSS is capable of mapping the AP memory to its address space.
+-Thereby either RSS core itself or a DMA engine if it is present, can move the
+-data between memory belonging to RSS or AP. In this way, a bigger amount of data
++the communication. RSE is capable of mapping the AP memory to its address space.
++Thereby either RSE core itself or a DMA engine if it is present, can move the
++data between memory belonging to RSE or AP. In this way, a bigger amount of data
+ can be transferred in a short time.
+ 
+ The MHU comes in pairs. There is a sender and receiver side. They are connected
+ to each other. An MHU interface consists of two pairs of MHUs, one sender and
+ one receiver on both sides. Bidirectional communication is possible over an
+-interface. One pair provides message sending from AP to RSS and the other pair
+-from RSS to AP. The sender and receiver are connected via channels. There is an
++interface. One pair provides message sending from AP to RSE and the other pair
++from RSE to AP. The sender and receiver are connected via channels. There is an
+ IMPDEF number of channels (e.g: 4-16) between a sender and a receiver module.
+ 
+-The RSS communication layer provides two ways for message exchange:
++The RSE communication layer provides two ways for message exchange:
+ 
+ - ``Embedded messaging``: The full message, including header and payload, are
+   exchanged over the MHU channels. A channel is capable of delivering a single
+@@ -55,16 +55,16 @@ The RSS communication layer provides two ways for message exchange:
+ - ``Pointer-access messaging``: The message header and the payload are
+   separated and they are conveyed in different ways. The header is sent
+   over the channels, similar to the embedded messaging but the payload is
+-  copied over by RSS core (or by DMA) between the sender and the receiver. This
++  copied over by RSE core (or by DMA) between the sender and the receiver. This
+   could be useful in the case of long messages because transaction time is less
+-  compared to the embedded messaging mode. Small payloads are copied by the RSS
++  compared to the embedded messaging mode. Small payloads are copied by the RSE
+   core because setting up DMA would require more CPU cycles. The payload is
+-  either copied into an internal buffer or directly read-written by RSS. Actual
+-  behavior depends on RSS setup, whether the partition supports memory-mapped
++  either copied into an internal buffer or directly read-written by RSE. Actual
++  behavior depends on RSE setup, whether the partition supports memory-mapped
+   ``iovec``. Therefore, the sender must handle both cases and prevent access to
+-  the memory, where payload data lives, while the RSS handles the request.
++  the memory, where payload data lives, while the RSE handles the request.
+ 
+-The RSS communication layer supports both ways of messaging in parallel. It is
++The RSE communication layer supports both ways of messaging in parallel. It is
+ decided at runtime based on the message size which way to transfer the message.
+ 
+ .. code-block:: bash
+@@ -93,25 +93,25 @@ decided at runtime based on the message size which way to transfer the message.
+              V                           |            | |      V           V
+     +----------------------------------------------+  | |  +-------------------+
+     |                                              |--+-+  |                   |
+-    |                  RSS                         |       |      SRAM         |
++    |                  RSE                         |       |      SRAM         |
+     |                                              |       |                   |
+     +----------------------------------------------+       +-------------------+
+ 
+ .. Note::
+ 
+-    The RSS communication layer is not prepared for concurrent execution. The
++    The RSE communication layer is not prepared for concurrent execution. The
+     current use case only requires message exchange during the boot phase. In
+     the boot phase, only a single core is running and the rest of the cores are
+     in reset.
+ 
+ Message structure
+ ^^^^^^^^^^^^^^^^^
+-A description of the message format can be found in the ``RSS communication
++A description of the message format can be found in the ``RSE communication
+ design`` [2]_ document.
+ 
+ Source files
+ ^^^^^^^^^^^^
+-- RSS comms:  ``drivers/arm/rss``
++- RSE comms:  ``drivers/arm/rse``
+ - MHU driver: ``drivers/arm/mhu``
+ 
+ 
+@@ -119,29 +119,29 @@ API for communication over MHU
+ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ The API is defined in these header files:
+ 
+-- ``include/drivers/arm/rss_comms.h``
++- ``include/drivers/arm/rse_comms.h``
+ - ``include/drivers/arm/mhu.h``
+ 
+-RSS provided runtime services
++RSE provided runtime services
+ -----------------------------
+ 
+-RSS provides the following runtime services:
++RSE provides the following runtime services:
+ 
+ - ``Measured boot``: Securely store the firmware measurements which were
+   computed during the boot process and the associated metadata (image
+   description, measurement algorithm, etc.). More info on measured boot service
+-  in RSS can be found in the ``measured_boot_integration_guide`` [3]_ .
++  in RSE can be found in the ``measured_boot_integration_guide`` [3]_ .
+ - ``Delegated attestation``: Query the platform attestation token and derive a
+   delegated attestation key. More info on the delegated attestation service
+-  in RSS can be found in the ``delegated_attestation_integration_guide`` [4]_ .
++  in RSE can be found in the ``delegated_attestation_integration_guide`` [4]_ .
+ - ``OTP assets management``: Public keys used by AP during the trusted boot
+-  process can be requested from RSS. Furthermore, AP can request RSS to
++  process can be requested from RSE. Furthermore, AP can request RSE to
+   increase a non-volatile counter. Please refer to the
+-  ``RSS key management`` [5]_ document for more details.
++  ``RSE key management`` [5]_ document for more details.
+ 
+ Runtime service API
+ ^^^^^^^^^^^^^^^^^^^
+-The RSS provided runtime services implement a PSA aligned API. The parameter
++The RSE provided runtime services implement a PSA aligned API. The parameter
+ encoding follows the PSA client protocol described in the
+ ``Firmware Framework for M`` [6]_ document in chapter 4.4. The implementation is
+ restricted to the static handle use case therefore only the ``psa_call`` API is
+@@ -168,7 +168,7 @@ Software and API layers
+          |                               |
+          V                               V
+     +------------------------------------------------+
+-    |         RSS communication protocol             |
++    |         RSE communication protocol             |
+     +------------------------------------------------+
+          |                     ^
+          | mhu_send_data()     | mhu_receive_data()
+@@ -188,7 +188,7 @@ Software and API layers
+                          |
+                          V
+     +------------------------------------------------+
+-    |             MHU HW on RSS side                 |
++    |             MHU HW on RSE side                 |
+     +------------------------------------------------+
+              |                        ^
+              | IRQ                    | Register access
+@@ -204,17 +204,17 @@ Software and API layers
+     +---------------+       +------------------------+
+ 
+ 
+-RSS based Measured Boot
++RSE based Measured Boot
+ -----------------------
+ 
+ Measured Boot is the process of cryptographically measuring (computing the hash
+ value of a binary) the code and critical data used at boot time. The
+ measurement must be stored in a tamper-resistant way, so the security state
+-of the device can be attested later to an external party. RSS provides a runtime
++of the device can be attested later to an external party. RSE provides a runtime
+ service which is meant to store measurements and associated metadata alongside.
+ 
+ Data is stored in internal SRAM which is only accessible by the secure runtime
+-firmware of RSS. Data is stored in so-called measurement slots. A platform has
++firmware of RSE. Data is stored in so-called measurement slots. A platform has
+ IMPDEF number of measurement slots. The measurement storage follows extend
+ semantics. This means that measurements are not stored directly (as it was
+ taken) instead they contribute to the current value of the measurement slot.
+@@ -236,7 +236,7 @@ Defined here:
+ .. code-block:: c
+ 
+     psa_status_t
+-    rss_measured_boot_extend_measurement(uint8_t        index,
++    rse_measured_boot_extend_measurement(uint8_t        index,
+                                          const uint8_t *signer_id,
+                                          size_t         signer_id_size,
+                                          const uint8_t *version,
+@@ -291,27 +291,27 @@ multiple times:
+ .. Note::
+ 
+     Extending multiple measurements in the same slot leads to some metadata
+-    information loss. Since RSS is not constrained on special HW resources to
++    information loss. Since RSE is not constrained on special HW resources to
+     store the measurements and metadata, therefore it is worth considering to
+     store all of them one by one in distinct slots. However, they are one-by-one
+     included in the platform attestation token. So, the number of distinct
+     firmware image measurements has an impact on the size of the attestation
+     token.
+ 
+-The allocation of the measurement slot among RSS, Root and Realm worlds is
++The allocation of the measurement slot among RSE, Root and Realm worlds is
+ platform dependent. The platform must provide an allocation of the measurement
+ slot at build time. An example can be found in
+ ``tf-a/plat/arm/board/tc/tc_bl1_measured_boot.c``
+ Furthermore, the memory, which holds the metadata is also statically allocated
+-in RSS memory. Some of the fields have a static value (measurement algorithm),
++in RSE memory. Some of the fields have a static value (measurement algorithm),
+ and some of the values have a dynamic value (measurement value) which is updated
+ by the bootloaders when the firmware image is loaded and measured. The metadata
+ structure is defined in
+-``include/drivers/measured_boot/rss/rss_measured_boot.h``.
++``include/drivers/measured_boot/rse/rse_measured_boot.h``.
+ 
+ .. code-block:: c
+ 
+-    struct rss_mboot_metadata {
++    struct rse_mboot_metadata {
+             unsigned int id;
+             uint8_t slot;
+             uint8_t signer_id[SIGNER_ID_MAX_SIZE];
+@@ -328,24 +328,24 @@ Signer-ID API
+ ^^^^^^^^^^^^^
+ 
+ This function calculates the hash of a public key (signer-ID) using the
+-``Measurement algorithm`` and stores it in the ``rss_mboot_metadata`` field
++``Measurement algorithm`` and stores it in the ``rse_mboot_metadata`` field
+ named ``signer_id``.
+ Prior to calling this function, the caller must ensure that the ``signer_id``
+ field points to the zero-filled buffer.
+ 
+ Defined here:
+ 
+-- ``include/drivers/measured_boot/rss/rss_measured_boot.h``
++- ``include/drivers/measured_boot/rse/rse_measured_boot.h``
+ 
+ .. code-block:: c
+ 
+-   int rss_mboot_set_signer_id(struct rss_mboot_metadata *metadata_ptr,
++   int rse_mboot_set_signer_id(struct rse_mboot_metadata *metadata_ptr,
+                                const void *pk_oid,
+                                const void *pk_ptr,
+                                size_t pk_len)
+ 
+ 
+-- First parameter is the pointer to the ``rss_mboot_metadata`` structure.
++- First parameter is the pointer to the ``rse_mboot_metadata`` structure.
+ - Second parameter is the pointer to the key-OID of the public key.
+ - Third parameter is the pointer to the public key buffer.
+ - Fourth parameter is the size of public key buffer.
+@@ -356,15 +356,15 @@ Build time config options
+ ^^^^^^^^^^^^^^^^^^^^^^^^^
+ 
+ - ``MEASURED_BOOT``: Enable measured boot. It depends on the platform
+-  implementation whether RSS or TPM (or both) backend based measured boot is
++  implementation whether RSE or TPM (or both) backend based measured boot is
+   enabled.
+-- ``MBOOT_RSS_HASH_ALG``: Determine the hash algorithm to measure the images.
++- ``MBOOT_RSE_HASH_ALG``: Determine the hash algorithm to measure the images.
+   The default value is sha-256.
+ 
+ Measured boot flow
+ ^^^^^^^^^^^^^^^^^^
+ 
+-.. figure:: ../resources/diagrams/rss_measured_boot_flow.svg
++.. figure:: ../resources/diagrams/rse_measured_boot_flow.svg
+   :align: center
+ 
+ Sample console log
+@@ -425,15 +425,15 @@ The detailed description of the delegated attestation service can be found in
+ the ``Delegated Attestation Service Integration Guide`` [4]_ document.
+ 
+ In the CCA use case, the Realm Management Monitor (RMM) relies on the delegated
+-attestation service of the RSS to get a realm attestation key and the CCA
++attestation service of the RSE to get a realm attestation key and the CCA
+ platform token. BL31 does not use the service for its own purpose, only calls
+-it on behalf of RMM. The access to MHU interface and thereby to RSS is
++it on behalf of RMM. The access to MHU interface and thereby to RSE is
+ restricted to BL31 only. Therefore, RMM does not have direct access, all calls
+ need to go through BL31. The RMM dispatcher module of the BL31 is responsible
+ for delivering the calls between the two parties.
+ 
+ .. Note::
+-     Currently the connection between the RMM dispatcher and the PSA/RSS layer
++     Currently the connection between the RMM dispatcher and the PSA/RSE layer
+      is not yet implemented. RMM dispatcher just returns hard coded data.
+ 
+ Delegated Attestation API
+@@ -445,7 +445,7 @@ Defined here:
+ .. code-block:: c
+ 
+     psa_status_t
+-    rss_delegated_attest_get_delegated_key(uint8_t   ecc_curve,
++    rse_delegated_attest_get_delegated_key(uint8_t   ecc_curve,
+                                            uint32_t  key_bits,
+                                            uint8_t  *key_buf,
+                                            size_t    key_buf_size,
+@@ -453,7 +453,7 @@ Defined here:
+                                            uint32_t  hash_algo);
+ 
+     psa_status_t
+-    rss_delegated_attest_get_token(const uint8_t *dak_pub_hash,
++    rse_delegated_attest_get_token(const uint8_t *dak_pub_hash,
+                                    size_t         dak_pub_hash_size,
+                                    uint8_t       *token_buf,
+                                    size_t         token_buf_size,
+@@ -462,7 +462,7 @@ Defined here:
+ Attestation flow
+ ^^^^^^^^^^^^^^^^
+ 
+-.. figure:: ../resources/diagrams/rss_attestation_flow.svg
++.. figure:: ../resources/diagrams/rse_attestation_flow.svg
+   :align: center
+ 
+ Sample attestation token
+@@ -623,27 +623,27 @@ JSON format:
+         "CCA_PLATFORM_VERIFICATION_SERVICE": "www.trustedfirmware.org"
+     }
+ 
+-RSS OTP Assets Management
++RSE OTP Assets Management
+ -------------------------
+ 
+-RSS provides access for AP to assets in OTP, which include keys for image
++RSE provides access for AP to assets in OTP, which include keys for image
+ signature verification and non-volatile counters for anti-rollback protection.
+ 
+ Non-Volatile Counter API
+ ^^^^^^^^^^^^^^^^^^^^^^^^
+ 
+-AP/RSS interface for retrieving and incrementing non-volatile counters API is
++AP/RSE interface for retrieving and incrementing non-volatile counters API is
+ as follows.
+ 
+ Defined here:
+ 
+-- ``include/lib/psa/rss_platform_api.h``
++- ``include/lib/psa/rse_platform_api.h``
+ 
+ .. code-block:: c
+ 
+-    psa_status_t rss_platform_nv_counter_increment(uint32_t counter_id)
++    psa_status_t rse_platform_nv_counter_increment(uint32_t counter_id)
+ 
+-    psa_status_t rss_platform_nv_counter_read(uint32_t counter_id,
++    psa_status_t rse_platform_nv_counter_read(uint32_t counter_id,
+             uint32_t size, uint8_t *val)
+ 
+ Through this service, we can read/increment any of the 3 non-volatile
+@@ -656,15 +656,15 @@ counters used on an Arm CCA platform:
+ Public Key API
+ ^^^^^^^^^^^^^^
+ 
+-AP/RSS interface for reading the ROTPK is as follows.
++AP/RSE interface for reading the ROTPK is as follows.
+ 
+ Defined here:
+ 
+-- ``include/lib/psa/rss_platform_api.h``
++- ``include/lib/psa/rse_platform_api.h``
+ 
+ .. code-block:: c
+ 
+-    psa_status_t rss_platform_key_read(enum rss_key_id_builtin_t key,
++    psa_status_t rse_platform_key_read(enum rse_key_id_builtin_t key,
+             uint8_t *data, size_t data_size, size_t *data_length)
+ 
+ Through this service, we can read any of the 3 ROTPKs used on an
+@@ -677,11 +677,11 @@ Arm CCA platform:
+ References
+ ----------
+ 
+-.. [1] https://tf-m-user-guide.trustedfirmware.org/platform/arm/rss/readme.html
+-.. [2] https://tf-m-user-guide.trustedfirmware.org/platform/arm/rss/rss_comms.html
++.. [1] https://tf-m-user-guide.trustedfirmware.org/platform/arm/rse/readme.html
++.. [2] https://tf-m-user-guide.trustedfirmware.org/platform/arm/rse/rse_comms.html
+ .. [3] https://git.trustedfirmware.org/TF-M/tf-m-extras.git/tree/partitions/measured_boot/measured_boot_integration_guide.rst
+ .. [4] https://git.trustedfirmware.org/TF-M/tf-m-extras.git/tree/partitions/delegated_attestation/delegated_attest_integration_guide.rst
+-.. [5] https://tf-m-user-guide.trustedfirmware.org/platform/arm/rss/rss_key_management.html
++.. [5] https://tf-m-user-guide.trustedfirmware.org/platform/arm/rse/rse_key_management.html
+ .. [6] https://developer.arm.com/-/media/Files/pdf/PlatformSecurityArchitecture/Architect/DEN0063-PSA_Firmware_Framework-1.0.0-2.pdf?revision=2d1429fa-4b5b-461a-a60e-4ef3d8f7f4b4&hash=3BFD6F3E687F324672F18E5BE9F08EDC48087C93
+ .. [7] https://developer.arm.com/documentation/DEN0096/A_a/?lang=en
+ 
+diff --git a/docs/porting-guide.rst b/docs/porting-guide.rst
+index 26833f6569..ff34188e78 100644
+--- a/docs/porting-guide.rst
++++ b/docs/porting-guide.rst
+@@ -256,10 +256,10 @@ likely to be suitable for all platform ports.
+ 
+    Defines the maximum address in secure RAM that the BL31 image can occupy.
+ 
+--  **#define : PLAT_RSS_COMMS_PAYLOAD_MAX_SIZE**
++-  **#define : PLAT_RSE_COMMS_PAYLOAD_MAX_SIZE**
+ 
+-   Defines the maximum message size between AP and RSS. Need to define if
+-   platform supports RSS.
++   Defines the maximum message size between AP and RSE. Need to define if
++   platform supports RSE.
+ 
+ For every image, the platform must define individual identifiers that will be
+ used by BL1 or BL2 to load the corresponding image into memory from non-volatile
+diff --git a/docs/resources/diagrams/plantuml/rse_attestation_flow.puml b/docs/resources/diagrams/plantuml/rse_attestation_flow.puml
+index aca5c01f33..9d7d780298 100644
+--- a/docs/resources/diagrams/plantuml/rse_attestation_flow.puml
++++ b/docs/resources/diagrams/plantuml/rse_attestation_flow.puml
+@@ -5,7 +5,7 @@ box AP
+ participant RMM
+ participant BL31
+ endbox
+-box RSS
++box RSE
+ participant DelegAttest
+ participant InitAttest
+ participant MeasuredBoot
+diff --git a/docs/resources/diagrams/plantuml/rse_measured_boot_flow.puml b/docs/resources/diagrams/plantuml/rse_measured_boot_flow.puml
+index 1aeb1a9f31..97af562704 100644
+--- a/docs/resources/diagrams/plantuml/rse_measured_boot_flow.puml
++++ b/docs/resources/diagrams/plantuml/rse_measured_boot_flow.puml
+@@ -1,11 +1,11 @@
+ @startuml
+ skinparam ParticipantPadding 10
+ skinparam BoxPadding 10
+-box RSS
+-participant RSS_BL1_1
+-participant RSS_BL1_2
+-participant RSS_BL2
+-participant RSS_S
++box RSE
++participant RSE_BL1_1
++participant RSE_BL1_2
++participant RSE_BL2
++participant RSE_S
+ endbox
+ box SCP
+ participant SCP_BL1
+@@ -16,64 +16,64 @@ participant AP_BL2
+ participant AP_BL31
+ endbox
+ 
+-== RSS Boot phase ==
+--> RSS_BL1_1: Reset
+-Rnote over RSS_BL1_1: ROM code, XIP
+-Rnote over RSS_BL1_2: OTP code, XIP
+-Rnote over RSS_BL2, AP_BL31: Stored in flash, loaded and executed in RAM
+-activate RSS_BL1_1 #Green
+-RSS_BL1_1 -->> RSS_BL1_2: Validate, measure
+-Rnote over RSS_BL1_1: BL1_2 measurement\n\ saved to a shared buffer
+-RSS_BL1_1 -> RSS_BL1_2: Pass execution
+-deactivate RSS_BL1_1
+-activate RSS_BL1_2 #Green
+-RSS_BL1_2 -->> RSS_BL2: Validate, measure, load
+-Rnote over RSS_BL1_2: RSS_BL2 measurement\n\ saved to a shared buffer
+-RSS_BL1_2 -> RSS_BL2: Pass execution
+-deactivate RSS_BL1_2
+-activate RSS_BL2 #Green
+-RSS_BL2 -->> RSS_S: Validate, measure, load
+-RSS_BL2 -->> SCP_BL1: Validate, measure, load
+-Rnote over RSS_BL2: RSS_S and SCP_BL1\n\ measurements saved\n\ to a shared buffer
+-RSS_BL2 -> SCP_BL1: Release from reset
++== RSE Boot phase ==
++-> RSE_BL1_1: Reset
++Rnote over RSE_BL1_1: ROM code, XIP
++Rnote over RSE_BL1_2: OTP code, XIP
++Rnote over RSE_BL2, AP_BL31: Stored in flash, loaded and executed in RAM
++activate RSE_BL1_1 #Green
++RSE_BL1_1 -->> RSE_BL1_2: Validate, measure
++Rnote over RSE_BL1_1: BL1_2 measurement\n\ saved to a shared buffer
++RSE_BL1_1 -> RSE_BL1_2: Pass execution
++deactivate RSE_BL1_1
++activate RSE_BL1_2 #Green
++RSE_BL1_2 -->> RSE_BL2: Validate, measure, load
++Rnote over RSE_BL1_2: RSE_BL2 measurement\n\ saved to a shared buffer
++RSE_BL1_2 -> RSE_BL2: Pass execution
++deactivate RSE_BL1_2
++activate RSE_BL2 #Green
++RSE_BL2 -->> RSE_S: Validate, measure, load
++RSE_BL2 -->> SCP_BL1: Validate, measure, load
++Rnote over RSE_BL2: RSE_S and SCP_BL1\n\ measurements saved\n\ to a shared buffer
++RSE_BL2 -> SCP_BL1: Release from reset
+ activate SCP_BL1 #Green
+-Rnote over RSS_BL2, SCP_BL1: MHU init between RSS and SCP
++Rnote over RSE_BL2, SCP_BL1: MHU init between RSE and SCP
+ Rnote over SCP_BL1: Configure memory
+-Rnote over RSS_BL2: Waits for SCP
+-SCP_BL1 --> RSS_BL2: Done
+-RSS_BL2 -->> AP_BL1: Validate, measure, load
+-Rnote over RSS_BL2: AP_BL1 measurement\n\ saved to a shared buffer
+-RSS_BL2 -> AP_BL1: Release from reset
++Rnote over RSE_BL2: Waits for SCP
++SCP_BL1 --> RSE_BL2: Done
++RSE_BL2 -->> AP_BL1: Validate, measure, load
++Rnote over RSE_BL2: AP_BL1 measurement\n\ saved to a shared buffer
++RSE_BL2 -> AP_BL1: Release from reset
+ activate AP_BL1 #Green
+-RSS_BL2 -> RSS_S: Pass execution
+-deactivate RSS_BL2
+-activate RSS_S #Green
+-Rnote over RSS_S: Measurements read from\n\ shared buffer and saved by\n\
++RSE_BL2 -> RSE_S: Pass execution
++deactivate RSE_BL2
++activate RSE_S #Green
++Rnote over RSE_S: Measurements read from\n\ shared buffer and saved by\n\
+ Measured Boot service to\n\ measurement slots.
+ 
+-== RSS Runtime / AP Boot phase ==
+-Rnote over RSS_S, AP_BL1: MHU init between RSS and AP
++== RSE Runtime / AP Boot phase ==
++Rnote over RSE_S, AP_BL1: MHU init between RSE and AP
+ Rnote over AP_BL1: Measure and load:\n\ FW_CONFIG\n\ TB_FW_CONFIG
+-AP_BL1 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL1 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ AP_BL1 -->> AP_BL2: Validate, measure,load
+-AP_BL1 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL1 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ AP_BL1 -> AP_BL2: Pass execution
+ deactivate AP_BL1
+ activate AP_BL2 #Green
+ Rnote over AP_BL2: Measure and load:\n\ HW_CONFIG
+-AP_BL2 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL2 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ AP_BL2 -->> AP_BL31: Validate, measure,load
+ Rnote over AP_BL2: Measure and load:\n\ BL31
+-AP_BL2 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL2 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ Rnote over AP_BL2: Measure and load:\n\ RMM
+-AP_BL2 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL2 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ AP_BL2 -> AP_BL31: Pass execution
+ deactivate AP_BL2
+ activate AP_BL31 #Green
+-== RSS / AP Runtime ==
++== RSE / AP Runtime ==
+ @enduml
+diff --git a/docs/resources/diagrams/plantuml/tfa_rse_dfd.puml b/docs/resources/diagrams/plantuml/tfa_rse_dfd.puml
+index a7e0ce5769..68a80bfdea 100644
+--- a/docs/resources/diagrams/plantuml/tfa_rse_dfd.puml
++++ b/docs/resources/diagrams/plantuml/tfa_rse_dfd.puml
+@@ -5,7 +5,7 @@
+  '/
+ 
+ /'
+-TF-A Data Flow Diagram including RSS
++TF-A Data Flow Diagram including RSE
+ '/
+ 
+ @startuml
+@@ -54,12 +54,12 @@ digraph tfa_dfd {
+             bl31 [label="TF-A Runtime\n(BL31)" fillcolor="#ddffb3"]
+         }
+ 
+-        # RSS cluster
+-        subgraph cluster_rss{
+-            label ="RSS";
++        # RSE cluster
++        subgraph cluster_rse{
++            label ="RSE";
+             graph [style=filled color="#000000" fillcolor="#faf9cd"]
+ 
+-            rss [label="Runtime Security\n\ Subsystem\n\ (RSS)" fillcolor="#ddffb3"]
++            rse [label="Runtime Security\n\ Subsystem\n\ (RSE)" fillcolor="#ddffb3"]
+         }
+     }
+ 
+@@ -70,7 +70,7 @@ digraph tfa_dfd {
+     sec -> bl2 [dir="both" lhead=cluster_tfa label="DF4"]
+     nsec -> bl1 [dir="both" lhead=cluster_tfa, label="DF5"]
+     bl2 ->  tzc [dir="both" ltail=cluster_tfa lhead=cluster_ip label="DF6" minlen=1]
+-    bl31 -> rss [dir="both" ltail=cluster_tfa lhead=cluster_rss label="DF7" minlen=1]
++    bl31 -> rse [dir="both" ltail=cluster_tfa lhead=cluster_rse label="DF7" minlen=1]
+ 
+ }
+ 
+diff --git a/docs/resources/diagrams/rse_attestation_flow.svg b/docs/resources/diagrams/rse_attestation_flow.svg
+index 3728c6fb76..7257576c3d 100644
+--- a/docs/resources/diagrams/rse_attestation_flow.svg
++++ b/docs/resources/diagrams/rse_attestation_flow.svg
+@@ -1,4 +1,4 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentStyleType="text/css" height="1087px" preserveAspectRatio="none" style="width:900px;height:1087px;background:#FFFFFF;" version="1.1" viewBox="0 0 900 1087" width="900px" zoomAndPan="magnify"><defs/><g><rect fill="#DDDDDD" height="1075.1719" style="stroke:#181818;stroke-width:0.5;" width="261.5" x="44" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="20" x="164.75" y="18.0669">AP</text><rect fill="#DDDDDD" height="1075.1719" style="stroke:#181818;stroke-width:0.5;" width="502" x="364" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="28" x="601" y="18.0669">RSS</text><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="82" x2="82" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="266.5" x2="266.5" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="426" x2="426" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="553.5" x2="553.5" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="705" x2="705" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="822" x2="822" y1="56.4297" y2="1046.875"/><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="48" x="58" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="34" x="65" y="45.1279">RMM</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="48" x="58" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="34" x="65" y="1065.8701">RMM</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="49" x="242.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="35" x="249.5" y="45.1279">BL31</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="49" x="242.5" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="35" x="249.5" y="1065.8701">BL31</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="96" x="378" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="82" x="385" y="45.1279">DelegAttest</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="96" x="378" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="82" x="385" y="1065.8701">DelegAttest</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="516.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="523.5" y="45.1279">InitAttest</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="516.5" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="523.5" y="1065.8701">InitAttest</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="116" x="647" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="102" x="654" y="45.1279">MeasuredBoot</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="116" x="647" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="102" x="654" y="1065.8701">MeasuredBoot</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="59" x="793" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="45" x="800" y="45.1279">Crypto</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="59" x="793" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="45" x="800" y="1065.8701">Crypto</text><rect fill="#EEEEEE" height="3" style="stroke:#EEEEEE;stroke-width:1.0;" width="893" x="0" y="86.9961"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="893" y1="86.9961" y2="86.9961"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="893" y1="89.9961" y2="89.9961"/><rect fill="#EEEEEE" height="23.1328" style="stroke:#000000;stroke-width:2.0;" width="144" x="374.5" y="76.4297"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="125" x="380.5" y="92.4966">RMM Boot phase</text><polygon fill="#181818" points="255,141.8281,265,145.8281,255,149.8281,259,145.8281" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="82" x2="261" y1="145.8281" y2="145.8281"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="99" x="89" y="125.6294">get_realm_key(</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="74" x="121" y="140.7622">hash_algo</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="25" x="195" y="140.7622">, ...)</text><polygon fill="#181818" points="414,170.9609,424,174.9609,414,178.9609,418,174.9609" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="267" x2="420" y1="174.9609" y2="174.9609"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="274" y="169.895">get_delegated_key</text><polygon fill="#181818" points="693,200.0938,703,204.0938,693,208.0938,697,204.0938" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="426" x2="699" y1="204.0938" y2="204.0938"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="127" x="433" y="199.0278">read_measurement</text><rect fill="#FEFFDD" height="53" style="stroke:#181818;stroke-width:0.5;" width="167" x="342" y="217.0938"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="95" x="346" y="233.1606">Compute input</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="110" x="346" y="248.2935">for key derivation</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="159" x="346" y="263.4263">(hash of measurements)</text><polygon fill="#181818" points="810.5,292.625,820.5,296.625,810.5,300.625,814.5,296.625" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="426" x2="816.5" y1="296.625" y2="296.625"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="68" x="433" y="291.5591">derive_key</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="150" x="351" y="309.625"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="126" x="355" y="325.6919">Compute public key</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="60" x="355" y="340.8247">hash with</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="74" x="419" y="340.8247">hash_algo</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="4" x="493" y="340.8247">.</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="132" x="756" y="357.8906"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="124" x="760" y="373.9575">Seed is provisioned</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="88" x="760" y="389.0903">in the factory.</text><polygon fill="#181818" points="278,418.2891,268,422.2891,278,426.2891,274,422.2891" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="272" x2="425" y1="422.2891" y2="422.2891"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="284" y="417.2231">get_delegated_key</text><polygon fill="#181818" points="93,447.4219,83,451.4219,93,455.4219,89,451.4219" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="87" x2="266" y1="451.4219" y2="451.4219"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="94" x="99" y="446.356">get_realm_key</text><rect fill="#FEFFDD" height="129" style="stroke:#181818;stroke-width:0.5;" width="154" x="5" y="464.4219"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="102" x="9" y="480.4888">Only private key</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="114" x="9" y="495.6216">is returned. Public</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="104" x="9" y="510.7544">key and its hash</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="126" x="9" y="525.8872">must be computed.</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="134" x="9" y="541.02">Public key is included</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="9" y="556.1528">in the realm token.</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="125" x="9" y="571.2856">Its hash is the input</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="146" x="9" y="586.4185">for get_platform_token</text><polygon fill="#181818" points="255,630.75,265,634.75,255,638.75,259,634.75" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="82" x2="261" y1="634.75" y2="634.75"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="130" x="89" y="614.5513">get_platform_token(</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="104" x="121" y="629.6841">pub_key_hash</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="25" x="225" y="629.6841">, ...)</text><polygon fill="#181818" points="414,659.8828,424,663.8828,414,667.8828,418,663.8828" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="267" x2="420" y1="663.8828" y2="663.8828"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="135" x="274" y="658.8169">get_delegated_token</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="155" x="348" y="676.8828"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="39" x="352" y="692.9497">Check</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="104" x="395" y="692.9497">pub_key_hash</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="352" y="708.0825">against derived key.</text><polygon fill="#181818" points="542,737.2813,552,741.2813,542,745.2813,546,741.2813" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="426" x2="548" y1="741.2813" y2="741.2813"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="104" x="433" y="736.2153">get_initial_token</text><rect fill="#FEFFDD" height="53" style="stroke:#181818;stroke-width:0.5;" width="181" x="463" y="754.2813"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="168" x="467" y="770.3481">Create the token including</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="21" x="467" y="785.481">the</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="104" x="492" y="785.481">pub_key_hash</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="40" x="600" y="785.481">as the</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="99" x="467" y="800.6138">challenge claim</text><polygon fill="#181818" points="693,829.8125,703,833.8125,693,837.8125,697,833.8125" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="554" x2="699" y1="833.8125" y2="833.8125"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="127" x="561" y="828.7466">read_measurement</text><polygon fill="#181818" points="810.5,858.9453,820.5,862.9453,810.5,866.9453,814.5,862.9453" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="554" x2="816.5" y1="862.9453" y2="862.9453"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="69" x="561" y="857.8794">sign_token</text><polygon fill="#181818" points="437,888.0781,427,892.0781,437,896.0781,433,892.0781" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="431" x2="553" y1="892.0781" y2="892.0781"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="104" x="443" y="887.0122">get_initial_token</text><polygon fill="#181818" points="278,917.2109,268,921.2109,278,925.2109,274,921.2109" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="272" x2="425" y1="921.2109" y2="921.2109"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="135" x="284" y="916.145">get_delegated_token</text><polygon fill="#181818" points="93,946.3438,83,950.3438,93,954.3438,89,950.3438" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="87" x2="266" y1="950.3438" y2="950.3438"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="125" x="99" y="945.2778">get_platform_token</text><rect fill="#FEFFDD" height="68" style="stroke:#181818;stroke-width:0.5;" width="116" x="24" y="963.3438"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="108" x="28" y="979.4106">Platform token is</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="28" y="994.5435">cached. It is not</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="98" x="28" y="1009.6763">changing within</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="90" x="28" y="1024.8091">a power cycle.</text><!--MD5=[84fabec568a656165bea957fac178b53]
++<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentStyleType="text/css" height="1087px" preserveAspectRatio="none" style="width:900px;height:1087px;background:#FFFFFF;" version="1.1" viewBox="0 0 900 1087" width="900px" zoomAndPan="magnify"><defs/><g><rect fill="#DDDDDD" height="1075.1719" style="stroke:#181818;stroke-width:0.5;" width="261.5" x="44" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="20" x="164.75" y="18.0669">AP</text><rect fill="#DDDDDD" height="1075.1719" style="stroke:#181818;stroke-width:0.5;" width="502" x="364" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="28" x="601" y="18.0669">RSE</text><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="82" x2="82" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="266.5" x2="266.5" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="426" x2="426" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="553.5" x2="553.5" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="705" x2="705" y1="56.4297" y2="1046.875"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="822" x2="822" y1="56.4297" y2="1046.875"/><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="48" x="58" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="34" x="65" y="45.1279">RMM</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="48" x="58" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="34" x="65" y="1065.8701">RMM</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="49" x="242.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="35" x="249.5" y="45.1279">BL31</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="49" x="242.5" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="35" x="249.5" y="1065.8701">BL31</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="96" x="378" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="82" x="385" y="45.1279">DelegAttest</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="96" x="378" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="82" x="385" y="1065.8701">DelegAttest</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="516.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="523.5" y="45.1279">InitAttest</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="516.5" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="523.5" y="1065.8701">InitAttest</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="116" x="647" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="102" x="654" y="45.1279">MeasuredBoot</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="116" x="647" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="102" x="654" y="1065.8701">MeasuredBoot</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="59" x="793" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="45" x="800" y="45.1279">Crypto</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="59" x="793" y="1045.875"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="45" x="800" y="1065.8701">Crypto</text><rect fill="#EEEEEE" height="3" style="stroke:#EEEEEE;stroke-width:1.0;" width="893" x="0" y="86.9961"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="893" y1="86.9961" y2="86.9961"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="893" y1="89.9961" y2="89.9961"/><rect fill="#EEEEEE" height="23.1328" style="stroke:#000000;stroke-width:2.0;" width="144" x="374.5" y="76.4297"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="125" x="380.5" y="92.4966">RMM Boot phase</text><polygon fill="#181818" points="255,141.8281,265,145.8281,255,149.8281,259,145.8281" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="82" x2="261" y1="145.8281" y2="145.8281"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="99" x="89" y="125.6294">get_realm_key(</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="74" x="121" y="140.7622">hash_algo</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="25" x="195" y="140.7622">, ...)</text><polygon fill="#181818" points="414,170.9609,424,174.9609,414,178.9609,418,174.9609" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="267" x2="420" y1="174.9609" y2="174.9609"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="274" y="169.895">get_delegated_key</text><polygon fill="#181818" points="693,200.0938,703,204.0938,693,208.0938,697,204.0938" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="426" x2="699" y1="204.0938" y2="204.0938"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="127" x="433" y="199.0278">read_measurement</text><rect fill="#FEFFDD" height="53" style="stroke:#181818;stroke-width:0.5;" width="167" x="342" y="217.0938"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="95" x="346" y="233.1606">Compute input</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="110" x="346" y="248.2935">for key derivation</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="159" x="346" y="263.4263">(hash of measurements)</text><polygon fill="#181818" points="810.5,292.625,820.5,296.625,810.5,300.625,814.5,296.625" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="426" x2="816.5" y1="296.625" y2="296.625"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="68" x="433" y="291.5591">derive_key</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="150" x="351" y="309.625"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="126" x="355" y="325.6919">Compute public key</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="60" x="355" y="340.8247">hash with</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="74" x="419" y="340.8247">hash_algo</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="4" x="493" y="340.8247">.</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="132" x="756" y="357.8906"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="124" x="760" y="373.9575">Seed is provisioned</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="88" x="760" y="389.0903">in the factory.</text><polygon fill="#181818" points="278,418.2891,268,422.2891,278,426.2891,274,422.2891" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="272" x2="425" y1="422.2891" y2="422.2891"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="284" y="417.2231">get_delegated_key</text><polygon fill="#181818" points="93,447.4219,83,451.4219,93,455.4219,89,451.4219" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="87" x2="266" y1="451.4219" y2="451.4219"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="94" x="99" y="446.356">get_realm_key</text><rect fill="#FEFFDD" height="129" style="stroke:#181818;stroke-width:0.5;" width="154" x="5" y="464.4219"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="102" x="9" y="480.4888">Only private key</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="114" x="9" y="495.6216">is returned. Public</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="104" x="9" y="510.7544">key and its hash</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="126" x="9" y="525.8872">must be computed.</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="134" x="9" y="541.02">Public key is included</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="9" y="556.1528">in the realm token.</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="125" x="9" y="571.2856">Its hash is the input</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="146" x="9" y="586.4185">for get_platform_token</text><polygon fill="#181818" points="255,630.75,265,634.75,255,638.75,259,634.75" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="82" x2="261" y1="634.75" y2="634.75"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="130" x="89" y="614.5513">get_platform_token(</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="104" x="121" y="629.6841">pub_key_hash</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="25" x="225" y="629.6841">, ...)</text><polygon fill="#181818" points="414,659.8828,424,663.8828,414,667.8828,418,663.8828" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="267" x2="420" y1="663.8828" y2="663.8828"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="135" x="274" y="658.8169">get_delegated_token</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="155" x="348" y="676.8828"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="39" x="352" y="692.9497">Check</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="104" x="395" y="692.9497">pub_key_hash</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="352" y="708.0825">against derived key.</text><polygon fill="#181818" points="542,737.2813,552,741.2813,542,745.2813,546,741.2813" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="426" x2="548" y1="741.2813" y2="741.2813"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="104" x="433" y="736.2153">get_initial_token</text><rect fill="#FEFFDD" height="53" style="stroke:#181818;stroke-width:0.5;" width="181" x="463" y="754.2813"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="168" x="467" y="770.3481">Create the token including</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="21" x="467" y="785.481">the</text><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="104" x="492" y="785.481">pub_key_hash</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="40" x="600" y="785.481">as the</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="99" x="467" y="800.6138">challenge claim</text><polygon fill="#181818" points="693,829.8125,703,833.8125,693,837.8125,697,833.8125" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="554" x2="699" y1="833.8125" y2="833.8125"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="127" x="561" y="828.7466">read_measurement</text><polygon fill="#181818" points="810.5,858.9453,820.5,862.9453,810.5,866.9453,814.5,862.9453" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="554" x2="816.5" y1="862.9453" y2="862.9453"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="69" x="561" y="857.8794">sign_token</text><polygon fill="#181818" points="437,888.0781,427,892.0781,437,896.0781,433,892.0781" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="431" x2="553" y1="892.0781" y2="892.0781"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="104" x="443" y="887.0122">get_initial_token</text><polygon fill="#181818" points="278,917.2109,268,921.2109,278,925.2109,274,921.2109" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="272" x2="425" y1="921.2109" y2="921.2109"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="135" x="284" y="916.145">get_delegated_token</text><polygon fill="#181818" points="93,946.3438,83,950.3438,93,954.3438,89,950.3438" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="87" x2="266" y1="950.3438" y2="950.3438"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="125" x="99" y="945.2778">get_platform_token</text><rect fill="#FEFFDD" height="68" style="stroke:#181818;stroke-width:0.5;" width="116" x="24" y="963.3438"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="108" x="28" y="979.4106">Platform token is</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="28" y="994.5435">cached. It is not</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="98" x="28" y="1009.6763">changing within</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="90" x="28" y="1024.8091">a power cycle.</text><!--MD5=[84fabec568a656165bea957fac178b53]
+ @startuml
+ skinparam ParticipantPadding 10
+ skinparam BoxPadding 10
+@@ -6,7 +6,7 @@ box AP
+ participant RMM
+ participant BL31
+ endbox
+-box RSS
++box RSE
+ participant DelegAttest
+ participant InitAttest
+ participant MeasuredBoot
+diff --git a/docs/resources/diagrams/rse_measured_boot_flow.svg b/docs/resources/diagrams/rse_measured_boot_flow.svg
+index f5bf311310..0ccfbc2de5 100644
+--- a/docs/resources/diagrams/rse_measured_boot_flow.svg
++++ b/docs/resources/diagrams/rse_measured_boot_flow.svg
+@@ -1,12 +1,12 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentStyleType="text/css" height="1826px" preserveAspectRatio="none" style="width:1254px;height:1826px;background:#FFFFFF;" version="1.1" viewBox="0 0 1254 1826" width="1254px" zoomAndPan="magnify"><defs/><g><rect fill="#DDDDDD" height="1814.0938" style="stroke:#181818;stroke-width:0.5;" width="610.5" x="27" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="28" x="318.25" y="18.0669">RSS</text><rect fill="#DDDDDD" height="1814.0938" style="stroke:#181818;stroke-width:0.5;" width="103" x="659.5" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="29" x="696.5" y="18.0669">SCP</text><rect fill="#DDDDDD" height="1814.0938" style="stroke:#181818;stroke-width:0.5;" width="451.5" x="784.5" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="20" x="1000.25" y="18.0669">AP</text><rect fill="#008000" height="205.9297" style="stroke:#181818;stroke-width:1.0;" width="10" x="81.5" y="130.6953"/><rect fill="#008000" height="106.5313" style="stroke:#181818;stroke-width:1.0;" width="10" x="227.5" y="336.625"/><rect fill="#008000" height="414.9922" style="stroke:#181818;stroke-width:1.0;" width="10" x="408.5" y="443.1563"/><rect fill="#008000" height="918.6484" style="stroke:#181818;stroke-width:1.0;" width="10" x="589.5" y="858.1484"/><rect fill="#008000" height="1182.8438" style="stroke:#181818;stroke-width:1.0;" width="10" x="706" y="593.9531"/><rect fill="#008000" height="460.3906" style="stroke:#181818;stroke-width:1.0;" width="10" x="826" y="829.0156"/><rect fill="#008000" height="435.2578" style="stroke:#181818;stroke-width:1.0;" width="10" x="1003" y="1289.4063"/><rect fill="#008000" height="52.1328" style="stroke:#181818;stroke-width:1.0;" width="10" x="1180" y="1724.6641"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="86" x2="86" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="232" x2="232" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="413" x2="413" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="594.5" x2="594.5" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="710.5" x2="710.5" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="830.5" x2="830.5" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="1007.5" x2="1007.5" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="1185" x2="1185" y1="56.4297" y2="1785.7969"/><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="91" x="41" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="77" x="48" y="45.1279">RSS_BL1_1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="91" x="41" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="77" x="48" y="1804.792">RSS_BL1_1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="91" x="187" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="77" x="194" y="45.1279">RSS_BL1_2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="91" x="187" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="77" x="194" y="1804.792">RSS_BL1_2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="376" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="383" y="45.1279">RSS_BL2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="376" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="383" y="1804.792">RSS_BL2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="58" x="565.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="44" x="572.5" y="45.1279">RSS_S</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="58" x="565.5" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="44" x="572.5" y="1804.792">RSS_S</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="673.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="680.5" y="45.1279">SCP_BL1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="673.5" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="680.5" y="1804.792">SCP_BL1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="65" x="798.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="51" x="805.5" y="45.1279">AP_BL1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="65" x="798.5" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="51" x="805.5" y="1804.792">AP_BL1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="65" x="975.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="51" x="982.5" y="45.1279">AP_BL2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="65" x="975.5" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="51" x="982.5" y="1804.792">AP_BL2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="74" x="1148" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="60" x="1155" y="45.1279">AP_BL31</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="74" x="1148" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="60" x="1155" y="1804.792">AP_BL31</text><rect fill="#008000" height="205.9297" style="stroke:#181818;stroke-width:1.0;" width="10" x="81.5" y="130.6953"/><rect fill="#008000" height="106.5313" style="stroke:#181818;stroke-width:1.0;" width="10" x="227.5" y="336.625"/><rect fill="#008000" height="414.9922" style="stroke:#181818;stroke-width:1.0;" width="10" x="408.5" y="443.1563"/><rect fill="#008000" height="918.6484" style="stroke:#181818;stroke-width:1.0;" width="10" x="589.5" y="858.1484"/><rect fill="#008000" height="1182.8438" style="stroke:#181818;stroke-width:1.0;" width="10" x="706" y="593.9531"/><rect fill="#008000" height="460.3906" style="stroke:#181818;stroke-width:1.0;" width="10" x="826" y="829.0156"/><rect fill="#008000" height="435.2578" style="stroke:#181818;stroke-width:1.0;" width="10" x="1003" y="1289.4063"/><rect fill="#008000" height="52.1328" style="stroke:#181818;stroke-width:1.0;" width="10" x="1180" y="1724.6641"/><rect fill="#EEEEEE" height="3" style="stroke:#EEEEEE;stroke-width:1.0;" width="1247" x="0" y="86.9961"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="86.9961" y2="86.9961"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="89.9961" y2="89.9961"/><rect fill="#EEEEEE" height="23.1328" style="stroke:#000000;stroke-width:2.0;" width="136" x="555.5" y="76.4297"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="117" x="561.5" y="92.4966">RSS Boot phase</text><polygon fill="#181818" points="69.5,126.6953,79.5,130.6953,69.5,134.6953,73.5,130.6953" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="0" x2="75.5" y1="130.6953" y2="130.6953"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="36" x="7" y="125.6294">Reset</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="99" x="37" y="143.6953"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="91" x="41" y="159.7622">ROM code, XIP</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="95" x="185" y="176.8281"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="87" x="189" y="192.895">OTP code, XIP</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="861" x="368" y="209.9609"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="281" x="658" y="226.0278">Stored in flash, loaded and executed in RAM</text><line style="stroke:#181818;stroke-width:1.0;" x1="230.5" x2="220.5" y1="259.2266" y2="255.2266"/><line style="stroke:#181818;stroke-width:1.0;" x1="230.5" x2="220.5" y1="259.2266" y2="263.2266"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="91.5" x2="231.5" y1="259.2266" y2="259.2266"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="117" x="98.5" y="254.1606">Validate, measure</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="164" x="5" y="272.2266"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="134" x="9" y="288.2935">BL1_2 measurement</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="156" x="9" y="303.4263">saved to a shared buffer</text><polygon fill="#181818" points="215.5,332.625,225.5,336.625,215.5,340.625,219.5,336.625" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="86.5" x2="221.5" y1="336.625" y2="336.625"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="93.5" y="331.5591">Pass execution</text><line style="stroke:#181818;stroke-width:1.0;" x1="411.5" x2="401.5" y1="365.7578" y2="361.7578"/><line style="stroke:#181818;stroke-width:1.0;" x1="411.5" x2="401.5" y1="365.7578" y2="369.7578"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="237.5" x2="412.5" y1="365.7578" y2="365.7578"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="244.5" y="360.6919">Validate, measure, load</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="164" x="150" y="378.7578"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="154" y="394.8247">RSS_BL2 measurement</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="156" x="154" y="409.9575">saved to a shared buffer</text><polygon fill="#181818" points="396.5,439.1563,406.5,443.1563,396.5,447.1563,400.5,443.1563" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="232.5" x2="402.5" y1="443.1563" y2="443.1563"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="239.5" y="438.0903">Pass execution</text><line style="stroke:#181818;stroke-width:1.0;" x1="592.5" x2="582.5" y1="472.2891" y2="468.2891"/><line style="stroke:#181818;stroke-width:1.0;" x1="592.5" x2="582.5" y1="472.2891" y2="476.2891"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="418.5" x2="593.5" y1="472.2891" y2="472.2891"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="425.5" y="467.2231">Validate, measure, load</text><line style="stroke:#181818;stroke-width:1.0;" x1="709" x2="699" y1="501.4219" y2="497.4219"/><line style="stroke:#181818;stroke-width:1.0;" x1="709" x2="699" y1="501.4219" y2="505.4219"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="418.5" x2="710" y1="501.4219" y2="501.4219"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="425.5" y="496.356">Validate, measure, load</text><rect fill="#FEFFDD" height="53" style="stroke:#181818;stroke-width:0.5;" width="148" x="339" y="514.4219"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="131" x="343" y="530.4888">RSS_S and SCP_BL1</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="140" x="343" y="545.6216">measurements saved</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="114" x="343" y="560.7544">to a shared buffer</text><polygon fill="#181818" points="694,589.9531,704,593.9531,694,597.9531,698,593.9531" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="418.5" x2="700" y1="593.9531" y2="593.9531"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="425.5" y="588.8872">Release from reset</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="387" x="368" y="606.9531"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="200" x="461.75" y="623.02">MHU init between RSS and SCP</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="127" x="647" y="640.0859"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="119" x="651" y="656.1528">Configure memory</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="93" x="367" y="673.2188"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="85" x="371" y="689.2856">Waits for SCP</text><polygon fill="#181818" points="429.5,718.4844,419.5,722.4844,429.5,726.4844,425.5,722.4844" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="423.5" x2="705" y1="722.4844" y2="722.4844"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="34" x="435.5" y="717.4185">Done</text><line style="stroke:#181818;stroke-width:1.0;" x1="829" x2="819" y1="751.6172" y2="747.6172"/><line style="stroke:#181818;stroke-width:1.0;" x1="829" x2="819" y1="751.6172" y2="755.6172"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="418.5" x2="830" y1="751.6172" y2="751.6172"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="425.5" y="746.5513">Validate, measure, load</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="164" x="331" y="764.6172"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="143" x="335" y="780.6841">AP_BL1 measurement</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="156" x="335" y="795.8169">saved to a shared buffer</text><polygon fill="#181818" points="814,825.0156,824,829.0156,814,833.0156,818,829.0156" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="418.5" x2="820" y1="829.0156" y2="829.0156"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="425.5" y="823.9497">Release from reset</text><polygon fill="#181818" points="577.5,854.1484,587.5,858.1484,577.5,862.1484,581.5,858.1484" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="413.5" x2="583.5" y1="858.1484" y2="858.1484"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="420.5" y="853.0825">Pass execution</text><rect fill="#FEFFDD" height="68" style="stroke:#181818;stroke-width:0.5;" width="182" x="503" y="871.1484"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="163" x="507" y="887.2153">Measurements read from</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="174" x="507" y="902.3481">shared buffer and saved by</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="163" x="507" y="917.481">Measured Boot service to</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="129" x="507" y="932.6138">measurement slots.</text><rect fill="#EEEEEE" height="3" style="stroke:#EEEEEE;stroke-width:1.0;" width="1247" x="0" y="965.2461"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="965.2461" y2="965.2461"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="968.2461" y2="968.2461"/><rect fill="#EEEEEE" height="23.1328" style="stroke:#000000;stroke-width:2.0;" width="237" x="505" y="954.6797"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="218" x="511" y="970.7466">RSS Runtime / AP Boot phase</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="313" x="556" y="992.8125"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="191" x="617" y="1008.8794">MHU init between RSS and AP</text><rect fill="#FEFFDD" height="53" style="stroke:#181818;stroke-width:0.5;" width="126" x="768" y="1025.9453"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="118" x="772" y="1042.0122">Measure and load:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="74" x="772" y="1057.145">FW_CONFIG</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="97" x="772" y="1072.2778">TB_FW_CONFIG</text><polygon fill="#181818" points="610.5,1101.4766,600.5,1105.4766,610.5,1109.4766,606.5,1105.4766" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="825" y1="1105.4766" y2="1105.4766"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1100.4106">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1118.4766"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1134.5435">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1149.6763">store measurement</text><line style="stroke:#181818;stroke-width:1.0;" x1="1006" x2="996" y1="1182.875" y2="1178.875"/><line style="stroke:#181818;stroke-width:1.0;" x1="1006" x2="996" y1="1182.875" y2="1186.875"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="836" x2="1007" y1="1182.875" y2="1182.875"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="148" x="843" y="1177.8091">Validate, measure,load</text><polygon fill="#181818" points="610.5,1208.0078,600.5,1212.0078,610.5,1216.0078,606.5,1212.0078" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="825" y1="1212.0078" y2="1212.0078"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1206.9419">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1225.0078"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1241.0747">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1256.2075">store measurement</text><polygon fill="#181818" points="991,1285.4063,1001,1289.4063,991,1293.4063,995,1289.4063" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="831" x2="997" y1="1289.4063" y2="1289.4063"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="838" y="1284.3403">Pass execution</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="126" x="945" y="1302.4063"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="118" x="949" y="1318.4731">Measure and load:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="77" x="949" y="1333.606">HW_CONFIG</text><polygon fill="#181818" points="610.5,1362.8047,600.5,1366.8047,610.5,1370.8047,606.5,1366.8047" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="1002" y1="1366.8047" y2="1366.8047"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1361.7388">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1379.8047"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1395.8716">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1411.0044">store measurement</text><line style="stroke:#181818;stroke-width:1.0;" x1="1183" x2="1173" y1="1444.2031" y2="1440.2031"/><line style="stroke:#181818;stroke-width:1.0;" x1="1183" x2="1173" y1="1444.2031" y2="1448.2031"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="1013" x2="1184" y1="1444.2031" y2="1444.2031"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="148" x="1020" y="1439.1372">Validate, measure,load</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="126" x="945" y="1457.2031"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="118" x="949" y="1473.27">Measure and load:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="32" x="949" y="1488.4028">BL31</text><polygon fill="#181818" points="610.5,1517.6016,600.5,1521.6016,610.5,1525.6016,606.5,1521.6016" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="1002" y1="1521.6016" y2="1521.6016"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1516.5356">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1534.6016"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1550.6685">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1565.8013">store measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="126" x="945" y="1582.8672"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="118" x="949" y="1598.9341">Measure and load:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="30" x="949" y="1614.0669">RMM</text><polygon fill="#181818" points="610.5,1643.2656,600.5,1647.2656,610.5,1651.2656,606.5,1647.2656" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="1002" y1="1647.2656" y2="1647.2656"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1642.1997">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1660.2656"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1676.3325">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1691.4653">store measurement</text><polygon fill="#181818" points="1168,1720.6641,1178,1724.6641,1168,1728.6641,1172,1724.6641" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="1008" x2="1174" y1="1724.6641" y2="1724.6641"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="1015" y="1719.5981">Pass execution</text><rect fill="#EEEEEE" height="3" style="stroke:#EEEEEE;stroke-width:1.0;" width="1247" x="0" y="1753.2305"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="1753.2305" y2="1753.2305"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="1756.2305" y2="1756.2305"/><rect fill="#EEEEEE" height="23.1328" style="stroke:#000000;stroke-width:2.0;" width="148" x="549.5" y="1742.6641"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="129" x="555.5" y="1758.731">RSS / AP Runtime</text><!--MD5=[e3f0ee259d2a4aa9c2a97ff856de0312]
++<?xml version="1.0" encoding="UTF-8" standalone="no"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" contentStyleType="text/css" height="1826px" preserveAspectRatio="none" style="width:1254px;height:1826px;background:#FFFFFF;" version="1.1" viewBox="0 0 1254 1826" width="1254px" zoomAndPan="magnify"><defs/><g><rect fill="#DDDDDD" height="1814.0938" style="stroke:#181818;stroke-width:0.5;" width="610.5" x="27" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="28" x="318.25" y="18.0669">RSE</text><rect fill="#DDDDDD" height="1814.0938" style="stroke:#181818;stroke-width:0.5;" width="103" x="659.5" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="29" x="696.5" y="18.0669">SCP</text><rect fill="#DDDDDD" height="1814.0938" style="stroke:#181818;stroke-width:0.5;" width="451.5" x="784.5" y="6"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="20" x="1000.25" y="18.0669">AP</text><rect fill="#008000" height="205.9297" style="stroke:#181818;stroke-width:1.0;" width="10" x="81.5" y="130.6953"/><rect fill="#008000" height="106.5313" style="stroke:#181818;stroke-width:1.0;" width="10" x="227.5" y="336.625"/><rect fill="#008000" height="414.9922" style="stroke:#181818;stroke-width:1.0;" width="10" x="408.5" y="443.1563"/><rect fill="#008000" height="918.6484" style="stroke:#181818;stroke-width:1.0;" width="10" x="589.5" y="858.1484"/><rect fill="#008000" height="1182.8438" style="stroke:#181818;stroke-width:1.0;" width="10" x="706" y="593.9531"/><rect fill="#008000" height="460.3906" style="stroke:#181818;stroke-width:1.0;" width="10" x="826" y="829.0156"/><rect fill="#008000" height="435.2578" style="stroke:#181818;stroke-width:1.0;" width="10" x="1003" y="1289.4063"/><rect fill="#008000" height="52.1328" style="stroke:#181818;stroke-width:1.0;" width="10" x="1180" y="1724.6641"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="86" x2="86" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="232" x2="232" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="413" x2="413" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="594.5" x2="594.5" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="710.5" x2="710.5" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="830.5" x2="830.5" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="1007.5" x2="1007.5" y1="56.4297" y2="1785.7969"/><line style="stroke:#181818;stroke-width:0.5;stroke-dasharray:5.0,5.0;" x1="1185" x2="1185" y1="56.4297" y2="1785.7969"/><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="91" x="41" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="77" x="48" y="45.1279">RSE_BL1_1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="91" x="41" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="77" x="48" y="1804.792">RSE_BL1_1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="91" x="187" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="77" x="194" y="45.1279">RSE_BL1_2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="91" x="187" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="77" x="194" y="1804.792">RSE_BL1_2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="376" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="383" y="45.1279">RSE_BL2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="376" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="383" y="1804.792">RSE_BL2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="58" x="565.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="44" x="572.5" y="45.1279">RSE_S</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="58" x="565.5" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="44" x="572.5" y="1804.792">RSE_S</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="673.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="680.5" y="45.1279">SCP_BL1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="75" x="673.5" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="61" x="680.5" y="1804.792">SCP_BL1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="65" x="798.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="51" x="805.5" y="45.1279">AP_BL1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="65" x="798.5" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="51" x="805.5" y="1804.792">AP_BL1</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="65" x="975.5" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="51" x="982.5" y="45.1279">AP_BL2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="65" x="975.5" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="51" x="982.5" y="1804.792">AP_BL2</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="74" x="1148" y="25.1328"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="60" x="1155" y="45.1279">AP_BL31</text><rect fill="#E2E2F0" height="30.2969" rx="2.5" ry="2.5" style="stroke:#181818;stroke-width:0.5;" width="74" x="1148" y="1784.7969"/><text fill="#000000" font-family="sans-serif" font-size="14" lengthAdjust="spacing" textLength="60" x="1155" y="1804.792">AP_BL31</text><rect fill="#008000" height="205.9297" style="stroke:#181818;stroke-width:1.0;" width="10" x="81.5" y="130.6953"/><rect fill="#008000" height="106.5313" style="stroke:#181818;stroke-width:1.0;" width="10" x="227.5" y="336.625"/><rect fill="#008000" height="414.9922" style="stroke:#181818;stroke-width:1.0;" width="10" x="408.5" y="443.1563"/><rect fill="#008000" height="918.6484" style="stroke:#181818;stroke-width:1.0;" width="10" x="589.5" y="858.1484"/><rect fill="#008000" height="1182.8438" style="stroke:#181818;stroke-width:1.0;" width="10" x="706" y="593.9531"/><rect fill="#008000" height="460.3906" style="stroke:#181818;stroke-width:1.0;" width="10" x="826" y="829.0156"/><rect fill="#008000" height="435.2578" style="stroke:#181818;stroke-width:1.0;" width="10" x="1003" y="1289.4063"/><rect fill="#008000" height="52.1328" style="stroke:#181818;stroke-width:1.0;" width="10" x="1180" y="1724.6641"/><rect fill="#EEEEEE" height="3" style="stroke:#EEEEEE;stroke-width:1.0;" width="1247" x="0" y="86.9961"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="86.9961" y2="86.9961"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="89.9961" y2="89.9961"/><rect fill="#EEEEEE" height="23.1328" style="stroke:#000000;stroke-width:2.0;" width="136" x="555.5" y="76.4297"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="117" x="561.5" y="92.4966">RSE Boot phase</text><polygon fill="#181818" points="69.5,126.6953,79.5,130.6953,69.5,134.6953,73.5,130.6953" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="0" x2="75.5" y1="130.6953" y2="130.6953"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="36" x="7" y="125.6294">Reset</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="99" x="37" y="143.6953"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="91" x="41" y="159.7622">ROM code, XIP</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="95" x="185" y="176.8281"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="87" x="189" y="192.895">OTP code, XIP</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="861" x="368" y="209.9609"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="281" x="658" y="226.0278">Stored in flash, loaded and executed in RAM</text><line style="stroke:#181818;stroke-width:1.0;" x1="230.5" x2="220.5" y1="259.2266" y2="255.2266"/><line style="stroke:#181818;stroke-width:1.0;" x1="230.5" x2="220.5" y1="259.2266" y2="263.2266"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="91.5" x2="231.5" y1="259.2266" y2="259.2266"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="117" x="98.5" y="254.1606">Validate, measure</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="164" x="5" y="272.2266"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="134" x="9" y="288.2935">BL1_2 measurement</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="156" x="9" y="303.4263">saved to a shared buffer</text><polygon fill="#181818" points="215.5,332.625,225.5,336.625,215.5,340.625,219.5,336.625" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="86.5" x2="221.5" y1="336.625" y2="336.625"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="93.5" y="331.5591">Pass execution</text><line style="stroke:#181818;stroke-width:1.0;" x1="411.5" x2="401.5" y1="365.7578" y2="361.7578"/><line style="stroke:#181818;stroke-width:1.0;" x1="411.5" x2="401.5" y1="365.7578" y2="369.7578"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="237.5" x2="412.5" y1="365.7578" y2="365.7578"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="244.5" y="360.6919">Validate, measure, load</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="164" x="150" y="378.7578"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="154" y="394.8247">RSE_BL2 measurement</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="156" x="154" y="409.9575">saved to a shared buffer</text><polygon fill="#181818" points="396.5,439.1563,406.5,443.1563,396.5,447.1563,400.5,443.1563" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="232.5" x2="402.5" y1="443.1563" y2="443.1563"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="239.5" y="438.0903">Pass execution</text><line style="stroke:#181818;stroke-width:1.0;" x1="592.5" x2="582.5" y1="472.2891" y2="468.2891"/><line style="stroke:#181818;stroke-width:1.0;" x1="592.5" x2="582.5" y1="472.2891" y2="476.2891"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="418.5" x2="593.5" y1="472.2891" y2="472.2891"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="425.5" y="467.2231">Validate, measure, load</text><line style="stroke:#181818;stroke-width:1.0;" x1="709" x2="699" y1="501.4219" y2="497.4219"/><line style="stroke:#181818;stroke-width:1.0;" x1="709" x2="699" y1="501.4219" y2="505.4219"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="418.5" x2="710" y1="501.4219" y2="501.4219"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="425.5" y="496.356">Validate, measure, load</text><rect fill="#FEFFDD" height="53" style="stroke:#181818;stroke-width:0.5;" width="148" x="339" y="514.4219"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="131" x="343" y="530.4888">RSE_S and SCP_BL1</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="140" x="343" y="545.6216">measurements saved</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="114" x="343" y="560.7544">to a shared buffer</text><polygon fill="#181818" points="694,589.9531,704,593.9531,694,597.9531,698,593.9531" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="418.5" x2="700" y1="593.9531" y2="593.9531"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="425.5" y="588.8872">Release from reset</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="387" x="368" y="606.9531"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="200" x="461.75" y="623.02">MHU init between RSE and SCP</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="127" x="647" y="640.0859"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="119" x="651" y="656.1528">Configure memory</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="93" x="367" y="673.2188"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="85" x="371" y="689.2856">Waits for SCP</text><polygon fill="#181818" points="429.5,718.4844,419.5,722.4844,429.5,726.4844,425.5,722.4844" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="423.5" x2="705" y1="722.4844" y2="722.4844"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="34" x="435.5" y="717.4185">Done</text><line style="stroke:#181818;stroke-width:1.0;" x1="829" x2="819" y1="751.6172" y2="747.6172"/><line style="stroke:#181818;stroke-width:1.0;" x1="829" x2="819" y1="751.6172" y2="755.6172"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="418.5" x2="830" y1="751.6172" y2="751.6172"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="152" x="425.5" y="746.5513">Validate, measure, load</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="164" x="331" y="764.6172"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="143" x="335" y="780.6841">AP_BL1 measurement</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="156" x="335" y="795.8169">saved to a shared buffer</text><polygon fill="#181818" points="814,825.0156,824,829.0156,814,833.0156,818,829.0156" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="418.5" x2="820" y1="829.0156" y2="829.0156"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="121" x="425.5" y="823.9497">Release from reset</text><polygon fill="#181818" points="577.5,854.1484,587.5,858.1484,577.5,862.1484,581.5,858.1484" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="413.5" x2="583.5" y1="858.1484" y2="858.1484"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="420.5" y="853.0825">Pass execution</text><rect fill="#FEFFDD" height="68" style="stroke:#181818;stroke-width:0.5;" width="182" x="503" y="871.1484"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="163" x="507" y="887.2153">Measurements read from</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="174" x="507" y="902.3481">shared buffer and saved by</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="163" x="507" y="917.481">Measured Boot service to</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="129" x="507" y="932.6138">measurement slots.</text><rect fill="#EEEEEE" height="3" style="stroke:#EEEEEE;stroke-width:1.0;" width="1247" x="0" y="965.2461"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="965.2461" y2="965.2461"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="968.2461" y2="968.2461"/><rect fill="#EEEEEE" height="23.1328" style="stroke:#000000;stroke-width:2.0;" width="237" x="505" y="954.6797"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="218" x="511" y="970.7466">RSE Runtime / AP Boot phase</text><rect fill="#FEFFDD" height="23" style="stroke:#181818;stroke-width:0.5;" width="313" x="556" y="992.8125"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="191" x="617" y="1008.8794">MHU init between RSE and AP</text><rect fill="#FEFFDD" height="53" style="stroke:#181818;stroke-width:0.5;" width="126" x="768" y="1025.9453"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="118" x="772" y="1042.0122">Measure and load:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="74" x="772" y="1057.145">FW_CONFIG</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="97" x="772" y="1072.2778">TB_FW_CONFIG</text><polygon fill="#181818" points="610.5,1101.4766,600.5,1105.4766,610.5,1109.4766,606.5,1105.4766" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="825" y1="1105.4766" y2="1105.4766"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1100.4106">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1118.4766"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1134.5435">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1149.6763">store measurement</text><line style="stroke:#181818;stroke-width:1.0;" x1="1006" x2="996" y1="1182.875" y2="1178.875"/><line style="stroke:#181818;stroke-width:1.0;" x1="1006" x2="996" y1="1182.875" y2="1186.875"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="836" x2="1007" y1="1182.875" y2="1182.875"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="148" x="843" y="1177.8091">Validate, measure,load</text><polygon fill="#181818" points="610.5,1208.0078,600.5,1212.0078,610.5,1216.0078,606.5,1212.0078" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="825" y1="1212.0078" y2="1212.0078"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1206.9419">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1225.0078"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1241.0747">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1256.2075">store measurement</text><polygon fill="#181818" points="991,1285.4063,1001,1289.4063,991,1293.4063,995,1289.4063" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="831" x2="997" y1="1289.4063" y2="1289.4063"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="838" y="1284.3403">Pass execution</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="126" x="945" y="1302.4063"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="118" x="949" y="1318.4731">Measure and load:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="77" x="949" y="1333.606">HW_CONFIG</text><polygon fill="#181818" points="610.5,1362.8047,600.5,1366.8047,610.5,1370.8047,606.5,1366.8047" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="1002" y1="1366.8047" y2="1366.8047"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1361.7388">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1379.8047"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1395.8716">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1411.0044">store measurement</text><line style="stroke:#181818;stroke-width:1.0;" x1="1183" x2="1173" y1="1444.2031" y2="1440.2031"/><line style="stroke:#181818;stroke-width:1.0;" x1="1183" x2="1173" y1="1444.2031" y2="1448.2031"/><line style="stroke:#181818;stroke-width:1.0;stroke-dasharray:2.0,2.0;" x1="1013" x2="1184" y1="1444.2031" y2="1444.2031"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="148" x="1020" y="1439.1372">Validate, measure,load</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="126" x="945" y="1457.2031"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="118" x="949" y="1473.27">Measure and load:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="32" x="949" y="1488.4028">BL31</text><polygon fill="#181818" points="610.5,1517.6016,600.5,1521.6016,610.5,1525.6016,606.5,1521.6016" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="1002" y1="1521.6016" y2="1521.6016"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1516.5356">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1534.6016"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1550.6685">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1565.8013">store measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="126" x="945" y="1582.8672"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="118" x="949" y="1598.9341">Measure and load:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="30" x="949" y="1614.0669">RMM</text><polygon fill="#181818" points="610.5,1643.2656,600.5,1647.2656,610.5,1651.2656,606.5,1647.2656" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="604.5" x2="1002" y1="1647.2656" y2="1647.2656"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="139" x="616.5" y="1642.1997">Extend measurement</text><rect fill="#FEFFDD" height="38" style="stroke:#181818;stroke-width:0.5;" width="136" x="526" y="1660.2656"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="101" x="530" y="1676.3325">Measured Boot:</text><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="128" x="530" y="1691.4653">store measurement</text><polygon fill="#181818" points="1168,1720.6641,1178,1724.6641,1168,1728.6641,1172,1724.6641" style="stroke:#181818;stroke-width:1.0;"/><line style="stroke:#181818;stroke-width:1.0;" x1="1008" x2="1174" y1="1724.6641" y2="1724.6641"/><text fill="#000000" font-family="sans-serif" font-size="13" lengthAdjust="spacing" textLength="96" x="1015" y="1719.5981">Pass execution</text><rect fill="#EEEEEE" height="3" style="stroke:#EEEEEE;stroke-width:1.0;" width="1247" x="0" y="1753.2305"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="1753.2305" y2="1753.2305"/><line style="stroke:#000000;stroke-width:1.0;" x1="0" x2="1247" y1="1756.2305" y2="1756.2305"/><rect fill="#EEEEEE" height="23.1328" style="stroke:#000000;stroke-width:2.0;" width="148" x="549.5" y="1742.6641"/><text fill="#000000" font-family="sans-serif" font-size="13" font-weight="bold" lengthAdjust="spacing" textLength="129" x="555.5" y="1758.731">RSE / AP Runtime</text><!--MD5=[e3f0ee259d2a4aa9c2a97ff856de0312]
+ @startuml
+ skinparam ParticipantPadding 10
+ skinparam BoxPadding 10
+-box RSS
+-participant RSS_BL1_1
+-participant RSS_BL1_2
+-participant RSS_BL2
+-participant RSS_S
++box RSE
++participant RSE_BL1_1
++participant RSE_BL1_2
++participant RSE_BL2
++participant RSE_S
+ endbox
+ box SCP
+ participant SCP_BL1
+@@ -17,65 +17,65 @@ participant AP_BL2
+ participant AP_BL31
+ endbox
+ 
+-== RSS Boot phase ==
+--> RSS_BL1_1: Reset
+-Rnote over RSS_BL1_1: ROM code, XIP
+-Rnote over RSS_BL1_2: OTP code, XIP
+-Rnote over RSS_BL2, AP_BL31: Stored in flash, loaded and executed in RAM
+-activate RSS_BL1_1 #Green
+-RSS_BL1_1 - ->> RSS_BL1_2: Validate, measure
+-Rnote over RSS_BL1_1: BL1_2 measurement\n\ saved to a shared buffer
+-RSS_BL1_1 -> RSS_BL1_2: Pass execution
+-deactivate RSS_BL1_1
+-activate RSS_BL1_2 #Green
+-RSS_BL1_2 - ->> RSS_BL2: Validate, measure, load
+-Rnote over RSS_BL1_2: RSS_BL2 measurement\n\ saved to a shared buffer
+-RSS_BL1_2 -> RSS_BL2: Pass execution
+-deactivate RSS_BL1_2
+-activate RSS_BL2 #Green
+-RSS_BL2 - ->> RSS_S: Validate, measure, load
+-RSS_BL2 - ->> SCP_BL1: Validate, measure, load
+-Rnote over RSS_BL2: RSS_S and SCP_BL1\n\ measurements saved\n\ to a shared buffer
+-RSS_BL2 -> SCP_BL1: Release from reset
++== RSE Boot phase ==
++-> RSE_BL1_1: Reset
++Rnote over RSE_BL1_1: ROM code, XIP
++Rnote over RSE_BL1_2: OTP code, XIP
++Rnote over RSE_BL2, AP_BL31: Stored in flash, loaded and executed in RAM
++activate RSE_BL1_1 #Green
++RSE_BL1_1 - ->> RSE_BL1_2: Validate, measure
++Rnote over RSE_BL1_1: BL1_2 measurement\n\ saved to a shared buffer
++RSE_BL1_1 -> RSE_BL1_2: Pass execution
++deactivate RSE_BL1_1
++activate RSE_BL1_2 #Green
++RSE_BL1_2 - ->> RSE_BL2: Validate, measure, load
++Rnote over RSE_BL1_2: RSE_BL2 measurement\n\ saved to a shared buffer
++RSE_BL1_2 -> RSE_BL2: Pass execution
++deactivate RSE_BL1_2
++activate RSE_BL2 #Green
++RSE_BL2 - ->> RSE_S: Validate, measure, load
++RSE_BL2 - ->> SCP_BL1: Validate, measure, load
++Rnote over RSE_BL2: RSE_S and SCP_BL1\n\ measurements saved\n\ to a shared buffer
++RSE_BL2 -> SCP_BL1: Release from reset
+ activate SCP_BL1 #Green
+-Rnote over RSS_BL2, SCP_BL1: MHU init between RSS and SCP
++Rnote over RSE_BL2, SCP_BL1: MHU init between RSE and SCP
+ Rnote over SCP_BL1: Configure memory
+-Rnote over RSS_BL2: Waits for SCP
+-SCP_BL1 - -> RSS_BL2: Done
+-RSS_BL2 - ->> AP_BL1: Validate, measure, load
+-Rnote over RSS_BL2: AP_BL1 measurement\n\ saved to a shared buffer
+-RSS_BL2 -> AP_BL1: Release from reset
++Rnote over RSE_BL2: Waits for SCP
++SCP_BL1 - -> RSE_BL2: Done
++RSE_BL2 - ->> AP_BL1: Validate, measure, load
++Rnote over RSE_BL2: AP_BL1 measurement\n\ saved to a shared buffer
++RSE_BL2 -> AP_BL1: Release from reset
+ activate AP_BL1 #Green
+-RSS_BL2 -> RSS_S: Pass execution
+-deactivate RSS_BL2
+-activate RSS_S #Green
+-Rnote over RSS_S: Measurements read from\n\ shared buffer and saved by\nMeasured Boot service to\n\ measurement slots.
++RSE_BL2 -> RSE_S: Pass execution
++deactivate RSE_BL2
++activate RSE_S #Green
++Rnote over RSE_S: Measurements read from\n\ shared buffer and saved by\nMeasured Boot service to\n\ measurement slots.
+ 
+-== RSS Runtime / AP Boot phase ==
+-Rnote over RSS_S, AP_BL1: MHU init between RSS and AP
++== RSE Runtime / AP Boot phase ==
++Rnote over RSE_S, AP_BL1: MHU init between RSE and AP
+ Rnote over AP_BL1: Measure and load:\n\ FW_CONFIG\n\ TB_FW_CONFIG
+-AP_BL1 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL1 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ AP_BL1 - ->> AP_BL2: Validate, measure,load
+-AP_BL1 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL1 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ AP_BL1 -> AP_BL2: Pass execution
+ deactivate AP_BL1
+ activate AP_BL2 #Green
+ Rnote over AP_BL2: Measure and load:\n\ HW_CONFIG
+-AP_BL2 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL2 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ AP_BL2 - ->> AP_BL31: Validate, measure,load
+ Rnote over AP_BL2: Measure and load:\n\ BL31
+-AP_BL2 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL2 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ Rnote over AP_BL2: Measure and load:\n\ RMM
+-AP_BL2 -> RSS_S: Extend measurement
+-Rnote over RSS_S: Measured Boot:\n\ store measurement
++AP_BL2 -> RSE_S: Extend measurement
++Rnote over RSE_S: Measured Boot:\n\ store measurement
+ AP_BL2 -> AP_BL31: Pass execution
+ deactivate AP_BL2
+ activate AP_BL31 #Green
+-== RSS / AP Runtime ==
++== RSE / AP Runtime ==
+ @enduml
+ 
+ PlantUML version 1.2022.7(Mon Aug 22 19:01:30 CEST 2022)
+diff --git a/docs/threat_model/threat_model_rse_interface.rst b/docs/threat_model/threat_model_rse_interface.rst
+index 4bceb631c4..1538758c24 100644
+--- a/docs/threat_model/threat_model_rse_interface.rst
++++ b/docs/threat_model/threat_model_rse_interface.rst
+@@ -1,41 +1,41 @@
+-Threat Model for RSS - AP interface
++Threat Model for RSE - AP interface
+ ***********************************
+ 
+ ************
+ Introduction
+ ************
+ This document is an extension for the general TF-A threat-model. It considers
+-those platforms where a Runtime Security Subsystem (RSS) is included in the SoC
++those platforms where a Runtime Security Engine (RSE) is included in the SoC
+ next to the Application Processor (AP).
+ 
+ ********************
+ Target of Evaluation
+ ********************
+-The scope of this threat model only includes the interface between the RSS and
++The scope of this threat model only includes the interface between the RSE and
+ AP. Otherwise, the TF-A :ref:`Generic Threat Model` document is applicable for
+-the AP core. The threat model for the RSS firmware will be provided by the RSS
++the AP core. The threat model for the RSE firmware will be provided by the RSE
+ firmware project in the future.
+ 
+ 
+ Data Flow Diagram
+ =================
+ This diagram is different only from the general TF-A data flow diagram in that
+-it includes the RSS and highlights the interface between the AP and the RSS
+-cores. The interface description only focuses on the AP-RSS interface the rest
++it includes the RSE and highlights the interface between the AP and the RSE
++cores. The interface description only focuses on the AP-RSE interface the rest
+ is the same as in the general TF-A threat-model document.
+ 
+-.. uml:: ../resources/diagrams/plantuml/tfa_rss_dfd.puml
+-  :caption: Figure 1: TF-A Data Flow Diagram including RSS
++.. uml:: ../resources/diagrams/plantuml/tfa_rse_dfd.puml
++  :caption: Figure 1: TF-A Data Flow Diagram including RSE
+ 
+-.. table:: Table 1: TF-A - RSS data flow diagram
++.. table:: Table 1: TF-A - RSE data flow diagram
+ 
+   +-----------------+--------------------------------------------------------+
+   | Diagram Element | Description                                            |
+   +=================+========================================================+
+-  |       DF7       | | Boot images interact with RSS over a communication   |
++  |       DF7       | | Boot images interact with RSE over a communication   |
+   |                 |   channel to record boot measurements and get image    |
+   |                 |   verification keys. At runtime, BL31 obtains the      |
+-  |                 |   realm world attestation signing key from RSS.        |
++  |                 |   realm world attestation signing key from RSE.        |
+   +-----------------+--------------------------------------------------------+
+ 
+ Threat Assessment
+@@ -44,16 +44,16 @@ For this section, please reference the Threat Assessment under the general TF-A
+ threat-model document, :ref:`Generic Threat Model`. All the threats listed there
+ are applicable for the AP core, here only the differences are highlighted.
+ 
+-    - ID 11: The access to the communication interface between AP and RSS is
++    - ID 11: The access to the communication interface between AP and RSE is
+       allowed only for firmware running at EL3. Accidentally exposing this
+-      interface to NSCode can allow malicious code to interact with RSS and
++      interface to NSCode can allow malicious code to interact with RSE and
+       gain access to sensitive data.
+     - ID 13: Relevant in the context of the realm attestation key, which can be
+-      retrieved by BL31 through DF7. The RSS communication protocol layer
++      retrieved by BL31 through DF7. The RSE communication protocol layer
+       mitigates against this by clearing its internal buffer when reply is
+       received. The caller of the API must do the same if data is not needed
+       anymore.
+ 
+ --------------
+ 
+-*Copyright (c) 2022, Arm Limited. All rights reserved.*
+\ No newline at end of file
++*Copyright (c) 2022, Arm Limited. All rights reserved.*
+-- 
+2.53.0
+

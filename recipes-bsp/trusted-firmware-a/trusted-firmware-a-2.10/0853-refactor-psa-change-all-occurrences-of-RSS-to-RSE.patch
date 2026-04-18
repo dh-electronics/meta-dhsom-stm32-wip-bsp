@@ -1,0 +1,448 @@
+From c1e911f69e833ed18c7e5b26ae0f1637c4800b83 Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@foss.st.com>
+Date: Wed, 12 Mar 2025 19:22:35 +0100
+Subject: [PATCH 853/954] refactor(psa): change all occurrences of RSS to RSE
+
+Changes all occurrences of "RSS" and "rss" in the code and build files
+to "RSE" and "rse".
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e01e5030f8478578152d5c9ad79f9d13ff7f2d24 refactor(psa): change all occurrences of RSS to RSE]
+Signed-off-by: Tamas Ban <tamas.ban@arm.com>
+Change-Id: I606e2663fb3719edf6372d6ffa4f1982eef45994
+(cherry picked from commit d797665ccef759852dff63bdb75898119577b524)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443845
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ include/lib/psa/delegated_attestation.h | 16 ++++++-------
+ include/lib/psa/measured_boot.h         |  6 ++---
+ include/lib/psa/psa_manifest/sid.h      | 14 +++++------
+ include/lib/psa/rse_crypto_defs.h       | 32 ++++++++++++-------------
+ include/lib/psa/rse_platform_api.h      | 18 +++++++-------
+ lib/psa/delegated_attestation.c         | 12 +++++-----
+ lib/psa/measured_boot.c                 | 10 ++++----
+ lib/psa/measured_boot_private.h         |  4 ++--
+ lib/psa/rse_platform.c                  | 26 ++++++++++----------
+ 9 files changed, 69 insertions(+), 69 deletions(-)
+
+diff --git a/include/lib/psa/delegated_attestation.h b/include/lib/psa/delegated_attestation.h
+index 7aaceb3e3d..ec49f5d395 100644
+--- a/include/lib/psa/delegated_attestation.h
++++ b/include/lib/psa/delegated_attestation.h
+@@ -15,9 +15,9 @@
+ 
+ #include "psa/error.h"
+ 
+-/* RSS Delegated Attestation message types that distinguish its services. */
+-#define RSS_DELEGATED_ATTEST_GET_DELEGATED_KEY      1001U
+-#define RSS_DELEGATED_ATTEST_GET_PLATFORM_TOKEN     1002U
++/* RSE Delegated Attestation message types that distinguish its services. */
++#define RSE_DELEGATED_ATTEST_GET_DELEGATED_KEY      1001U
++#define RSE_DELEGATED_ATTEST_GET_PLATFORM_TOKEN     1002U
+ 
+ /**
+  * The aim of these APIs to get a derived signing key (private only) for the
+@@ -28,13 +28,13 @@
+  * key is bind to the platform token (details below).
+  *
+  * Expected usage model:
+- *  - First rss_delegated_attest_get_delegated_key() API need to be called to
++ *  - First rse_delegated_attest_get_delegated_key() API need to be called to
+  *    obtain the private part of the delegated attestation key. The public part
+  *    of key is computed by the cryptographic library when the key is
+  *    registered.
+- *  - Secondly the rss_delegated_attest_get_token() must be called to obtain
++ *  - Secondly the rse_delegated_attest_get_token() must be called to obtain
+  *    platform attestation token. The hash of the public key (computed by
+- *    the hash_algo indicated in the rss_delegated_attest_get_delegated_key()
++ *    the hash_algo indicated in the rse_delegated_attest_get_delegated_key()
+  *    call) must be the input of this call. This ensures that nothing but the
+  *    previously derived delegated key is bindable to the platform token.
+  */
+@@ -74,7 +74,7 @@
+  *     platform attestation token as they are cryptographically linked together.
+  */
+ psa_status_t
+-rss_delegated_attest_get_delegated_key(uint8_t   ecc_curve,
++rse_delegated_attest_get_delegated_key(uint8_t   ecc_curve,
+ 				       uint32_t  key_bits,
+ 				       uint8_t  *key_buf,
+ 				       size_t    key_buf_size,
+@@ -100,7 +100,7 @@ rss_delegated_attest_get_delegated_key(uint8_t   ecc_curve,
+  * code will be returned.
+  */
+ psa_status_t
+-rss_delegated_attest_get_token(const uint8_t *dak_pub_hash,
++rse_delegated_attest_get_token(const uint8_t *dak_pub_hash,
+ 			       size_t         dak_pub_hash_size,
+ 			       uint8_t       *token_buf,
+ 			       size_t         token_buf_size,
+diff --git a/include/lib/psa/measured_boot.h b/include/lib/psa/measured_boot.h
+index af624a6fc6..44422ae26d 100644
+--- a/include/lib/psa/measured_boot.h
++++ b/include/lib/psa/measured_boot.h
+@@ -58,11 +58,11 @@
+  *	- When the requested slot is not accessible to the caller.
+  */
+ 
+-/* Not a standard PSA API, just an extension therefore use the 'rss_' prefix
++/* Not a standard PSA API, just an extension therefore use the 'rse_' prefix
+  * rather than the usual 'psa_'.
+  */
+ psa_status_t
+-rss_measured_boot_extend_measurement(uint8_t index,
++rse_measured_boot_extend_measurement(uint8_t index,
+ 				     const uint8_t *signer_id,
+ 				     size_t signer_id_size,
+ 				     const uint8_t *version,
+@@ -107,7 +107,7 @@ rss_measured_boot_extend_measurement(uint8_t index,
+  * PSA_ERROR_DOES_NOT_EXIST
+  *	- The requested slot is empty, does not contain a measurement.
+  */
+-psa_status_t rss_measured_boot_read_measurement(uint8_t index,
++psa_status_t rse_measured_boot_read_measurement(uint8_t index,
+ 					uint8_t *signer_id,
+ 					size_t signer_id_size,
+ 					size_t *signer_id_len,
+diff --git a/include/lib/psa/psa_manifest/sid.h b/include/lib/psa/psa_manifest/sid.h
+index 718311246a..47dbf0796a 100644
+--- a/include/lib/psa/psa_manifest/sid.h
++++ b/include/lib/psa/psa_manifest/sid.h
+@@ -8,16 +8,16 @@
+ #ifndef PSA_MANIFEST_SID_H
+ #define PSA_MANIFEST_SID_H
+ 
+-/******** RSS_SP_CRYPTO ********/
+-#define RSS_CRYPTO_HANDLE				(0x40000100U)
++/******** RSE_SP_CRYPTO ********/
++#define RSE_CRYPTO_HANDLE				(0x40000100U)
+ 
+-/******** RSS_SP_PLATFORM ********/
+-#define RSS_PLATFORM_SERVICE_HANDLE			(0x40000105U)
++/******** RSE_SP_PLATFORM ********/
++#define RSE_PLATFORM_SERVICE_HANDLE			(0x40000105U)
+ 
+ /******** PSA_SP_MEASURED_BOOT ********/
+-#define RSS_MEASURED_BOOT_HANDLE			(0x40000110U)
++#define RSE_MEASURED_BOOT_HANDLE			(0x40000110U)
+ 
+-/******** PSA_SP_DELAGATED_ATTESTATION ********/
+-#define RSS_DELEGATED_SERVICE_HANDLE			(0x40000111U)
++/******** PSA_SP_DELEGATED_ATTESTATION ********/
++#define RSE_DELEGATED_SERVICE_HANDLE			(0x40000111U)
+ 
+ #endif /* PSA_MANIFEST_SID_H */
+diff --git a/include/lib/psa/rse_crypto_defs.h b/include/lib/psa/rse_crypto_defs.h
+index 301dc05f99..44936b829a 100644
+--- a/include/lib/psa/rse_crypto_defs.h
++++ b/include/lib/psa/rse_crypto_defs.h
+@@ -5,8 +5,8 @@
+  *
+  */
+ 
+-#ifndef RSS_CRYPTO_DEFS_H
+-#define RSS_CRYPTO_DEFS_H
++#ifndef RSE_CRYPTO_DEFS_H
++#define RSE_CRYPTO_DEFS_H
+ 
+ /* Declares types that encode errors, algorithms, key types, policies, etc. */
+ #include "psa/crypto_types.h"
+@@ -16,31 +16,31 @@
+  * to the corresponding API implementation in the Crypto service backend.
+  *
+  */
+-#define RSS_CRYPTO_EXPORT_PUBLIC_KEY_SID	(uint16_t)(0x701)
++#define RSE_CRYPTO_EXPORT_PUBLIC_KEY_SID	(uint16_t)(0x701)
+ 
+ /*
+- * The persistent key identifiers for RSS builtin keys.
++ * The persistent key identifiers for RSE builtin keys.
+  */
+-enum rss_key_id_builtin_t {
+-	RSS_BUILTIN_KEY_ID_HOST_S_ROTPK = 0x7FFF816Cu,
+-	RSS_BUILTIN_KEY_ID_HOST_NS_ROTPK,
+-	RSS_BUILTIN_KEY_ID_HOST_CCA_ROTPK,
++enum rse_key_id_builtin_t {
++	RSE_BUILTIN_KEY_ID_HOST_S_ROTPK = 0x7FFF816Cu,
++	RSE_BUILTIN_KEY_ID_HOST_NS_ROTPK,
++	RSE_BUILTIN_KEY_ID_HOST_CCA_ROTPK,
+ };
+ 
+ /*
+- * This type is used to overcome a limitation within RSS firmware in the number of maximum
++ * This type is used to overcome a limitation within RSE firmware in the number of maximum
+  * IOVECs it can use especially in psa_aead_encrypt and psa_aead_decrypt.
+  */
+-#define RSS_CRYPTO_MAX_NONCE_LENGTH (16u)
+-struct rss_crypto_aead_pack_input {
+-	uint8_t nonce[RSS_CRYPTO_MAX_NONCE_LENGTH];
++#define RSE_CRYPTO_MAX_NONCE_LENGTH (16u)
++struct rse_crypto_aead_pack_input {
++	uint8_t nonce[RSE_CRYPTO_MAX_NONCE_LENGTH];
+ 	uint32_t nonce_length;
+ };
+ 
+ /*
+  * Structure used to pack non-pointer types in a call to PSA Crypto APIs
+  */
+-struct rss_crypto_pack_iovec {
++struct rse_crypto_pack_iovec {
+ 	psa_key_id_t key_id;		/* !< Key id */
+ 	psa_algorithm_t alg;		/* !< Algorithm */
+ 	uint32_t op_handle;		/*
+@@ -56,7 +56,7 @@ struct rss_crypto_pack_iovec {
+ 					 *    AEAD
+ 					 */
+ 
+-	struct rss_crypto_aead_pack_input aead_in; /*
++	struct rse_crypto_aead_pack_input aead_in; /*
+ 						    * !< Packs AEAD-related
+ 						    *    inputs
+ 						    */
+@@ -64,7 +64,7 @@ struct rss_crypto_pack_iovec {
+ 	uint16_t function_id;	/*
+ 				 * !< Used to identify the function in the
+ 				 *    API dispatcher to the service backend
+-				 *    See rss_crypto_func_sid for detail
++				 *    See rse_crypto_func_sid for detail
+ 				 */
+ 	uint16_t step;		/* !< Key derivation step */
+ 	union {
+@@ -76,4 +76,4 @@ struct rss_crypto_pack_iovec {
+ 	};
+ };
+ 
+-#endif /* RSS_CRYPTO_DEFS_H */
++#endif /* RSE_CRYPTO_DEFS_H */
+diff --git a/include/lib/psa/rse_platform_api.h b/include/lib/psa/rse_platform_api.h
+index 8f74a51fd4..535001bd66 100644
+--- a/include/lib/psa/rse_platform_api.h
++++ b/include/lib/psa/rse_platform_api.h
+@@ -5,16 +5,16 @@
+  *
+  */
+ 
+-#ifndef RSS_PLATFORM_API_H
+-#define RSS_PLATFORM_API_H
++#ifndef RSE_PLATFORM_API_H
++#define RSE_PLATFORM_API_H
+ 
+ #include <stdint.h>
+ 
+ #include "psa/error.h"
+-#include <rss_crypto_defs.h>
++#include <rse_crypto_defs.h>
+ 
+-#define RSS_PLATFORM_API_ID_NV_READ       (1010)
+-#define RSS_PLATFORM_API_ID_NV_INCREMENT  (1011)
++#define RSE_PLATFORM_API_ID_NV_READ       (1010)
++#define RSE_PLATFORM_API_ID_NV_INCREMENT  (1011)
+ 
+ /*
+  * Increments the given non-volatile (NV) counter by one
+@@ -25,7 +25,7 @@
+  *	it returns a PSA_ERROR.
+  */
+ psa_status_t
+-rss_platform_nv_counter_increment(uint32_t counter_id);
++rse_platform_nv_counter_increment(uint32_t counter_id);
+ 
+ /*
+  * Reads the given non-volatile (NV) counter
+@@ -39,7 +39,7 @@ rss_platform_nv_counter_increment(uint32_t counter_id);
+  *	it returns a PSA_ERROR.
+  */
+ psa_status_t
+-rss_platform_nv_counter_read(uint32_t counter_id,
++rse_platform_nv_counter_read(uint32_t counter_id,
+ 		uint32_t size, uint8_t *val);
+ 
+ /*
+@@ -54,7 +54,7 @@ rss_platform_nv_counter_read(uint32_t counter_id,
+  *	it returns a PSA_ERROR.
+  */
+ psa_status_t
+-rss_platform_key_read(enum rss_key_id_builtin_t key, uint8_t *data,
++rse_platform_key_read(enum rse_key_id_builtin_t key, uint8_t *data,
+ 		size_t data_size, size_t *data_length);
+ 
+-#endif /* RSS_PLATFORM_API_H */
++#endif /* RSE_PLATFORM_API_H */
+diff --git a/lib/psa/delegated_attestation.c b/lib/psa/delegated_attestation.c
+index 81e26215f7..805a94163c 100644
+--- a/lib/psa/delegated_attestation.c
++++ b/lib/psa/delegated_attestation.c
+@@ -10,7 +10,7 @@
+ #include <psa_manifest/sid.h>
+ 
+ psa_status_t
+-rss_delegated_attest_get_delegated_key(uint8_t   ecc_curve,
++rse_delegated_attest_get_delegated_key(uint8_t   ecc_curve,
+ 				       uint32_t  key_bits,
+ 				       uint8_t  *key_buf,
+ 				       size_t    key_buf_size,
+@@ -31,8 +31,8 @@ rss_delegated_attest_get_delegated_key(uint8_t   ecc_curve,
+ 		return PSA_ERROR_INVALID_ARGUMENT;
+ 	}
+ 
+-	status = psa_call(RSS_DELEGATED_SERVICE_HANDLE,
+-			  RSS_DELEGATED_ATTEST_GET_DELEGATED_KEY,
++	status = psa_call(RSE_DELEGATED_SERVICE_HANDLE,
++			  RSE_DELEGATED_ATTEST_GET_DELEGATED_KEY,
+ 			  in_vec,  IOVEC_LEN(in_vec),
+ 			  out_vec, IOVEC_LEN(out_vec));
+ 	if (status == PSA_SUCCESS) {
+@@ -43,7 +43,7 @@ rss_delegated_attest_get_delegated_key(uint8_t   ecc_curve,
+ }
+ 
+ psa_status_t
+-rss_delegated_attest_get_token(const uint8_t *dak_pub_hash,
++rse_delegated_attest_get_token(const uint8_t *dak_pub_hash,
+ 			       size_t         dak_pub_hash_size,
+ 			       uint8_t       *token_buf,
+ 			       size_t         token_buf_size,
+@@ -61,8 +61,8 @@ rss_delegated_attest_get_token(const uint8_t *dak_pub_hash,
+ 		return PSA_ERROR_INVALID_ARGUMENT;
+ 	}
+ 
+-	status = psa_call(RSS_DELEGATED_SERVICE_HANDLE,
+-			  RSS_DELEGATED_ATTEST_GET_PLATFORM_TOKEN,
++	status = psa_call(RSE_DELEGATED_SERVICE_HANDLE,
++			  RSE_DELEGATED_ATTEST_GET_PLATFORM_TOKEN,
+ 			  in_vec, IOVEC_LEN(in_vec),
+ 			  out_vec, IOVEC_LEN(out_vec));
+ 	if (status == PSA_SUCCESS) {
+diff --git a/lib/psa/measured_boot.c b/lib/psa/measured_boot.c
+index c359e9f858..a4a975998b 100644
+--- a/lib/psa/measured_boot.c
++++ b/lib/psa/measured_boot.c
+@@ -63,7 +63,7 @@ static void log_measurement(uint8_t index,
+ 
+ #if !PLAT_RSS_NOT_SUPPORTED
+ psa_status_t
+-rss_measured_boot_extend_measurement(uint8_t index,
++rse_measured_boot_extend_measurement(uint8_t index,
+ 				     const uint8_t *signer_id,
+ 				     size_t signer_id_size,
+ 				     const uint8_t *version,
+@@ -115,13 +115,13 @@ rss_measured_boot_extend_measurement(uint8_t index,
+ 			measurement_algo, measurement_value,
+ 			measurement_value_size, lock_measurement);
+ 
+-	return psa_call(RSS_MEASURED_BOOT_HANDLE,
+-			RSS_MEASURED_BOOT_EXTEND,
++	return psa_call(RSE_MEASURED_BOOT_HANDLE,
++			RSE_MEASURED_BOOT_EXTEND,
+ 			in_vec, IOVEC_LEN(in_vec),
+ 			NULL, 0);
+ }
+ 
+-psa_status_t rss_measured_boot_read_measurement(uint8_t index,
++psa_status_t rse_measured_boot_read_measurement(uint8_t index,
+ 					uint8_t *signer_id,
+ 					size_t signer_id_size,
+ 					size_t *signer_id_len,
+@@ -158,7 +158,7 @@ psa_status_t rss_measured_boot_read_measurement(uint8_t index,
+ 		{.base = measurement_value, .len = measurement_value_size}
+ 	};
+ 
+-	status = psa_call(RSS_MEASURED_BOOT_HANDLE, RSS_MEASURED_BOOT_READ,
++	status = psa_call(RSE_MEASURED_BOOT_HANDLE, RSE_MEASURED_BOOT_READ,
+ 					  in_vec, IOVEC_LEN(in_vec),
+ 					  out_vec, IOVEC_LEN(out_vec));
+ 
+diff --git a/lib/psa/measured_boot_private.h b/lib/psa/measured_boot_private.h
+index 80d2c19fa3..e6f7c74931 100644
+--- a/lib/psa/measured_boot_private.h
++++ b/lib/psa/measured_boot_private.h
+@@ -11,8 +11,8 @@
+ #include <stdint.h>
+ 
+ /* Measured boot message types that distinguish its services */
+-#define RSS_MEASURED_BOOT_READ		1001U
+-#define RSS_MEASURED_BOOT_EXTEND	1002U
++#define RSE_MEASURED_BOOT_READ		1001U
++#define RSE_MEASURED_BOOT_EXTEND	1002U
+ 
+ struct measured_boot_read_iovec_in_t {
+     uint8_t index;
+diff --git a/lib/psa/rse_platform.c b/lib/psa/rse_platform.c
+index 7d90bfce28..7fc2382064 100644
+--- a/lib/psa/rse_platform.c
++++ b/lib/psa/rse_platform.c
+@@ -7,24 +7,24 @@
+ 
+ #include <psa/client.h>
+ #include <psa_manifest/sid.h>
+-#include <rss_crypto_defs.h>
+-#include <rss_platform_api.h>
++#include <rse_crypto_defs.h>
++#include <rse_platform_api.h>
+ 
+ psa_status_t
+-rss_platform_nv_counter_increment(uint32_t counter_id)
++rse_platform_nv_counter_increment(uint32_t counter_id)
+ {
+ 	struct psa_invec in_vec[1];
+ 
+ 	in_vec[0].base = &counter_id;
+ 	in_vec[0].len = sizeof(counter_id);
+ 
+-	return psa_call(RSS_PLATFORM_SERVICE_HANDLE,
+-			RSS_PLATFORM_API_ID_NV_INCREMENT,
++	return psa_call(RSE_PLATFORM_SERVICE_HANDLE,
++			RSE_PLATFORM_API_ID_NV_INCREMENT,
+ 			in_vec, 1, NULL, 0);
+ }
+ 
+ psa_status_t
+-rss_platform_nv_counter_read(uint32_t counter_id,
++rse_platform_nv_counter_read(uint32_t counter_id,
+ 		uint32_t size, uint8_t *val)
+ {
+ 	struct psa_invec in_vec[1];
+@@ -36,30 +36,30 @@ rss_platform_nv_counter_read(uint32_t counter_id,
+ 	out_vec[0].base = val;
+ 	out_vec[0].len = size;
+ 
+-	return psa_call(RSS_PLATFORM_SERVICE_HANDLE,
+-			RSS_PLATFORM_API_ID_NV_READ,
++	return psa_call(RSE_PLATFORM_SERVICE_HANDLE,
++			RSE_PLATFORM_API_ID_NV_READ,
+ 			in_vec, 1, out_vec, 1);
+ }
+ 
+ psa_status_t
+-rss_platform_key_read(enum rss_key_id_builtin_t key, uint8_t *data,
++rse_platform_key_read(enum rse_key_id_builtin_t key, uint8_t *data,
+ 		size_t data_size, size_t *data_length)
+ {
+ 	psa_status_t status;
+ 
+-	struct rss_crypto_pack_iovec iov = {
+-		.function_id = RSS_CRYPTO_EXPORT_PUBLIC_KEY_SID,
++	struct rse_crypto_pack_iovec iov = {
++		.function_id = RSE_CRYPTO_EXPORT_PUBLIC_KEY_SID,
+ 		.key_id = key,
+ 	};
+ 
+ 	psa_invec in_vec[] = {
+-		{.base = &iov, .len = sizeof(struct rss_crypto_pack_iovec)},
++		{.base = &iov, .len = sizeof(struct rse_crypto_pack_iovec)},
+ 	};
+ 	psa_outvec out_vec[] = {
+ 		{.base = data, .len = data_size}
+ 	};
+ 
+-	status = psa_call(RSS_CRYPTO_HANDLE, PSA_IPC_CALL,
++	status = psa_call(RSE_CRYPTO_HANDLE, PSA_IPC_CALL,
+ 			in_vec, IOVEC_LEN(in_vec),
+ 			out_vec, IOVEC_LEN(out_vec));
+ 
+-- 
+2.53.0
+
