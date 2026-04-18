@@ -1,7 +1,7 @@
-From 549e23f5f5bdbf6b179f421b61e3578b7cbaf3e0 Mon Sep 17 00:00:00 2001
+From d0887eadf56f85767b1049842f0c736d5b86f124 Mon Sep 17 00:00:00 2001
 From: Christophe Kerello <christophe.kerello@foss.st.com>
 Date: Mon, 11 Sep 2023 11:05:32 +0200
-Subject: [PATCH 335/841] feat(stm32mp2): add hyperflash support
+Subject: [PATCH 335/954] feat(stm32mp2): add hyperflash support
 
 STM32MP2 platform is able to boot from hyperflash devices.
 The patch adds all the configurations needed for hyperflash devices.
@@ -28,7 +28,7 @@ Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
  8 files changed, 151 insertions(+), 33 deletions(-)
 
 diff --git a/docs/plat/st/stm32mpus.rst b/docs/plat/st/stm32mpus.rst
-index 63840bdb3..7a3ea1547 100644
+index 63840bdb3f..7a3ea15475 100644
 --- a/docs/plat/st/stm32mpus.rst
 +++ b/docs/plat/st/stm32mpus.rst
 @@ -39,6 +39,7 @@ Available storage medias are:
@@ -40,7 +40,7 @@ index 63840bdb3..7a3ea1547 100644
  Serial boot devices:
  
 diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
-index 134969c91..6f1f474b7 100644
+index 134969c915..6f1f474b7b 100644
 --- a/plat/st/common/bl2_io_storage.c
 +++ b/plat/st/common/bl2_io_storage.c
 @@ -13,6 +13,9 @@
@@ -187,7 +187,7 @@ index 134969c91..6f1f474b7 100644
  	*handle = *policy->dev_handle;
  
 diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
-index 5079bfe72..4d1b0a2df 100644
+index 5079bfe725..4d1b0a2df3 100644
 --- a/plat/st/common/common.mk
 +++ b/plat/st/common/common.mk
 @@ -62,6 +62,7 @@ STM32MP_SDMMC			?=	0
@@ -229,7 +229,7 @@ index 5079bfe72..4d1b0a2df 100644
  BL2_SOURCES			+=	drivers/io/io_memmap.c
  endif
 diff --git a/plat/st/common/common_rules.mk b/plat/st/common/common_rules.mk
-index 659d8b9fa..59f096307 100644
+index 659d8b9fa1..59f096307c 100644
 --- a/plat/st/common/common_rules.mk
 +++ b/plat/st/common/common_rules.mk
 @@ -20,6 +20,7 @@ check_boot_device:
@@ -241,7 +241,7 @@ index 659d8b9fa..59f096307 100644
  	    [ ${STM32MP_USB_PROGRAMMER} != 1 ]; then \
  		echo "No boot device driver is enabled"; \
 diff --git a/plat/st/common/include/stm32mp_io_storage.h b/plat/st/common/include/stm32mp_io_storage.h
-index ce0d64714..91c66c7d0 100644
+index ce0d647149..91c66c7d06 100644
 --- a/plat/st/common/include/stm32mp_io_storage.h
 +++ b/plat/st/common/include/stm32mp_io_storage.h
 @@ -13,39 +13,54 @@
@@ -340,7 +340,7 @@ index ce0d64714..91c66c7d0 100644
  /* IO devices handle */
  extern uintptr_t storage_dev_handle;
 diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
-index 1c96da587..c90778b03 100644
+index 1c96da587b..c90778b032 100644
 --- a/plat/st/stm32mp2/platform.mk
 +++ b/plat/st/stm32mp2/platform.mk
 @@ -198,11 +198,11 @@ ifeq (${STM32MP_RAW_NAND},1)
@@ -359,7 +359,7 @@ index 1c96da587..c90778b03 100644
  endif
  
 diff --git a/plat/st/stm32mp2/stm32mp2_boot_device.c b/plat/st/stm32mp2/stm32mp2_boot_device.c
-index 8ca9b8b31..5fbea453c 100644
+index 8ca9b8b311..5fbea453cf 100644
 --- a/plat/st/stm32mp2/stm32mp2_boot_device.c
 +++ b/plat/st/stm32mp2/stm32mp2_boot_device.c
 @@ -7,6 +7,7 @@
@@ -384,7 +384,7 @@ index 8ca9b8b31..5fbea453c 100644
 +}
 +#endif
 diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
-index c8d380583..f6b17e3ca 100644
+index c8d3805834..f6b17e3ca2 100644
 --- a/plat/st/stm32mp2/stm32mp2_syscfg.c
 +++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
 @@ -174,7 +174,7 @@ void stm32mp2_syscfg_enable_io_compensation(enum syscfg_io_ids id)
@@ -397,5 +397,5 @@ index c8d380583..f6b17e3ca 100644
   * SYSCFG DLYBOS register offsets (base relative)
   */
 -- 
-2.47.2
+2.53.0
 

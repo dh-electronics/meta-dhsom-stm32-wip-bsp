@@ -1,0 +1,98 @@
+From 1139f1ac9dee607f8ddd2db36a0227b78e3f55e1 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Fri, 4 Apr 2025 18:35:45 +0200
+Subject: [PATCH 866/954] fix(stm32mp2): reorder DDR3 and DDR4 power supply
+ sequences
+
+DDR power supply sequence has to respect the order described in the
+specification.
+Expected DDR3 order must be VREF / VTT / VDD.
+Expected DDR4 order must be VPP / VREF / VTT / VDD.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ef4d47514a1ca1410795f60d8a7dde02dc2bf799 fix(stm32mp2): reorder DDR3 and DDR4 power supply sequences]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: I4dad32aad9f96f68d8c5e38a90c31c21badec1c2
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/449650
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/plat_ddr.c | 19 +++++++++----------
+ 1 file changed, 9 insertions(+), 10 deletions(-)
+
+diff --git a/plat/st/stm32mp2/plat_ddr.c b/plat/st/stm32mp2/plat_ddr.c
+index 2691ea00b0..ffd7aca96c 100644
+--- a/plat/st/stm32mp2/plat_ddr.c
++++ b/plat/st/stm32mp2/plat_ddr.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2023-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2023-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -42,24 +42,24 @@ static int ddr_power_init(void *fdt, int node)
+ 
+ 	/*
+ 	 * DDR3 power on sequence is:
+-	 * enable VREF_DDR, VTT_DDR, VPP_DDR
++	 * enable VREF_DDR, VTT_DDR, VDD_DDR
+ 	 */
+ 	status = regulator_set_min_voltage(supply.vdd);
+ 	if (status != 0) {
+ 		return status;
+ 	}
+ 
+-	status = regulator_enable(supply.vdd);
++	status = regulator_enable(supply.vref);
+ 	if (status != 0) {
+ 		return status;
+ 	}
+ 
+-	status = regulator_enable(supply.vref);
++	status = regulator_enable(supply.vtt);
+ 	if (status != 0) {
+ 		return status;
+ 	}
+ 
+-	return regulator_enable(supply.vtt);
++	return regulator_enable(supply.vdd);
+ }
+ #endif /* STM32MP_DDR3_TYPE */
+ 
+@@ -92,8 +92,7 @@ static int ddr_power_init(void *fdt, int node)
+ 
+ 	/*
+ 	 * DDR4 power on sequence is:
+-	 * enable VPP_DDR
+-	 * enable VREF_DDR, VTT_DDR, VPP_DDR
++	 * enable VPP_DDR, VREF_DDR, VTT_DDR, VDD_DDR
+ 	 */
+ 	status = regulator_set_min_voltage(supply.vpp);
+ 	if (status != 0) {
+@@ -110,17 +109,17 @@ static int ddr_power_init(void *fdt, int node)
+ 		return status;
+ 	}
+ 
+-	status = regulator_enable(supply.vdd);
++	status = regulator_enable(supply.vref);
+ 	if (status != 0) {
+ 		return status;
+ 	}
+ 
+-	status = regulator_enable(supply.vref);
++	status = regulator_enable(supply.vtt);
+ 	if (status != 0) {
+ 		return status;
+ 	}
+ 
+-	return regulator_enable(supply.vtt);
++	return regulator_enable(supply.vdd);
+ }
+ #endif /* STM32MP_DDR4_TYPE */
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,86 @@
+From 915b8b1d44cf9f6f661cf86802e583c0eb74c644 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 15 Mar 2024 17:49:37 +0100
+Subject: [PATCH 630/954] feat(st-clk): add dmb/dsb in clock driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add barriers in the clock drivers.
+Even if peripheral memory is non-cacheable and the order of operations
+sent on the bus is guaranteed, there is no guarantee regarding the order
+of reception on the device. This implies that the order of accesses
+arriving at the device memory is guaranteed only within the same
+peripheral.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 40f572139e53de567551fbede1cc0ba889616c53 feat(st-clk): add dmb/dsb in clock driver]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ie37409173a3e3f4f4acf96a5ada8ae1b5a0c6784
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/367653
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/386061
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ drivers/st/clk/clk-stm32-core.c | 6 ++++++
+ drivers/st/clk/stm32mp1_clk.c   | 4 ++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/drivers/st/clk/clk-stm32-core.c b/drivers/st/clk/clk-stm32-core.c
+index ff7a91e707..2976b4b5c0 100644
+--- a/drivers/st/clk/clk-stm32-core.c
++++ b/drivers/st/clk/clk-stm32-core.c
+@@ -163,6 +163,8 @@ static int clk_gate_enable(struct stm32_clk_priv *priv, int id)
+ 
+ 	mmio_setbits_32(priv->base + cfg->offset, BIT(cfg->bit_idx));
+ 
++	dsb(); /* Make sure the clock is enabled.  */
++
+ 	return 0;
+ }
+ 
+@@ -171,7 +173,11 @@ static void clk_gate_disable(struct stm32_clk_priv *priv, int id)
+ 	const struct clk_stm32 *clk = _clk_get(priv, id);
+ 	struct clk_gate_cfg *cfg = clk->clock_cfg;
+ 
++	dsb(); /* Ensure prebious transaction are performed before stop.  */
++
+ 	mmio_clrbits_32(priv->base + cfg->offset, BIT(cfg->bit_idx));
++
++	dsb(); /* Make sure the clock is disabled.  */
+ }
+ 
+ static bool clk_gate_is_enabled(struct stm32_clk_priv *priv, int id)
+diff --git a/drivers/st/clk/stm32mp1_clk.c b/drivers/st/clk/stm32mp1_clk.c
+index 2be17306f4..512bc72a6f 100644
+--- a/drivers/st/clk/stm32mp1_clk.c
++++ b/drivers/st/clk/stm32mp1_clk.c
+@@ -1312,6 +1312,7 @@ static void __clk_enable(struct stm32mp1_clk_gate const *gate)
+ 	} else {
+ 		mmio_setbits_32(rcc_base + gate->offset, BIT(gate->bit));
+ 	}
++	dsb(); /* Make sure the write operation are done before continue. */
+ }
+ 
+ static void __clk_disable(struct stm32mp1_clk_gate const *gate)
+@@ -1320,12 +1321,15 @@ static void __clk_disable(struct stm32mp1_clk_gate const *gate)
+ 
+ 	VERBOSE("Disable clock %u\n", gate->index);
+ 
++	dsb(); /* Waiting pending operation before disabling clock  */
++
+ 	if (gate->set_clr != 0U) {
+ 		mmio_write_32(rcc_base + gate->offset + RCC_MP_ENCLRR_OFFSET,
+ 			      BIT(gate->bit));
+ 	} else {
+ 		mmio_clrbits_32(rcc_base + gate->offset, BIT(gate->bit));
+ 	}
++	dsb(); /* Make sure the write operation are done before continue. */
+ }
+ 
+ static bool __clk_is_enabled(struct stm32mp1_clk_gate const *gate)
+-- 
+2.53.0
+

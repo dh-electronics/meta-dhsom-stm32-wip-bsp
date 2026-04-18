@@ -1,0 +1,70 @@
+From d71b6f52b81a1d9af4ea0b34e239b84c796e3212 Mon Sep 17 00:00:00 2001
+From: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Date: Tue, 20 Aug 2024 16:34:35 +0200
+Subject: [PATCH 674/954] feat(st): allow SRAM1 secure accesses earlier in
+ bl2_el3_plat_arch_setup()
+
+In order to initialize some of the peripherals, secure read and write
+accesses must be granted for the SRAM1 earlier when setting up the BL2.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 43107a2374cf3adadcaa65850f4f9260e25be39f feat(st): allow SRAM1 secure accesses earlier in bl2_el3_plat_arch_setup()]
+Signed-off-by: Gatien Chevallier <gatien.chevallier@foss.st.com>
+Change-Id: I182f1369e2b8715aaea7b66f3ff345fe0b8e3749
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/399210
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Gatien CHEVALLIER <gatien.chevallier@st.com>
+---
+ plat/st/stm32mp2/bl2_plat_setup.c | 26 +++++++++++++-------------
+ 1 file changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index b7b3ffc5b0..16a7734de6 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -406,6 +406,19 @@ void bl2_el3_plat_arch_setup(void)
+ 		panic();
+ 	}
+ 
++#if STM32MP_DDR_FIP_IO_STORAGE || TRUSTED_BOARD_BOOT
++#if !STM32MP_M33_TDCID
++	/*
++	 * RISAB3 setup (dedicated for SRAM1)
++	 *
++	 * Allow secure read/writes data accesses to non-secure
++	 * blocks or pages, all RISAB registers are writable.
++	 * DDR firmwares are saved there before being loaded in DDRPHY memory.
++	 */
++	mmio_write_32(RISAB3_BASE + RISAB_CR, RISAB_CR_SRWIAD);
++#endif
++#endif /* STM32MP_DDR_FIP_IO_STORAGE || TRUSTED_BOARD_BOOT */
++
+ 	if (stm32_tamp_nvram_init() < 0) {
+ 		panic();
+ 	}
+@@ -492,19 +505,6 @@ skip_console_init:
+ 
+ 	fconf_populate("TB_FW", STM32MP_DTB_BASE);
+ 
+-#if STM32MP_DDR_FIP_IO_STORAGE || TRUSTED_BOARD_BOOT
+-#if !STM32MP_M33_TDCID
+-	/*
+-	 * RISAB3 setup (dedicated for SRAM1)
+-	 *
+-	 * Allow secure read/writes data accesses to non-secure
+-	 * blocks or pages, all RISAB registers are writable.
+-	 * DDR firmwares are saved there before being loaded in DDRPHY memory.
+-	 */
+-	mmio_write_32(RISAB3_BASE + RISAB_CR, RISAB_CR_SRWIAD);
+-#endif
+-#endif /* STM32MP_DDR_FIP_IO_STORAGE || TRUSTED_BOARD_BOOT */
+-
+ #if STM32MP_USB_PROGRAMMER
+ #if STM32MP21
+ 	stm32_rifsc_ip_configure(STM32MP21_RIMU_OTG_HS, STM32MP21_RIFSC_OTG_HS_ID,
+-- 
+2.53.0
+

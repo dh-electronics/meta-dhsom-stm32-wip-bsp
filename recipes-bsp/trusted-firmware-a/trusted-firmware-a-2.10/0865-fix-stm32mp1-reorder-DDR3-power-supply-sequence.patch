@@ -1,0 +1,62 @@
+From 7779e38f2b0adf1bb45f19d12431e375c724b095 Mon Sep 17 00:00:00 2001
+From: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Date: Fri, 4 Apr 2025 18:22:08 +0200
+Subject: [PATCH 865/954] fix(stm32mp1): reorder DDR3 power supply sequence
+
+DDR power supply sequence has to respect the order described in the
+specification.
+Expected DDR3 order must be VREF / VTT / VDD.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 89e4aac8f895879d82e674e09f45775facdca2cb fix(stm32mp1): reorder DDR3 power supply sequence]
+Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@foss.st.com>
+Change-Id: Id5b629f12ceca122f954b9fad8ece6726d4e44d6
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/449649
+Tested-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Nicolas LE BAYON <nicolas.le.bayon@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ plat/st/stm32mp1/plat_ddr.c | 13 ++++++-------
+ 1 file changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/plat/st/stm32mp1/plat_ddr.c b/plat/st/stm32mp1/plat_ddr.c
+index 09ebe688b7..07e330a731 100644
+--- a/plat/st/stm32mp1/plat_ddr.c
++++ b/plat/st/stm32mp1/plat_ddr.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2023, STMicroelectronics - All Rights Reserved
++ * Copyright (C) 2023-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -44,12 +44,6 @@ static int pmic_ddr_power_init(enum ddr_type ddr_type)
+ 			return status;
+ 		}
+ 
+-
+-		status = regulator_enable(vdd);
+-		if (status != 0) {
+-			return status;
+-		}
+-
+ 		vref = regulator_get_by_supply_name(fdt, node, "vref");
+ 		if (vref != NULL) {
+ 			status = regulator_enable(vref);
+@@ -65,6 +59,11 @@ static int pmic_ddr_power_init(enum ddr_type ddr_type)
+ 				return status;
+ 			}
+ 		}
++
++		status = regulator_enable(vdd);
++		if (status != 0) {
++			return status;
++		}
+ 		break;
+ 	}
+ 
+-- 
+2.53.0
+

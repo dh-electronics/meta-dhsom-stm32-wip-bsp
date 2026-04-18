@@ -1,0 +1,81 @@
+From 3fde0f85857dcd101e4e0ae10a047ac94eb38f2c Mon Sep 17 00:00:00 2001
+From: Yann Gautier <yann.gautier@st.com>
+Date: Fri, 7 Feb 2025 17:15:17 +0100
+Subject: [PATCH 861/954] refactor(rse)!: remove rse_comms_init
+
+The function to use is now rse_mbx_init(), that does the same if
+using MHU.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git e10aaf5d13387f4a909d7d84c6d854904e97cd0a refactor(rse)!: remove rse_comms_init]
+Change-Id: I712712d7d1bcd8c96d26951e176b877afb65209d
+Signed-off-by: Yann Gautier <yann.gautier@st.com>
+(cherry picked from commit 91c7a952bedb34f1b4c691988f9da9af02209441)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443853
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/arm/rse/rse_comms.c     | 28 ----------------------------
+ include/drivers/arm/rse_comms.h |  1 -
+ 2 files changed, 29 deletions(-)
+
+diff --git a/drivers/arm/rse/rse_comms.c b/drivers/arm/rse/rse_comms.c
+index cd84394ec0..48023bcb01 100644
+--- a/drivers/arm/rse/rse_comms.c
++++ b/drivers/arm/rse/rse_comms.c
+@@ -8,7 +8,6 @@
+ #include <string.h>
+ 
+ #include <common/debug.h>
+-#include <drivers/arm/mhu.h>
+ #include <drivers/arm/rse_comms.h>
+ #include <psa/client.h>
+ #include <rse_comms_protocol.h>
+@@ -151,30 +150,3 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type, const psa_invec *in_vec
+ 
+ 	return return_val;
+ }
+-
+-int rse_comms_init(uintptr_t mhu_sender_base, uintptr_t mhu_receiver_base)
+-{
+-	enum mhu_error_t err;
+-
+-	err = mhu_init_sender(mhu_sender_base);
+-	if (err != MHU_ERR_NONE) {
+-		if (err == MHU_ERR_ALREADY_INIT) {
+-			INFO("[RSE-COMMS] Host to RSE MHU driver already initialized\n");
+-		} else {
+-			ERROR("[RSE-COMMS] Host to RSE MHU driver initialization failed: %d\n", err);
+-			return -1;
+-		}
+-	}
+-
+-	err = mhu_init_receiver(mhu_receiver_base);
+-	if (err != MHU_ERR_NONE) {
+-		if (err == MHU_ERR_ALREADY_INIT) {
+-			INFO("[RSE-COMMS] RSE to Host MHU driver already initialized\n");
+-		} else {
+-			ERROR("[RSE-COMMS] RSE to Host MHU driver initialization failed: %d\n", err);
+-			return -1;
+-		}
+-	}
+-
+-	return 0;
+-}
+diff --git a/include/drivers/arm/rse_comms.h b/include/drivers/arm/rse_comms.h
+index e390ccef61..43c8b70727 100644
+--- a/include/drivers/arm/rse_comms.h
++++ b/include/drivers/arm/rse_comms.h
+@@ -15,6 +15,5 @@ size_t rse_mbx_get_max_message_size(void);
+ int rse_mbx_send_data(const uint8_t *send_buffer, size_t size);
+ int rse_mbx_receive_data(uint8_t *receive_buffer, size_t *size);
+ int rse_mbx_init(const void *init_data);
+-int rse_comms_init(uintptr_t mhu_sender_base, uintptr_t mhu_receiver_base);
+ 
+ #endif /* RSE_COMMS_H */
+-- 
+2.53.0
+

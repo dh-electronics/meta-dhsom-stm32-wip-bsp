@@ -1,0 +1,41 @@
+From 909bac975177f2911b8813889248b113d2b7434f Mon Sep 17 00:00:00 2001
+From: Philippe Cornu <philippe.cornu@foss.st.com>
+Date: Fri, 12 Sep 2025 17:12:20 +0200
+Subject: [PATCH 929/954] fix(stm32mp2): Reduce ICN QOS VDEC priority from 4 to
+ 1
+
+The default ICN QOS VDEC priority (4) is above the default GPU
+priority (2) preventing good GPU composition performances during
+a h264 1080p60 hw video playback on a 1080p60 display.
+Reducing ICN QOS VDEC priority from 4 to 1 (below GPU priority)
+improves greatly this use case.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git fa31b50722c0591213510076f6927a2a22fe2fcc fix(stm32mp2): Reduce ICN QOS VDEC priority from 4 to 1]
+Change-Id: Ia77d9ce75dccfc54f38b7dc5e37a557dc8298b7a
+Signed-off-by: Philippe Cornu <philippe.cornu@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/489460
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Reviewed-by: Jerome BESNARD <jerome.besnard@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ plat/st/stm32mp2/stm32mp2_syscfg.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/plat/st/stm32mp2/stm32mp2_syscfg.c b/plat/st/stm32mp2/stm32mp2_syscfg.c
+index 160fbdd5f8..0cbb190e58 100644
+--- a/plat/st/stm32mp2/stm32mp2_syscfg.c
++++ b/plat/st/stm32mp2/stm32mp2_syscfg.c
+@@ -568,6 +568,9 @@ void stm32mp_syscfg_set_icn_qos(void)
+ #if !STM32MP21
+ 	/* Disable GPU BW limiter */
+ 	mmio_write_32(SYSCFG_BASE + SYSCFG_ICNGPUBWLCR, U(0x00004009));
++
++	/* Reduce ICN QOS VDEC priority from 4 to 1 */
++	mmio_write_32(SYSCFG_BASE + SYSCFG_ICNQPCR2, U(0x2149865A));
+ #endif /* !STM32MP21 */
+ 
+ #if STM32MP_DDR4_TYPE || STM32MP_LPDDR4_TYPE
+-- 
+2.53.0
+

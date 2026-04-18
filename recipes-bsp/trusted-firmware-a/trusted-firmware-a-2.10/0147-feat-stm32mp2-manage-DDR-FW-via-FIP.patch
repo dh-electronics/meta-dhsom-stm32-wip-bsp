@@ -1,7 +1,7 @@
-From 732fe5b199618470c69cd42c1c6117a1e36985b4 Mon Sep 17 00:00:00 2001
+From fc588b64a8f7f54ca8f8d87c61d7b92ab6d8caea Mon Sep 17 00:00:00 2001
 From: Nicolas LE BAYON <nicolas.le.bayon@st.com>
 Date: Thu, 2 Dec 2021 18:47:41 +0100
-Subject: [PATCH 147/841] feat(stm32mp2): manage DDR FW via FIP
+Subject: [PATCH 147/954] feat(stm32mp2): manage DDR FW via FIP
 
 This feature is enabled by default using STM32MP_DDR_FIP_IO_STORAGE.
 
@@ -39,7 +39,7 @@ Signed-off-by: Nicolas Le Bayon <nicolas.le.bayon@st.com>
  create mode 100644 tools/fiptool/plat_fiptool/st/stm32mp2/plat_fiptool.mk
 
 diff --git a/fdts/stm32mp25-bl2.dtsi b/fdts/stm32mp25-bl2.dtsi
-index 784546730..6885e480a 100644
+index 784546730d..6885e480a3 100644
 --- a/fdts/stm32mp25-bl2.dtsi
 +++ b/fdts/stm32mp25-bl2.dtsi
 @@ -26,6 +26,9 @@
@@ -53,7 +53,7 @@ index 784546730..6885e480a 100644
  			bl31_uuid = "47d4086d-4cfe-9846-9b95-2950cbbd5a00";
  			bl32_uuid = "05d0e189-53dc-1347-8d2b-500a4b7a3e38";
 diff --git a/plat/st/common/stm32mp_fconf_io.c b/plat/st/common/stm32mp_fconf_io.c
-index e2210de05..a83f3ccfa 100644
+index e2210de05a..a83f3ccfa4 100644
 --- a/plat/st/common/stm32mp_fconf_io.c
 +++ b/plat/st/common/stm32mp_fconf_io.c
 @@ -88,9 +88,16 @@ struct plat_io_policy policies[MAX_NUMBER_IDS] = {
@@ -85,7 +85,7 @@ index e2210de05..a83f3ccfa 100644
  #ifdef __aarch64__
  	{BL31_IMAGE_ID, "bl31_uuid"},
 diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
-index 501f2e585..26e2e75ff 100644
+index 501f2e585b..26e2e75ffd 100644
 --- a/plat/st/stm32mp2/bl2_plat_setup.c
 +++ b/plat/st/stm32mp2/bl2_plat_setup.c
 @@ -21,6 +21,7 @@
@@ -116,7 +116,7 @@ index 501f2e585..26e2e75ff 100644
  
 diff --git a/plat/st/stm32mp2/include/plat_def_fip_uuid.h b/plat/st/stm32mp2/include/plat_def_fip_uuid.h
 new file mode 100644
-index 000000000..8f7d2af8c
+index 0000000000..8f7d2af8ce
 --- /dev/null
 +++ b/plat/st/stm32mp2/include/plat_def_fip_uuid.h
 @@ -0,0 +1,18 @@
@@ -140,7 +140,7 @@ index 000000000..8f7d2af8c
 +
 diff --git a/plat/st/stm32mp2/include/plat_tbbr_img_def.h b/plat/st/stm32mp2/include/plat_tbbr_img_def.h
 new file mode 100644
-index 000000000..98604861e
+index 0000000000..98604861e3
 --- /dev/null
 +++ b/plat/st/stm32mp2/include/plat_tbbr_img_def.h
 @@ -0,0 +1,22 @@
@@ -167,7 +167,7 @@ index 000000000..98604861e
 +#endif /* PLAT_TBBR_IMG_DEF_H */
 +
 diff --git a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
-index 2ba482474..2906a009f 100644
+index 2ba4824742..2906a009f9 100644
 --- a/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
 +++ b/plat/st/stm32mp2/plat_bl2_mem_params_desc.c
 @@ -19,6 +19,24 @@
@@ -196,7 +196,7 @@ index 2ba482474..2906a009f 100644
  	{
  		.image_id = FW_CONFIG_ID,
 diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
-index 186005470..f4c3f3795 100644
+index 186005470a..f4c3f3795e 100644
 --- a/plat/st/stm32mp2/platform.mk
 +++ b/plat/st/stm32mp2/platform.mk
 @@ -60,6 +60,7 @@ endif
@@ -247,7 +247,7 @@ index 186005470..f4c3f3795 100644
  		STM32MP_DDR4_TYPE \
  		STM32MP_LPDDR4_TYPE \
 diff --git a/plat/st/stm32mp2/stm32mp2_def.h b/plat/st/stm32mp2/stm32mp2_def.h
-index 1f3f77eca..b42964a31 100644
+index 1f3f77eca5..b42964a31f 100644
 --- a/plat/st/stm32mp2/stm32mp2_def.h
 +++ b/plat/st/stm32mp2/stm32mp2_def.h
 @@ -57,6 +57,8 @@
@@ -280,7 +280,7 @@ index 1f3f77eca..b42964a31 100644
  
  #define RISAF1_INST				0
 diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
-index ab4b20dc0..303d7600d 100644
+index ab4b20dc08..303d7600df 100644
 --- a/plat/st/stm32mp2/stm32mp2_private.c
 +++ b/plat/st/stm32mp2/stm32mp2_private.c
 @@ -37,6 +37,15 @@
@@ -311,7 +311,7 @@ index ab4b20dc0..303d7600d 100644
  };
 diff --git a/tools/fiptool/plat_fiptool/st/stm32mp2/plat_def_uuid_config.c b/tools/fiptool/plat_fiptool/st/stm32mp2/plat_def_uuid_config.c
 new file mode 100644
-index 000000000..ff786e0cd
+index 0000000000..ff786e0cd4
 --- /dev/null
 +++ b/tools/fiptool/plat_fiptool/st/stm32mp2/plat_def_uuid_config.c
 @@ -0,0 +1,30 @@
@@ -347,7 +347,7 @@ index 000000000..ff786e0cd
 +};
 diff --git a/tools/fiptool/plat_fiptool/st/stm32mp2/plat_fiptool.mk b/tools/fiptool/plat_fiptool/st/stm32mp2/plat_fiptool.mk
 new file mode 100644
-index 000000000..ef2d1999d
+index 0000000000..ef2d1999dc
 --- /dev/null
 +++ b/tools/fiptool/plat_fiptool/st/stm32mp2/plat_fiptool.mk
 @@ -0,0 +1,25 @@
@@ -377,5 +377,5 @@ index 000000000..ef2d1999d
 +
 +OBJECTS += ${PLAT_OBJECTS}
 -- 
-2.47.2
+2.53.0
 

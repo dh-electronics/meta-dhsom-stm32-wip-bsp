@@ -1,7 +1,7 @@
-From 2e77711dc0f3bf41080c3532cb2b10e0cd7c1007 Mon Sep 17 00:00:00 2001
+From c431380628a4431a7a1bd88f020d32ce2eecad10 Mon Sep 17 00:00:00 2001
 From: Christophe Kerello <christophe.kerello@foss.st.com>
 Date: Wed, 27 Sep 2023 13:22:51 +0200
-Subject: [PATCH 353/841] feat(mtd): add DTR support in spi-mem
+Subject: [PATCH 353/954] feat(mtd): add DTR support in spi-mem
 
 Add a field dtr to know whether command/address/dummy/data should be
 sent in DTR mode and add a nbytes field on command as in DTR the
@@ -33,7 +33,7 @@ Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
  6 files changed, 85 insertions(+), 8 deletions(-)
 
 diff --git a/drivers/mtd/nand/spi_nand.c b/drivers/mtd/nand/spi_nand.c
-index 8c8143499..5c915944d 100644
+index 8c81434996..5c915944d1 100644
 --- a/drivers/mtd/nand/spi_nand.c
 +++ b/drivers/mtd/nand/spi_nand.c
 @@ -38,6 +38,7 @@ static int spi_nand_reg(bool read_reg, uint8_t reg, uint8_t *val,
@@ -77,7 +77,7 @@ index 8c8143499..5c915944d 100644
  	spinand_dev.spi_read_cache_op.addr.nbytes = 2U;
  	spinand_dev.spi_read_cache_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
 diff --git a/drivers/mtd/nor/spi_nor.c b/drivers/mtd/nor/spi_nor.c
-index c271fafeb..7625a4006 100644
+index c271fafeb6..7625a4006e 100644
 --- a/drivers/mtd/nor/spi_nor.c
 +++ b/drivers/mtd/nor/spi_nor.c
 @@ -42,6 +42,7 @@ static int spi_nor_reg(uint8_t reg, uint8_t *buf, size_t len,
@@ -97,7 +97,7 @@ index c271fafeb..7625a4006 100644
  	nor_dev.read_op.addr.nbytes = 3U;
  	nor_dev.read_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
 diff --git a/drivers/mtd/spi-mem/spi_mem.c b/drivers/mtd/spi-mem/spi_mem.c
-index 1eb7f3662..d4a81e389 100644
+index 1eb7f3662e..d4a81e389c 100644
 --- a/drivers/mtd/spi-mem/spi_mem.c
 +++ b/drivers/mtd/spi-mem/spi_mem.c
 @@ -69,7 +69,7 @@ static bool spi_mem_check_buswidth_req(uint8_t buswidth, bool tx)
@@ -186,7 +186,7 @@ index 1eb7f3662..d4a81e389 100644
  
  	if (op->data.dir != SPI_MEM_DATA_IN) {
 diff --git a/include/drivers/spi_mem.h b/include/drivers/spi_mem.h
-index 539b741b9..154ea2505 100644
+index 539b741b96..154ea25056 100644
 --- a/include/drivers/spi_mem.h
 +++ b/include/drivers/spi_mem.h
 @@ -30,8 +30,11 @@ enum spi_mem_data_dir {
@@ -267,7 +267,7 @@ index 539b741b9..154ea2505 100644
  int spi_mem_dirmap_read(const struct spi_mem_op *op);
  int spi_mem_init_slave(void *fdt, int bus_node,
 diff --git a/plat/st/stm32mp1/stm32mp1_boot_device.c b/plat/st/stm32mp1/stm32mp1_boot_device.c
-index 1995fbb10..63d528503 100644
+index 1995fbb102..63d5285039 100644
 --- a/plat/st/stm32mp1/stm32mp1_boot_device.c
 +++ b/plat/st/stm32mp1/stm32mp1_boot_device.c
 @@ -177,6 +177,7 @@ int plat_get_spi_nand_data(struct spinand_device *device)
@@ -287,7 +287,7 @@ index 1995fbb10..63d528503 100644
  	device->read_op.addr.nbytes = 3U;
  	device->read_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
 diff --git a/plat/st/stm32mp2/stm32mp2_boot_device.c b/plat/st/stm32mp2/stm32mp2_boot_device.c
-index 5fbea453c..a391f6498 100644
+index 5fbea453cf..a391f6498e 100644
 --- a/plat/st/stm32mp2/stm32mp2_boot_device.c
 +++ b/plat/st/stm32mp2/stm32mp2_boot_device.c
 @@ -161,6 +161,7 @@ int plat_get_nor_data(struct nor_device *device)
@@ -299,5 +299,5 @@ index 5fbea453c..a391f6498 100644
  	device->read_op.addr.nbytes = 3U;
  	device->read_op.addr.buswidth = SPI_MEM_BUSWIDTH_1_LINE;
 -- 
-2.47.2
+2.53.0
 

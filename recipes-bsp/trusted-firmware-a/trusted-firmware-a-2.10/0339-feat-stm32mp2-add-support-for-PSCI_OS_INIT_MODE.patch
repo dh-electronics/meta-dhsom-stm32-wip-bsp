@@ -1,7 +1,7 @@
-From aa2c980d09ce7ead63e1a97f5272694e19d10b58 Mon Sep 17 00:00:00 2001
+From 6533c6ed129fcf28a43daeb3e453a1f14c3639d1 Mon Sep 17 00:00:00 2001
 From: Patrick Delaunay <patrick.delaunay@foss.st.com>
 Date: Thu, 16 Feb 2023 11:33:17 +0100
-Subject: [PATCH 339/841] feat(stm32mp2): add support for PSCI_OS_INIT_MODE
+Subject: [PATCH 339/954] feat(stm32mp2): add support for PSCI_OS_INIT_MODE
 
 Enable PSCI_OS_INIT_MODE support for stm32mp2 with 5 levels
 in the topology:
@@ -55,7 +55,7 @@ Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
  8 files changed, 787 insertions(+), 75 deletions(-)
 
 diff --git a/fdts/stm32mp251.dtsi b/fdts/stm32mp251.dtsi
-index 03bd77df1..12570a3fa 100644
+index 03bd77df19..12570a3fa5 100644
 --- a/fdts/stm32mp251.dtsi
 +++ b/fdts/stm32mp251.dtsi
 @@ -22,6 +22,43 @@
@@ -103,7 +103,7 @@ index 03bd77df1..12570a3fa 100644
  
  	clocks {
 diff --git a/plat/st/common/include/stm32mp_common.h b/plat/st/common/include/stm32mp_common.h
-index 68f2874ae..3243d482a 100644
+index 68f2874ae6..3243d482a4 100644
 --- a/plat/st/common/include/stm32mp_common.h
 +++ b/plat/st/common/include/stm32mp_common.h
 @@ -151,6 +151,7 @@ void stm32_save_boot_info(boot_api_context_t *boot_context);
@@ -115,7 +115,7 @@ index 68f2874ae..3243d482a 100644
  /* Display board information from the value found in OTP fuse */
  void stm32_display_board_info(uint32_t board_id);
 diff --git a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
-index 66333ad7b..c8f05faf3 100644
+index 66333ad7b2..c8f05faf35 100644
 --- a/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
 +++ b/plat/st/stm32mp2/aarch64/stm32mp2_helper.S
 @@ -18,6 +18,7 @@
@@ -145,7 +145,7 @@ index 66333ad7b..c8f05faf3 100644
 +endfunc stm32_stop2_entrypoint
 +#endif /* IMAGE_BL31 */
 diff --git a/plat/st/stm32mp2/include/platform_def.h b/plat/st/stm32mp2/include/platform_def.h
-index d6dc485bf..3c0ff9746 100644
+index d6dc485bf1..3c0ff97464 100644
 --- a/plat/st/stm32mp2/include/platform_def.h
 +++ b/plat/st/stm32mp2/include/platform_def.h
 @@ -33,9 +33,8 @@
@@ -188,7 +188,7 @@ index d6dc485bf..3c0ff9746 100644
 -
  #endif /* PLATFORM_DEF_H */
 diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
-index c90778b03..185e26dd5 100644
+index c90778b032..185e26dd5a 100644
 --- a/plat/st/stm32mp2/platform.mk
 +++ b/plat/st/stm32mp2/platform.mk
 @@ -14,6 +14,10 @@ CRASH_REPORTING			:=	1
@@ -213,7 +213,7 @@ index c90778b03..185e26dd5 100644
  include drivers/arm/gic/v2/gicv2.mk
  
 diff --git a/plat/st/stm32mp2/stm32mp2_pm.c b/plat/st/stm32mp2/stm32mp2_pm.c
-index b9f768cbb..b8b1c53fa 100644
+index b9f768cbb4..b8b1c53fa1 100644
 --- a/plat/st/stm32mp2/stm32mp2_pm.c
 +++ b/plat/st/stm32mp2/stm32mp2_pm.c
 @@ -8,53 +8,210 @@
@@ -1109,7 +1109,7 @@ index b9f768cbb..b8b1c53fa 100644
  	*psci_ops = &stm32_psci_ops;
  
 diff --git a/plat/st/stm32mp2/stm32mp2_private.c b/plat/st/stm32mp2/stm32mp2_private.c
-index f1e76d360..561844d52 100644
+index f1e76d3601..561844d525 100644
 --- a/plat/st/stm32mp2/stm32mp2_private.c
 +++ b/plat/st/stm32mp2/stm32mp2_private.c
 @@ -573,6 +573,11 @@ uintptr_t stm32_get_bkpr_boot_mode_addr(void)
@@ -1125,7 +1125,7 @@ index f1e76d360..561844d52 100644
  uintptr_t stm32_get_bkpr_fwu_info_addr(void)
  {
 diff --git a/plat/st/stm32mp2/stm32mp2_topology.c b/plat/st/stm32mp2/stm32mp2_topology.c
-index 8a129d676..8ed5e4894 100644
+index 8a129d6764..8ed5e4894d 100644
 --- a/plat/st/stm32mp2/stm32mp2_topology.c
 +++ b/plat/st/stm32mp2/stm32mp2_topology.c
 @@ -9,10 +9,12 @@
@@ -1146,5 +1146,5 @@ index 8a129d676..8ed5e4894 100644
  
  /* This function returns the platform topology */
 -- 
-2.47.2
+2.53.0
 

@@ -1,0 +1,52 @@
+From 6445556d8eb1977874e457c986ecef655daef26e Mon Sep 17 00:00:00 2001
+From: Charlie Bareham <charlie.bareham@arm.com>
+Date: Tue, 17 Oct 2023 20:17:58 +0200
+Subject: [PATCH 676/954] fix(psci): fix parent parsing in
+ psci_is_last_cpu_to_idle_at_pwrlvl
+
+The function always checks the first parent of the current core
+instead parse the tree topology to find the parent at parent level
+of the CPU. It is because the current loop has no effect as it uses
+a fixed parameter 'my_idx' and returns the FIRST parent of CPU.
+Also, it looks for the parent nodes in the array of CPU nodes, but
+actually they are in a separate array.
+
+This update allows to parse the PSCI topology tree to find
+the parent at parent level of the CPU identified by my_idx.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 751cc38369fe822cc3c3000b3760d3d22e1553b3 fix(psci): fix parent parsing in psci_is_last_cpu_to_idle_at_pwrlvl
+0c448484af2647279420611c758f21a35479170a fix(psci): fix parent parsing in psci_is_last_cpu_to_idle_at_pwrlvl]
+Fixes: 606b7430077c ("feat(psci): add support for OS-initiated mode")
+Change-Id: I96fb5ecc154a76b16adca5b5055217b8626c9e66
+Signed-off-by: Charlie Bareham <charlie.bareham@arm.com>
+(cherry picked from commit 01959a1656a08dacd1d036d0441165d52bf7563e)
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/401563
+Tested-by: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ lib/psci/psci_common.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/lib/psci/psci_common.c b/lib/psci/psci_common.c
+index 26b6a61e97..bc973dce3b 100644
+--- a/lib/psci/psci_common.c
++++ b/lib/psci/psci_common.c
+@@ -179,9 +179,9 @@ static bool psci_is_last_cpu_to_idle_at_pwrlvl(unsigned int end_pwrlvl)
+ 	}
+ 
+ 	my_idx = plat_my_core_pos();
+-
+-	for (lvl = PSCI_CPU_PWR_LVL; lvl <= end_pwrlvl; lvl++) {
+-		parent_idx = psci_cpu_pd_nodes[my_idx].parent_node;
++	parent_idx = psci_cpu_pd_nodes[my_idx].parent_node;
++	for (lvl = PSCI_CPU_PWR_LVL + U(1); lvl < end_pwrlvl; lvl++) {
++		parent_idx = psci_non_cpu_pd_nodes[parent_idx].parent_node;
+ 	}
+ 
+ 	cpu_start_idx = psci_non_cpu_pd_nodes[parent_idx].cpu_start_idx;
+-- 
+2.53.0
+

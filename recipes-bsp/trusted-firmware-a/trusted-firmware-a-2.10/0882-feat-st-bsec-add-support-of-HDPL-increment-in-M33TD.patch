@@ -1,0 +1,83 @@
+From d6f94afb5af39b4a2d0a2a06497cced524d092e0 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Mon, 23 Jun 2025 14:07:02 +0200
+Subject: [PATCH 882/954] feat(st-bsec): add support of HDPL increment in M33TD
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Enable back the compilation of bsec3 driver in M33TD to increment the
+HDPL of the CortexA35 before jumping in BL31.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git f69f6fa90324a0696ebc558bb3707759aa9f80ac feat(st-bsec): add support of HDPL increment in M33TD]
+Change-Id: Icdc32a4a9a69a0f7709a1d6b17600c97f904d520
+Signed-off-by: Thomas Bourgoin <thomas.bourgoin@foss.st.com>
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/468561
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ drivers/st/bsec/bsec3.c      | 4 +++-
+ include/drivers/st/bsec.h    | 2 +-
+ plat/st/stm32mp2/platform.mk | 5 +++--
+ 3 files changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/st/bsec/bsec3.c b/drivers/st/bsec/bsec3.c
+index 383093b37c..0918e63e7e 100644
+--- a/drivers/st/bsec/bsec3.c
++++ b/drivers/st/bsec/bsec3.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (c) 2022-2024, STMicroelectronics - All Rights Reserved
++ * Copyright (c) 2022-2025, STMicroelectronics - All Rights Reserved
+  *
+  * SPDX-License-Identifier: BSD-3-Clause
+  */
+@@ -38,6 +38,7 @@
+ #define BSEC_OTP_BANK_SHIFT		5
+ #define BSEC_TIMEOUT_VALUE		0xFFFFFFFFU
+ 
++#if !STM32MP_M33_TDCID
+ static uint32_t otp_bank(uint32_t otp)
+ {
+ 	if (otp > STM32MP2_OTP_MAX_ID) {
+@@ -534,6 +535,7 @@ uint32_t bsec_read_otp(uint32_t *val, uint32_t otp)
+ 
+ 	return bsec_shadow_read_otp(val, otp);
+ }
++#endif /* !STM32MP_M33_TDCID */
+ 
+ #if STM32MP21
+ /*
+diff --git a/include/drivers/st/bsec.h b/include/drivers/st/bsec.h
+index 7999f7d3dd..218ffe6165 100644
+--- a/include/drivers/st/bsec.h
++++ b/include/drivers/st/bsec.h
+@@ -69,7 +69,7 @@ uint32_t bsec_permanent_lock_otp(uint32_t otp);
+ uint32_t bsec_check_nsec_access_rights(uint32_t otp);
+ #endif
+ 
+-#if defined(STM32MP21) && STM32MP21 && !(defined(STM32MP_M33_TDCID) && STM32MP_M33_TDCID)
++#if defined(STM32MP21) && STM32MP21
+ void bsec_increment_hdpl(void);
+ #else
+ static inline void bsec_increment_hdpl(void) {}
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 4ff46d63d8..91b544756f 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -294,9 +294,10 @@ PLAT_BL_COMMON_SOURCES		+=	drivers/st/i2c/stm32_i2c.c
+ 
+ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_private.c
+ 
++PLAT_BL_COMMON_SOURCES		+=	drivers/st/bsec/bsec3.c
++
+ ifeq ($(STM32MP_M33_TDCID),0)
+-PLAT_BL_COMMON_SOURCES		+=	drivers/st/bsec/bsec3.c \
+-					plat/st/stm32mp2/plat_ddr.c
++PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/plat_ddr.c
+ else
+ PLAT_BL_COMMON_SOURCES		+=	plat/st/stm32mp2/stm32mp2_otp.c
+ endif
+-- 
+2.53.0
+

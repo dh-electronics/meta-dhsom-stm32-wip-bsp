@@ -1,0 +1,141 @@
+From 5842b2949413545b74979129870af07c110836cf Mon Sep 17 00:00:00 2001
+From: Michel JAOUEN <michel.jaouen@st.com>
+Date: Wed, 12 Mar 2025 18:15:58 +0100
+Subject: [PATCH 862/954] feat(st): add RSE comms support for ST platforms
+
+Since ST does not include a RSE chip, the RSE protocol is supported with
+an uncacheable shared memory that contains a header with a field size to
+provide the RSE payload length and then the RSE payload. The RSE Client
+uses an IPCC channel to notify to remote RSE server that a RSE request
+is pending. Since RSE is used by BL2 that does not support interruption,
+the RSE Client can set bit 31 to select that host should not raise an
+ipcc event to notify that RSE request has been done. RSE client polls the
+field size till the bit 31 get clear meaning that host has completed the
+request.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 8266d9821952eea2f3ea66d23ffeeeec70790f12 feat(st): add RSE comms support for ST platforms]
+Change-Id: Ifc175e14b0699bd7f0be8392d9bf2bcff70e8af1
+Signed-off-by: Michel JAOUEN <michel.jaouen@st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/443813
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/rse_shm/rse_comms_shm.c | 81 ++++++++++++++++++++++++++++++
+ include/drivers/st/rse_shm.h       | 15 ++++++
+ 2 files changed, 96 insertions(+)
+ create mode 100644 drivers/st/rse_shm/rse_comms_shm.c
+ create mode 100644 include/drivers/st/rse_shm.h
+
+diff --git a/drivers/st/rse_shm/rse_comms_shm.c b/drivers/st/rse_shm/rse_comms_shm.c
+new file mode 100644
+index 0000000000..cc1cf0a62d
+--- /dev/null
++++ b/drivers/st/rse_shm/rse_comms_shm.c
+@@ -0,0 +1,81 @@
++/*
++ * Copyright (c) 2025, Arm Limited and Contributors. All rights reserved.
++ * Copyright (c) 2025, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++#include <errno.h>
++#include <inttypes.h>
++#include <stdint.h>
++#include <string.h>
++
++#include <common/debug.h>
++#include <drivers/arm/rse_comms.h>
++#include <drivers/delay_timer.h>
++#include <drivers/st/rse_shm.h>
++#include <lib/mmio.h>
++#include <lib/utils_def.h>
++
++#include <platform_def.h>
++/*
++ *  In size from struct stm32_rse_shmem bit 31 from is reserved
++ *  for sending without mailbox ack. When bit is set, the request
++ *  is complete when bit is cleared.
++ */
++#define FLAG_SIZE_NO_MBOX_ACK BIT_32(31)
++#ifndef RSE_COMMS_TIMEOUT_US
++#error "RSE_COMMS_TIMEOUT_US not defined by platform_defs.h"
++#endif
++#ifndef RSE_COMMS_IPCC_CHAN
++#error "RSE_COMMS_IPCC_CHAN not defined by platform_defs.h"
++#endif
++
++struct stm32_rse_shmem {
++	uint32_t size;
++	uint8_t payload[];
++};
++
++static struct stm32_rse_shmem *shmem;
++static size_t shmem_size;
++
++size_t rse_mbx_get_max_message_size(void)
++{
++	return shmem_size;
++}
++
++#define IPCC_C1SCR_CHS(x) BIT_32((x) - 1) << 16
++#define IPCC_C1SCR 0x8U
++
++int rse_mbx_send_data(const uint8_t *send_buffer, size_t size)
++{
++	(void)memcpy(shmem->payload, send_buffer, size);
++	mmio_write_32((uintptr_t)(&shmem->size), size | FLAG_SIZE_NO_MBOX_ACK);
++	/* raise interrupt to remote m33 */
++	mmio_write_32(RSE_COMMS_IPCC_BASE + IPCC_C1SCR, IPCC_C1SCR_CHS(RSE_COMMS_IPCC_CHAN));
++
++	return 0;
++}
++
++int rse_mbx_receive_data(uint8_t *receive_buffer, size_t *size)
++{
++	uint64_t timeout = timeout_init_us(RSE_COMMS_TIMEOUT_US);
++
++	while (mmio_read_32((uintptr_t)(&shmem->size)) & FLAG_SIZE_NO_MBOX_ACK) {
++		if (timeout_elapsed(timeout)) {
++			ERROR("%s: timeout\n", __func__);
++			return -ETIMEDOUT;
++		}
++	}
++	*size = shmem->size;
++	(void)memcpy((void *)receive_buffer, shmem->payload, *size);
++
++	return 0;
++}
++
++int rse_mbx_init(const void *init_data)
++{
++	shmem = (struct stm32_rse_shmem *)(((struct rse_shmem *)init_data)->base);
++	shmem_size = ((struct rse_shmem *)init_data)->len;
++
++	return 0;
++}
+diff --git a/include/drivers/st/rse_shm.h b/include/drivers/st/rse_shm.h
+new file mode 100644
+index 0000000000..259d30a8db
+--- /dev/null
++++ b/include/drivers/st/rse_shm.h
+@@ -0,0 +1,15 @@
++/*
++ * Copyright (c) 2025, STMicroelectronics - All Rights Reserved
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef RSE_SHM_H
++#define RSE_SHM_H
++
++struct rse_shmem {
++	void *base;
++	uint32_t len;
++};
++
++#endif /* STM32_SHM_H */
+-- 
+2.53.0
+
