@@ -1,8 +1,10 @@
 FILESEXTRAPATHS:prepend := "${THISDIR}/upports:"
 COMPATIBLE_MACHINE:dh-stm32mp25-dhsom = "dh-stm32mp25-dhsom"
 TFA_PLATFORM:dh-stm32mp25-dhsom = "stm32mp2"
-TFA_BUILD_TARGET:dh-stm32mp25-dhsom = "all fip fip-ddr"
-TFA_INSTALL_TARGET:dh-stm32mp25-dhsom = "tf-a-stm32mp25xx-dhcos-som.stm32 fip.bin fip-ddr.bin"
+TFA_BUILD_TARGET:dh-stm32mp25-dhsom = "all fip"
+TFA_INSTALL_TARGET:dh-stm32mp25-dhsom = "tf-a-stm32mp25xx-dhcos-som.stm32 fip.bin"
+TFA_BUILD_TARGET:append:dh-stm32mp25-dhcos-bb = " fip-ddr"
+TFA_INSTALL_TARGET:append:dh-stm32mp25-dhcos-bb = " fip-ddr.bin"
 
 do_compile[depends] += "${@'optee-os:do_deploy u-boot-mainline:do_deploy' if 'dh-stm32mp25-dhsom' in d.getVar('MACHINEOVERRIDES', True).split(':') else ' '}"
 
@@ -23,9 +25,10 @@ EXTRA_OEMAKE:append:dh-stm32mp25-dhsom = " \
 	STM32MP_EMMC=1 \
 	STM32MP_SDMMC=1 \
 	STM32MP_SPI_NOR=1 \
-	STM32MP_USB_PROGRAMMER=1 \
 	VERSION=${PV} \
 	"
+
+EXTRA_OEMAKE:append:dh-stm32mp25-dhcos-bb = " STM32MP_USB_PROGRAMMER=1"
 
 SRC_URI:append:dh-stm32mp25-dhsom = " \
 	file://0001-feat-st-add-ST-specific-version.patch \
