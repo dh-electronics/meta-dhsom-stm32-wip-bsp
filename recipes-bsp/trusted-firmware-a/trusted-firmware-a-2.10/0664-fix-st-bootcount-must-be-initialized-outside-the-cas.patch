@@ -1,0 +1,47 @@
+From 50706ac61c64e61b1c02227938b91625ae4566f5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 26 Jul 2024 10:04:26 +0200
+Subject: [PATCH 664/954] fix(st): bootcount must be initialized outside the
+ case statement
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+for compiler a label can only be part of a statement and the bootcount
+declaration is not a statement.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git bba488de06ecd9e8278f2a7ae415012c638c2d91 fix(st): bootcount must be initialized outside the case statement]
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Change-Id: Ib4ff8b3b30f9e9672bd2736dcadb04bb54ccaecd
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/395301
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/bl2_io_storage.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/plat/st/common/bl2_io_storage.c b/plat/st/common/bl2_io_storage.c
+index 98362a9a4c..33bacbce1a 100644
+--- a/plat/st/common/bl2_io_storage.c
++++ b/plat/st/common/bl2_io_storage.c
+@@ -797,6 +797,7 @@ uint32_t plat_fwu_get_boot_idx(void)
+ 
+ 	if (boot_idx == INVALID_BOOT_IDX) {
+ 		const struct fwu_metadata *data = fwu_get_metadata();
++		uint32_t bootcount = 0;
+ 
+ 		boot_idx = data->active_index;
+ 
+@@ -805,7 +806,7 @@ uint32_t plat_fwu_get_boot_idx(void)
+ 			stm32_set_max_fwu_trial_boot_cnt();
+ 			break;
+ 		case FWU_BANK_STATE_VALID:
+-			uint32_t bootcount = stm32_get_and_dec_fwu_trial_boot_cnt();
++			bootcount = stm32_get_and_dec_fwu_trial_boot_cnt();
+ 			if (bootcount == 1U) {
+ 				WARN("Trial FWU fails %u times\n",
+ 				     (FWU_MAX_TRIAL_REBOOT - 1U));
+-- 
+2.53.0
+

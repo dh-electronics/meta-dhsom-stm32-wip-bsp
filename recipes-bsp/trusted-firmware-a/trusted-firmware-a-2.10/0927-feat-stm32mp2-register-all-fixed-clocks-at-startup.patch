@@ -1,0 +1,153 @@
+From bd1380119424cdb2c83d4150fc24c6326b6948d8 Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 25 Sep 2025 17:25:31 +0200
+Subject: [PATCH 927/954] feat(stm32mp2): register all fixed clocks at startup
+
+Register all fixed clocks during system initialization to ensure proper
+clock management from the beginning.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 6050d6132a9611019192fea82e834ee87a41798e feat(stm32mp2): register all fixed clocks at startup]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I8fb80c87a51f95dce195ad8af7d885c9790a2634
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/493938
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/clk/clk-stm32mp2.c      | 11 +++--------
+ include/drivers/st/stm32mp2_clk.h  |  4 ++--
+ plat/st/stm32mp2/bl2_plat_setup.c  | 11 +++++++++--
+ plat/st/stm32mp2/bl31_plat_setup.c | 10 +++++++++-
+ 4 files changed, 23 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index 6552161fcf..8a34960394 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -2732,16 +2732,11 @@ static int stm32_clk_parse_fdt_all_pll(void *fdt, int node, struct stm32_clk_pla
+ 	return 0;
+ }
+ 
+-static int stm32_clk_parse_fdt(struct stm32_clk_platdata *pdata)
++static int stm32_clk_parse_fdt(void *fdt, struct stm32_clk_platdata *pdata)
+ {
+-	void *fdt = NULL;
+ 	int node;
+ 	int err;
+ 
+-	if (fdt_get_address(&fdt) == 0) {
+-		return -ENOENT;
+-	}
+-
+ 	node = fdt_node_offset_by_compatible(fdt, -1, DT_RCC_CLK_COMPAT);
+ 	if (node < 0) {
+ 		panic();
+@@ -2827,13 +2822,13 @@ static struct stm32_clk_priv stm32mp2_clock_data = {
+ 	.ops_array	= ops_array_mp2,
+ };
+ 
+-int stm32mp2_clk_init(void)
++int stm32mp2_clk_init(void *fdt)
+ {
+ 	uintptr_t base = RCC_BASE;
+ 	int ret;
+ 
+ #ifdef IMAGE_BL2
+-	ret = stm32_clk_parse_fdt(&stm32mp2_pdata);
++	ret = stm32_clk_parse_fdt(fdt, &stm32mp2_pdata);
+ 	if (ret != 0) {
+ 		return ret;
+ 	}
+diff --git a/include/drivers/st/stm32mp2_clk.h b/include/drivers/st/stm32mp2_clk.h
+index b4e31ff1fe..3ca28d7ef7 100644
+--- a/include/drivers/st/stm32mp2_clk.h
++++ b/include/drivers/st/stm32mp2_clk.h
+@@ -38,11 +38,11 @@ enum pll_csg {
+ 	PLLCSG_NB
+ };
+ 
+-int stm32mp2_clk_init(void);
++int stm32mp2_clk_init(void *fdt);
+ int stm32mp2_pll1_disable(void);
+ int stm32mp2_pll1_enable(void);
+ 
+-int32_t stm32mp2_pll1_init();
++int32_t stm32mp2_pll1_init(void);
+ int32_t stm32mp2_pll1_check_rate(uint64_t rate);
+ int32_t stm32mp2_pll1_set_rate(uint64_t rate);
+ uint64_t stm32mp2_pll1_recalc_rate();
+diff --git a/plat/st/stm32mp2/bl2_plat_setup.c b/plat/st/stm32mp2/bl2_plat_setup.c
+index 1fe807b8e5..0e1e8ed696 100644
+--- a/plat/st/stm32mp2/bl2_plat_setup.c
++++ b/plat/st/stm32mp2/bl2_plat_setup.c
+@@ -13,7 +13,7 @@
+ #include <common/debug.h>
+ #include <common/desc_image_load.h>
+ #include <drivers/arm/rse_comms.h>
+-#include <drivers/clk.h>
++#include <drivers/clk-fixed.h>
+ #include <drivers/delay_timer.h>
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/mmc.h>
+@@ -446,6 +446,7 @@ void bl2_el3_plat_arch_setup(void)
+ 				 BOOT_API_CTX_BOOT_INTERFACE_SEL_SERIAL_UART);
+ 	uintptr_t uart_prog_addr __unused;
+ 	bool lse_tamper_occured = false;
++	void *fdt = NULL;
+ 
+ 	if (stm32_otp_probe() != 0) {
+ 		panic();
+@@ -473,7 +474,13 @@ void bl2_el3_plat_arch_setup(void)
+ 	ddr_sub_system_clk_init();
+ #endif
+ 
+-	if (stm32mp2_clk_init() < 0) {
++	if (fdt_get_address(&fdt) == 0) {
++		panic();
++	}
++
++	clk_fixed_register(fdt);
++
++	if (stm32mp2_clk_init(fdt) < 0) {
+ 		panic();
+ 	}
+ 
+diff --git a/plat/st/stm32mp2/bl31_plat_setup.c b/plat/st/stm32mp2/bl31_plat_setup.c
+index bd84e1d438..ecf6ba6d93 100644
+--- a/plat/st/stm32mp2/bl31_plat_setup.c
++++ b/plat/st/stm32mp2/bl31_plat_setup.c
+@@ -10,6 +10,7 @@
+ #include <bl31/bl31.h>
+ #include <common/bl_common.h>
+ #include <common/runtime_svc.h>
++#include <drivers/clk-fixed.h>
+ #include <drivers/generic_delay_timer.h>
+ #include <drivers/st/stm32_console.h>
+ #include <drivers/st/stm32mp_reset.h>
+@@ -28,6 +29,7 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 	bl_params_t *params_from_bl2;
+ 	char name[STM32_SOC_NAME_SIZE];
+ 	int ret;
++	void *fdt = NULL;
+ 
+ 	stm32mp_setup_early_console();
+ 
+@@ -63,7 +65,13 @@ void bl31_early_platform_setup2(u_register_t arg0, u_register_t arg1,
+ 		panic();
+ 	}
+ 
+-	ret = stm32mp2_clk_init();
++	if (fdt_get_address(&fdt) == 0) {
++		panic();
++	}
++
++	clk_fixed_register(fdt);
++
++	ret = stm32mp2_clk_init(fdt);
+ 	if (ret < 0) {
+ 		EARLY_ERROR("%s: failed init clocks (%d)\n", __func__, ret);
+ 		panic();
+-- 
+2.53.0
+

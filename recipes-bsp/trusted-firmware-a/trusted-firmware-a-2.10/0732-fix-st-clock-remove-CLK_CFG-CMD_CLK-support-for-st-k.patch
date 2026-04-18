@@ -1,0 +1,183 @@
+From ec6357859a38c8bd3458d69c4fc90660de507475 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 25 Oct 2024 17:30:31 +0200
+Subject: [PATCH 732/954] fix(st-clock): remove CLK_CFG/CMD_CLK support for
+ st,kerclk
+
+Remove the CMD_CLK support and CLK_CFG macro for st,kerclk,
+because it is unused and not required in Binding (see OP-TEE file
+documentation/devicetree/bindings/clock/st,stm32mp25-rcc.yaml)
+
+The only supported macro are :
+- DIV(DIV_<DIV-CLOCK>, value)
+- MUX_CFG(MUX_<KERNEL-CLOCK>, MUX<KERNEL-CLOCK>_<PARENT-CLOCK>
+- MCO_CFG(MCO_CLOCK, MUX_<MCO-CLOCK>_<PARENT-CLOCK>, ON / OFF)
+
+The CLK_CMD command was defined for STM32MP1 SoC but is it no more
+required for STM32MP2 clock tree definition and the RCC clock driver
+and associated binding files can be simplified.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 18758354146c4ef8380eaedbea6f244d8136434c fix(st-clock): remove CLK_CFG/CMD_CLK support for st,kerclk]
+Change-Id: I1021fbe99ac004d3614cbf8345476bf57e350b0c
+Signed-off-by: Patrick Delaunay <patrick.delaunay@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/409750
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+Tested-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+---
+ drivers/st/clk/clk-stm32mp2.c                | 39 --------------------
+ include/dt-bindings/clock/stm32mp21-clksrc.h | 27 --------------
+ include/dt-bindings/clock/stm32mp25-clksrc.h | 27 --------------
+ 3 files changed, 93 deletions(-)
+
+diff --git a/drivers/st/clk/clk-stm32mp2.c b/drivers/st/clk/clk-stm32mp2.c
+index 186a20e48b..65a9c877dc 100644
+--- a/drivers/st/clk/clk-stm32mp2.c
++++ b/drivers/st/clk/clk-stm32mp2.c
+@@ -2446,41 +2446,6 @@ static int stm32_clk_check_mux(struct stm32_clk_priv *priv, uint32_t data)
+ }
+ #endif
+ 
+-static int stm32_clk_configure_clk_get_binding_id(struct stm32_clk_priv *priv, uint32_t data)
+-{
+-	unsigned long binding_id = ((unsigned long)data & CLK_ID_MASK) >> CLK_ID_SHIFT;
+-
+-	return clk_get_index(priv, binding_id);
+-}
+-
+-static int stm32_clk_configure_clk(struct stm32_clk_priv *priv, uint32_t data)
+-{
+-	int sel = (data & CLK_SEL_MASK) >> CLK_SEL_SHIFT;
+-	int enable = (data & CLK_ON_MASK) >> CLK_ON_SHIFT;
+-	int clk_id = 0;
+-	int ret = 0;
+-
+-	clk_id = stm32_clk_configure_clk_get_binding_id(priv, data);
+-	if (clk_id < 0) {
+-		return clk_id;
+-	}
+-
+-	if (sel != CLK_NOMUX) {
+-		ret = _clk_stm32_set_parent_by_index(priv, clk_id, sel);
+-		if (ret != 0) {
+-			return ret;
+-		}
+-	}
+-
+-	if (enable) {
+-		clk_stm32_enable_call_ops(priv, clk_id);
+-	} else {
+-		clk_stm32_disable_call_ops(priv, clk_id);
+-	}
+-
+-	return 0;
+-}
+-
+ static int stm32_clk_configure(struct stm32_clk_priv *priv, uint32_t val)
+ {
+ 	uint32_t cmd = (val & CMD_MASK) >> CMD_SHIFT;
+@@ -2496,10 +2461,6 @@ static int stm32_clk_configure(struct stm32_clk_priv *priv, uint32_t val)
+ 		ret = stm32_clk_configure_mux(priv, cmd_data);
+ 		break;
+ 
+-	case CMD_CLK:
+-		ret = stm32_clk_configure_clk(priv, cmd_data);
+-		break;
+-
+ 	default:
+ 		EARLY_ERROR("%s: cmd unknown ! : 0x%x\n", __func__, val);
+ 		break;
+diff --git a/include/dt-bindings/clock/stm32mp21-clksrc.h b/include/dt-bindings/clock/stm32mp21-clksrc.h
+index 93c212663e..362b4b839c 100644
+--- a/include/dt-bindings/clock/stm32mp21-clksrc.h
++++ b/include/dt-bindings/clock/stm32mp21-clksrc.h
+@@ -8,7 +8,6 @@
+ 
+ #define CMD_DIV		0
+ #define CMD_MUX		1
+-#define CMD_CLK		2
+ #define CMD_FLEXGEN	3
+ 
+ #define CMD_ADDR_BIT	0x80000000
+@@ -29,32 +28,6 @@
+ #define MUX_SEL_SHIFT	0
+ #define MUX_SEL_MASK	0x0000000F
+ 
+-/* CLK define */
+-#define CLK_ON_MASK	BIT(21)
+-#define CLK_ON_SHIFT	21
+-
+-#define CLK_ID_MASK	GENMASK_32(20, 12)
+-#define CLK_ID_SHIFT	12
+-
+-#define CLK_NO_DIV_MASK	0x0000080
+-#define CLK_DIV_MASK	GENMASK_32(10, 5)
+-#define CLK_DIV_SHIFT	5
+-
+-#define CLK_NO_SEL_MASK	0x00000010
+-#define CLK_SEL_MASK	GENMASK_32(3, 0)
+-#define CLK_SEL_SHIFT	0
+-
+-#define CLK_CFG(clk_id, sel, div, state)	((CMD_CLK << CMD_SHIFT) |\
+-						 ((state) << CLK_ON_SHIFT) |\
+-						 ((clk_id) << CLK_ID_SHIFT) |\
+-						 ((div) << CLK_DIV_SHIFT) |\
+-						 ((sel) << CLK_SEL_SHIFT))
+-
+-#define CLK_OFF		0
+-#define CLK_ON		1
+-#define CLK_NODIV	0x00000040
+-#define CLK_NOMUX	0x00000010
+-
+ /* Flexgen define */
+ #define FLEX_ID_SHIFT	20
+ #define FLEX_SEL_SHIFT	16
+diff --git a/include/dt-bindings/clock/stm32mp25-clksrc.h b/include/dt-bindings/clock/stm32mp25-clksrc.h
+index 0fc28822a8..fc0a5d839b 100644
+--- a/include/dt-bindings/clock/stm32mp25-clksrc.h
++++ b/include/dt-bindings/clock/stm32mp25-clksrc.h
+@@ -8,7 +8,6 @@
+ 
+ #define CMD_DIV		0
+ #define CMD_MUX		1
+-#define CMD_CLK		2
+ #define CMD_FLEXGEN	3
+ 
+ #define CMD_ADDR_BIT	0x80000000
+@@ -29,32 +28,6 @@
+ #define MUX_SEL_SHIFT	0
+ #define MUX_SEL_MASK	0x0000000F
+ 
+-/* CLK define */
+-#define CLK_ON_MASK	BIT(21)
+-#define CLK_ON_SHIFT	21
+-
+-#define CLK_ID_MASK	GENMASK_32(20, 12)
+-#define CLK_ID_SHIFT	12
+-
+-#define CLK_NO_DIV_MASK	0x0000080
+-#define CLK_DIV_MASK	GENMASK_32(10, 5)
+-#define CLK_DIV_SHIFT	5
+-
+-#define CLK_NO_SEL_MASK	0x00000010
+-#define CLK_SEL_MASK	GENMASK_32(3, 0)
+-#define CLK_SEL_SHIFT	0
+-
+-#define CLK_CFG(clk_id, sel, div, state)	((CMD_CLK << CMD_SHIFT) |\
+-						 ((state) << CLK_ON_SHIFT) |\
+-						 ((clk_id) << CLK_ID_SHIFT) |\
+-						 ((div) << CLK_DIV_SHIFT) |\
+-						 ((sel) << CLK_SEL_SHIFT))
+-
+-#define CLK_OFF		0
+-#define CLK_ON		1
+-#define CLK_NODIV	0x00000040
+-#define CLK_NOMUX	0x00000010
+-
+ /* Flexgen define */
+ #define FLEX_ID_SHIFT	20
+ #define FLEX_SEL_SHIFT	16
+-- 
+2.53.0
+

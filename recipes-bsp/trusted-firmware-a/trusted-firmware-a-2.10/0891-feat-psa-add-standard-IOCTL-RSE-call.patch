@@ -1,0 +1,108 @@
+From a5f17f7e69f85abb9ef56548b2a41b17e144bf03 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Thu, 17 Jul 2025 17:16:21 +0200
+Subject: [PATCH 891/954] feat(psa): add standard IOCTL RSE call
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add ioctl service is rse api.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 5f21f5cd44e004fe199ab9284e726f5353649e42 feat(psa): add standard IOCTL RSE call]
+Change-Id: I10a3ede4b9941fb9e6c8af3f13c9ea05dc77e8b4
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/475580
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ include/lib/psa/rse_platform_api.h | 17 +++++++++++++++++
+ lib/psa/rse_platform.c             | 30 ++++++++++++++++++++++++++++++
+ 2 files changed, 47 insertions(+)
+
+diff --git a/include/lib/psa/rse_platform_api.h b/include/lib/psa/rse_platform_api.h
+index fcfeb5050e..09e5394446 100644
+--- a/include/lib/psa/rse_platform_api.h
++++ b/include/lib/psa/rse_platform_api.h
+@@ -10,13 +10,17 @@
+ 
+ #include <stdint.h>
+ 
++#include <psa/client.h>
+ #include "psa/error.h"
+ #if CRYPTO_SUPPORT
+ #include <rse_crypto_defs.h>
+ #endif
+ 
++typedef int32_t rse_platform_ioctl_req_t;
++
+ #define RSE_PLATFORM_API_ID_NV_READ       (1010)
+ #define RSE_PLATFORM_API_ID_NV_INCREMENT  (1011)
++#define RSE_PLATFORM_API_ID_IOCTL         (1013)
+ 
+ /*
+  * Increments the given non-volatile (NV) counter by one
+@@ -44,6 +48,19 @@ psa_status_t
+ rse_platform_nv_counter_read(uint32_t counter_id,
+ 		uint32_t size, uint8_t *val);
+ 
++/*
++ * RSE IOCTL standard api.
++ *
++ * request	The ioctl request id, platform dependant.
++ * input	Array of input psa_invec structures.
++ * output	Array of output psa_outvec structures.
++ *
++ * PSA_SUCCESS if sucessful. Otherwise, it returns a PSA_ERROR.
++ */
++psa_status_t
++rse_platform_ioctl(rse_platform_ioctl_req_t request,
++		   psa_invec *input, psa_outvec *output);
++
+ #if CRYPTO_SUPPORT
+ /*
+  * Reads the public key or the public part of a key pair in binary format.
+diff --git a/lib/psa/rse_platform.c b/lib/psa/rse_platform.c
+index ffa2f480af..8dd848cc6e 100644
+--- a/lib/psa/rse_platform.c
++++ b/lib/psa/rse_platform.c
+@@ -12,6 +12,36 @@
+ #endif
+ #include <rse_platform_api.h>
+ 
++psa_status_t
++rse_platform_ioctl(rse_platform_ioctl_req_t request,
++		   psa_invec *input, psa_outvec *output)
++{
++	rse_platform_ioctl_req_t req = request;
++	struct psa_invec in_vec[2] = { {0} };
++	size_t inlen, outlen;
++
++	in_vec[0].base = &req;
++	in_vec[0].len = sizeof(req);
++	if (input != NULL) {
++		in_vec[1].base = input->base;
++		in_vec[1].len = input->len;
++		inlen = 2;
++	} else {
++		inlen = 1;
++	}
++
++	if (output != NULL) {
++		outlen = 1;
++	} else {
++		outlen = 0;
++	}
++
++	return psa_call(RSE_PLATFORM_SERVICE_HANDLE,
++			RSE_PLATFORM_API_ID_IOCTL,
++			in_vec, inlen,
++			output, outlen);
++}
++
+ psa_status_t
+ rse_platform_nv_counter_increment(uint32_t counter_id)
+ {
+-- 
+2.53.0
+

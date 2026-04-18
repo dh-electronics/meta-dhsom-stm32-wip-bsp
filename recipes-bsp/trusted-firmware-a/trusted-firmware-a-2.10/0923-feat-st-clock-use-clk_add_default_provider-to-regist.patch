@@ -1,0 +1,51 @@
+From db9738cd258fcd0c6b6b0d2f29d5a8ac09442e2a Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Thu, 25 Sep 2025 13:45:52 +0200
+Subject: [PATCH 923/954] feat(st-clock): use clk_add_default_provider to
+ register RCC clock provider
+
+Use the new clk_add_default_provider() API to register RCC as the clock
+provider and set it as the default.
+This ensures compatibility with drivers that do not retrieve the clock
+from the device tree (e.g., clk_enable(binding_id)).
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git d186999cd8da9c1f19f88a20dbe190d33feedf58 feat(st-clock): use clk_add_default_provider to register RCC clock provider]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: Ifc895c9c2f0781fda042b7b79afd942c4bc31f02
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/493935
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/st/clk/clk-stm32-core.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/st/clk/clk-stm32-core.c b/drivers/st/clk/clk-stm32-core.c
+index 86d1eacf07..b919ae6747 100644
+--- a/drivers/st/clk/clk-stm32-core.c
++++ b/drivers/st/clk/clk-stm32-core.c
+@@ -653,7 +653,19 @@ void clk_stm32_enable_critical_clocks(void)
+ 
+ static void stm32_clk_register(void)
+ {
+-	clk_register(&stm32mp_clk_ops);
++	int node_rcc = -1;
++	void *fdt = NULL;
++
++	if (fdt_get_address(&fdt) == 0) {
++		panic();
++	}
++
++	node_rcc = fdt_node_offset_by_compatible(fdt, -1, DT_RCC_CLK_COMPAT);
++	if (node_rcc < 0) {
++		panic();
++	}
++
++	clk_add_default_provider(node_rcc, &stm32mp_clk_ops);
+ }
+ 
+ uint32_t clk_stm32_div_get_value(struct stm32_clk_priv *priv, int div_id)
+-- 
+2.53.0
+

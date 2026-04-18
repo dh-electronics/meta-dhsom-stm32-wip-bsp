@@ -1,0 +1,70 @@
+From 3eee8194cefb4e83a7fbb2552aa6bf8ee1e67500 Mon Sep 17 00:00:00 2001
+From: Christophe Kerello <christophe.kerello@foss.st.com>
+Date: Thu, 6 Nov 2025 13:57:15 +0100
+Subject: [PATCH 933/954] fix(nand): add read parameter page retry
+
+SLC NAND embeds 3 parameter pages. In case CRC check fails on the
+first parameter page, we try to read the redundant pages.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git ef7e72ad9260de99b72120a76ff1aa17442abdd6 fix(nand): add read parameter page retry]
+Change-Id: I055afecf0d28e78976c49614e957fa07821ac21f
+Signed-off-by: Christophe Kerello <christophe.kerello@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/506947
+Tested-by: Christophe KERELLO <christophe.kerello@st.com>
+Domain-Review: Christophe KERELLO <christophe.kerello@st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+Reviewed-by: Christophe KERELLO <christophe.kerello@st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+---
+ drivers/mtd/nand/raw_nand.c | 22 ++++++++++++++--------
+ 1 file changed, 14 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/mtd/nand/raw_nand.c b/drivers/mtd/nand/raw_nand.c
+index 3595c21424..5f11126fe1 100644
+--- a/drivers/mtd/nand/raw_nand.c
++++ b/drivers/mtd/nand/raw_nand.c
+@@ -282,6 +282,7 @@ static int nand_read_param_page(void)
+ 	struct nand_param_page page;
+ 	uint8_t addr = 0U;
+ 	int ret;
++	int i;
+ 
+ 	ret = nand_send_cmd(NAND_CMD_READ_PARAM_PAGE, 0U);
+ 	if (ret != 0) {
+@@ -298,19 +299,24 @@ static int nand_read_param_page(void)
+ 		return ret;
+ 	}
+ 
+-	ret = nand_read_data((uint8_t *)&page, sizeof(page), true);
+-	if (ret != 0) {
+-		return ret;
++	for (i = 0; i < 3; i++) {
++		ret = nand_read_data((uint8_t *)&page, sizeof(page), true);
++		if (ret != 0) {
++			return ret;
++		}
++
++		if (nand_check_crc(CRC_INIT_VALUE, (uint8_t *)&page, 254U) == page.crc16) {
++			break;
++		}
+ 	}
+ 
+-	if (strncmp((char *)&page.page_sig, "ONFI", 4) != 0) {
+-		WARN("Error ONFI detection\n");
++	if (i == 3) {
++		WARN("Error reading param\n");
+ 		return -EINVAL;
+ 	}
+ 
+-	if (nand_check_crc(CRC_INIT_VALUE, (uint8_t *)&page, 254U) !=
+-	    page.crc16) {
+-		WARN("Error reading param\n");
++	if (strncmp((char *)&page.page_sig, "ONFI", 4) != 0) {
++		WARN("Error ONFI detection\n");
+ 		return -EINVAL;
+ 	}
+ 
+-- 
+2.53.0
+

@@ -1,0 +1,360 @@
+From 3da5d7e47463ae945da67dcbee4ce62486779eb1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Maxime=20M=C3=A9r=C3=A9?= <maxime.mere@foss.st.com>
+Date: Fri, 13 Jun 2025 15:06:43 +0200
+Subject: [PATCH 877/954] feat(stm32mp2): add M33TDCID secure boot support
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When M33 is TDCID, PKA and HASH peripheral are not accesible to TF-A.
+Use mbed TLS instead in order to realize authentication.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 1359d2a63d1aeaebcb779406e0f068fbe91ee18d feat(stm32mp2): add M33TDCID secure boot support]
+Change-Id: I65ea819046e32ba32b1775592262ad1d2ed02f97
+Signed-off-by: Maxime Méré <maxime.mere@foss.st.com>
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/444225
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+Domain-Review: Yann GAUTIER <yann.gautier@foss.st.com>
+---
+ plat/st/common/common.mk                      |   3 +
+ .../common/include/stm32mp_mbedtls_config.h   |   9 +-
+ plat/st/common/stm32mp_crypto_lib.c           | 137 ++++++++++++++++++
+ plat/st/common/stm32mp_trusted_boot.c         |   7 +
+ plat/st/stm32mp1/platform.mk                  |   2 +
+ plat/st/stm32mp2/platform.mk                  |   8 +
+ 6 files changed, 164 insertions(+), 2 deletions(-)
+
+diff --git a/plat/st/common/common.mk b/plat/st/common/common.mk
+index ecf9d26225..d6805ce81e 100644
+--- a/plat/st/common/common.mk
++++ b/plat/st/common/common.mk
+@@ -21,6 +21,9 @@ STM32MP_USE_EXTERNAL_HEAP	?=	0
+ # Use secure library from the ROM code for authentication
+ STM32MP_CRYPTO_ROM_LIB		?=	0
+ 
++# Flag to be activated when the coprocessor owns the security IPs
++STM32MP_CRYPTO_USE_SW		?=	0
++
+ # Please don't increment this value without good understanding of
+ # the monotonic counter
+ STM32_TF_VERSION		?=	0
+diff --git a/plat/st/common/include/stm32mp_mbedtls_config.h b/plat/st/common/include/stm32mp_mbedtls_config.h
+index cf17051929..0971eae853 100644
+--- a/plat/st/common/include/stm32mp_mbedtls_config.h
++++ b/plat/st/common/include/stm32mp_mbedtls_config.h
+@@ -10,11 +10,16 @@
+ #undef MBEDTLS_MPI_WINDOW_SIZE
+ #define MBEDTLS_MPI_WINDOW_SIZE			2
+ 
++#undef TF_MBEDTLS_HEAP_SIZE
++#if STM32MP_CRYPTO_USE_SW
++/* Mbed TLS heap size set in order to be able to use ecdsa */
++#define TF_MBEDTLS_HEAP_SIZE           U(13312)
++#else
+ /*
+  * Mbed TLS heap size is small as we only use the asn1
+  * parsing functions
+  * digest, signature and crypto algorithm are done by
+  * other library.
+  */
+-#undef TF_MBEDTLS_HEAP_SIZE
+-#define TF_MBEDTLS_HEAP_SIZE			U(5120)
++#define TF_MBEDTLS_HEAP_SIZE            U(5120)
++#endif
+diff --git a/plat/st/common/stm32mp_crypto_lib.c b/plat/st/common/stm32mp_crypto_lib.c
+index a03a724b05..350f8fa68c 100644
+--- a/plat/st/common/stm32mp_crypto_lib.c
++++ b/plat/st/common/stm32mp_crypto_lib.c
+@@ -18,9 +18,13 @@
+ #include <lib/utils.h>
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+ #include <mbedtls/asn1.h>
++#include <mbedtls/bignum.h>
++#include <mbedtls/ecdsa.h>
++#include <mbedtls/ecp.h>
+ #include <mbedtls/md.h>
+ #include <mbedtls/oid.h>
+ #include <mbedtls/platform.h>
++#include <mbedtls/sha256.h>
+ #include <mbedtls/x509.h>
+ #include <plat/common/platform.h>
+ #include <tools_share/firmware_encrypted.h>
+@@ -44,6 +48,12 @@ struct stm32mp_auth_ops {
+ static struct stm32mp_auth_ops auth_ops;
+ #endif
+ 
++#if STM32MP_CRYPTO_USE_SW
++static void crypto_lib_init(void)
++{
++	NOTICE("TRUSTED_BOARD_BOOT support enabled (M33TD)\n");
++}
++#else
+ static void crypto_lib_init(void)
+ {
+ 	boot_api_context_t *boot_context __maybe_unused;
+@@ -78,6 +88,7 @@ static void crypto_lib_init(void)
+ #endif
+ 	}
+ }
++#endif
+ 
+ static int get_plain_pk_from_asn1(void *pk_ptr, unsigned int pk_len, void **plain_pk,
+ 				  size_t *len, int *pk_alg)
+@@ -181,6 +192,115 @@ static int crypto_convert_pk(void *full_pk_ptr, unsigned int full_pk_len,
+ 	return ret;
+ }
+ #else /* STM32MP_CRYPTO_ROM_LIB*/
++#if STM32MP_CRYPTO_USE_SW
++int stm32_mbed_ecdsa_verif(void *hash, unsigned int hash_size,
++			   void *sig_r_ptr, unsigned int sig_r_size,
++			   void *sig_s_ptr, unsigned int sig_s_size,
++			   void *pk_x_ptr, unsigned int pk_x_size,
++			   void *pk_y_ptr, unsigned int pk_y_size,
++			   mbedtls_ecp_group_id cid)
++{
++	int ret;
++	mbedtls_ecp_group grp;
++	mbedtls_ecp_point Q;
++	mbedtls_mpi r, s;
++
++	/*Initialize structures */
++	mbedtls_ecp_group_init(&grp);
++	mbedtls_ecp_point_init(&Q);
++	mbedtls_mpi_init(&r);
++	mbedtls_mpi_init(&s);
++
++	/* Load the curve */
++	ret = mbedtls_ecp_group_load(&grp, cid);
++	if (ret != 0) {
++		goto cleanup;
++	}
++
++	/* Read public key coordinates */
++	ret = mbedtls_mpi_read_binary(&Q.MBEDTLS_PRIVATE(X), pk_x_ptr, pk_x_size);
++	if (ret != 0) {
++		goto cleanup;
++	}
++	ret = mbedtls_mpi_read_binary(&Q.MBEDTLS_PRIVATE(Y), pk_y_ptr, pk_y_size);
++	if (ret != 0) {
++		goto cleanup;
++	}
++	ret = mbedtls_mpi_lset(&Q.MBEDTLS_PRIVATE(Z), 1); /* Z = 1 for affine coordinates */
++	if (ret != 0) {
++		goto cleanup;
++	}
++
++	/* Read signature components */
++	ret = mbedtls_mpi_read_binary(&r, sig_r_ptr, sig_r_size);
++	if (ret != 0) {
++		goto cleanup;
++	}
++	ret = mbedtls_mpi_read_binary(&s, sig_s_ptr, sig_s_size);
++	if (ret != 0) {
++		goto cleanup;
++	}
++
++	/* Verify the signature */
++	ret = mbedtls_ecdsa_verify(&grp, hash, hash_size, &Q, &r, &s);
++
++cleanup:
++	mbedtls_ecp_group_free(&grp);
++	mbedtls_ecp_point_free(&Q);
++	mbedtls_mpi_free(&r);
++	mbedtls_mpi_free(&s);
++
++	return ret;
++}
++
++static uint32_t verify_signature(uint8_t *hash_in, uint8_t *pubkey_in,
++				 uint8_t *signature, uint32_t ecc_algo)
++{
++	int ret = -1;
++	mbedtls_ecp_group_id cid;
++
++	switch (ecc_algo) {
++	case BOOT_API_ECDSA_ALGO_TYPE_P256NIST:
++#if PKA_USE_NIST_P256
++		cid = MBEDTLS_ECP_DP_SECP256R1;
++		ret = 0;
++#else
++		WARN("%s nist_p256 requested but not included\n", __func__);
++#endif
++		break;
++	case BOOT_API_ECDSA_ALGO_TYPE_BRAINPOOL256:
++#if PKA_USE_BRAINPOOL_P256T1
++		cid = MBEDTLS_ECP_DP_BP256R1;
++		ret = 0;
++#else
++		WARN("%s brainpool_p256t1 requested but not included\n", __func__);
++#endif
++		break;
++	default:
++		WARN("%s unexpected ecc_algo(%u)\n", __func__, ecc_algo);
++		break;
++	}
++
++	if (ret < 0) {
++		return CRYPTO_ERR_SIGNATURE;
++	}
++
++	ret = stm32_mbed_ecdsa_verif(hash_in,
++				     BOOT_API_SHA256_DIGEST_SIZE_IN_BYTES,
++				     signature, BOOT_API_ECDSA_SIGNATURE_LEN_IN_BYTES / 2U,
++				     signature + BOOT_API_ECDSA_SIGNATURE_LEN_IN_BYTES / 2U,
++				     BOOT_API_ECDSA_SIGNATURE_LEN_IN_BYTES / 2U,
++				     pubkey_in, BOOT_API_ECDSA_PUB_KEY_LEN_IN_BYTES / 2U,
++				     pubkey_in + BOOT_API_ECDSA_PUB_KEY_LEN_IN_BYTES / 2U,
++				     BOOT_API_ECDSA_PUB_KEY_LEN_IN_BYTES / 2U, cid);
++
++	if (ret < 0) {
++		return CRYPTO_ERR_SIGNATURE;
++	}
++
++	return 0;
++}
++#else
+ static uint32_t verify_signature(uint8_t *hash_in, uint8_t *pubkey_in,
+ 				 uint8_t *signature, uint32_t ecc_algo)
+ {
+@@ -227,6 +347,7 @@ static uint32_t verify_signature(uint8_t *hash_in, uint8_t *pubkey_in,
+ 
+ 	return 0;
+ }
++#endif
+ 
+ static int crypto_convert_pk(void *full_pk_ptr, unsigned int full_pk_len,
+ 			     void **hashed_pk_ptr, unsigned int *hashed_pk_len)
+@@ -431,6 +552,13 @@ static int crypto_verify_signature(void *data_ptr, unsigned int data_len,
+ 	/* Need to free allocated 'next' in mbedtls_asn1_get_sequence_of */
+ 	mbedtls_free(seq.next);
+ 
++#if STM32MP_CRYPTO_USE_SW
++	ret = mbedtls_sha256((uint8_t *)data_ptr, data_len, image_hash, 0);
++	if (ret != 0) {
++		VERBOSE("%s: Mbed TLS hash failed\n", __func__);
++		return -EINVAL;
++	}
++#else
+ 	/* Compute hash for the data covered by the signature */
+ 	stm32_hash_init(HASH_SHA256);
+ 
+@@ -439,6 +567,7 @@ static int crypto_verify_signature(void *data_ptr, unsigned int data_len,
+ 		VERBOSE("%s: stm32_hash_final_update (%d)\n", __func__, ret);
+ 		return CRYPTO_ERR_SIGNATURE;
+ 	}
++#endif
+ 
+ 	return verify_signature(image_hash, my_pk, sig, curve_id);
+ }
+@@ -464,6 +593,13 @@ static int crypto_verify_hash(void *data_ptr, unsigned int data_len,
+ 	digest_info_ptr = p;
+ 	digest_info_len = len;
+ 
++#if STM32MP_CRYPTO_USE_SW
++	ret = mbedtls_sha256(data_ptr, data_len, calc_hash, 0);
++	if (ret != 0) {
++		VERBOSE("%s: hash failed\n", __func__);
++		return CRYPTO_ERR_HASH;
++	}
++#else
+ 	stm32_hash_init(HASH_SHA256);
+ 
+ 	ret = stm32_hash_final_update(data_ptr, data_len, calc_hash);
+@@ -471,6 +607,7 @@ static int crypto_verify_hash(void *data_ptr, unsigned int data_len,
+ 		VERBOSE("%s: hash failed\n", __func__);
+ 		return CRYPTO_ERR_HASH;
+ 	}
++#endif
+ 
+ 	ret = memcmp(calc_hash, digest_info_ptr, digest_info_len);
+ 	if (ret != 0) {
+diff --git a/plat/st/common/stm32mp_trusted_boot.c b/plat/st/common/stm32mp_trusted_boot.c
+index f19ed92e40..3cf770561d 100644
+--- a/plat/st/common/stm32mp_trusted_boot.c
++++ b/plat/st/common/stm32mp_trusted_boot.c
+@@ -8,10 +8,12 @@
+ #include <errno.h>
+ #include <limits.h>
+ 
++#include <mbedtls/sha256.h>
+ #include <common/debug.h>
+ #include <common/tbbr/cot_def.h>
+ #include <drivers/clk.h>
+ #include <drivers/st/stm32_hash.h>
++
+ #include <lib/fconf/fconf.h>
+ #include <lib/fconf/fconf_dyn_cfg_getter.h>
+ #include <lib/fconf/fconf_tbbr_getter.h>
+@@ -112,9 +114,14 @@ static int get_rotpk_hash(void *cookie, uint8_t *hash, size_t len)
+ 
+ 	pk_idx = param->pk_idx;
+ 
++#if STM32MP_CRYPTO_USE_SW
++	ret = mbedtls_sha256((uint8_t *)param->pk_hashes,
++			     param->nb_pk * sizeof(boot_api_sha256_t), calc_hash, 0);
++#else
+ 	stm32_hash_init(HASH_SHA256);
+ 	ret = stm32_hash_final_update((uint8_t *)param->pk_hashes,
+ 				      param->nb_pk * sizeof(boot_api_sha256_t), calc_hash);
++#endif
+ 	if (ret != 0) {
+ 		VERBOSE("%s: hash failed\n", __func__);
+ 		return -EINVAL;
+diff --git a/plat/st/stm32mp1/platform.mk b/plat/st/stm32mp1/platform.mk
+index 0e4540b345..2e48c1f283 100644
+--- a/plat/st/stm32mp1/platform.mk
++++ b/plat/st/stm32mp1/platform.mk
+@@ -174,6 +174,7 @@ $(eval $(call assert_booleans,\
+ 		STM32MP_CRYPTO_ROM_LIB \
+ 		STM32MP_DDR_32BIT_INTERFACE \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
++		STM32MP_CRYPTO_USE_SW \
+ 		STM32MP_SSP \
+ 		STM32MP_STPMIC1L \
+ 		STM32MP_USE_EXTERNAL_HEAP \
+@@ -210,6 +211,7 @@ $(eval $(call add_defines,\
+ 		STM32MP_CRYPTO_ROM_LIB \
+ 		STM32MP_DDR_32BIT_INTERFACE \
+ 		STM32MP_DDR_DUAL_AXI_PORT \
++		STM32MP_CRYPTO_USE_SW \
+ 		STM32MP_SSP \
+ 		STM32MP_STPMIC1L \
+ 		STM32MP_USE_EXTERNAL_HEAP \
+diff --git a/plat/st/stm32mp2/platform.mk b/plat/st/stm32mp2/platform.mk
+index 3e54ca498e..d74a9de7c3 100644
+--- a/plat/st/stm32mp2/platform.mk
++++ b/plat/st/stm32mp2/platform.mk
+@@ -70,7 +70,13 @@ $(warning DTB_FILE_NAME=$(DTB_FILE_NAME))
+ $(error Cannot enable 2 flags STM32MP2X)
+ endif
+ 
++ifeq (${STM32MP_M33_TDCID},1)
++# When Cortex-M33 is TDCID, Cortex-A doesn't have access to HASH, SAES and PKA peripherals
++STM32MP_CRYPTO_USE_SW	:=	1
++STM32MP_USE_EXTERNAL_HEAP 	:=	0
++else
+ STM32MP_USE_EXTERNAL_HEAP 	:=	1
++endif
+ 
+ ifeq (${TRUSTED_BOARD_BOOT},1)
+ # PKA algo to include
+@@ -217,6 +223,7 @@ $(eval $(call assert_booleans,\
+ 		STM32MP_DDR4_TYPE \
+ 		STM32MP_LPDDR4_TYPE \
+ 		STM32MP_M33_TDCID \
++		STM32MP_CRYPTO_USE_SW \
+ 		STM32MP_USE_EXTERNAL_HEAP \
+ 		STM32MP21 \
+ 		STM32MP23 \
+@@ -258,6 +265,7 @@ $(eval $(call add_defines,\
+ 		STM32MP_DDR4_TYPE \
+ 		STM32MP_LPDDR4_TYPE \
+ 		STM32MP_M33_TDCID \
++		STM32MP_CRYPTO_USE_SW \
+ 		STM32MP_USE_EXTERNAL_HEAP \
+ 		STM32MP_SIP_CA33SS_CLK \
+ 		STM32MP21 \
+-- 
+2.53.0
+

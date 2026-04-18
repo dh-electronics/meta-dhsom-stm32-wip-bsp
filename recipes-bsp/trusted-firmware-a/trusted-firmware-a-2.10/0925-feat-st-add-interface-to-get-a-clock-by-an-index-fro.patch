@@ -1,0 +1,115 @@
+From a12f3e5384284403ed1e93fa0437da14c703f20c Mon Sep 17 00:00:00 2001
+From: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Date: Tue, 30 Sep 2025 17:56:26 +0200
+Subject: [PATCH 925/954] feat(st): add interface to get a clock by an index
+ from phandle
+
+This adds an interface to retrieve a clock by its index from a phandle
+in the device tree.
+
+The phandle of the clock provider is stored in the upper 16 bits (MSB),
+and the clock ID is stored in the lower 16 bits (LSB).
+If #clock-cells = 0, the phandle is stored in both the MSB and LSB.
+
+Upstream-Status: Inappropriate [ST downstream https://github.com/STMicroelectronics/arm-trusted-firmware.git 41637d0a965f720778e3ad601c56477245fc5b27 feat(st): add interface to get a clock by an index from phandle]
+Signed-off-by: Gabriel Fernandez <gabriel.fernandez@foss.st.com>
+Change-Id: I1dfbc666590ce648c588a0d3bc40ebb3d5f1243c
+Reviewed-on: https://gerrit.st.com/c/mpu/oe/st/tf-a/+/493936
+Domain-Review: Patrick DELAUNAY <patrick.delaunay@foss.st.com>
+Reviewed-by: Maxime MERE <maxime.mere@foss.st.com>
+ACI: CIBUILD <MDG-smet-aci-builds@list.st.com>
+ACI: CITOOLS <MDG-smet-aci-reviews@list.st.com>
+---
+ plat/st/common/include/stm32mp_dt.h |  1 +
+ plat/st/common/stm32mp_dt.c         | 43 ++++++++++++++++++++++++-----
+ 2 files changed, 37 insertions(+), 7 deletions(-)
+
+diff --git a/plat/st/common/include/stm32mp_dt.h b/plat/st/common/include/stm32mp_dt.h
+index 737cdc4e7a..e40257bbc2 100644
+--- a/plat/st/common/include/stm32mp_dt.h
++++ b/plat/st/common/include/stm32mp_dt.h
+@@ -44,5 +44,6 @@ const char *dt_get_board_model(void);
+ int dt_find_otp_name(const char *name, uint32_t *otp, uint32_t *otp_len);
+ int dt_get_otp_by_phandle(const uint32_t phandle, uint32_t *otp_id, uint32_t *otp_len);
+ int fdt_get_gpio_bank_pin_count(unsigned int bank);
++int dt_get_clk_by_index(void *_fdt, int node, int clk_idx, unsigned long *id);
+ 
+ #endif /* STM32MP_DT_H */
+diff --git a/plat/st/common/stm32mp_dt.c b/plat/st/common/stm32mp_dt.c
+index 7f0fffff67..f2bf0d84d3 100644
+--- a/plat/st/common/stm32mp_dt.c
++++ b/plat/st/common/stm32mp_dt.c
+@@ -9,6 +9,7 @@
+ 
+ #include <common/debug.h>
+ #include <common/fdt_wrappers.h>
++#include <drivers/clk.h>
+ #include <drivers/st/regulator.h>
+ #include <drivers/st/stm32_gpio.h>
+ #include <libfdt.h>
+@@ -126,14 +127,44 @@ int dt_set_stdout_pinctrl(void)
+ 	return dt_set_pinctrl_config(node);
+ }
+ 
++int dt_get_clk_by_index(void *_fdt, int node, int index, unsigned long *id)
++{
++	int ret;
++	struct fdt_phandle_args args;
++
++	ret = fdt_get_phandle_with_args(_fdt, node, "clocks", "#clock-cells",
++					index, &args);
++	if (ret < 0) {
++		return ret;
++	}
++
++	assert(args.phandle <= CLK_PHANDLE_MASK);
++
++	if (args.args_count > 1) {
++		ERROR("%s: too many clock arguments (%d)\n", __func__,
++		      args.args_count);
++		panic();
++	}
++
++	*id = (args.phandle << CLK_PHANDLE_SHIFT) & CLK_PHANDLE_MASK;
++
++	if (args.args_count == 0) {
++		*id |= args.phandle;
++	} else {
++		assert (args.args[0] <= CLK_BINDING_ID_MASK);
++		*id |= args.args[0];
++	}
++
++	return 0;
++}
++
+ /*******************************************************************************
+  * This function fills the generic information from a given node.
+  ******************************************************************************/
+ void dt_fill_device_info(struct dt_node_info *info, int node)
+ {
+ 	const fdt32_t *cuint;
+-
+-	assert(fdt_get_node_parent_address_cells(node) == 1);
++	unsigned long clock_id;
+ 
+ 	cuint = fdt_getprop(fdt, node, "reg", NULL);
+ 	if (cuint != NULL) {
+@@ -142,12 +173,10 @@ void dt_fill_device_info(struct dt_node_info *info, int node)
+ 		info->base = 0;
+ 	}
+ 
+-	cuint = fdt_getprop(fdt, node, "clocks", NULL);
+-	if (cuint != NULL) {
+-		cuint++;
+-		info->clock = (int)fdt32_to_cpu(*cuint);
+-	} else {
++	if (dt_get_clk_by_index(fdt, node, 0, &clock_id) < 0) {
+ 		info->clock = -1;
++	} else {
++		info->clock = clock_id;
+ 	}
+ 
+ 	cuint = fdt_getprop(fdt, node, "resets", NULL);
+-- 
+2.53.0
+
