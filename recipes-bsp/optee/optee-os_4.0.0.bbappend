@@ -2,7 +2,10 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/upports:"
 
 COMPATIBLE_MACHINE:dh-stm32mp25-dhsom = "dh-stm32mp25-dhsom"
 OPTEEMACHINE:dh-stm32mp25-dhsom = "stm32mp2-25XX_DHCOS_SOM "
-EXTRA_OEMAKE:append:dh-stm32mp25-dhsom = " CFG_EMBED_DTB_SOURCE_FILE=stm32mp25xx-dhcos-som.dts "
+EXTRA_OEMAKE:append:dh-stm32mp25-dhsom = " \
+	CFG_EMBED_DTB_SOURCE_FILE=stm32mp25xx-dhcos-som.dts \
+	CFG_STM32_EARLY_CONSOLE_UART=6 \
+	"
 
 # Workaround for ST downstream 0004-core-scmi-server-dump-source-files-from-SCP-firmware.patch
 # which includes binary blobs in the patch file. OE default patchtool, quilt,
