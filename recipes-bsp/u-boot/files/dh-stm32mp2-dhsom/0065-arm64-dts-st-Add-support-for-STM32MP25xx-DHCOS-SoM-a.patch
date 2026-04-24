@@ -38,6 +38,7 @@ Signed-off-by: Marek Vasut <marex@nabladev.com>
  .../arm/dts/stm32mp25xx-dhcos-som-u-boot.dtsi |  46 +++
  arch/arm/dts/stm32mp25xx-dhcos-som.dtsi       | 389 ++++++++++++++++++
  arch/arm/mach-stm32mp/Kconfig.25x             |   8 +
+ arch/arm/mach-stm32mp/dram_init.c             |   7 +
  board/dhelectronics/dh_stm32mp2/Kconfig       |  13 +
  board/dhelectronics/dh_stm32mp2/MAINTAINERS   |   6 +
  board/dhelectronics/dh_stm32mp2/Makefile      |   6 +
@@ -47,7 +48,7 @@ Signed-off-by: Marek Vasut <marex@nabladev.com>
  configs/stm32mp25_dhcos_dhsbc_defconfig       |   5 +
  .../src/arm64/st/stm32mp25-pinctrl.dtsi       | 123 ++++++
  include/configs/stm32mp25_dh_common.h         |  19 +
- 18 files changed, 1428 insertions(+)
+ 19 files changed, 1435 insertions(+)
  create mode 100644 arch/arm/dts/stm32mp255c-dhcos-dhsbc-u-boot.dtsi
  create mode 100644 arch/arm/dts/stm32mp255c-dhcos-dhsbc.dts
  create mode 100644 arch/arm/dts/stm32mp25xx-dhcos-bb-u-boot.dtsi
@@ -959,6 +960,38 @@ index 7d2d8171845..6b5acb5dc62 100644
  source "board/st/stm32mp2/Kconfig"
  
  endif
+diff --git a/arch/arm/mach-stm32mp/dram_init.c b/arch/arm/mach-stm32mp/dram_init.c
+index 1dc9e0f5809..796699be12a 100644
+--- a/arch/arm/mach-stm32mp/dram_init.c
++++ b/arch/arm/mach-stm32mp/dram_init.c
+@@ -13,6 +13,7 @@
+ #include <log.h>
+ #include <ram.h>
+ #include <asm/global_data.h>
++#include <asm/io.h>
+ #include <asm/system.h>
+ #include <mach/stm32mp.h>
+ 
+@@ -41,6 +42,7 @@ int dram_init(void)
+ {
+ 	struct ram_info ram;
+ 	struct udevice *dev;
++	u32 tamp_ram;
+ 	int ret;
+ 
+ 	ret = uclass_get_device(UCLASS_RAM, 0, &dev);
+@@ -49,6 +51,11 @@ int dram_init(void)
+ 		ret = fdtdec_setup_mem_size_base();
+ 		if (ret)
+ 			return ret;
++
++		tamp_ram = readl(0x46010290);
++		if (tamp_ram)
++			gd->ram_size = ((u64)tamp_ram) << 16ULL;
++
+ 		if (gd->ram_size > STM32_DDR_SIZE)
+ 			return -EINVAL;
+ 		return 0;
 diff --git a/board/dhelectronics/dh_stm32mp2/Kconfig b/board/dhelectronics/dh_stm32mp2/Kconfig
 new file mode 100644
 index 00000000000..254a83f6758
