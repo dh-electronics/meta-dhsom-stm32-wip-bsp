@@ -26,9 +26,10 @@ Signed-off-by: Marek Vasut <marex@nabladev.com>
  .../stm32mp25xx-dhcos-som-ca35tdcid-rif.dtsi  | 1003 +++++++++++++++++
  core/arch/arm/dts/stm32mp25xx-dhcos-som.dts   |   20 +
  core/arch/arm/dts/stm32mp25xx-dhcos-som.dtsi  |  527 +++++++++
+ core/arch/arm/kernel/boot.c                   |    7 +
  core/arch/arm/plat-stm32mp2/conf.mk           |    4 +-
  .../drivers/stm32mp25_pwr_regul.c             |    5 +-
- 7 files changed, 1902 insertions(+), 2 deletions(-)
+ 8 files changed, 1909 insertions(+), 2 deletions(-)
  create mode 100644 core/arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-rcc.dtsi
  create mode 100644 core/arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-resmem.dtsi
  create mode 100644 core/arch/arm/dts/stm32mp25xx-dhcos-som-ca35tdcid-rif.dtsi
@@ -1960,6 +1961,38 @@ index 000000000..360b385c8
 +	pinctrl-0 = <&usart6_pins_a>;
 +	status = "okay";
 +};
+diff --git a/core/arch/arm/kernel/boot.c b/core/arch/arm/kernel/boot.c
+index 7150b01dd..0f2898458 100644
+--- a/core/arch/arm/kernel/boot.c
++++ b/core/arch/arm/kernel/boot.c
+@@ -15,6 +15,7 @@
+ #include <ffa.h>
+ #include <initcall.h>
+ #include <inttypes.h>
++#include <io.h>
+ #include <keep.h>
+ #include <kernel/asan.h>
+ #include <kernel/boot.h>
+@@ -893,6 +894,9 @@ static int get_nsec_memory_helper(void *fdt, struct core_mmu_phys_mem *mem)
+ 
+ static struct core_mmu_phys_mem *get_nsec_memory(void *fdt, size_t *nelems)
+ {
++	static struct io_pa_va tampbase = { .pa = 0x46010290 };
++	vaddr_t base = io_pa_or_va(&tampbase, 0x10);
++	uint64_t val = io_read32(base) << 16ULL;
+ 	struct core_mmu_phys_mem *mem = NULL;
+ 	int elems_total = 0;
+ 
+@@ -907,6 +911,9 @@ static struct core_mmu_phys_mem *get_nsec_memory(void *fdt, size_t *nelems)
+ 	elems_total = get_nsec_memory_helper(fdt, mem);
+ 	assert(elems_total > 0);
+ 
++	if (val)
++		mem->size = val;
++
+ 	*nelems = elems_total;
+ 
+ 	return mem;
 diff --git a/core/arch/arm/plat-stm32mp2/conf.mk b/core/arch/arm/plat-stm32mp2/conf.mk
 index 98e76f02c..825e87c02 100644
 --- a/core/arch/arm/plat-stm32mp2/conf.mk
