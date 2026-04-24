@@ -22,6 +22,7 @@ Signed-off-by: Marek Vasut <marex@nabladev.com>
 echo 'setenv dfu_alt_info "fsbla raw 0 0x2000 mmcpart 1 ; fsblb raw 0 0x2000 mmcpart 2 ; fipa part 0 1 ; fipb part 0 2" && dfu 0 mmc 1' > /dev/ttyUSB1
 dfu-util -w -a 0 -D build/stm32mp2/release/tf-a-stm32mp25xx-dhcos-som.stm32 ; dfu-util -w -a 1 -D build/stm32mp2/release/tf-a-stm32mp25xx-dhcos-som.stm32 ; dfu-util -w -a 2 -D build/stm32mp2/release/fip.bin ; dfu-util -w -a 3 -D build/stm32mp2/release/fip.bin
 ---
+ drivers/st/ddr/stm32mp2_ram.c                 |  38 +++
  ...2mp25xx-dhcos-som-ca35tdcid-fw-config.dtsi |  28 ++
  fdts/stm32mp25xx-dhcos-som-ca35tdcid-rcc.dtsi |  90 ++++++
  fdts/stm32mp25xx-dhcos-som-fw-config.dts      |   6 +
@@ -29,7 +30,7 @@ dfu-util -w -a 0 -D build/stm32mp2/release/tf-a-stm32mp25xx-dhcos-som.stm32 ; df
  ...som-lpddr4-1x32Gbits-1x32bits-1200MHz.dtsi | 255 +++++++++++++++++
  fdts/stm32mp25xx-dhcos-som.dts                |  15 +
  fdts/stm32mp25xx-dhcos-som.dtsi               | 270 ++++++++++++++++++
- 7 files changed, 671 insertions(+)
+ 8 files changed, 709 insertions(+)
  create mode 100644 fdts/stm32mp25xx-dhcos-som-ca35tdcid-fw-config.dtsi
  create mode 100644 fdts/stm32mp25xx-dhcos-som-ca35tdcid-rcc.dtsi
  create mode 100644 fdts/stm32mp25xx-dhcos-som-fw-config.dts
@@ -38,6 +39,62 @@ dfu-util -w -a 0 -D build/stm32mp2/release/tf-a-stm32mp25xx-dhcos-som.stm32 ; df
  create mode 100644 fdts/stm32mp25xx-dhcos-som.dts
  create mode 100644 fdts/stm32mp25xx-dhcos-som.dtsi
 
+diff --git a/drivers/st/ddr/stm32mp2_ram.c b/drivers/st/ddr/stm32mp2_ram.c
+index 6cac99c619..71ede84cf6 100644
+--- a/drivers/st/ddr/stm32mp2_ram.c
++++ b/drivers/st/ddr/stm32mp2_ram.c
+@@ -68,6 +68,10 @@ static int ddr_dt_get_ui_param(void *fdt, int node, struct stm32mp_ddr_config *c
+ 	return 0;
+ }
+ 
++#include <drivers/clk.h>
++#include <drivers/st/stm32_gpio.h>
++#include <dt-bindings/gpio/stm32-gpio.h>
++
+ static int stm32mp2_ddr_setup(void)
+ {
+ 	struct stm32mp_ddr_priv *priv = &ddr_priv_data;
+@@ -104,6 +108,40 @@ static int stm32mp2_ddr_setup(void)
+ 		return ret;
+ 	}
+ 
++#if 1
++	int gpiof15, gpiog10, gpiog9;
++
++	set_gpio_config(GPIO_BANK_F, 15, GPIOF_DIR_IN, 0);
++	set_gpio_config(GPIO_BANK_G, 10, GPIOF_DIR_IN, 0);
++	set_gpio_config(GPIO_BANK_G, 9, GPIOF_DIR_IN, 0);
++
++	gpiof15 = get_gpio_level(GPIO_BANK_F, 15);
++	gpiog10 = get_gpio_level(GPIO_BANK_G, 10);
++	gpiog9 = get_gpio_level(GPIO_BANK_G, 9);
++
++	NOTICE("BL2: DRAM straps [2:0]=3'b%d%d%d\n", gpiof15, gpiog10, gpiog9);
++
++	if (gpiof15 == 0 && gpiog10 == 1 && gpiog9 == 1) {
++		/* 2 GiB variant */
++		NOTICE("BL2: DRAM size is 2 GiB\n");
++		config.info.size = 0x80000000ULL;
++		config.c_timing.rfshtmg = 0x81240054;
++		config.c_timing.dramtmg14 = 0xAD;
++		config.c_map.addrmap7 = 0xF0F;
++	} else {
++		/* 4 GiB variant */
++		NOTICE("BL2: DRAM size is 4 GiB\n");
++		config.info.size = 0x100000000ULL;
++		config.c_timing.rfshtmg = 0x81240072;
++		config.c_timing.dramtmg14 = 0xE9;
++		config.c_map.addrmap7 = 0xF07;
++	}
++
++	/* Pass decoded DRAM size >> 16 via TAMP register */
++	clk_enable(TAMP_BKP_REG_CLK);
++	mmio_write_32(0x46010290, config.info.size >> 16ULL);
++#endif
++
+ 	ret = ddr_dt_get_ui_param(fdt, node, &config);
+ 	if (ret < 0) {
+ 		return ret;
 diff --git a/fdts/stm32mp25xx-dhcos-som-ca35tdcid-fw-config.dtsi b/fdts/stm32mp25xx-dhcos-som-ca35tdcid-fw-config.dtsi
 new file mode 100644
 index 0000000000..c5c32c8554
