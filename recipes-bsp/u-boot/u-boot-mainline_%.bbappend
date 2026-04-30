@@ -40,6 +40,7 @@ SRC_URI:append:dh-stm32mp2-dhsom = " \
 	file://0009-gpio-stm32_gpio-support-RIF-semaphore-handling.patch \
 	file://0010-gpio-stm32_gpio-release-RIF-semaphores-before-OS-boo.patch \
 	file://0011-gpio-stmfx-Use-correct-flag-values.patch \
+	file://0012-cmd-ums-Switch-HW-partition-before-block-access.patch \
 	file://0013-arm-stm32mp-simply-reset-the-TAMP_COPRO_STATE-backup.patch \
 	file://0014-arm-stm32mp-add-support-of-TAMP_COPRO-backup-registe.patch \
 	file://0015-arm-stm32-correctly-handle-STM32_DDR_SIZE-for-STM32M.patch \
@@ -108,4 +109,4 @@ do_deploy:append:dh-stm32mp25-dhsom() {
 # format is -${MACHINE}-date.extraversion. The date is in the
 # format YYYYMMDD, the extraversion is used in case there are
 # multiple releases during a single day, which is unlikely.
-UBOOT_LOCALVERSION:dh-stm32mp-dhsom ?= "-${MACHINE}-20260519.07"
+UBOOT_LOCALVERSION:dh-stm32mp-dhsom ?= "-${MACHINE}-20260519.08"
