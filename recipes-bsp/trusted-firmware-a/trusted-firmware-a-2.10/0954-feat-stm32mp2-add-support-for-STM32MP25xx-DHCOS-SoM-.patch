@@ -22,7 +22,7 @@ Signed-off-by: Marek Vasut <marex@nabladev.com>
 echo 'setenv dfu_alt_info "fsbla raw 0 0x2000 mmcpart 1 ; fsblb raw 0 0x2000 mmcpart 2 ; fipa part 0 1 ; fipb part 0 2" && dfu 0 mmc 1' > /dev/ttyUSB1
 dfu-util -w -a 0 -D build/stm32mp2/release/tf-a-stm32mp25xx-dhcos-som.stm32 ; dfu-util -w -a 1 -D build/stm32mp2/release/tf-a-stm32mp25xx-dhcos-som.stm32 ; dfu-util -w -a 2 -D build/stm32mp2/release/fip.bin ; dfu-util -w -a 3 -D build/stm32mp2/release/fip.bin
 ---
- drivers/st/ddr/stm32mp2_ram.c                 |  38 +++
+ drivers/st/ddr/stm32mp2_ram.c                 |  46 +++
  ...2mp25xx-dhcos-som-ca35tdcid-fw-config.dtsi |  28 ++
  fdts/stm32mp25xx-dhcos-som-ca35tdcid-rcc.dtsi |  90 ++++++
  fdts/stm32mp25xx-dhcos-som-fw-config.dts      |   6 +
@@ -30,7 +30,7 @@ dfu-util -w -a 0 -D build/stm32mp2/release/tf-a-stm32mp25xx-dhcos-som.stm32 ; df
  ...som-lpddr4-1x32Gbits-1x32bits-1200MHz.dtsi | 255 +++++++++++++++++
  fdts/stm32mp25xx-dhcos-som.dts                |  15 +
  fdts/stm32mp25xx-dhcos-som.dtsi               | 270 ++++++++++++++++++
- 8 files changed, 709 insertions(+)
+ 8 files changed, 717 insertions(+)
  create mode 100644 fdts/stm32mp25xx-dhcos-som-ca35tdcid-fw-config.dtsi
  create mode 100644 fdts/stm32mp25xx-dhcos-som-ca35tdcid-rcc.dtsi
  create mode 100644 fdts/stm32mp25xx-dhcos-som-fw-config.dts
@@ -54,7 +54,7 @@ index 6cac99c619..71ede84cf6 100644
  static int stm32mp2_ddr_setup(void)
  {
  	struct stm32mp_ddr_priv *priv = &ddr_priv_data;
-@@ -104,6 +108,40 @@ static int stm32mp2_ddr_setup(void)
+@@ -104,6 +108,48 @@ static int stm32mp2_ddr_setup(void)
  		return ret;
  	}
  
@@ -71,7 +71,15 @@ index 6cac99c619..71ede84cf6 100644
 +
 +	NOTICE("BL2: DRAM straps [2:0]=3'b%d%d%d\n", gpiof15, gpiog10, gpiog9);
 +
-+	if (gpiof15 == 0 && gpiog10 == 1 && gpiog9 == 1) {
++	if (gpiof15 == 0 && gpiog10 == 0 && gpiog9 == 1) {
++		/* 1 GiB variant */
++		NOTICE("BL2: DRAM size is 1 GiB\n");
++		config.info.size = 0x40000000ULL;
++		config.c_timing.rfshtmg = 0x81240036;
++		config.c_timing.dramtmg14 = 0x71;
++		config.c_map.addrmap6 = 0xF070707;
++		config.c_map.addrmap7 = 0xF0F;
++	} else if (gpiof15 == 0 && gpiog10 == 1 && gpiog9 == 1) {
 +		/* 2 GiB variant */
 +		NOTICE("BL2: DRAM size is 2 GiB\n");
 +		config.info.size = 0x80000000ULL;
