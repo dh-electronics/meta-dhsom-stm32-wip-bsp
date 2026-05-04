@@ -13,7 +13,7 @@ MACHINE_FEATURES ?= "apm alsa ext2 keyboard mainline screen serial touchscreen u
 SERIAL_CONSOLES = "115200;ttySTM0"
 
 # U-Boot bootloader
-UBOOT_ENTRYPOINT := "0xc4000000"
+UBOOT_ENTRYPOINT := "0xa4000000"
 UBOOT_MAKE_TARGET := "all"
 UBOOT_BINARY := "u-boot.itb"
 UBOOT_SUFFIX ?= "itb"
@@ -21,8 +21,8 @@ SPL_BINARY := "u-boot-spl.stm32"
 UBOOT_ENV = "boot"
 UBOOT_ENV_SUFFIX = "scr"
 # fitImage DT and DTO load addresses
-UBOOT_DTB_LOADADDRESS = "0xcff00000"
-UBOOT_DTBO_LOADADDRESS = "0xcff80000"
+UBOOT_DTB_LOADADDRESS = "0xaff00000"
+UBOOT_DTBO_LOADADDRESS = "0xaff80000"
 
 PREFERRED_PROVIDER_virtual/bootloader ?= "u-boot-mainline"
 PREFERRED_PROVIDER_u-boot ?= "u-boot-mainline"
