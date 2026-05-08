@@ -109,4 +109,4 @@ do_deploy:append:dh-stm32mp25-dhsom() {
 # format is -${MACHINE}-date.extraversion. The date is in the
 # format YYYYMMDD, the extraversion is used in case there are
 # multiple releases during a single day, which is unlikely.
-UBOOT_LOCALVERSION:dh-stm32mp-dhsom ?= "-${MACHINE}-20260519.08"
+UBOOT_LOCALVERSION:dh-stm32mp-dhsom ?= "-${MACHINE}-20260519.09"
