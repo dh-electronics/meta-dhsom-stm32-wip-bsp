@@ -1,4 +1,4 @@
-DEFAULTTUNE ?= "cortexa35-crypto"
+DEFAULTTUNE ?= "cortexa35"
 SOC_FAMILY ?= "stm32mp2"
 
 MACHINEOVERRIDES =. "dh-dhsom:dh-stm32mp-dhsom:dh-stm32mp2-dhsom:dh-stm32mp25-dhsom:"
