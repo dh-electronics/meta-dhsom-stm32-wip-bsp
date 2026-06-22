@@ -542,7 +542,8 @@ Done!
 ```
 
 Once the installation completed, terminate DFU from U-Boot console
-by pressing `Ctrl + C`, then reset the board.
+by pressing `Ctrl + C`, configure eMMC boot settings and reset the
+board.
 
 ```
 STM32MP> dfu 0 mmc 1
@@ -556,6 +557,12 @@ Ctrl+C to exit ...
 #DOWNLOAD ... OK
 Ctrl+C to exit ...
 STM32MP>
+```
+
+The eMMC boot settings compatible with the STM32MP25xx are as follows:
+```
+STM32MP> mmc bootbus 1 0 0 0
+STM32MP> mmc partconf 1 1 1 1
 ```
 
 To reset the board, either press the `RESET` button on the board,
