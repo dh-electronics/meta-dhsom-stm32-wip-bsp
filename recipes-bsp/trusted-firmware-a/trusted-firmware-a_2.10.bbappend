@@ -4,7 +4,9 @@ TFA_PLATFORM:dh-stm32mp25-dhsom = "stm32mp2"
 TFA_BUILD_TARGET:dh-stm32mp25-dhsom = "all fip"
 TFA_INSTALL_TARGET:dh-stm32mp25-dhsom = "tf-a-stm32mp25xx-dhcos-som.stm32 fip.bin"
 TFA_BUILD_TARGET:append:dh-stm32mp25-dhcos-bb = " fip-ddr"
+TFA_BUILD_TARGET:append:dh-stm32mp25-dhcos-dhsbc = " fip-ddr"
 TFA_INSTALL_TARGET:append:dh-stm32mp25-dhcos-bb = " fip-ddr.bin"
+TFA_INSTALL_TARGET:append:dh-stm32mp25-dhcos-dhsbc = " fip-ddr.bin"
 
 do_compile[depends] += "${@'optee-os:do_deploy u-boot-mainline:do_deploy' if 'dh-stm32mp25-dhsom' in d.getVar('MACHINEOVERRIDES', True).split(':') else ' '}"
 
@@ -29,6 +31,7 @@ EXTRA_OEMAKE:append:dh-stm32mp25-dhsom = " \
 	"
 
 EXTRA_OEMAKE:append:dh-stm32mp25-dhcos-bb = " STM32MP_USB_PROGRAMMER=1"
+EXTRA_OEMAKE:append:dh-stm32mp25-dhcos-dhsbc = " STM32MP_USB_PROGRAMMER=1"
 
 SRC_URI:append:dh-stm32mp25-dhsom = " \
 	file://0001-feat-st-add-ST-specific-version.patch \
@@ -985,4 +988,13 @@ SRC_URI:append:dh-stm32mp25-dhsom = " \
 	file://0952-fix-mmc-increase-MMC_DEFAULT_MAX_RETRIES.patch \
 	file://0953-fix-stm32mp2-enable-VDDIO3SV-and-VDDIO4SV.patch \
 	file://0954-feat-stm32mp2-add-support-for-STM32MP25xx-DHCOS-SoM-.patch \
+	"
+
+# These convenience patches must not be applied in production builds.
+SRC_URI:append:dh-stm32mp25-dhcos-bb = " \
+	file://9999-feat-stm32mp2-do-not-disable-PM-with-STM32MP_USB_PRO.patch \
+	"
+
+SRC_URI:append:dh-stm32mp25-dhcos-dhsbc = " \
+	file://9999-feat-stm32mp2-do-not-disable-PM-with-STM32MP_USB_PRO.patch \
 	"
