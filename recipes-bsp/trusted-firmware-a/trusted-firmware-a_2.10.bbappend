@@ -25,6 +25,7 @@ EXTRA_OEMAKE:append:dh-stm32mp25-dhsom = " \
 	STM32MP_DDR_FW=drivers/st/ddr/phy/firmware/bin/stm32mp2/lpddr4_pmu_train.bin \
 	STM32MP_LPDDR4_TYPE=1 \
 	STM32MP_EMMC=1 \
+	STM32MP_EMMC_BOOT=1 \
 	STM32MP_SDMMC=1 \
 	STM32MP_SPI_NOR=1 \
 	VERSION=${PV} \
