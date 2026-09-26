@@ -40,8 +40,12 @@ PREFERRED_VERSION_u-boot-mainline-tools ?= "2026.07%"
 PREFERRED_VERSION_u-boot-mainline-tools-native ?= "2026.07%"
 
 # Linux kernel
-KERNEL_IMAGETYPE = "${@'fitImage' if (d.getVar('LAYERSERIES_CORENAMES') in ['scarthgap']) else 'Image'}"
-KERNEL_CLASSES += "${@'kernel-fitimage' if (d.getVar('LAYERSERIES_CORENAMES') in ['scarthgap']) else 'kernel-fit-extra-artifacts'}"
+KERNEL_IMAGETYPE ?= "${@'fitImage' if (d.getVar('LAYERSERIES_CORENAMES') in ['scarthgap']) else 'Image'}"
+DH_KERNEL_FITIMAGE_CLASSES += "${@'kernel-fitimage' if (d.getVar('LAYERSERIES_CORENAMES') in ['scarthgap']) else 'kernel-fit-extra-artifacts'}"
+DH_KERNEL_IMAGE_CLASSES ?= "${@d.getVar('DH_KERNEL_FITIMAGE_CLASSES') if (d.getVar('KERNEL_IMAGETYPE') in ['fitImage']) else ''}"
+KERNEL_CLASSES += "${DH_KERNEL_IMAGE_CLASSES}"
+DH_KERNEL_FITIMAGE_RECIPE ?= "${@'kernel-image-fitimage' if (d.getVar('LAYERSERIES_CORENAMES') in ['scarthgap']) else 'linux-yocto-fitimage'}"
+DH_KERNEL_IMAGE_RECIPE ?= "${@d.getVar('DH_KERNEL_FITIMAGE_RECIPE') if (d.getVar('KERNEL_IMAGETYPE') in ['fitImage']) else ''}"
 
 PREFERRED_PROVIDER_virtual/kernel ?= "linux-stable"
 PREFERRED_VERSION_linux-stable ?= "6.18%"
@@ -78,7 +82,7 @@ EXTRA_IMAGEDEPENDS += "u-boot-mainline"
 WKS_SEARCH_PATH .= "${@':'.join('%s/files/wic' % p for p in '${BBPATH}'.split(':'))}"
 WKS_FILE ?= "emmcimage-stm32mp25.wks"
 IMAGE_BOOT_FILES ?= "${KERNEL_IMAGETYPE}"
-IMAGE_INSTALL:append = " kernel-devicetree u-boot-mainline trusted-firmware-a ${@'kernel-image-fitimage' if (d.getVar('LAYERSERIES_CORENAMES') in ['scarthgap']) else 'linux-yocto-fitimage'} "
+IMAGE_INSTALL:append = " kernel-devicetree u-boot-mainline trusted-firmware-a ${DH_KERNEL_IMAGE_RECIPE} "
 do_image_wic[depends] += "mtools-native:do_populate_sysroot dosfstools-native:do_populate_sysroot u-boot-mainline:do_deploy"
 
 # Add any optional config files that might be present e.g. in other layers
