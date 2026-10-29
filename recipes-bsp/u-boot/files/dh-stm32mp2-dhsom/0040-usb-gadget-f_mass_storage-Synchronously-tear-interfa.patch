@@ -1,0 +1,68 @@
+From 8d71f66406f3af6f2a192c8cba41fb0b711c21ba Mon Sep 17 00:00:00 2001
+From: Marek Vasut <marex@nabladev.com>
+Date: Thu, 3 Sep 2026 04:02:00 +0200
+Subject: [PATCH 40/43] usb: gadget: f_mass_storage: Synchronously tear
+ interface down
+
+After fsg_unbind() is called on UMS teardown, the fsg_main_thread()
+which also invokes handle_exception() is unlikely to run afterward.
+Therefore, any exceptions raised in fsg_unbind(), and also exceptions
+raised in fsg_common_release() which is called from both fsg_unbind()
+and fsg_common_init() fail path, will remain unhandled.
+
+This leads to a problem where FSG_STATE_TERMINATED/EXIT handling is
+not performed on UMS exit and the do_set_interface(..., NULL) which
+shuts down endpoints is also not performed, leaving the endpoints
+enabled.
+
+The CI UDC driver does check for repeated enablement of endpoints and
+returns -EBUSY if an endpoint is enabled repeatedly. That prevents
+UMS from being started after it was exited once already. That is,
+running "ums 0 mmc 0 ; ums 0 mmc 0" on U-Boot command line will lead
+to one successful and one failed UMS session. The later session ends
+up triggering fsg_is_set() assertion in fsg_setup() and triggers a
+panic().
+
+Fix this by synchronously invoking the do_set_interface() from both
+fsg_unbind() and fsg_common_release(). That makes the unbind behave
+as intended, as if the fsg_main_thread() ran after fsg_unbind() and
+handled the outstanding raised exceptions.
+
+Upstream-Status: Backport [b49d784c2346c0cd84330fe11e0a1a5edb674a67]
+Signed-off-by: Marek Vasut <marex@nabladev.com>
+Reviewed-by: Mattijs Korpershoek <mkorpershoek@kernel.org>
+Link: https://lore.kernel.org/r/20260903020231.1278473-1-marex@nabladev.com
+Signed-off-by: Mattijs Korpershoek <mkorpershoek@kernel.org>
+---
+ drivers/usb/gadget/f_mass_storage.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/usb/gadget/f_mass_storage.c b/drivers/usb/gadget/f_mass_storage.c
+index 284ac41fa93..47e5d9f6215 100644
+--- a/drivers/usb/gadget/f_mass_storage.c
++++ b/drivers/usb/gadget/f_mass_storage.c
+@@ -2554,8 +2554,8 @@ static void fsg_common_release(struct fsg_common *common)
+ {
+ 	/* If the thread isn't already dead, tell it to exit now */
+ 	if (common->state != FSG_STATE_TERMINATED) {
+-		raise_exception(common, FSG_STATE_EXIT);
+-		wait_for_completion(&common->thread_notifier);
++		do_set_interface(common, NULL);
++		common->state = FSG_STATE_EXIT;
+ 	}
+ 
+ 	if (likely(common->luns)) {
+@@ -2636,8 +2636,8 @@ static void fsg_unbind(struct usb_configuration *c, struct usb_function *f)
+ 
+ 	DBG(fsg, "unbind\n");
+ 	if (fsg->common->fsg == fsg) {
+-		fsg->common->new_fsg = NULL;
+-		raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
++		do_set_interface(fsg->common, NULL);
++		fsg->common->state = FSG_STATE_CONFIG_CHANGE;
+ 	}
+ 
+ 	fsg_common_release(fsg->common);
+-- 
+2.53.0
+

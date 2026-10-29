@@ -1,0 +1,49 @@
+From 52ffbc0bd706d56ac47e68eac0e369dcc8692056 Mon Sep 17 00:00:00 2001
+From: Jonas Karlman <jonas@kwiboo.se>
+Date: Mon, 28 Sep 2026 06:40:52 +0000
+Subject: [PATCH 42/43] usb: dwc3-generic: Fix ref clock enable error check
+
+The commit 84de44e5e71e ("usb: dwc3-generic: fix ref clock lookup
+indexing wrong clk_bulk array") introduced a clk_enable() call for the
+ref clock.
+
+However, clk_enable() may return -ENOSYS when a clock driver does not
+implement the .enable ops, i.e., for most Rockchip SoCs where most/all
+clocks typically are un-gated out of system reset.
+
+The new clk_enable() call may cause USB to fail on such platforms, e.g.:
+
+  => ums mmc 0
+  UMS: LUN 0, dev mmc 0, hwpart 0, sector 0x0, count 0x3a3e000
+  dwc3-generic-peripheral usb@fcc00000: failed to enable ref clock: -38
+  dwc3-generic-peripheral usb@fcc00000: failed to enable ref clock: -38
+  No USB device found
+  Couldn't init USB controller.
+
+Ignore -ENOSYS errors from clk_enable() to restore DWC3 to a working
+state on affected platforms.
+
+Upstream-Status: Backport [369d71b895bc5ce94556d43f05ef9d20084af0d5]
+Fixes: 84de44e5e71e ("usb: dwc3-generic: fix ref clock lookup indexing wrong clk_bulk array")
+Signed-off-by: Jonas Karlman <jonas@kwiboo.se>
+Reviewed-by: Marek Vasut <marek.vasut+usb@mailbox.org>
+---
+ drivers/usb/dwc3/dwc3-generic.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/usb/dwc3/dwc3-generic.c b/drivers/usb/dwc3/dwc3-generic.c
+index 0f2f8b32f85..a093bef4dfa 100644
+--- a/drivers/usb/dwc3/dwc3-generic.c
++++ b/drivers/usb/dwc3/dwc3-generic.c
+@@ -96,7 +96,7 @@ static int dwc3_generic_probe(struct udevice *dev,
+ 		priv->ref_clk = clk;
+ 
+ 		rc = clk_enable(&priv->ref_clk);
+-		if (rc) {
++		if (rc && rc != -ENOSYS) {
+ 			dev_err(dev, "failed to enable ref clock: %d\n", rc);
+ 			return rc;
+ 		}
+-- 
+2.53.0
+

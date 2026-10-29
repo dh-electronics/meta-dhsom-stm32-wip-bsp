@@ -49,6 +49,10 @@ SRC_URI:append:dh-stm32mp2-dhsom = " \
 	file://0037-i2c-stm32-add-support-for-STM32MP25-soc.patch \
 	file://0038-Revert-i2c-stm32-do-not-set-the-STOP-condition-on-er.patch \
 	file://0039-arm64-dts-st-Add-support-for-STM32MP23xx-STM32MP25xx.patch \
+	file://0040-usb-gadget-f_mass_storage-Synchronously-tear-interfa.patch \
+	file://0041-usb-dwc3-generic-fix-ref-clock-lookup-indexing-wrong.patch \
+	file://0042-usb-dwc3-generic-Fix-ref-clock-enable-error-check.patch \
+	file://0043-usb-dwc3-generic-Always-bind-clock-and-reset-to-pare.patch \
 	"
 
 do_deploy:append:dh-stm32mp13-dhcor-dhsbc() {
@@ -64,4 +68,4 @@ do_deploy:append:dh-stm32mp2-dhsom() {
 # format is -${MACHINE}-date.extraversion. The date is in the
 # format YYYYMMDD, the extraversion is used in case there are
 # multiple releases during a single day, which is unlikely.
-UBOOT_LOCALVERSION:dh-stm32mp-dhsom ?= "-${MACHINE}-20260916.01"
+UBOOT_LOCALVERSION:dh-stm32mp-dhsom ?= "-${MACHINE}-20261029.01"
