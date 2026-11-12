@@ -31,14 +31,14 @@ Upstream-Status: Pending
 Signed-off-by: Marek Vasut <marex@nabladev.com>
 ---
  arch/arm64/boot/dts/st/Makefile               |  10 +
- .../boot/dts/st/stm32mp23xx-dhcos-bb.dts      |  28 ++
+ .../boot/dts/st/stm32mp23xx-dhcos-bb.dts      |  20 +
  .../boot/dts/st/stm32mp23xx-dhcos-som.dtsi    | 105 ++++
  ...mp255c-dhcos-dhsbc-overlay-imx219-x10.dtso | 111 +++++
- .../boot/dts/st/stm32mp255c-dhcos-dhsbc.dts   | 210 ++++++++
- .../boot/dts/st/stm32mp25xx-dhcos-bb.dts      |  27 ++
- .../boot/dts/st/stm32mp25xx-dhcos-som.dtsi    |  98 ++++
- .../boot/dts/st/stm32mp2xxx-dhcos-som.dtsi    | 449 ++++++++++++++++++
- 8 files changed, 1038 insertions(+)
+ .../boot/dts/st/stm32mp255c-dhcos-dhsbc.dts   | 193 ++++++++
+ .../boot/dts/st/stm32mp25xx-dhcos-bb.dts      |  19 +
+ .../boot/dts/st/stm32mp25xx-dhcos-som.dtsi    | 102 ++++
+ .../boot/dts/st/stm32mp2xxx-dhcos-som.dtsi    | 461 ++++++++++++++++++
+ 8 files changed, 1021 insertions(+)
  create mode 100644 arch/arm64/boot/dts/st/stm32mp23xx-dhcos-bb.dts
  create mode 100644 arch/arm64/boot/dts/st/stm32mp23xx-dhcos-som.dtsi
  create mode 100644 arch/arm64/boot/dts/st/stm32mp255c-dhcos-dhsbc-overlay-imx219-x10.dtso
@@ -73,7 +73,7 @@ new file mode 100644
 index 0000000000000..821a2eba4fba2
 --- /dev/null
 +++ b/arch/arm64/boot/dts/st/stm32mp23xx-dhcos-bb.dts
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,20 @@
 +// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
 +/*
 + * Copyright (C) 2026 Marek Vasut <marex@nabladev.com>
@@ -91,16 +91,8 @@ index 0000000000000..821a2eba4fba2
 +	compatible = "dh,stm32mp23xx-dhcos-bb", "dh,stm32mp231a-dhcos-som", "st,stm32mp231";
 +};
 +
-+&usbh {
-+	status = "okay";
-+};
-+
-+&usbh_ehci {
-+	status = "okay";
-+};
-+
-+&usbh_ohci {
-+	status = "okay";
++&usb3dr {
++	dr_mode = "peripheral";
 +};
 diff --git a/arch/arm64/boot/dts/st/stm32mp23xx-dhcos-som.dtsi b/arch/arm64/boot/dts/st/stm32mp23xx-dhcos-som.dtsi
 new file mode 100644
@@ -335,7 +327,7 @@ new file mode 100644
 index 0000000000000..9476c349df100
 --- /dev/null
 +++ b/arch/arm64/boot/dts/st/stm32mp255c-dhcos-dhsbc.dts
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,193 @@
 +// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
 +/*
 + * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
@@ -526,32 +518,15 @@ index 0000000000000..9476c349df100
 +	cs-gpios = <&gpioz 6 0>;
 +};
 +
-+&usbh {
-+	status = "okay";
-+};
-+
-+&usbh_ehci {
-+	status = "okay";
-+};
-+
-+&usbh_ohci {
-+	status = "okay";
-+};
-+
 +&usb3dr {
-+	status = "okay";
-+};
-+
-+&dwc3 {
-+	status = "okay";
-+	maximum-speed = "super-speed";
++	dr_mode = "host";	/* Until UCPD and TCPP02 drivers exist */
 +};
 diff --git a/arch/arm64/boot/dts/st/stm32mp25xx-dhcos-bb.dts b/arch/arm64/boot/dts/st/stm32mp25xx-dhcos-bb.dts
 new file mode 100644
 index 0000000000000..f5ec622cf368b
 --- /dev/null
 +++ b/arch/arm64/boot/dts/st/stm32mp25xx-dhcos-bb.dts
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,19 @@
 +// SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-3-Clause)
 +/*
 + * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
@@ -568,23 +543,15 @@ index 0000000000000..f5ec622cf368b
 +	compatible = "dh,stm32mp25xx-dhcos-bb", "dh,stm32mp251a-dhcos-som", "st,stm32mp251";
 +};
 +
-+&usbh {
-+	status = "okay";
-+};
-+
-+&usbh_ehci {
-+	status = "okay";
-+};
-+
-+&usbh_ohci {
-+	status = "okay";
++&usb3dr {
++	dr_mode = "peripheral";
 +};
 diff --git a/arch/arm64/boot/dts/st/stm32mp25xx-dhcos-som.dtsi b/arch/arm64/boot/dts/st/stm32mp25xx-dhcos-som.dtsi
 new file mode 100644
 index 0000000000000..62e6f0f212105
 --- /dev/null
 +++ b/arch/arm64/boot/dts/st/stm32mp25xx-dhcos-som.dtsi
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,102 @@
 +// SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
 +/*
 + * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
@@ -605,6 +572,10 @@ index 0000000000000..62e6f0f212105
 +		serial1 = &uart8;
 +		serial2 = &uart9;
 +	};
++};
++
++&combophy {
++	status = "okay";
 +};
 +
 +&gpioa {
@@ -688,7 +659,7 @@ new file mode 100644
 index 0000000000000..f1f8b0507197d
 --- /dev/null
 +++ b/arch/arm64/boot/dts/st/stm32mp2xxx-dhcos-som.dtsi
-@@ -0,0 +1,449 @@
+@@ -0,0 +1,461 @@
 +// SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
 +/*
 + * Copyright (C) 2025 Marek Vasut <marex@nabladev.com>
@@ -1136,6 +1107,18 @@ index 0000000000000..f1f8b0507197d
 +
 +&usb2_phy2 {
 +	vdd33-supply = <&scmi_vdd3v3_usb>;
++	status = "okay";
++};
++
++&usb3dr {
++	status = "okay";
++};
++
++&usbh_ehci {
++	status = "okay";
++};
++
++&usbh_ohci {
 +	status = "okay";
 +};
 -- 

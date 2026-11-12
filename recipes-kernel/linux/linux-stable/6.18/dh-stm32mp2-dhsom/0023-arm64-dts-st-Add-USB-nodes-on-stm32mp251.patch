@@ -1,0 +1,105 @@
+From bb505970848ebe57465e19c9a0fef59605707a72 Mon Sep 17 00:00:00 2001
+From: Pankaj Dev <pankaj.dev@st.com>
+Date: Tue, 19 Apr 2022 12:29:50 +0530
+Subject: [PATCH 23/23] arm64: dts: st: Add USB nodes on stm32mp251
+
+Add USB controller and PHY nodes to stm32mp251 DT.
+This includes two USB 2.0 FEMTO PHYs, USB 2.0 host
+controller and DWC3 DRD controller nodes.
+
+Upstream-Status: Submitted [https://lore.kernel.org/all/20260822074816.548662-10-marex@nabladev.com/]
+Signed-off-by: Pankaj Dev <pankaj.dev@st.com>
+Co-developed-by: Marek Vasut <marex@nabladev.com>
+Signed-off-by: Marek Vasut <marex@nabladev.com>
+---
+ arch/arm64/boot/dts/st/stm32mp251.dtsi | 65 +++++++++++++++++++++++++-
+ 1 file changed, 64 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/st/stm32mp251.dtsi b/arch/arm64/boot/dts/st/stm32mp251.dtsi
+index e4e6f9f818d81..fb1e6cd50b969 100644
+--- a/arch/arm64/boot/dts/st/stm32mp251.dtsi
++++ b/arch/arm64/boot/dts/st/stm32mp251.dtsi
+@@ -1682,6 +1682,47 @@ stmmac_axi_config_1: stmmac-axi-config {
+ 				};
+ 			};
+ 
++			usbh_ohci: usb@482e0000 {
++				compatible = "generic-ohci";
++				reg = <0x482e0000 0x1000>;
++				access-controllers = <&rifsc 63>;
++				clocks = <&usb2_phy1 1>, <&rcc CK_BUS_USB2OHCI>;
++				interrupts = <GIC_SPI 140 IRQ_TYPE_LEVEL_HIGH>;
++				phys = <&usb2_phy1>;
++				phy-names = "usb";
++				resets = <&rcc USBH_R>;
++				status = "disabled";
++			};
++
++			usbh_ehci: usb@482f0000 {
++				compatible = "generic-ehci";
++				reg = <0x482f0000 0x1000>;
++				access-controllers = <&rifsc 63>;
++				clocks = <&usb2_phy1 0>, <&rcc CK_BUS_USB2EHCI>;
++				companion = <&usbh_ohci>;
++				interrupts = <GIC_SPI 139 IRQ_TYPE_LEVEL_HIGH>;
++				phys = <&usb2_phy1>;
++				phy-names = "usb";
++				resets = <&rcc USBH_R>;
++				status = "disabled";
++			};
++
++			usb3dr: usb@48300000 {
++				compatible = "st,stm32mp25-dwc3";
++				reg = <0x48300000 0x100000>;
++				access-controllers = <&rifsc 66>;
++				clocks = <&rcc CK_KER_USB2PHY2>,
++					 <&rcc CK_BUS_USB3DR>,
++					 <&rcc CK_KER_USB2PHY2>;
++				clock-names = "ref", "bus_early", "suspend";
++				interrupts = <GIC_SPI 228 IRQ_TYPE_LEVEL_HIGH>;
++				phys = <&usb2_phy2>, <&combophy PHY_TYPE_USB3>;
++				phy-names = "usb2-phy", "usb3-phy";
++				resets = <&rcc USB3DR_R>;
++				st,syscfg = <&syscfg 0x4800>;
++				status = "disabled";
++			};
++
+ 			pcie_ep: pcie-ep@48400000 {
+ 				compatible = "st,stm32mp25-pcie-ep";
+ 				reg = <0x48400000 0x100000>,
+@@ -1938,9 +1979,31 @@ exti1: interrupt-controller@44220000 {
+ 		};
+ 
+ 		syscfg: syscon@44230000 {
+-			compatible = "st,stm32mp25-syscfg", "syscon";
++			compatible = "st,stm32mp25-syscfg", "syscon", "simple-mfd";
+ 			reg = <0x44230000 0x10000>;
+ 			#clock-cells = <0>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			usb2_phy1: phy@2400 {
++				compatible = "st,stm32mp25-usb2phy1";
++				reg = <0x2400 0x24>;
++				#phy-cells = <0>;
++				#clock-cells = <1>;
++				clocks = <&rcc CK_KER_USB2PHY1>;
++				resets = <&rcc USB2PHY1_R>;
++				status = "disabled";
++			};
++
++			usb2_phy2: phy@2800 {
++				compatible = "st,stm32mp25-usb2phy2";
++				reg = <0x2800 0x10>;
++				#phy-cells = <0>;
++				#clock-cells = <1>;
++				clocks = <&rcc CK_KER_USB2PHY2EN>;
++				resets = <&rcc USB2PHY2_R>;
++				status = "disabled";
++			};
+ 		};
+ 
+ 		pinctrl: pinctrl@44240000 {
+-- 
+2.53.0
+
